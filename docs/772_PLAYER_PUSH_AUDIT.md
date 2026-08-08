@@ -1,6 +1,8 @@
 # 772 Player Push (Creature Drag) — Parity Audit + Implementation Plan
 
 **Audited:** 2026-08-08
+**P-A implemented:** 2026-08-08 (commit `876c145`) — Gate A pushability predicate ported; P2/P7/P10
+resolved. See §0, §3.1, §4 P-A for the landed changes. P-B..P-E remain.
 **Re-verified:** 2026-08-08 — all decompile citations and Rust claims re-checked against source;
 three corrections applied (V1: P-D kick loop, V2: `Radius` is per-creature not race, V3: TFS
 `canPushCreatures` conflation). Open questions Q1–Q4 resolved (§6).
@@ -66,15 +68,15 @@ walk-cooldown `ToDoMove` creature-container delay is not ported — already trac
 | # | Finding | Severity | Outcome differs? |
 |---|---------|----------|------------------|
 | P1 | `ToDoMove` creature-container delay (1000 ms + walk cooldown) not ported | **High** | Yes — pushes fire at ~100 ms instead of ~1000 ms |
-| P2 | Pushability uses TFS `is_pushable()` (`pushable && speed != 0`) instead of 772 `!GetRaceUnpushable \|\| (NON_PVP && IsPeaceful)` | **High** | Yes — `speed==0` monsters unpushable in Rust; NON_PvP peaceful-summon exception missing |
+| P2 | Pushability uses TFS `is_pushable()` (`pushable && speed != 0`) instead of 772 `!GetRaceUnpushable \|\| (NON_PVP && IsPeaceful)` | **High** | ~~Yes~~ **Fixed (P-A)** — `race_unpushable()` + NON_PVP peaceful exception; `speed==0` pushable-race now passes Gate A |
 | P3 | No 1-tile destination range cap (`\|Δx\|>1 \|\| \|Δy\|>1 \|\| \|Δz\|>1 → OUTOFRANGE`) | **High** | Yes — can push 2+ tiles away |
 | P4 | No per-creature `MovePossible` on the moving creature (home range, radius, house, PZ-enter, GO_STRENGTH, summon anti-crowd) | **High** | Yes — pushes monsters out of home range / into houses / into PZ |
 | P5 | Height-24 gate is **dead code**: uses `tile_has_height_n` (a hasHeight **count** ≥ 24, never true) instead of 772 `GetHeight` (an **elevation sum** `< 24`); has no `dz` condition so it nominally applies to same-floor pushes too; and `Elevation` is not parsed anywhere in `crates/` | **High** | Yes — **every** floor-change push passes; low-origin creature can be pushed up; low-dest down push passes |
 | P6 | No dest `AVOID` flag → `NOROOM` rule when pushing another creature | Medium | Yes — can push onto a magic-field tile |
-| P7 | NPC pushability hardcoded `false` instead of race-driven | Low | Edge — practically all NPC races are `unpushable`, but the model is wrong |
+| P7 | NPC pushability hardcoded `false` instead of race-driven | Low | ~~Edge~~ **Fixed (P-A)** — NPCs have no 772 `Race` for Gate A → `unpushable=false`; governed by Gate B/C |
 | P8 | `BANK` dest first-object check (`cract.cc:1145`) not explicit (partially covered by `tile_query_add_creature` ground check) | Low | Edge |
 | P9 | `ThrowPossible(..., 1)` not called on the push destination | Medium | Yes — at range 1 it tests `UNTHROW` on the destination tile and runs the floor-descent loop for `dz != 0`; not trivially true (C6) |
-| P10 | `IsPeaceful` (player-summon predicate) not modeled as a shared helper | Low | Refactor — needed by P2 and by monster AI |
+| P10 | `IsPeaceful` (player-summon predicate) not modeled as a shared helper | Low | ~~Refactor~~ **Fixed (P-A)** — reused existing `creature_is_peaceful` (`player/combat/mod.rs:744`); no new file needed |
 | P11 | `CheckTopMoveObject` (`operate.cc:1356`) not implemented — only the first creature in the tile stack is eligible to be pushed; a second creature behind it throws `NOTACCESSIBLE` | Medium | Yes — can push a creature that is not the top move object |
 | P12 | Execute-time `ObjectAccessible(CreatureID, Obj, 1)` re-check (`operate.cc:424` inside `CheckMoveObject`) not ported — Rust only checks actor↔target adjacency at enqueue (`object_in_range` in `enqueue_player_move`). **Gets worse with P-B**: the 1000 ms wait lets the target walk away; 772 rejects at execute, Rust still pushes | Medium | Yes — target can walk out of range during the wait and still be pushed |
 | P13 | `SeparationEvent(Obj, OldCon)` (before `MoveObject`, `operate.cc:1386`) and `MovementEvent`/`CollisionEvent`/`NotifyAllCreatures(OBJECT_MOVED)` (after) not audited for the push path — §1.4 lists them but §3.1 never checks whether `flush_pending_creature_step_events` / `apply_notify_go_after_relocate` cover trap/teleporter/field-on-destination side effects for pushed creatures | Low | Unknown — needs audit |
@@ -287,8 +289,8 @@ gate.
 | 2 | `NotifyTurn` + `AnnounceMovingCreature` (0x6D) + `MoveObject` + `NotifyGo` | ✅ lines 170-183 |
 | 3 | PZ→non-PZ reject (pushing another creature) | ✅ line 158-160 |
 | 4 | Height-24 gate (elevation sum `< 24`; origin for up, dest for down) | ❌ P5 — **dead code**: `tile_has_height_n` is a hasHeight count ≥ 24 (never true), no `dz` condition, and `Elevation` is not parsed (C1) |
-| 5 | Pushability = `!GetRaceUnpushable \|\| (NON_PVP && IsPeaceful)` | ❌ P2 — uses TFS `is_pushable()` = `pushable && speed != 0` |
-| 6 | NPC pushability = race-driven | ❌ P7 — hardcoded `Npc(_) => false` |
+| 5 | Pushability = `!GetRaceUnpushable \|\| (NON_PVP && IsPeaceful)` | ✅ **P-A** — `race_unpushable()` + NON_PVP peaceful via `creature_is_peaceful`; returns `NotMoveable` |
+| 6 | NPC pushability = race-driven | ✅ **P-A** — `Npc(_) => false` (unpushable) removed; NPCs pass Gate A, governed by Gate B/C |
 | 7 | 1-tile destination range (`\|Δ\|>1 → OUTOFRANGE`) | ❌ P3 — not enforced |
 | 8 | Dest `AVOID` → `NOROOM` (pushing another creature, nested after `MovePossible`) | ❌ P6 |
 | 9 | Per-creature `MovePossible` (home range, radius, house, PZ-enter, GO_STRENGTH, summon anti-crowd) | ❌ P4 — `tile_query_add_creature` covers tile occupancy only |
@@ -330,47 +332,46 @@ highest-impact behavior divergences; P3/P4 are the highest-impact correctness ga
 preserve the TFS-shaped domain (`Move`/`MoveObject` entry points, `Creature` trait surface) and
 put era knobs in `MechanicsProfile` / formulas where applicable.
 
-### Phase P-A — Pushability predicate (P2, P7, P10) [High]
+### Phase P-A — Pushability predicate (P2, P7, P10) [High] — ✅ DONE (commit `876c145`)
 
 **Goal:** replace `is_pushable()` with the 772 `CheckMoveObject` race-flag predicate, including
 the NON_PVP peaceful exception.
 
-**Files:**
-- `creature/monster.rs` — add `fn race_unpushable(&self) -> bool` (= `!self.pushable`, the loaded
-  race `Unpushable` flag). Keep `is_pushable()` for TFS-style monster-AI use (kick gate) but do
-  **not** use it for the player-push gate.
-- `game_world.rs` (or a small `creature/peaceful.rs`) — add a shared `is_peaceful(cid)` helper:
-  - Player → `true`
-  - NPC → `true`
-  - Monster → `master.is_some() && master is Player`
-  Cite `crmain.cc:900` (base), `crnonpl.cc:2295` (`TMonster::IsPeaceful`).
-- `game_world_player_throw.rs:129-136` — replace the pushability block:
-  ```rust
-  let unpushable = match target {
-      CreatureKind::Monster(m) => m.race_unpushable(),
-      CreatureKind::Player(_) | CreatureKind::Npc(_) => false, // players/NPCs have no race flag
-  };
-  // 772 `CheckMoveObject` (`operate.cc:439`): unpushable race blocks unless NON_PVP && peaceful.
-  if unpushable && !matches!(self.pvp_config.world_type, WorldType::NoPvp) {
-      return Err(ReturnValue::NotMoveable);
-  }
-  if unpushable && !self.is_peaceful(moving_creature) {
-      return Err(ReturnValue::NotMoveable);
-  }
-  ```
-  **Note:** players/NPCs have no `Race` in the 772 sense for this gate — they're never
-  `GetRaceUnpushable`-blocked. The hardcoded `Npc(_) => false` is removed (P7): NPC pushability
-  is now governed by Gate B/C (`MovePossible`), matching the decompile.
+**Landed files:**
+- `creature/monster.rs` — added `fn race_unpushable(&self) -> bool` (= `!self.pushable`, the loaded
+  race `Unpushable` flag). `is_pushable()` kept for TFS-style monster-AI use (kick gate); not used
+  for the player-push gate.
+- `game_world_player_throw.rs` — replaced the pushability block with the 772 Gate A predicate.
+  **Implementation divergence from plan (idiomatic Rust, same outcome):** the plan sketched two
+  `if unpushable && …` blocks; the landed code folds them into one negated conjunction —
+  `unpushable && !(NoPvp && peaceful)` — the exact boolean equivalent of the decompile
+  `unpushable && (WorldType != NON_PVP || !IsPeaceful())`, clearer and branch-free.
+- **No new `creature/peaceful.rs` file** — reused the existing `pub(crate) fn creature_is_peaceful`
+  (`player/combat/mod.rs:744`, already modeling `crmain.cc:900` + `crnonpl.cc:2295`). Code Hygiene:
+  "Reuse Existing Scoped Helpers."
 
-  **Observable message change (minor nit):** the current Rust code returns `ReturnValue::NotPossible`
-  ("Sorry, not possible.") for the unpushable case. 772 throws `NOTMOVABLE`, which maps to
-  `ReturnValue::NotMoveable` ("You cannot move this object."). P-A changes the client-visible
-  message. This is correct per 772 parity but is an observable behavior change — call it out in the
-  PR and in `tasks/lessons.md`.
+**Landed predicate** (`game_world_player_throw.rs` `player_push_creature`):
+```rust
+let unpushable = match target {
+    CreatureKind::Monster(m) => m.race_unpushable(),
+    CreatureKind::Player(_) | CreatureKind::Npc(_) => false, // no 772 Race for Gate A
+};
+if unpushable
+    && !(matches!(self.pvp_config.world_type, WorldType::NoPvp)
+        && self.creature_is_peaceful(moving_creature))
+{
+    return Err(ReturnValue::NotMoveable);
+}
+```
 
-**Verify:** `cargo test` — add a unit test: NON_PvP world, player-summon of an `unpushable` race
-is pushable; same summon in PVP world is not. A normal (`!unpushable`) monster is pushable in all
-world types.
+**Observable message change (minor nit):** the blocked case now returns `ReturnValue::NotMoveable`
+("You cannot move this object.") instead of `NotPossible` ("Sorry, not possible.") — correct per
+772 `NOTMOVABLE`. Documented in `tasks/lessons.md` #302.
+
+**Verify:** ✅ `cargo check`, `cargo clippy` (0 new warnings), `cargo test` — 6 tests in
+`push_gate_a_tests`: PVP unpushable blocked; `speed==0` pushable-race passes Gate A; NON_PvP
+peaceful summon pushable; NON_PvP unpushable non-peaceful blocked; normal monster pushable; NPC
+passes Gate A. 959 passed, 0 regressions (4 pre-existing failures unrelated to push).
 
 ### Phase P-B — `ToDoMove` creature-container delay (P1) [High]
 
@@ -625,7 +626,7 @@ rejected (C4 anti-crowd, not leash)**.
 
 | Phase | `cargo` | Tests |
 |---|---|---|
-| P-A | `rtk cargo check`, `rtk cargo clippy`, `rtk cargo test` | NON_PvP peaceful-summon pushable; PVP unpushable-race blocked; normal monster pushable; **unpushable message is `NotMoveable` not `NotPossible` (minor nit)** |
+| P-A | ✅ `rtk cargo check`, `rtk cargo clippy`, `rtk cargo test` | ✅ NON_PvP peaceful-summon pushable; PVP unpushable-race blocked; `speed==0` pushable-race passes; normal monster pushable; NPC passes Gate A; **unpushable message is `NotMoveable` not `NotPossible` (minor nit)** — 6 tests, 0 regressions |
 | P-B | same | Push delay ≥ 1000 ms; walk-cooldown remainder added; **target walks out of range during wait → rejected at execute (P12)** |
 | P-C | same | 2-tile push rejected; **up-from-low-elevation-sum origin rejected (23 vs 24)**; **down-to-low-elevation-sum dest rejected**; **same-floor push ignores elevation**; **`UNTHROW` dest tile rejected (P9/C6)**; magic-field dest rejected; PZ boundary regression |
 | P-D | same | Out-of-home-range monster → `NOROOM`; house/PZ monster → `NOROOM`; NPC radius → `NOROOM`; **player into PZ during `EarliestProtectionZoneRound` → `ENTERPROTECTIONZONE` (C2)**; **player into uninvited house → `NOTINVITED` (C2)**; **monster onto player-blocker → `EXHAUSTED` + `Target=0` (C3)**; **summon 2-from-master pushed to master-adjacent → rejected (C4 anti-crowd)**; push onto blocked tile triggers kick (or rejects if kick fails) |
