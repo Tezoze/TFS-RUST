@@ -47,12 +47,11 @@ pub fn lower_npc(
     if let Some(r) = file.radius {
         movement.radius = r;
     }
+    // Legacy `.npc` files used `GoStrength` as the walk-speed field (772: GoStrength
+    // == CreatureBase::speed). XML `speed` (if any) is applied later by `apply_xml_meta`
+    // and overrides this; otherwise GoStrength is the speed source of truth.
     if let Some(g) = file.go_strength {
-        movement.go_strength = g;
-        // 772 GoStrength doubles as walk attempt budget; map into speed when XML absent.
-        if movement.speed == 100 {
-            movement.speed = g.max(1);
-        }
+        movement.speed = g.max(1);
     }
 
     let mut rules = Vec::with_capacity(file.rules.len());

@@ -3,7 +3,7 @@
 
 local npc = NpcType("Elvith")
 npc:appearance({ lookType = 144, lookHead = 76, lookBody = 3, lookLegs = 0, lookFeet = 76 })
-npc:movement({ radius = 1, speed = 10, goStrength = 10 })
+npc:movement({ radius = 1, speed = 10 })
 npc:health(100)
 npc:sex(1)
 npc:race(62)

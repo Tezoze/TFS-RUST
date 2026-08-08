@@ -3,7 +3,7 @@
 
 local npc = NpcType("Pydar")
 npc:appearance({ lookType = 160, lookHead = 95, lookBody = 94, lookLegs = 132, lookFeet = 118 })
-npc:movement({ radius = 2, speed = 3, goStrength = 3 })
+npc:movement({ radius = 2, speed = 3 })
 npc:health(100)
 npc:sex(1)
 npc:race(69)

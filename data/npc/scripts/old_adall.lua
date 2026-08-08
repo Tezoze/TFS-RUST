@@ -3,7 +3,7 @@
 
 local npc = NpcType("Old Adall")
 npc:appearance({ lookType = 130, lookHead = 95, lookBody = 26, lookLegs = 115, lookFeet = 76 })
-npc:movement({ radius = 2, speed = 2, goStrength = 2 })
+npc:movement({ radius = 2, speed = 2 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

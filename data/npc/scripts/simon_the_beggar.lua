@@ -3,7 +3,7 @@
 
 local npc = NpcType("Simon the Beggar")
 npc:appearance({ lookType = 128, lookHead = 116, lookBody = 123, lookLegs = 32, lookFeet = 40 })
-npc:movement({ radius = 4, speed = 10, goStrength = 10 })
+npc:movement({ radius = 4, speed = 10 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

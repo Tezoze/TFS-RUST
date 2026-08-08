@@ -10,6 +10,7 @@ pub struct RawNpcFile {
     pub outfit: Option<RawOutfit>,
     pub home: Option<(i32, i32, i32)>,
     pub radius: Option<u16>,
+    /// Legacy `.npc` `GoStrength` — 772 walk speed; mapped to `NpcMovement::speed`.
     pub go_strength: Option<u16>,
     pub rules: Vec<RawRule>,
     pub source_file: String,

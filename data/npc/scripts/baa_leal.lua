@@ -3,7 +3,7 @@
 
 local npc = NpcType("Baa'leal")
 npc:appearance({ lookType = 51, lookHead = 0, lookBody = 0, lookLegs = 0, lookFeet = 0 })
-npc:movement({ radius = 2, speed = 8, goStrength = 8 })
+npc:movement({ radius = 2, speed = 8 })
 npc:health(100)
 npc:sex(1)
 npc:race(51)

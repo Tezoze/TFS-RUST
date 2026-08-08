@@ -3,7 +3,7 @@
 
 local npc = NpcType("An Old Dragonlord")
 npc:appearance({ lookType = 39, lookHead = 0, lookBody = 0, lookLegs = 0, lookFeet = 0 })
-npc:movement({ radius = 3, speed = 1, goStrength = 1 })
+npc:movement({ radius = 3, speed = 1 })
 npc:health(100)
 npc:sex(1)
 npc:race(39)

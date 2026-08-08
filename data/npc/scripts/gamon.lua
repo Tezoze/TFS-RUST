@@ -3,7 +3,7 @@
 
 local npc = NpcType("Gamon")
 npc:appearance({ lookType = 128, lookHead = 97, lookBody = 58, lookLegs = 105, lookFeet = 120 })
-npc:movement({ radius = 1, speed = 5, goStrength = 5 })
+npc:movement({ radius = 1, speed = 5 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

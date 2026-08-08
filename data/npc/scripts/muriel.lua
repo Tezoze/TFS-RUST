@@ -3,7 +3,7 @@
 
 local npc = NpcType("Muriel")
 npc:appearance({ lookType = 130, lookHead = 115, lookBody = 94, lookLegs = 97, lookFeet = 57 })
-npc:movement({ radius = 2, speed = 10, goStrength = 10 })
+npc:movement({ radius = 2, speed = 10 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

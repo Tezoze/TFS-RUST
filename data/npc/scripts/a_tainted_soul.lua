@@ -3,7 +3,7 @@
 
 local npc = NpcType("A Tainted Soul")
 npc:appearance({ lookType = 48, lookHead = 0, lookBody = 0, lookLegs = 0, lookFeet = 0 })
-npc:movement({ radius = 7, speed = 7, goStrength = 7 })
+npc:movement({ radius = 7, speed = 7 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

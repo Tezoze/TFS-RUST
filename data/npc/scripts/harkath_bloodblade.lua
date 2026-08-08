@@ -3,7 +3,7 @@
 
 local npc = NpcType("Harkath Bloodblade")
 npc:appearance({ lookType = 131, lookHead = 76, lookBody = 38, lookLegs = 38, lookFeet = 76 })
-npc:movement({ radius = 2, speed = 6, goStrength = 6 })
+npc:movement({ radius = 2, speed = 6 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

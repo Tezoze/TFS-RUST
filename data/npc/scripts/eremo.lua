@@ -3,7 +3,7 @@
 
 local npc = NpcType("Eremo")
 npc:appearance({ lookType = 130, lookHead = 0, lookBody = 109, lookLegs = 128, lookFeet = 95 })
-npc:movement({ radius = 3, speed = 8, goStrength = 8 })
+npc:movement({ radius = 3, speed = 8 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

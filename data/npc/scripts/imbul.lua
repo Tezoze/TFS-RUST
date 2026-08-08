@@ -3,7 +3,7 @@
 
 local npc = NpcType("Imbul")
 npc:appearance({ lookType = 128, lookHead = 95, lookBody = 2, lookLegs = 63, lookFeet = 115 })
-npc:movement({ radius = 0, speed = 1, goStrength = 1 })
+npc:movement({ radius = 0, speed = 1 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

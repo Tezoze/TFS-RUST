@@ -3,7 +3,7 @@
 
 local npc = NpcType("Hagor")
 npc:appearance({ lookType = 129, lookHead = 19, lookBody = 58, lookLegs = 105, lookFeet = 94 })
-npc:movement({ radius = 4, speed = 10, goStrength = 10 })
+npc:movement({ radius = 4, speed = 10 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

@@ -3,7 +3,7 @@
 
 local npc = NpcType("Queen Eloise")
 npc:appearance({ lookType = 138, lookHead = 96, lookBody = 94, lookLegs = 79, lookFeet = 115 })
-npc:movement({ radius = 2, speed = 10, goStrength = 10 })
+npc:movement({ radius = 2, speed = 10 })
 npc:health(100)
 npc:sex(0)
 npc:race(1)

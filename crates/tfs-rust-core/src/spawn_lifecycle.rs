@@ -2058,7 +2058,6 @@ mod tests {
             movement: NpcMovement {
                 radius: 4,
                 speed: 10,
-                go_strength: 10,
             },
             speech_bubble: 1,
             sex: 1,
@@ -2335,7 +2334,6 @@ mod tests {
             movement: NpcMovement {
                 radius: 0,
                 speed: 1,
-                go_strength: 0,
             },
             dialogue: Some(DialogueProgram {
                 policy: DialoguePolicy::QueuedSingleFocus,

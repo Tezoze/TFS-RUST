@@ -3,7 +3,7 @@
 
 local npc = NpcType("Captain Bluebear")
 npc:appearance({ lookType = 129, lookHead = 19, lookBody = 69, lookLegs = 107, lookFeet = 50 })
-npc:movement({ radius = 2, speed = 5, goStrength = 5 })
+npc:movement({ radius = 2, speed = 5 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

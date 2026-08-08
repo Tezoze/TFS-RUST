@@ -3,7 +3,7 @@
 
 local npc = NpcType("Chrystal")
 npc:appearance({ lookType = 136, lookHead = 116, lookBody = 79, lookLegs = 117, lookFeet = 76 })
-npc:movement({ radius = 2, speed = 8, goStrength = 8 })
+npc:movement({ radius = 2, speed = 8 })
 npc:health(100)
 npc:sex(0)
 npc:race(1)

@@ -3,7 +3,7 @@
 
 local npc = NpcType("Bunny Bonecrusher")
 npc:appearance({ lookType = 139, lookHead = 96, lookBody = 3, lookLegs = 79, lookFeet = 115 })
-npc:movement({ radius = 2, speed = 6, goStrength = 6 })
+npc:movement({ radius = 2, speed = 6 })
 npc:health(100)
 npc:sex(0)
 npc:race(1)

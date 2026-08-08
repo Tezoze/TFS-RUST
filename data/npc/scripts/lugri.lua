@@ -3,7 +3,7 @@
 
 local npc = NpcType("Lugri")
 npc:appearance({ lookType = 9, lookHead = 0, lookBody = 0, lookLegs = 0, lookFeet = 0 })
-npc:movement({ radius = 4, speed = 7, goStrength = 7 })
+npc:movement({ radius = 4, speed = 7 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

@@ -3,7 +3,7 @@
 
 local npc = NpcType("Tandros")
 npc:appearance({ lookType = 132, lookHead = 78, lookBody = 79, lookLegs = 113, lookFeet = 95 })
-npc:movement({ radius = 0, speed = 2, goStrength = 2 })
+npc:movement({ radius = 0, speed = 2 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

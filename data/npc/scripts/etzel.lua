@@ -3,7 +3,7 @@
 
 local npc = NpcType("Etzel")
 npc:appearance({ lookType = 66, lookHead = 0, lookBody = 0, lookLegs = 0, lookFeet = 0 })
-npc:movement({ radius = 3, speed = 2, goStrength = 2 })
+npc:movement({ radius = 3, speed = 2 })
 npc:health(100)
 npc:sex(1)
 npc:race(69)

@@ -3,7 +3,7 @@
 
 local npc = NpcType("Mirabell")
 npc:appearance({ lookType = 136, lookHead = 96, lookBody = 12, lookLegs = 87, lookFeet = 77 })
-npc:movement({ radius = 1, speed = 8, goStrength = 8 })
+npc:movement({ radius = 1, speed = 8 })
 npc:health(100)
 npc:sex(0)
 npc:race(1)

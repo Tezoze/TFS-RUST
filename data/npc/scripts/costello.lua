@@ -3,7 +3,7 @@
 
 local npc = NpcType("Costello")
 npc:appearance({ lookType = 57, lookHead = 0, lookBody = 0, lookLegs = 0, lookFeet = 0 })
-npc:movement({ radius = 3, speed = 4, goStrength = 4 })
+npc:movement({ radius = 3, speed = 4 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

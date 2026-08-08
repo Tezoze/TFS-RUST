@@ -3,7 +3,7 @@
 
 local npc = NpcType("Ishina")
 npc:appearance({ lookType = 138, lookHead = 95, lookBody = 9, lookLegs = 87, lookFeet = 95 })
-npc:movement({ radius = 0, speed = 10, goStrength = 10 })
+npc:movement({ radius = 0, speed = 10 })
 npc:health(100)
 npc:sex(0)
 npc:race(1)

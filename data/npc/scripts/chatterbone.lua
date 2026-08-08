@@ -3,7 +3,7 @@
 
 local npc = NpcType("Chatterbone")
 npc:appearance({ lookType = 18, lookHead = 0, lookBody = 0, lookLegs = 0, lookFeet = 0 })
-npc:movement({ radius = 2, speed = 10, goStrength = 10 })
+npc:movement({ radius = 2, speed = 10 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

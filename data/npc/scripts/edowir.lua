@@ -3,7 +3,7 @@
 
 local npc = NpcType("Edowir")
 npc:appearance({ lookType = 130, lookHead = 0, lookBody = 58, lookLegs = 96, lookFeet = 95 })
-npc:movement({ radius = 5, speed = 3, goStrength = 3 })
+npc:movement({ radius = 5, speed = 3 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

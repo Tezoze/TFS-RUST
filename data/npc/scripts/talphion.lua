@@ -3,7 +3,7 @@
 
 local npc = NpcType("Talphion")
 npc:appearance({ lookType = 160, lookHead = 11, lookBody = 86, lookLegs = 87, lookFeet = 106 })
-npc:movement({ radius = 2, speed = 3, goStrength = 3 })
+npc:movement({ radius = 2, speed = 3 })
 npc:health(100)
 npc:sex(1)
 npc:race(69)

@@ -3,7 +3,7 @@
 
 local npc = NpcType("Grof, the guard")
 npc:appearance({ lookType = 131, lookHead = 19, lookBody = 19, lookLegs = 19, lookFeet = 19 })
-npc:movement({ radius = 3, speed = 6, goStrength = 6 })
+npc:movement({ radius = 3, speed = 6 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

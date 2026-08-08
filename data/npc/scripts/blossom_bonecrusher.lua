@@ -3,7 +3,7 @@
 
 local npc = NpcType("Blossom Bonecrusher")
 npc:appearance({ lookType = 139, lookHead = 96, lookBody = 19, lookLegs = 63, lookFeet = 95 })
-npc:movement({ radius = 3, speed = 6, goStrength = 6 })
+npc:movement({ radius = 3, speed = 6 })
 npc:health(100)
 npc:sex(0)
 npc:race(1)

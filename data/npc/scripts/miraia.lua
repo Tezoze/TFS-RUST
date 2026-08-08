@@ -3,7 +3,7 @@
 
 local npc = NpcType("Miraia")
 npc:appearance({ lookType = 136, lookHead = 95, lookBody = 0, lookLegs = 7, lookFeet = 115 })
-npc:movement({ radius = 1, speed = 4, goStrength = 4 })
+npc:movement({ radius = 1, speed = 4 })
 npc:health(100)
 npc:sex(0)
 npc:race(1)

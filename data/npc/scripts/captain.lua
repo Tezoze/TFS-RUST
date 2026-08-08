@@ -3,7 +3,7 @@
 
 local npc = NpcType("Captain")
 npc:appearance({ lookType = 151, lookHead = 78, lookBody = 115, lookLegs = 85, lookFeet = 114 })
-npc:movement({ radius = 0, speed = 100, goStrength = 0 })
+npc:movement({ radius = 0, speed = 100 })
 npc:health(100)
 npc:parameter("message_greet", "Welcome on board, |PLAYERNAME|.")
 

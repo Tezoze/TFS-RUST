@@ -60,22 +60,17 @@ impl Default for NpcAppearance {
     }
 }
 
-/// Idle movement / home radius (772 Radius / GoStrength; TFS walk radius).
+/// Idle movement / home radius (772 Radius; `speed` is the 772 GoStrength —
+/// the single source of truth for NPC walk speed, fed into `CreatureBase::speed`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NpcMovement {
     pub radius: u16,
     pub speed: u16,
-    /// 772 `GoStrength` — walk attempt budget / strength.
-    pub go_strength: u16,
 }
 
 impl Default for NpcMovement {
     fn default() -> Self {
-        Self {
-            radius: 0,
-            speed: 100,
-            go_strength: 0,
-        }
+        Self { radius: 0, speed: 100 }
     }
 }
 

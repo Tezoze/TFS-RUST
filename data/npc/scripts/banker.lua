@@ -3,7 +3,7 @@
 
 local npc = NpcType("Banker")
 npc:appearance({ lookType = 472, lookHead = 40, lookBody = 95, lookLegs = 114, lookFeet = 27 })
-npc:movement({ radius = 0, speed = 100, goStrength = 0 })
+npc:movement({ radius = 0, speed = 100 })
 npc:health(100)
 
 npc:onCustomAction("say_balance", function(npcRef, player)

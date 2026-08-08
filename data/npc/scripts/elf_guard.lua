@@ -3,7 +3,7 @@
 
 local npc = NpcType("Elf Guard")
 npc:appearance({ lookType = 63, lookHead = 0, lookBody = 0, lookLegs = 0, lookFeet = 0 })
-npc:movement({ radius = 3, speed = 6, goStrength = 6 })
+npc:movement({ radius = 3, speed = 6 })
 npc:health(100)
 npc:sex(1)
 npc:race(62)

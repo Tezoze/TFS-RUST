@@ -3,7 +3,7 @@
 
 local npc = NpcType("Captain Seahorse")
 npc:appearance({ lookType = 129, lookHead = 19, lookBody = 113, lookLegs = 95, lookFeet = 115 })
-npc:movement({ radius = 2, speed = 5, goStrength = 5 })
+npc:movement({ radius = 2, speed = 5 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

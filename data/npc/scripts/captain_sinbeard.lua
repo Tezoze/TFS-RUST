@@ -3,7 +3,7 @@
 
 local npc = NpcType("Captain Sinbeard")
 npc:appearance({ lookType = 134, lookHead = 95, lookBody = 10, lookLegs = 56, lookFeet = 77 })
-npc:movement({ radius = 2, speed = 5, goStrength = 5 })
+npc:movement({ radius = 2, speed = 5 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

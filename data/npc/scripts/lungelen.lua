@@ -3,7 +3,7 @@
 
 local npc = NpcType("Lungelen")
 npc:appearance({ lookType = 138, lookHead = 77, lookBody = 19, lookLegs = 95, lookFeet = 115 })
-npc:movement({ radius = 2, speed = 13, goStrength = 13 })
+npc:movement({ radius = 2, speed = 13 })
 npc:health(100)
 npc:sex(0)
 npc:race(1)

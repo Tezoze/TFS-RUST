@@ -3,7 +3,7 @@
 
 local npc = NpcType("Wally")
 npc:appearance({ lookType = 129, lookHead = 96, lookBody = 113, lookLegs = 95, lookFeet = 115 })
-npc:movement({ radius = 2, speed = 4, goStrength = 4 })
+npc:movement({ radius = 2, speed = 4 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

@@ -3,7 +3,7 @@
 
 local npc = NpcType("King Tibianus")
 npc:appearance({ lookType = 130, lookHead = 21, lookBody = 87, lookLegs = 107, lookFeet = 95 })
-npc:movement({ radius = 1, speed = 10, goStrength = 10 })
+npc:movement({ radius = 1, speed = 10 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

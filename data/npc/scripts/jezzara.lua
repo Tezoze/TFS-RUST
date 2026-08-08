@@ -3,7 +3,7 @@
 
 local npc = NpcType("Jezzara")
 npc:appearance({ lookType = 138, lookHead = 3, lookBody = 43, lookLegs = 91, lookFeet = 97 })
-npc:movement({ radius = 2, speed = 2, goStrength = 2 })
+npc:movement({ radius = 2, speed = 2 })
 npc:health(100)
 npc:sex(0)
 npc:race(1)

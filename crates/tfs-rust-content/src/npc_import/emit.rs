@@ -28,8 +28,8 @@ pub fn emit_npc_lua(pending: &PendingNpcDefinition) -> String {
     ));
     let m = &pending.movement;
     out.push_str(&format!(
-        "npc:movement({{ radius = {}, speed = {}, goStrength = {} }})\n",
-        m.radius, m.speed, m.go_strength
+        "npc:movement({{ radius = {}, speed = {} }})\n",
+        m.radius, m.speed
     ));
     out.push_str(&format!("npc:health({})\n", pending.health_max));
     out.push_str(&format!("npc:sex({})\n", pending.sex));

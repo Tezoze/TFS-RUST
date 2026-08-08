@@ -3,7 +3,7 @@
 
 local npc = NpcType("Demonguard")
 npc:appearance({ lookType = 131, lookHead = 113, lookBody = 113, lookLegs = 94, lookFeet = 113 })
-npc:movement({ radius = 0, speed = 1, goStrength = 0 })
+npc:movement({ radius = 0, speed = 1 })
 npc:health(100)
 npc:sex(1)
 npc:race(1)

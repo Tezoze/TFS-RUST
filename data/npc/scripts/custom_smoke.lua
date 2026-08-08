@@ -4,7 +4,7 @@ local marked = false
 
 local npc = NpcType("CustomSmoke")
 npc:appearance({ lookType = 136 })
-npc:movement({ radius = 0, speed = 100, goStrength = 0 })
+npc:movement({ radius = 0, speed = 100 })
 npc:health(100)
 
 npc:onCustomPredicate("storage_ready", function(npcRef, player)

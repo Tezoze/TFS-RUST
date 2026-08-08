@@ -3,7 +3,7 @@
 
 local npc = NpcType("A Wrinkled Beholder")
 npc:appearance({ lookType = 17, lookHead = 0, lookBody = 0, lookLegs = 0, lookFeet = 0 })
-npc:movement({ radius = 10, speed = 3, goStrength = 3 })
+npc:movement({ radius = 10, speed = 3 })
 npc:health(100)
 npc:sex(1)
 npc:race(17)

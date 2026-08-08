@@ -3,7 +3,7 @@
 
 local npc = NpcType("The Crone")
 npc:appearance({ lookType = 78, lookHead = 0, lookBody = 0, lookLegs = 0, lookFeet = 0 })
-npc:movement({ radius = 3, speed = 5, goStrength = 5 })
+npc:movement({ radius = 3, speed = 5 })
 npc:health(100)
 npc:sex(0)
 npc:race(1)

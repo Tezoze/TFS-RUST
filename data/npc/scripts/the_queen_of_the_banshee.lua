@@ -3,7 +3,7 @@
 
 local npc = NpcType("The Queen of the Banshee")
 npc:appearance({ lookType = 78, lookHead = 0, lookBody = 0, lookLegs = 0, lookFeet = 0 })
-npc:movement({ radius = 6, speed = 25, goStrength = 25 })
+npc:movement({ radius = 6, speed = 25 })
 npc:health(100)
 npc:sex(0)
 npc:race(1)

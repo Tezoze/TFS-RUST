@@ -125,9 +125,6 @@ impl UserData for NpcTypeBuilder {
             if let Ok(v) = table.get::<u16>("speed") {
                 m.speed = v;
             }
-            if let Ok(v) = table.get::<u16>("goStrength") {
-                m.go_strength = v;
-            }
             Ok(true)
         });
 
