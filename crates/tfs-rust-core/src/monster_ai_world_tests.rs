@@ -545,11 +545,12 @@ fn active_monster_random_roams_after_one_second() {
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
         m.is_idle = false;
     }
-    // A distant floor spectator prevents sleep so the monster falls through to roam.
+    // A same-floor spectator within the 12-tile idle search radius (but outside the
+    // 10-tile targeting box) prevents sleep so the monster falls through to roam.
     let _spectator = insert_spectator_player(
         &mut world,
         ConnId(3),
-        test_player("Spectator", Position::new(115, 100, 7)),
+        test_player("Spectator", Position::new(111, 100, 7)),
     );
 
     // 772: roaming is handled by the idle drain, not `monster_next_walk_step`.

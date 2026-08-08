@@ -1161,6 +1161,7 @@ impl GameWorld {
 #[cfg(test)]
 mod tests {
     use crate::container::Container;
+    use crate::cylinder::Cylinder;
     use crate::item::Item;
     use crate::sim_harness::{insert_player, minimal_world, test_player};
     use crate::tile::{Tile, TileBody};
@@ -1178,6 +1179,8 @@ mod tests {
 
         // Place a walkable tile with a ground container.
         let container_item_id = world.items.insert(Item::new(1987, 1));
+        world.items.get_mut(container_item_id).unwrap().parent =
+            Some(Cylinder::Tile { pos: container_pos });
         world
             .container_registry
             .register(Container::new(container_item_id, 20));
@@ -1228,6 +1231,8 @@ mod tests {
         let adjacent_pos = Position::new(101, 100, 7);
 
         let container_item_id = world.items.insert(Item::new(1987, 1));
+        world.items.get_mut(container_item_id).unwrap().parent =
+            Some(Cylinder::Tile { pos: container_pos });
         world
             .container_registry
             .register(Container::new(container_item_id, 20));

@@ -1197,6 +1197,7 @@ mod tests {
         ensure_walkable_tile(&mut world.map, target_pos, TEST_SYNTHETIC_GROUND_WP);
         let mut player = sim_hero_player("Hero", pos);
         player.mana = 100;
+        player.level = 13; // meet wand level gate (WandDef.level = 13)
         let conn = ConnId(1);
         let cid = insert_spectator_player(&mut world, conn, player);
         let target = insert_monster_with_config(

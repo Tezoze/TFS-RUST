@@ -408,6 +408,12 @@ impl GameWorld {
                     w.fist = false;
                 }
                 Some(HandWeapon::Wand) => {
+                    // 772 `GetWeapon` skips a wand whose Lua `WandDef` level/vocation
+                    // gates fail (`crcombat.cc:36-102` continue). The gate lives on
+                    // `WandDef` / `player_meets_wand_requirements` — not item XML.
+                    if !self.player_meets_wand_requirements(cid, item.item_type) {
+                        continue;
+                    }
                     w.wand = Some(iid);
                     w.fist = false;
                 }
