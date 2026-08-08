@@ -298,6 +298,10 @@ impl Tile {
         is_priority_bottom: impl Fn(ItemId) -> bool,
     ) -> Option<u8> {
         let body = self.body();
+        // Ground item occupies stackpos 0 — TFS `Tile::getItemStackPos` (`tile.cpp`).
+        if body.ground_item == Some(item_id) {
+            return Some(0);
+        }
         let mut n: u8 = if body.ground.is_some() { 1 } else { 0 };
         if cip_order {
             // Oldest down first (rev of newest-first storage) — matches Cip PlaceObject append.
