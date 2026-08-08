@@ -1,7 +1,7 @@
 [package]
 name = "packet-proxy"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "TCP proxy between OTClient and TFS Rust — log raw and XTEA-decrypted game packets"
 
 [[bin]]

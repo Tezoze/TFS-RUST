@@ -941,7 +941,7 @@ mod spectator_fanout_grid_tests {
         world
             .conn_to_creature
             .iter()
-            .filter(|(_, &vid)| world.can_see_position(vid, pos))
+            .filter(|&(_, &vid)| world.can_see_position(vid, pos))
             .map(|(&c, _)| c)
             .collect()
     }

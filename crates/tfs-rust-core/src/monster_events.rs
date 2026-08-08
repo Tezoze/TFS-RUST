@@ -70,7 +70,7 @@ impl GameWorld {
         multifloor: bool,
         reuse_gen: Option<u32>,
     ) {
-        let gen = reuse_gen.unwrap_or_else(|| {
+        let spectator_gen = reuse_gen.unwrap_or_else(|| {
             self.scratch_spectators.clear();
             self.bump_spectator_gen()
         });
@@ -87,7 +87,7 @@ impl GameWorld {
                 &mut sector_buf,
             );
             for id in sector_buf.drain(..) {
-                if self.spectator_mark_new(id, gen) {
+                if self.spectator_mark_new(id, spectator_gen) {
                     self.scratch_spectators.push(id);
                 }
             }
@@ -127,9 +127,9 @@ impl GameWorld {
         // Order: all old_pos sectors, then new_pos sectors not already seen — matches
         // iterating both `TFindCreatures` searches with first-seen wins.
         self.scratch_spectators.clear();
-        let gen = self.bump_spectator_gen();
-        self.fill_spatial_spectators(old_pos, true, Some(gen));
-        self.fill_spatial_spectators(new_pos, true, Some(gen));
+        let spectator_gen = self.bump_spectator_gen();
+        self.fill_spatial_spectators(old_pos, true, Some(spectator_gen));
+        self.fill_spatial_spectators(new_pos, true, Some(spectator_gen));
         self.scratch_spectators.retain(|&id| {
             self.creatures
                 .get(id)

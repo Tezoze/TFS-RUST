@@ -430,13 +430,13 @@ impl GameWorld {
         self.scratch_spectator_gen
     }
 
-    /// IDLE-3: mark `id` seen for `gen`; returns `true` on first sight this generation.
-    pub(crate) fn spectator_mark_new(&mut self, id: CreatureId, gen: u32) -> bool {
+    /// IDLE-3: mark `id` seen for `spectator_gen`; returns `true` on first sight this generation.
+    pub(crate) fn spectator_mark_new(&mut self, id: CreatureId, spectator_gen: u32) -> bool {
         let entry = self.scratch_spectator_seen.entry(id).or_insert(0);
-        if *entry == gen {
+        if *entry == spectator_gen {
             false
         } else {
-            *entry = gen;
+            *entry = spectator_gen;
             true
         }
     }

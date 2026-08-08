@@ -561,13 +561,13 @@ impl<'a> TShortwaySearch<'a> {
     }
 
     fn touch_path_cell(&mut self, idx: u16) -> &mut TShortwayCell {
-        let gen = self.search_gen;
+        let cur_gen = self.search_gen;
         let cell = self.cell_mut(idx);
         // New search generation: reset path fields. Leaving stale `expand_next` /
         // `parent` from a prior search corrupts the linked-list open set — common
         // after floor-change wake storms where many monsters repath on one scratch.
-        if cell.path_gen != gen {
-            cell.path_gen = gen;
+        if cell.path_gen != cur_gen {
+            cell.path_gen = cur_gen;
             cell.waylength = TSHORTWAY_UNVISITED_WL;
             cell.heuristic = TSHORTWAY_UNVISITED_H;
             cell.parent = None;

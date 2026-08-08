@@ -1315,7 +1315,7 @@ impl GameWorld {
         // chain membership spans floors, so scan the CanSeeFloor-relevant Z set.
         // IDLE-3: 16×16 sector order + generation-marked dedup (no SlotMap-key sort).
         self.scratch_spectators.clear();
-        let gen = self.bump_spectator_gen();
+        let spectator_gen = self.bump_spectator_gen();
         let mut sector_buf = std::mem::take(&mut self.scratch_sector_buf);
         sector_buf.clear();
         for z in Self::idle_acquire_search_z_range(pos.z) {
@@ -1328,7 +1328,7 @@ impl GameWorld {
                 &mut sector_buf,
             );
             for target_id in sector_buf.drain(..) {
-                if self.spectator_mark_new(target_id, gen) {
+                if self.spectator_mark_new(target_id, spectator_gen) {
                     self.scratch_spectators.push(target_id);
                 }
             }
