@@ -869,8 +869,8 @@ mod push_phase_b_tests {
     use tfs_rust_common::Position;
 
     /// Default outfit `look_type` for `insert_monster_with_config` (`Outfit::default`).
-    /// `internal_get_thing_move` resolves a creature via `find_tile_creature_by_client_sprite`
-    /// when this matches the wire `sprite_id` and no item on the tile matches first.
+    /// `internal_get_thing_move` resolves a creature via `find_tile_bottom_visible_creature`
+    /// (no sprite matching — matches TVP 772 `internalGetThing` STACKPOS_MOVE).
     const MONSTER_SPRITE: u16 = 136;
 
     /// Set up a push arena: actor adjacent to `from`, monster at `from`, dest at `to`.

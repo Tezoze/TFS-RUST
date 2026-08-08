@@ -5,6 +5,7 @@
 
 use tfs_rust_common::Position;
 
+use crate::creature::CreatureKind;
 use crate::cylinder::{Cylinder, CylinderFlags};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
@@ -114,9 +115,14 @@ impl GameWorld {
             if let Some(item_id) = self.find_tile_item_by_client_sprite(pos, sprite_id) {
                 return Some(Thing::Item(item_id));
             }
-            // 772 `GetObject` with client `TypeID` can still match a creature by
-            // `getDisguise()` / outfit `lookType` when no item matches the sprite.
-            return self.find_tile_creature_by_client_sprite(pos, sprite_id);
+            // TVP 772 `internalGetThing` STACKPOS_MOVE (`game.cpp:233-240`): when no
+            // moveable item matches, returns `getBottomVisibleCreature(player)` — the
+            // first visible creature on the tile, **without sprite matching**. The
+            // `spriteId` parameter is unused for the creature path. The client sends
+            // a sprite id that may differ from the stored outfit `lookType` (e.g. NPC
+            // Sam: stored lookType=131, client sends 99), so matching by sprite would
+            // wrongly reject valid pushes.
+            return self.find_tile_bottom_visible_creature(pos, cid);
         }
         // Container slot — `internalGetThing` container UI position.
         if pos.y & 0x40 != 0 {
@@ -137,8 +143,34 @@ impl GameWorld {
         None
     }
 
-    /// 772 `GetObject` `getDisguise()` match for `CMoveObject` / `CUseObject`.
-    /// Returns the first visible creature on `pos` whose outfit `lookType` equals `sprite_id`.
+    /// 772 `Tile::getBottomVisibleCreature` (`tile.cpp:295-314`) — first visible creature
+    /// on `pos`, iterating top-first (reverse), skipping invisible + ghost-mode players.
+    /// No sprite matching — matches TVP 772 `internalGetThing` STACKPOS_MOVE behavior.
+    pub(crate) fn find_tile_bottom_visible_creature(
+        &self,
+        pos: Position,
+        _viewer: CreatureId,
+    ) -> Option<Thing> {
+        let tile = self.map.get_tile(pos)?;
+        let body = tile.body();
+        for &creature_id in body.creatures.iter().rev() {
+            let Some(c) = self.creatures.get(creature_id) else {
+                continue;
+            };
+            // Skip invisible creatures and ghost-mode players (772 `tile.cpp:306-311`).
+            if let CreatureKind::Player(p) = c {
+                if p.ghost_mode {
+                    continue;
+                }
+            }
+            return Some(Thing::Creature(creature_id));
+        }
+        None
+    }
+
+    /// 772 `GetObject` `getDisguise()` match for `CUseObject` (use path still uses sprite
+    /// matching). Not used by the move/throw path — see `find_tile_bottom_visible_creature`.
+    #[allow(dead_code)]
     pub(crate) fn find_tile_creature_by_client_sprite(
         &self,
         pos: Position,
@@ -147,8 +179,10 @@ impl GameWorld {
         let tile = self.map.get_tile(pos)?;
         let body = tile.body();
         for &creature_id in body.creatures.iter().rev() {
-            let look_type = self.creatures.get(creature_id)?.base().outfit.look_type as u16;
-            if look_type == sprite_id {
+            let Some(c) = self.creatures.get(creature_id) else {
+                continue;
+            };
+            if c.base().outfit.look_type as u16 == sprite_id {
                 return Some(Thing::Creature(creature_id));
             }
         }
