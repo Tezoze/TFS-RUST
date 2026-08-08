@@ -501,6 +501,7 @@ pub fn melee_poison_on_hit(
         ctype: ConditionType::Poison,
         data: ConditionData::Damage {
             total_rank: poison_dmg,
+            factor_percent: 50,
         },
         timer_rounds_left: None,
     skill_count: 0,

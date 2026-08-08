@@ -21,14 +21,14 @@
 use tfs_rust_common::enums::CombatType;
 use tfs_rust_common::Position;
 
-use crate::combat::math::{armor_reduction, probe_hit, weapon_damage};
+use crate::combat::math::{probe_hit, weapon_damage};
 use crate::combat::{CombatDamage, CombatParams};
 use crate::cylinder::CylinderFlags;
 use crate::config::ConfigManager;
 use crate::creature::{roll_target_defense, CreatureKind};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
-use crate::inventory::{InventorySlot, WEAPON_DISTANCE};
+use crate::inventory::InventorySlot;
 use crate::lua_scope::fire_on_use_weapon;
 use crate::monster_ai::chebyshev;
 use crate::player_combat::CombatResult;
@@ -241,10 +241,18 @@ impl GameWorld {
         // `NOTENOUGHMANA` → `throw OUTOFAMMO` (`:725`) → `sending.cc` sends "Not enough mana."
         // PC-3: drain mana if sufficient, else re-arm + send the OUTOFAMMO message.
         let mana_cost = wand_def.mana_cost as i32;
-        let has_mana = self
-            .creatures
-            .get(cid)
-            .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.mana >= mana_cost));
+        // M5 — 772 `CheckMana` (`magic.cc:753-768`) skips both the sufficiency check and the
+        // deduction under `UNLIMITED_MANA` (`CheckRight(UNLIMITED_MANA)`), but still grants
+        // magic tries. TFS equivalent: `PlayerFlag_HasInfiniteMana`.
+        let infinite_mana = crate::player_flags::has_player_flag(
+            self.player_group_flags(cid),
+            crate::player::flags::PLAYER_FLAG_HAS_INFINITE_MANA,
+        );
+        let has_mana = infinite_mana
+            || self
+                .creatures
+                .get(cid)
+                .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.mana >= mana_cost));
         if !has_mana {
             if let Some(conn) = self.conn_for_creature(cid) {
                 self.send_combat_result(conn, CombatResult::OutOfAmmo);
@@ -264,7 +272,9 @@ impl GameWorld {
         {
             let hooks = &self.mechanics.hooks;
             if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-                p.mana -= mana_cost;
+                if !infinite_mana {
+                    p.mana -= mana_cost;
+                }
                 levels_gained = p.magic_increase(magic_tries, &profile, hooks);
                 new_maglevel = p.skills.maglevel;
             }
@@ -301,7 +311,7 @@ impl GameWorld {
             .get(target_id)
             .map(|k| k.base().health)
             .unwrap_or(0);
-        let _ = self.combat_execute_with_stimulus(
+        let damage_scalar = self.combat_execute_with_stimulus(
             Some(cid),
             target_id,
             &CombatDamage {
@@ -310,8 +320,10 @@ impl GameWorld {
             },
             &CombatParams::default(),
         );
+        // M2 — Use the real `Damage` scalar (includes mana-shield absorb).
+        let damage_done = damage_scalar;
         let target_alive = self.creatures.contains_key(target_id);
-        let hp_after = if target_alive {
+        let _hp_after = if target_alive {
             self.creatures
                 .get(target_id)
                 .map(|k| k.base().health)
@@ -319,7 +331,6 @@ impl GameWorld {
         } else {
             0
         };
-        let damage_done = (hp_before - hp_after).max(0);
         if let Some(snap) = notify_snap {
             // Typed color from wand element — `crmain.cc:746-755` (Fire→ORANGE, Energy→LIGHTBLUE).
             // Must not hardcode Physical (blood-family color); that made fire/energy wands look red.
@@ -338,10 +349,17 @@ impl GameWorld {
             }
         }
 
-        // `DelayAttack(2000)` — `crcombat.cc:641`. Wands use the fixed 2s cadence (no
-        // vocation `attackspeed` for wands in 772).
+        // `DelayAttack(attackspeed)` — `crcombat.cc:641`. M3 — Use
+        // `combat::math::attack_speed_ms` so `MechanicsProfile` / Tier-2 hook is respected.
+        // Wands default to the fixed 2s cadence (no vocation `attackspeed` for wands in 772),
+        // but a registered hook / profile override now takes effect.
+        let wand_speed = crate::combat::math::attack_speed_ms(
+            &self.mechanics.profile,
+            &self.mechanics.hooks,
+            2000,
+        ) as u64;
         if let Some(k) = self.creatures.get_mut(cid) {
-            k.base_mut().delay_attack_ms(server_ms, 2000);
+            k.base_mut().delay_attack_ms(server_ms, wand_speed);
         }
 
         // `if target dead: StopAttack` (`crcombat.cc:643-645`).
@@ -373,11 +391,33 @@ impl GameWorld {
         let server_ms = self.server_ms;
         let profile = self.mechanics.profile;
 
-        // Resolve the weapon (bow vs throw) and ammo (for bows). `player_get_weapon(cid, false)`
-        // returns the ammo item for bows, the weapon itself for throwing weapons. `active_slot`
-        // is the inventory slot the consumed item lives in (Ammo for bows, hand for throwing) —
-        // needed to push the slot update to the client after consumption.
-        let (weapon_iid, ammo_iid, is_bow, active_slot) = self.resolve_distance_weapon(cid);
+        // H5 — Drive the distance strike off `player_resolve_combat_weapons` (C++ `GetWeapon`
+        // + `GetAmmo`), which fills `missile` (bow) and `throw_` independently and respects
+        // restrict gates. `DistanceAttack` checks `Missile != NONE` first — bow wins over
+        // throw (`crcombat.cc:754`). The old `resolve_distance_weapon` scanned `[Left, Right]`
+        // and returned the first `WEAPON_DISTANCE`, so a spear in Left + bow in Right fired
+        // the spear; it also bypassed `RESTRICTLEVEL` / `RESTRICTPROFESSION` gates.
+        let weapons = self.player_resolve_combat_weapons(cid);
+        // C++ `DistanceAttack`: `if (Missile != NONE)` first, then `Throw` (`crcombat.cc:754`).
+        let (weapon_iid, ammo_iid, is_bow, active_slot) = if weapons.missile.is_some() {
+            (
+                weapons.missile,
+                weapons.ammo,
+                true,
+                InventorySlot::Ammo as u8,
+            )
+        } else if weapons.throw_.is_some() {
+            // Throwing weapon — find which hand slot it lives in for the slot update.
+            let slot = [InventorySlot::Left as u8, InventorySlot::Right as u8]
+                .into_iter()
+                .find(|&s| {
+                    self.get_player_inventory_item(cid, s) == weapons.throw_
+                })
+                .unwrap_or(InventorySlot::Left as u8);
+            (weapons.throw_, None, false, slot)
+        } else {
+            (None, None, false, 0)
+        };
         // `HitChance` — bow=90, throw=75 (`crcombat.cc:766,779`).
         let (active_iid, hit_chance) = match (weapon_iid, ammo_iid, is_bow) {
             (Some(_), Some(a), true) => (a, 90),
@@ -459,7 +499,7 @@ impl GameWorld {
                     } else {
                         1.0
                     },
-                    p.vocation_profile.attack_speed_ms as u64,
+                    p.vocation_profile.attack_speed_ms,
                     p.base.learning_points > 0,
                 ),
                 _ => return,
@@ -537,13 +577,11 @@ impl GameWorld {
                 );
                 let attack_roll = ((attack_roll as f64) * dist_mult).floor() as i32;
 
-                let armor_roll = armor_reduction(
-                    &profile,
-                    &self.mechanics.hooks,
-                    defense_snap.armor,
-                    &self.parity_rng,
-                );
-                let dmg = (attack_roll - armor_roll.max(0)).max(0);
+                // H1/H3 — Armor moves into the shared path (`combat_execute_with_stimulus`),
+                // after PvP-half/absorb. Defense roll stays here (before the shared call),
+                // fixing the C++ order: `GetAttackDamage → GetDefendDamage → Damage(armor)`.
+                let armor_value = defense_snap.armor;
+                let dmg = attack_roll.max(0);
 
                 if attacker_has_shield {
                     let defense_gate_passed = self
@@ -590,17 +628,23 @@ impl GameWorld {
                     .get(target_id)
                     .map(|k| k.base().health)
                     .unwrap_or(0);
-                let _ = self.combat_execute_with_stimulus(
+                let damage_scalar = self.combat_execute_with_stimulus(
                     Some(cid),
                     target_id,
                     &CombatDamage {
                         primary: (CombatType::Physical, -dmg),
                         secondary: (CombatType::Physical, 0),
                     },
-                    &CombatParams::default(),
+                    &CombatParams {
+                        armor: Some(armor_value),
+                        ..CombatParams::default()
+                    },
                 );
+                // M2 — Use the real `Damage` scalar (includes mana-shield absorb) for
+                // `ActivateLearning` and damage text instead of the HP delta.
+                let damage_done = damage_scalar;
                 let target_alive = self.creatures.contains_key(target_id);
-                let hp_after = if target_alive {
+                let _hp_after = if target_alive {
                     self.creatures
                         .get(target_id)
                         .map(|k| k.base().health)
@@ -608,7 +652,6 @@ impl GameWorld {
                 } else {
                     0
                 };
-                let damage_done = (hp_before - hp_after).max(0);
                 if let Some(snap) = notify_snap {
                     self.notify_player_combat_damage(
                         Some(cid),
@@ -713,11 +756,15 @@ impl GameWorld {
             self.broadcast_magic_effect(drop_pos, 3u8);
         }
 
-        // `DelayAttack(2000)` — `crcombat.cc:641`. Distance weapons use the fixed 2s cadence
-        // in 772 (the vocation `attackspeed` is for melee; distance cadence is `2000`).
-        let _ = attack_speed_ms;
+        // `DelayAttack(attackspeed)` — `crcombat.cc:641`. M3 — Use
+        // `combat::math::attack_speed_ms` so `MechanicsProfile` / Tier-2 hook is respected.
+        let dist_speed = crate::combat::math::attack_speed_ms(
+            &self.mechanics.profile,
+            &self.mechanics.hooks,
+            attack_speed_ms as i32,
+        ) as u64;
         if let Some(k) = self.creatures.get_mut(cid) {
-            k.base_mut().delay_attack_ms(server_ms, 2000);
+            k.base_mut().delay_attack_ms(server_ms, dist_speed);
         }
 
         // `if target dead: StopAttack` (`crcombat.cc:643-645`).
@@ -879,52 +926,6 @@ impl GameWorld {
         let _ = self.internal_add_item_to_tile(drop_pos, dropped, CylinderFlags::NO_LIMIT);
     }
 
-    /// Resolve the distance weapon (bow vs throw) and ammo item id.
-    /// Returns `(weapon_iid, ammo_iid, is_bow, active_slot)`. For throwing weapons, `ammo_iid ==
-    /// weapon_iid` and `is_bow == false`. For bows, `ammo_iid` is the ammo slot item and
-    /// `is_bow == true`. `active_slot` is the inventory slot the consumed item (ammo for bows,
-    /// weapon for throwing) lives in — needed to push the slot update to the client after
-    /// consumption. Returns `(None, None, false, 0)` if no distance weapon is equipped.
-    fn resolve_distance_weapon(&self, cid: CreatureId) -> (Option<ItemId>, Option<ItemId>, bool, u8) {
-        for slot in [InventorySlot::Left as u8, InventorySlot::Right as u8] {
-            let Some(iid) = self.get_player_inventory_item(cid, slot) else {
-                continue;
-            };
-            let Some(item) = self.items.get(iid) else {
-                continue;
-            };
-            let Some(it) = self.items_db.items.get(&item.item_type) else {
-                continue;
-            };
-            if it.weapon_type == WEAPON_DISTANCE {
-                if it.ammo_type != 0 {
-                    // Bow/crossbow — resolve ammo from the ammo slot. The ammo item's
-                    // `ammo_type` must match the weapon's `ammo_type` (`crcombat.cc:121`
-                    // `AMMOTYPE == BOWAMMOTYPE`; TFS `player.cpp:211`
-                    // `ammoItem->getAmmoType() != it.ammoType`). A mismatch (e.g. bolts in a
-                    // bow) returns `None` for ammo, which triggers the `OUTOFAMMO` arm —
-                    // matching the 772 `Ammo = NONE` → `OUTOFAMMO` flow.
-                    let ammo_iid = self
-                        .get_player_inventory_item(cid, InventorySlot::Ammo as u8)
-                        .filter(|&aid| {
-                            self.items.get(aid).is_some_and(|ammo| {
-                                self.items_db
-                                    .items
-                                    .get(&ammo.item_type)
-                                    .is_some_and(|ammo_it| ammo_it.ammo_type == it.ammo_type)
-                            })
-                        });
-                    return (Some(iid), ammo_iid, true, InventorySlot::Ammo as u8);
-                }
-                // Throwing weapon — the weapon itself is the projectile; `ammo_iid = None`
-                // signals "no separate ammo slot" (the match arm `(Some, None, false)` picks
-                // the weapon iid as the active item).
-                return (Some(iid), None, false, slot);
-            }
-        }
-        (None, None, false, 0)
-    }
-
     /// Decrement an inventory item's `count` by 1, removing it when `count` reaches 0, and push
     /// the updated slot to the client so the ammo/throwing count refreshes immediately. Used by
     /// the distance strike for ammo/throwing consumption (`crcombat.cc:846`). Without the
@@ -964,7 +965,9 @@ mod tests {
     use super::*;
     use crate::combat::math::probe_hit;
     use crate::creature::CreatureKind;
-    use crate::inventory::{InventorySlot, WEAPON_AMMO, WEAPON_NONE, WEAPON_SWORD, WEAPON_WAND};
+    use crate::inventory::{
+        InventorySlot, WEAPON_AMMO, WEAPON_DISTANCE, WEAPON_NONE, WEAPON_SWORD, WEAPON_WAND,
+    };
     use crate::item::Item;
     use crate::sim_harness::{
         beat_driven_test_world, ensure_walkable_tile, insert_monster_with_config,

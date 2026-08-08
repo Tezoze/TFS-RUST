@@ -47,6 +47,9 @@ pub const PLAYER_FLAG_IGNORE_SPELL_CHECK: u64 = 1 << 34;
 /// C++ `PlayerFlag_IsAlwaysPremium` — `src/const.h` bit 35. Group flag
 /// `isalwayspremium` → treat as premium regardless of `accounts.premium_ends_at`.
 pub const PLAYER_FLAG_IS_ALWAYS_PREMIUM: u64 = 1 << 35;
+/// 772 `KEEP_INVENTORY` right (`enums.hh:519`, `crplayer.cc:299-300`).
+/// GMs with this right keep their inventory on death (`LOSE_INVENTORY_NONE`).
+pub const PLAYER_FLAG_KEEP_INVENTORY: u64 = 1 << 37;
 
 /// Map `groups.xml` / `groups.lua` flag keys to `PlayerFlags` bits (subset used by core).
 fn flag_name_to_bit(name: &str) -> Option<u64> {
@@ -69,6 +72,7 @@ fn flag_name_to_bit(name: &str) -> Option<u64> {
         "ignoreprotectionzone" => Some(PLAYER_FLAG_IGNORE_PROTECTION_ZONE),
         "ignorespellcheck" => Some(PLAYER_FLAG_IGNORE_SPELL_CHECK),
         "isalwayspremium" => Some(PLAYER_FLAG_IS_ALWAYS_PREMIUM),
+        "keepinventory" => Some(PLAYER_FLAG_KEEP_INVENTORY),
         _ => None,
     }
 }
@@ -174,5 +178,12 @@ mod tests {
         let groups = make_group(6, &[("canedithouses", true)]);
         let flags = flags_for_group(&groups, 6);
         assert!(has_player_flag(flags, PLAYER_FLAG_CAN_EDIT_HOUSES));
+    }
+
+    #[test]
+    fn keep_inventory_flag_resolves_from_group() {
+        let groups = make_group(2, &[("keepinventory", true)]);
+        let flags = flags_for_group(&groups, 2);
+        assert!(has_player_flag(flags, PLAYER_FLAG_KEEP_INVENTORY));
     }
 }

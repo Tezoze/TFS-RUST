@@ -1,0 +1,15 @@
+---
+trigger: always_on
+description: Game thread vs I/O thread invariant — the single rule that must hold from any file.
+globs:
+---
+
+# Threading Model — Invariant (Mandatory)
+
+TFS Rust uses a hybrid threading model: single-threaded game simulation + Tokio async I/O.
+
+**Invariant:** `GameWorld`, its `SlotMap`s, `Map`, and all game-thread-only maps (`player_by_name`, `conn_to_creature`, etc.) are **NOT `Send`/`Sync`** and live only on the game thread. I/O threads never access `GameWorld` directly, mutate `SlotMap` entities, or touch simulation state — cross-thread communication goes through `mpsc`/`oneshot` channels only.
+
+**Never use `tokio::spawn` for:** mutating `GameWorld`, game logic that must run serially, or anything touching `SlotMap` entities. `tokio::spawn` is for network I/O, DB queries, and rare CPU-bound parallel work only.
+
+This holds regardless of which file you're editing — a stray `tokio::spawn` anywhere that touches game state breaks it. Bridge-pattern code, channel wiring examples, and performance notes: `@.cursor/rules/TFS-threading-patterns.mdc`.

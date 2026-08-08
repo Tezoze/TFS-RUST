@@ -56,6 +56,8 @@ impl GameWorld {
         }
 
         // `SetChaseMode` — `crcombat.cc:339-346` (only NONE/CLOSE accepted).
+        // L2 — 772 logs and returns without writing on invalid values; Rust previously
+        // clamped to NONE, which reset a valid chase mode on a malformed `0xA7` byte.
         let chase = match raw_chase_mode {
             0 => ChaseMode::None,
             1 => ChaseMode::Close,
@@ -63,13 +65,17 @@ impl GameWorld {
                 tracing::warn!(
                     conn_id = ?cid,
                     raw_chase_mode = other,
-                    "FightModes: 772 SetChaseMode only accepts NONE(0)/CLOSE(1); clamping to NONE"
+                    "FightModes: 772 SetChaseMode only accepts NONE(0)/CLOSE(1); ignoring"
                 );
-                ChaseMode::None
+                if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                    p.attack_mode = new_attack_mode;
+                }
+                return;
             }
         };
 
         // `SetSecureMode` — `crcombat.cc:348-355` (only DISABLED/ENABLED accepted).
+        // L2 — same: log and return without writing on invalid values.
         let secure = match raw_secure_mode {
             0 => false,
             1 => true,
@@ -77,9 +83,15 @@ impl GameWorld {
                 tracing::warn!(
                     conn_id = ?cid,
                     raw_secure_mode = other,
-                    "FightModes: 772 SetSecureMode only accepts DISABLED(0)/ENABLED(1); clamping to DISABLED"
+                    "FightModes: 772 SetSecureMode only accepts DISABLED(0)/ENABLED(1); ignoring"
                 );
-                false
+                if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                    p.attack_mode = new_attack_mode;
+                    if p.base.follow_target.is_none() {
+                        p.base.chase_mode = chase;
+                    }
+                }
+                return;
             }
         };
 
@@ -506,7 +518,7 @@ mod tests {
             },
             &crate::combat::CombatParams::default(),
         );
-        assert!(applied);
+        assert!(applied > 0);
         if let Some(CreatureKind::Player(p)) = world.creatures.get(player) {
             assert!(
                 p.earliest_logout_round > 100,

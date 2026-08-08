@@ -691,7 +691,7 @@ fn quentin_heal_clears_poison_and_effect() {
         0,
         0,
         ConditionType::Poison,
-        ConditionData::Damage { total_rank: 5 },
+        ConditionData::Damage { total_rank: 5, factor_percent: 50 },
         Some(5),
     ));
     let p1 = insert_player(&mut world, hero);
@@ -1491,7 +1491,7 @@ fn npc_immune_to_combat_damage_and_conditions() {
         },
         &CombatParams::default(),
     );
-    assert!(!applied, "NPC must not take spell/AoE HP damage");
+    assert!(applied == 0, "NPC must not take spell/AoE HP damage");
     assert_eq!(
         world.creatures.get(npc).unwrap().base().health,
         hp_before,
@@ -1505,7 +1505,7 @@ fn npc_immune_to_combat_damage_and_conditions() {
             id: 1,
             sub_id: 0,
             ctype: ConditionType::Poison,
-            data: ConditionData::Damage { total_rank: 40 },
+            data: ConditionData::Damage { total_rank: 40, factor_percent: 50 },
             timer_rounds_left: None,
         skill_count: 0,
         skill_max_count: 0,

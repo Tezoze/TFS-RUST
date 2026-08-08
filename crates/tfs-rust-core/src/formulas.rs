@@ -85,6 +85,35 @@ pub enum DamageFormula {
     Modern,
 }
 
+/// 772 flat death-penalty percent — `TPlayer::Death` (`crplayer.cc:344-360`).
+///
+/// `LossPercent = (promoted ? promoted_percent : base_percent) - blessing_count * per_blessing`,
+/// applied as `DecreasePercent(LossPercent)` to exp + all 8 skills (`crskill.cc:73-77`).
+/// Used when `damage_formula == ClassicProbe`; 1098 uses the TFS curve (`death_loss_fraction`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeathPenalty {
+    /// Base loss percent when not promoted (772: 10).
+    pub base_percent: i32,
+    /// Loss percent when promoted (772: 7).
+    pub promoted_percent: i32,
+    /// Reduction per blessing (772: 1, max 5 blessings).
+    pub per_blessing: i32,
+}
+
+impl DeathPenalty {
+    /// Compute the flat loss fraction for the 772 model.
+    /// Returns `loss_percent / 100.0`, clamped to `[0, 1]`.
+    pub fn loss_fraction(&self, promoted: bool, blessings: i32) -> f64 {
+        let base = if promoted {
+            self.promoted_percent
+        } else {
+            self.base_percent
+        };
+        let percent = (base - blessings * self.per_blessing).max(0);
+        (percent as f64) / 100.0
+    }
+}
+
 /// Walk/step timing speed model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepSpeedModel {
@@ -408,6 +437,8 @@ pub struct MechanicsProfile {
     pub container_window_alloc: ContainerWindowAlloc,
     /// NPC speech stimulus, focus keep, timeout, capture, and reply timing.
     pub npc: NpcTuning,
+    /// 772 flat death-penalty percent (used when `damage_formula == ClassicProbe`).
+    pub death_penalty: DeathPenalty,
 }
 
 /// Which logical clock drives item decay deadlines for the active era.
@@ -493,6 +524,11 @@ impl MechanicsProfile {
                 container_autostack_any_slot: false,
                 container_window_alloc: ContainerWindowAlloc::ClientChooses,
                 npc: NpcTuning::classic_772(),
+                death_penalty: DeathPenalty {
+                    base_percent: 10,
+                    promoted_percent: 7,
+                    per_blessing: 1,
+                },
             },
             1098 => Self {
                 beat_ms: 50,
@@ -553,6 +589,11 @@ impl MechanicsProfile {
                 container_window_alloc: ContainerWindowAlloc::ServerAllocates,
                 // Same classic stimulus/timeout numbers until a TFS-specific audit lands (NPC-6).
                 npc: NpcTuning::classic_772(),
+                death_penalty: DeathPenalty {
+                    base_percent: 0,
+                    promoted_percent: 0,
+                    per_blessing: 0,
+                },
             },
             other => unreachable!("unsupported protocol version {other}"),
         }
@@ -1061,6 +1102,16 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
             p.npc.sleep_search_range_y as i64,
         )
         .max(0) as u16;
+    }
+
+    if let Ok(Value::Table(dp)) = formulas.get::<Value>("deathLossPercent") {
+        p.death_penalty = DeathPenalty {
+            base_percent: num_or(lua, &dp, "base", p.death_penalty.base_percent as i64) as i32,
+            promoted_percent: num_or(lua, &dp, "promoted", p.death_penalty.promoted_percent as i64)
+                as i32,
+            per_blessing: num_or(lua, &dp, "perBlessing", p.death_penalty.per_blessing as i64)
+                as i32,
+        };
     }
 
     p

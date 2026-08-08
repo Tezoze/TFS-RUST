@@ -2174,7 +2174,7 @@ fn e5_apply_player_hit(
         },
         &CombatParams::default(),
     );
-    assert!(applied, "combat_execute_with_stimulus must apply HP loss");
+    assert!(applied > 0, "combat_execute_with_stimulus must apply HP loss");
 }
 
 #[test]
@@ -2316,7 +2316,7 @@ fn test_combat_execute_typed_damage_broadcasts_hit_effect() {
         },
         &CombatParams::default(),
     );
-    assert!(applied, "fire damage must apply");
+    assert!(applied > 0, "fire damage must apply");
 
     let pkts = world
         .pending_outgoing
@@ -2361,7 +2361,7 @@ fn test_combat_execute_pvp_halves_damage_before_absorb() {
         },
         &CombatParams::default(),
     );
-    assert!(applied);
+    assert!(applied > 0);
     let hp_after = world
         .creatures
         .get(target)

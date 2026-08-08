@@ -109,6 +109,10 @@ impl NpcActionHost for GameWorld {
             persist.player_row.vocation = vocation;
         }
         self.send_player_stats(player);
+        // L1 — 772 `ClearProfession` / profession change calls `CheckCombatValues()`
+        // (`crplayer.cc` promotion NPC arm) → `DelayAttack(2000)` if weapon identity
+        // changes (e.g. vocation-only weapon becomes unequippable).
+        self.player_check_combat_values(player);
         Ok(())
     }
 
@@ -383,6 +387,7 @@ fn set_dot_condition(
         ctype,
         ConditionData::Damage {
             total_rank: param.abs().max(1),
+            factor_percent: 50,
         },
         Some(cycles),
     );

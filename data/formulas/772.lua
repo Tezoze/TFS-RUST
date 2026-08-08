@@ -48,6 +48,10 @@ formulas = {
   playerSpeed = "balanced",      -- "772" | "retail" | "balanced" (loaded once at startup)
 
   -- npc dialogue ranges/timing live in MechanicsProfile::Npc (NpcTuning::classic_772).
+
+  -- 772 flat death penalty: LossPercent = (promoted ? 7 : 10) - blessingCount.
+  -- Applied as DecreasePercent to exp + all 8 skills (crplayer.cc:344-360, crskill.cc:73-77).
+  deathLossPercent = { base = 10, promoted = 7, perBlessing = 1 },
 }
 
 -- Player speed model selector ------------------------------------------------------------

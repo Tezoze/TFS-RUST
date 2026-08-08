@@ -254,13 +254,44 @@ impl GameWorld {
     /// are handled here (the shared `Damage` path) before the HP delta is applied.
     /// PC-3 M3′/M5: non-physical immunities (`NoPoison`/`NoBurning`/`NoEnergy`/`NoLifeDrain`) and
     /// mana shield (`SKILL_MANASHIELD`) are handled here as well.
+    /// M2 — Returns the real `Damage` scalar (C++ `Damage` return value,
+    /// `crmain.cc:536-765`). This is the amount actually dealt to HP (after mana shield
+    /// spill), or to mana (mana drain / full mana-shield absorb). Callers use this for
+    /// `ActivateLearning` (`DamageDone > 0`) and damage text / health bar notify, instead
+    /// of deriving `damage_done` from the HP delta (which is 0 when mana absorbs everything).
+    /// Returns 0 for immune / invulnerable / poff paths.
     pub(crate) fn combat_execute_with_stimulus(
         &mut self,
         attacker: Option<CreatureId>,
         target: CreatureId,
         damage: &CombatDamage,
         params: &CombatParams,
-    ) -> bool {
+    ) -> i32 {
+        // L5 — Attacker block (mark / BlockLogout / RecordAttack) runs at the TOP of C++
+        // `Damage` (`crmain.cc:490-530`), before the INVULNERABLE gate (`:534`), the
+        // `Damage <= 0` poff (`:573`), the race-immunity gate (`:615`) and the periodic
+        // arms (`:582-613`). So arming a DoT on a player, or hitting an immune monster /
+        // invulnerable GM, still refreshes the attacker's infight lock, the victim's black
+        // `SendMarkCreature`, and `RecordAttack`. Skip pure heals and condition applications.
+        let healing = damage.primary.1 > 0 || damage.secondary.1 > 0;
+        if let Some(attacker_id) = attacker {
+            if !healing && params.apply_condition.is_none() {
+                let target_is_player =
+                    matches!(self.creatures.get(target), Some(CreatureKind::Player(_)));
+                self.player_block_logout_infight(attacker_id, target_is_player);
+                if target_is_player {
+                    self.player_block_logout_infight(target, false);
+                    // 772 `SendMarkCreature(Connection, Attacker->ID, COLOR_BLACK)` — `crmain.cc:494`.
+                    self.send_mark_creature_on_attacker(target, attacker_id);
+                    // 772 Damage `RecordAttack` — player responsible (incl. summon master)
+                    // vs player victim (`crmain.cc` Damage arm).
+                    if let Some(resp) = self.player_responsible_for_attack(attacker_id) {
+                        self.player_record_attack(resp, target);
+                    }
+                }
+            }
+        }
+
         // NPCs are not attackable by default — TFS `Npc::isAttackable` / `isImmune`
         // (`npc.h:302-310`, `Npc::reset` sets `attackable = false`).
         // `Game::combatChangeHealth` poffs and returns without HP change (`game.cpp:4176-4180`).
@@ -273,7 +304,7 @@ impl GameWorld {
                     // C++ `CONST_ME_POFF` / `EFFECT_POFF` (wire byte 3).
                     self.broadcast_magic_effect(pos, 3u8);
                 }
-                return false;
+                return 0;
             }
         }
 
@@ -290,7 +321,7 @@ impl GameWorld {
                 // C++ `EFFECT_POFF` (wire byte 3) — `crmain.cc:578` (Damage <= 0 path).
                 self.broadcast_magic_effect(pos, 3u8);
             }
-            return false;
+            return 0;
         }
 
         // M3 / M3′ — Typed immunities: C++ `Damage` checks `RaceData[Race].NoHit` (physical),
@@ -320,7 +351,7 @@ impl GameWorld {
                     // C++ `EFFECT_BLOCK_HIT` (wire byte 4) — `crmain.cc:620`.
                     self.broadcast_magic_effect(pos, 4u8);
                 }
-                return false;
+                return 0;
             }
         }
 
@@ -367,6 +398,30 @@ impl GameWorld {
             return self.apply_periodic_damage_arm(attacker, target, &reduced_damage);
         }
 
+        // H1 — Armor subtraction (PHYSICAL only): C++ `Damage` subtracts `GetArmorStrength()`
+        // after absorb + periodic arms, before mana drain / mana shield / DamageStimulus
+        // (`crmain.cc:624-630`). Moved from caller-side (`strike.rs` / `ranged.rs`) into the
+        // shared path so physical spells / burst-arrow AoE also get armor. H2: the RNG draw
+        // only fires when damage is still negative (i.e. post-absorb damage exists), matching
+        // C++ which returns before `GetArmorStrength()` when `Damage <= 0` (`crmain.cc:577`).
+        if reduced_damage.primary.0 == CombatType::Physical {
+            if let Some(armor) = params.armor {
+                if reduced_damage.primary.1 < 0 {
+                    let profile = self.mechanics.profile;
+                    let armor_roll =
+                        crate::combat::math::armor_reduction(&profile, &self.mechanics.hooks, armor, &self.parity_rng);
+                    reduced_damage.primary.1 += armor_roll;
+                    if reduced_damage.primary.1 >= 0 {
+                        if let Some(pos) = self.creatures.get(target).map(|k| k.position()) {
+                            // C++ `EFFECT_BLOCK_HIT` (wire byte 4) — `crmain.cc:627`.
+                            self.broadcast_magic_effect(pos, 4u8);
+                        }
+                        return 0;
+                    }
+                }
+            }
+        }
+
         // 772 `DAMAGE_MANADRAIN` — before mana shield / HP (`crmain.cc:649-657`).
         if reduced_damage.primary.0 == CombatType::ManaDrain
             || params.primary_type == CombatType::ManaDrain
@@ -381,9 +436,15 @@ impl GameWorld {
         // fully, emit the mana-hit effect + "You lose X mana" text and return without touching
         // HP. Otherwise drain mana to 0 and let the remainder flow to HP. Skipped for
         // `UNDEFINED` damage (C++ excludes it) and for healing/positive deltas.
+        //
+        // M2 — Track the mana absorbed so we can return it as the real `Damage` scalar when
+        // HP damage is 0 (full absorb). C++ `return Damage` from the mana-shield arm
+        // (`crmain.cc:683`) returns the mana absorbed, which drives `ActivateLearning`.
+        let mut mana_absorbed = 0i32;
         if reduced_damage.primary.1 < 0 {
             let absorbed = self.apply_mana_shield(attacker, target, -reduced_damage.primary.1);
             if absorbed > 0 {
+                mana_absorbed = absorbed;
                 reduced_damage.primary.1 += absorbed;
                 // Clamp secondary as well? C++ only shields the primary `Damage` scalar, so we
                 // leave `secondary` untouched (it is 0 for wand/distance strikes and most spells).
@@ -395,28 +456,6 @@ impl GameWorld {
             if stimulus_damage > 0 {
                 // C++ `DamageStimulus` runs before HP apply — `crmain.cc:631`, `694`.
                 self.monster_damage_stimulus(target, attacker_id, stimulus_damage);
-            }
-            // Logout / swords icon — 772 `Attack` + `Damage` refresh (`crcombat.cc:601-602`,
-            // `crmain.cc:525`, `TPlayer::DamageStimulus`). Initial lock on target *acquire* is
-            // `SetAttackDest` → `AttackStimulus` (`combat_on_attack_dest_changed`).
-            // - Attacker: `BlockLogout(60, Target->Type == PLAYER)` (no-op for monsters).
-            // - Target: `BlockLogout(60, false)` — refresh even on 0-damage hits.
-            // Skip pure heals (`primary/secondary > 0`). Covers melee, ranged, spells, AoE.
-            let healing = reduced_damage.primary.1 > 0 || reduced_damage.secondary.1 > 0;
-            if !healing {
-                let target_is_player =
-                    matches!(self.creatures.get(target), Some(CreatureKind::Player(_)));
-                self.player_block_logout_infight(attacker_id, target_is_player);
-                if target_is_player {
-                    self.player_block_logout_infight(target, false);
-                    // 772 `SendMarkCreature(Connection, Attacker->ID, COLOR_BLACK)` — `crmain.cc:494`.
-                    self.send_mark_creature_on_attacker(target, attacker_id);
-                    // 772 Damage `RecordAttack` — player responsible (incl. summon master)
-                    // vs player victim (`crmain.cc` Damage arm).
-                    if let Some(resp) = self.player_responsible_for_attack(attacker_id) {
-                        self.player_record_attack(resp, target);
-                    }
-                }
             }
         }
         let applied = {
@@ -492,7 +531,15 @@ impl GameWorld {
                 self.apply_creature_death(target);
             }
         }
-        applied
+        // M2 — Return the real `Damage` scalar (C++ `return Damage`, `crmain.cc:695`).
+        // When HP damage was dealt, return `stimulus_damage` (the post-mana-shield HP delta,
+        // clamped to HP by `execute_with_credit`). When mana shield fully absorbed, return
+        // `mana_absorbed` so callers fire `ActivateLearning` and show the damage text.
+        if applied {
+            stimulus_damage
+        } else {
+            mana_absorbed
+        }
     }
 
     /// 772 `DAMAGE_*_PERIODIC` arms — `crmain.cc:582-613`.
@@ -506,13 +553,13 @@ impl GameWorld {
         attacker: Option<CreatureId>,
         target: CreatureId,
         damage: &CombatDamage,
-    ) -> bool {
+    ) -> i32 {
         let strength = (-damage.primary.1).max(0);
         if strength <= 0 {
             if let Some(pos) = self.creatures.get(target).map(|k| k.position()) {
                 self.broadcast_magic_effect(pos, 3u8);
             }
-            return false;
+            return 0;
         }
 
         let combat = damage.primary.0;
@@ -527,7 +574,7 @@ impl GameWorld {
             _ => false,
         });
         if immune {
-            return false;
+            return 0;
         }
 
         let (ctype, cond, set_origin) = match combat {
@@ -539,7 +586,7 @@ impl GameWorld {
                         k.base().active_conditions.iter().find_map(|c| {
                             if c.ctype == ConditionType::Poison {
                                 match c.data {
-                                    ConditionData::Damage { total_rank } => Some(total_rank),
+                                    ConditionData::Damage { total_rank, .. } => Some(total_rank),
                                     _ => Some(0),
                                 }
                             } else {
@@ -557,6 +604,7 @@ impl GameWorld {
                             ConditionType::Poison,
                             ConditionData::Damage {
                                 total_rank: strength,
+                                factor_percent: 50,
                             },
                             None,
                         )
@@ -603,7 +651,7 @@ impl GameWorld {
                     true,
                 )
             }
-            _ => return false,
+            _ => return 0,
         };
 
         if set_origin {
@@ -636,7 +684,8 @@ impl GameWorld {
                 }
             }
         }
-        true
+        // Periodic arms deal no HP damage — C++ returns 0 (no HP delta, just arms the timer).
+        0
     }
 
     /// 772 `SendMarkCreature` — black square on the attacker (`crmain.cc:494`, `sending.cc:962`).
@@ -687,22 +736,22 @@ impl GameWorld {
         attacker: Option<CreatureId>,
         target: CreatureId,
         damage: &CombatDamage,
-    ) -> bool {
+    ) -> i32 {
         let mut drain = (-(damage.primary.1 + damage.secondary.1)).max(0);
         if drain <= 0 {
-            return false;
+            return 0;
         }
         self.player_damage_side_effects(attacker, target, true);
 
         let Some(CreatureKind::Player(p)) = self.creatures.get_mut(target) else {
-            return false;
+            return 0;
         };
         let mana_points = p.mana.max(0);
         if drain > mana_points {
             drain = mana_points;
         }
         if drain <= 0 {
-            return false;
+            return 0;
         }
         p.mana -= drain;
         let pos = p.base.position;
@@ -719,7 +768,8 @@ impl GameWorld {
             self.broadcast_to_spectators(pos, animated.into_bytes());
         }
         self.send_player_stats(target);
-        true
+        // M2 — Return the real mana drained (C++ `return Damage`, `crmain.cc:659`).
+        drain
     }
 
     /// M5 — Mana shield absorb. C++ `Damage` checks `SKILL_MANASHIELD` timer/value
@@ -1781,6 +1831,7 @@ impl GameWorld {
                             ctype: *condition,
                             data: ConditionData::Damage {
                                 total_rank: strength,
+                                factor_percent: 0,
                             },
                             timer_rounds_left: None,
                             skill_count: 0,
@@ -1790,6 +1841,7 @@ impl GameWorld {
                             primary_type: CombatType::Physical,
                             dispel: None,
                             apply_condition: Some(cond),
+                            armor: None,
                         };
                         let _ = self.combat_execute_with_stimulus(
                             Some(caster_id),
@@ -1830,17 +1882,22 @@ impl GameWorld {
                 };
                 // 772 CASTING `TDamageImpact(..., AllowDefense=true)` (`crnonpl.cc:2592`) —
                 // physical always subtracts GetDefendDamage then armor (`magic.cc:147-151`).
+                // H1 — armor is now passed via `CombatParams` for the shared path.
+                let mut physical_armor: Option<i32> = None;
                 if *element == CombatType::Physical && dmg > 0 {
                     if let Some(target_pos) =
                         self.creatures.get(target_id).map(|k| k.position())
                     {
-                        dmg = self.mitigate_physical_spell_damage(
+                        let (post_def, armor) = self.mitigate_physical_spell_damage(
                             target_id, target_pos, dmg, true, true,
                         );
+                        dmg = post_def;
+                        physical_armor = armor;
                     }
                 }
                 let params = CombatParams {
                     primary_type: *element,
+                    armor: physical_armor,
                     ..CombatParams::default()
                 };
                 // Capture snapshot + HP before — same pattern as monster melee/ranged
@@ -1848,12 +1905,7 @@ impl GameWorld {
                 // magic hit effect but NOT the animated damage text / health bar / status
                 // message — `notify_player_combat_damage` owns those (`game_world_spectators.rs:481`).
                 let notify_snap = self.combat_notify_snapshot(target_id);
-                let hp_before = self
-                    .creatures
-                    .get(target_id)
-                    .map(|k| k.base().health)
-                    .unwrap_or(0);
-                let _ = self.combat_execute_with_stimulus(
+                let damage_scalar = self.combat_execute_with_stimulus(
                     Some(caster_id),
                     target_id,
                     &CombatDamage {
@@ -1862,13 +1914,9 @@ impl GameWorld {
                     },
                     &params,
                 );
-                let hp_after = self
-                    .creatures
-                    .get(target_id)
-                    .map(|k| k.base().health)
-                    .unwrap_or(hp_before);
+                // M2 — Use the real `Damage` scalar (includes mana-shield absorb).
                 if let Some(snap) = notify_snap {
-                    let damage_done = (hp_before - hp_after).max(0);
+                    let damage_done = damage_scalar;
                     if damage_done > 0 {
                         self.notify_player_combat_damage(
                             Some(caster_id),
@@ -1947,6 +1995,7 @@ impl GameWorld {
                     primary_type: CombatType::Physical,
                     dispel: None,
                     apply_condition: Some(cond),
+                    armor: None,
                 };
                 let _ = self.combat_execute_with_stimulus(
                     Some(caster_id),
@@ -1999,6 +2048,7 @@ impl GameWorld {
                             primary_type: CombatType::Physical,
                             dispel: None,
                             apply_condition: Some(cond),
+                            armor: None,
                         };
                         let _ = self.combat_execute_with_stimulus(
                             Some(caster_id),
@@ -2044,6 +2094,7 @@ impl GameWorld {
                         primary_type: CombatType::Physical,
                         dispel: None,
                         apply_condition: Some(cond),
+                        armor: None,
                     };
                     let _ = self.combat_execute_with_stimulus(
                         Some(caster_id),
@@ -2073,6 +2124,7 @@ impl GameWorld {
                     primary_type: CombatType::Physical,
                     dispel: None,
                     apply_condition: Some(cond),
+                    armor: None,
                 };
                 let _ = self.combat_execute_with_stimulus(
                     Some(caster_id),

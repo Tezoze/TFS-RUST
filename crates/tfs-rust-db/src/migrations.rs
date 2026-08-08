@@ -75,6 +75,22 @@ async fn table_exists(pool: &DbPool, name: &str) -> Result<bool> {
     Ok(found.is_some())
 }
 
+/// Decide whether the baseline row in `_sqlx_migrations` needs its checksum/description
+/// re-synced to the current migration file.
+///
+/// The baseline is an "adopt existing schema" marker (DDL never re-run), so its stored
+/// checksum is bookkeeping only. When the file changes after adoption, SQLx's strict
+/// checksum guard would reject `migrator.run`; this returns `true` so the caller can
+/// UPDATE the row first. Pure (no I/O) so it can be unit-tested without a live DB.
+fn baseline_needs_resync(
+    stored_checksum: &[u8],
+    stored_description: &str,
+    baseline: &sqlx::migrate::Migration,
+) -> bool {
+    stored_checksum != baseline.checksum.as_ref()
+        || stored_description != baseline.description.as_ref()
+}
+
 /// Drop failed SQLx rows and, for legacy C++ TFS databases, mark baseline applied without re-running DDL.
 async fn heal_and_adopt_existing_schema(pool: &DbPool, migrator: &Migrator) -> Result<()> {
     if table_exists(pool, "_sqlx_migrations").await? {
@@ -122,7 +138,40 @@ async fn heal_and_adopt_existing_schema(pool: &DbPool, migrator: &Migrator) -> R
     .map_err(|e| TfsRustError::Database(e.to_string()))?;
 
     if baseline_applied.is_some() {
-        info!("existing TFS schema detected; baseline migration already recorded");
+        // The baseline is an "adopt existing schema" marker — its DDL is never re-run
+        // (the schema already exists from legacy C++ TFS), so the checksum is bookkeeping
+        // only. Re-sync it to the current file so a baseline edit/revert doesn't trip
+        // SQLx's strict checksum guard in `migrator.run`. Normal migrations stay strict.
+        let row: Option<(Vec<u8>, String)> = sqlx::query_as(
+            "SELECT checksum, description FROM _sqlx_migrations WHERE version = ?",
+        )
+        .bind(BASELINE_VERSION)
+        .fetch_optional(pool.inner())
+        .await
+        .map_err(|e| TfsRustError::Database(e.to_string()))?;
+
+        let need_resync = row
+            .as_ref()
+            .map(|(stored, desc)| baseline_needs_resync(stored, desc, baseline))
+            .unwrap_or(false);
+
+        if need_resync {
+            sqlx::query(
+                "UPDATE _sqlx_migrations SET checksum = ?, description = ? WHERE version = ?",
+            )
+            .bind(baseline.checksum.as_ref())
+            .bind(baseline.description.as_ref())
+            .bind(BASELINE_VERSION)
+            .execute(pool.inner())
+            .await
+            .map_err(|e| TfsRustError::Database(e.to_string()))?;
+            info!(
+                version = BASELINE_VERSION,
+                "existing TFS schema detected; re-synced baseline checksum to current file"
+            );
+        } else {
+            info!("existing TFS schema detected; baseline migration already recorded");
+        }
         return Ok(());
     }
 
@@ -162,4 +211,50 @@ pub async fn run_migrations(pool: &DbPool, path: &Path) -> Result<()> {
 
     info!("Database migrations applied successfully.");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::migrate::MigrationType;
+    use std::borrow::Cow;
+
+    /// Build a `Migration` with the given checksum and description for testing.
+    fn fake_baseline(checksum: &[u8], description: &str) -> sqlx::migrate::Migration {
+        sqlx::migrate::Migration {
+            version: BASELINE_VERSION,
+            description: Cow::Owned(description.to_owned()),
+            migration_type: MigrationType::Simple,
+            sql: Cow::Borrowed("-- baseline"),
+            checksum: Cow::Owned(checksum.to_vec()),
+        }
+    }
+
+    #[test]
+    fn resync_required_when_checksum_differs() {
+        let baseline = fake_baseline(&[1, 2, 3], "tfs_142_baseline");
+        // Stored checksum differs from the file → must resync.
+        assert!(baseline_needs_resync(&[9, 9, 9], "tfs_142_baseline", &baseline));
+    }
+
+    #[test]
+    fn resync_required_when_description_differs() {
+        let baseline = fake_baseline(&[1, 2, 3], "tfs_142_baseline");
+        // Same checksum, different description → must resync.
+        assert!(baseline_needs_resync(&[1, 2, 3], "renamed_baseline", &baseline));
+    }
+
+    #[test]
+    fn no_resync_when_checksum_and_description_match() {
+        let baseline = fake_baseline(&[1, 2, 3], "tfs_142_baseline");
+        // Exact match → no resync needed.
+        assert!(!baseline_needs_resync(&[1, 2, 3], "tfs_142_baseline", &baseline));
+    }
+
+    #[test]
+    fn no_resync_for_empty_checksum_does_not_panic() {
+        // Edge case: empty stored checksum (shouldn't happen, but must not panic).
+        let baseline = fake_baseline(&[1, 2, 3], "tfs_142_baseline");
+        assert!(baseline_needs_resync(&[], "tfs_142_baseline", &baseline));
+    }
 }

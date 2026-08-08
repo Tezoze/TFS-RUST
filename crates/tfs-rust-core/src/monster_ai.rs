@@ -17,10 +17,7 @@ use tfs_rust_common::enums::{CombatType, Direction, ZoneType};
 use tfs_rust_common::Position;
 
 use crate::chase_debug;
-use crate::combat::{
-    armor_reduction, melee_damage_after_defense_and_armor, weapon_damage, CombatDamage,
-    CombatParams, FightMode,
-};
+use crate::combat::{weapon_damage, CombatDamage, CombatParams, FightMode};
 use crate::creature::{
     creature_immune_poison, melee_poison_on_hit, roll_target_defense,
 };
@@ -427,9 +424,9 @@ impl GameWorld {
             )
         };
 
-        let _trace_armor = crate::sim_glibc_rand::sim_rng_trace_site("melee_armor_probe");
-        let armor_roll =
-            armor_reduction(&profile, hooks, defense_snap.armor, &self.parity_rng);
+        // H1 — Armor moves into the shared path (`combat_execute_with_stimulus`), after
+        // PvP-half/absorb. Pass the raw armor value via `CombatParams`.
+        let armor_value = defense_snap.armor;
         // M11 — Shield wearout: decrement the player defender's shield `REMAININGUSES` when the
         // defense gate passed (`crcombat.cc:265-281`). Player-only. Called after `hooks` is last
         // used to avoid borrow conflict with `&mut self`.
@@ -438,7 +435,7 @@ impl GameWorld {
         {
             self.player_shield_wearout(target_id);
         }
-        let dmg = melee_damage_after_defense_and_armor(attack_roll, defense_roll, armor_roll);
+        let dmg = (attack_roll - defense_roll).max(0);
 
         // Poff / spark — C++ `TCreature::Damage` (`crmain.cc:577-579, 624-628`).
         if dmg <= 0 {
@@ -458,18 +455,23 @@ impl GameWorld {
             primary: (CombatType::Physical, -dmg),
             secondary: (CombatType::Physical, 0),
         };
-        let _ = self.combat_execute_with_stimulus(
+        let damage_scalar = self.combat_execute_with_stimulus(
             Some(cid),
             target_id,
             &damage,
-            &CombatParams::default(),
+            &CombatParams {
+                armor: Some(armor_value),
+                ..CombatParams::default()
+            },
         );
-        let hp_after = self
+        // M2 — Use the real `Damage` scalar (includes mana-shield absorb) for
+        // `ActivateLearning` and damage text instead of the HP delta.
+        let damage_done = damage_scalar;
+        let _hp_after = self
             .creatures
             .get(target_id)
             .map(|k| k.base().health)
             .unwrap_or(hp_before);
-        let damage_done = (hp_before - hp_after).max(0);
         if let Some(snap) = notify_snap {
             self.notify_player_combat_damage(Some(cid), target_id, damage_done, CombatType::Physical, snap);
         }
@@ -494,7 +496,7 @@ impl GameWorld {
             ) {
                 // 772 CloseAttack poison → `Damage(…, DAMAGE_POISON_PERIODIC)` (`crcombat.cc:660`).
                 let strength = match cond.data {
-                    crate::condition::ConditionData::Damage { total_rank } => total_rank,
+                    crate::condition::ConditionData::Damage { total_rank, .. } => total_rank,
                     _ => 0,
                 };
                 if strength > 0 {
@@ -556,10 +558,10 @@ impl GameWorld {
                     target_id.data().as_ffi(),
                     attack_roll,
                     defense_roll,
-                    armor_roll,
+                    armor_value,
                     dmg,
                     hp_before,
-                    hp_after,
+                    _hp_after,
                     earliest,
                 );
             }

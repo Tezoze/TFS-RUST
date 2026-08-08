@@ -11,9 +11,6 @@ use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::player::flags::PLAYER_FLAG_CANNOT_BE_MUTED;
 
-/// Poison strength decay per round — `TSkillPoison::FactorPercent` default `0x32` (`crskill.cc:1052`).
-const POISON_DECAY_PERCENT: i32 = 50;
-
 impl GameWorld {
     /// C++ `ProcessSkills` — tick timer-skills for every creature (`crmain.cc:1130-1139`).
     ///
@@ -103,7 +100,9 @@ impl GameWorld {
     }
 
     fn process_creature_skills(&mut self, cid: CreatureId) {
-        let mut dot_events: Vec<(Option<CreatureId>, CombatType, i32)> = Vec::new();
+        // C2 — Track which condition index fired an Event for field re-extension.
+        // (origin, combat_type, dmg, condition_index_for_field_extend)
+        let mut dot_events: Vec<(Option<CreatureId>, CombatType, i32, Option<usize>)> = Vec::new();
         let mut remove_indices: Vec<usize> = Vec::new();
         let mut ended_ctypes: Vec<ConditionType> = Vec::new();
 
@@ -161,7 +160,7 @@ impl GameWorld {
                         } else {
                             base.energy_damage_origin
                         };
-                        dot_events.push((origin, combat, dmg));
+                        dot_events.push((origin, combat, dmg, Some(idx)));
                         if ticks_left <= 1 {
                             remove_indices.push(idx);
                             ended_ctypes.push(cond.ctype);
@@ -176,19 +175,23 @@ impl GameWorld {
                         if cond.skill_count > 0 {
                             continue;
                         }
-                        if let ConditionData::Damage { total_rank } = cond.data {
+                        if let ConditionData::Damage { total_rank, factor_percent } = cond.data {
                             if total_rank <= 0 {
                                 remove_indices.push(idx);
                                 ended_ctypes.push(cond.ctype);
                                 continue;
                             }
-                            // 772 Event: instant `DAMAGE_POISON` + `PoisonDamageOrigin`.
-                            dot_events.push((base.poison_damage_origin, CombatType::Earth, total_rank));
-                            let next = (total_rank * POISON_DECAY_PERCENT) / 100;
-                            if next <= 0 {
-                                remove_indices.push(idx);
-                                ended_ctypes.push(cond.ctype);
+                            // 772 `TSkillPoison::Process` (`crskill.cc:977-984`):
+                            // `Range = (Cycle * FactorPercent) / 1000`; floor to ±1 when 0.
+                            // FactorPercent defaults to 50 → 5% of pool per Event.
+                            let fp = if factor_percent > 0 { factor_percent } else { 50 };
+                            let mut range = (total_rank * fp) / 1000;
+                            if range == 0 {
+                                range = if total_rank > 0 { 1 } else { -1 };
                             }
+                            // 772 Event: `Damage(origin, abs(Range), DAMAGE_POISON)`
+                            // (`crskill.cc:1024-1028`).
+                            dot_events.push((base.poison_damage_origin, CombatType::Earth, range.abs(), Some(idx)));
                         }
                     }
                     ConditionType::Haste | ConditionType::Paralyze => {
@@ -220,7 +223,7 @@ impl GameWorld {
             }
         }
 
-        for (origin, combat, dmg) in dot_events {
+        for (origin, combat, dmg, cond_idx) in dot_events {
             if dmg <= 0 {
                 continue;
             }
@@ -231,20 +234,38 @@ impl GameWorld {
             // 772 `TSkillHitpoints::Set` → `SendPlayerData` (`crskill.cc:682-683`).
             // Snapshot before apply — death may remove the creature.
             let snap = self.combat_notify_snapshot(cid);
-            let hp_before = self
-                .creatures
-                .get(cid)
-                .map(|k| k.base().health)
-                .unwrap_or(0);
-            let _ = self.combat_execute_with_stimulus(origin, cid, &damage, &CombatParams::default());
-            let hp_after = self
-                .creatures
-                .get(cid)
-                .map(|k| k.base().health)
-                .unwrap_or(0);
-            let damage_done = (hp_before - hp_after).max(0);
+            let damage_scalar = self.combat_execute_with_stimulus(origin, cid, &damage, &CombatParams::default());
+            // M2 — Use the real `Damage` scalar (includes mana-shield absorb).
+            let damage_done = damage_scalar;
             if let Some(snap) = snap {
                 self.notify_player_combat_damage(origin, cid, damage_done, combat, snap);
+            }
+
+            // C2 — Field re-extension: 772 `TSkillPoison/Burning/Energy::Event` scans the
+            // creature's tile for a matching AVOID field and increments `Cycle += 1`
+            // (`crskill.cc:1030-1045,1062-1077,1088-1103`). This keeps the DoT alive while
+            // the creature stands on the field. Only extend if the creature survived.
+            if let Some(idx) = cond_idx {
+                if self.creatures.get(cid).is_some() {
+                    let field_kind = match combat {
+                        CombatType::Fire => Some(tfs_rust_content::items::FieldDamageType::Fire),
+                        CombatType::Energy => Some(tfs_rust_content::items::FieldDamageType::Energy),
+                        CombatType::Earth => Some(tfs_rust_content::items::FieldDamageType::Poison),
+                        _ => None,
+                    };
+                    if let Some(kind) = field_kind {
+                        if self.creature_standing_on_field(cid, kind) {
+                            if let Some(kind) = self.creatures.get_mut(cid) {
+                                let base = kind.base_mut();
+                                if let Some(cond) = base.active_conditions.get_mut(idx) {
+                                    if let Some(left) = cond.timer_rounds_left.as_mut() {
+                                        *left += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -296,8 +317,15 @@ impl GameWorld {
                             cond.skill_count -= 1;
                         } else {
                             cond.skill_count = cond.skill_max_count;
-                            if let ConditionData::Damage { total_rank } = &mut cond.data {
-                                *total_rank = (*total_rank * POISON_DECAY_PERCENT) / 100;
+                            // 772 `TSkillPoison::Process` (`crskill.cc:983`): `Cycle -= Range`.
+                            // Pool drains by exactly the damage dealt this Event.
+                            if let ConditionData::Damage { total_rank, factor_percent } = &mut cond.data {
+                                let fp = if *factor_percent > 0 { *factor_percent } else { 50 };
+                                let mut range = (*total_rank * fp) / 1000;
+                                if range == 0 {
+                                    range = if *total_rank > 0 { 1 } else { -1 };
+                                }
+                                *total_rank -= range;
                             }
                         }
                     }
@@ -511,7 +539,7 @@ mod tests {
                 id: 1,
                 sub_id: 0,
                 ctype: ConditionType::Fire,
-                data: ConditionData::Damage { total_rank: 10 },
+                data: ConditionData::Damage { total_rank: 10, factor_percent: 0 },
                 // Count=0 MaxCount=1 → Event every ProcessSkills (fast unit test).
                 timer_rounds_left: Some(2),
                 skill_count: 0,
@@ -553,7 +581,7 @@ mod tests {
                 id: 1,
                 sub_id: 0,
                 ctype: ConditionType::Fire,
-                data: ConditionData::Damage { total_rank: 10 },
+                data: ConditionData::Damage { total_rank: 10, factor_percent: 0 },
                 timer_rounds_left: Some(3),
                 skill_count: 2,
                 skill_max_count: 2,
@@ -579,7 +607,7 @@ mod tests {
     }
 
     #[test]
-    fn poison_decays_strength_each_round() {
+    fn poison_drains_pool_by_factor_percent_per_event() {
         let mut world = beat_driven_test_world();
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, 150);
@@ -589,7 +617,7 @@ mod tests {
             id: 1,
             sub_id: 0,
             ctype: ConditionType::Poison,
-            data: ConditionData::Damage { total_rank: 20 },
+            data: ConditionData::Damage { total_rank: 20, factor_percent: 50 },
             timer_rounds_left: None,
             skill_count: 0,
             skill_max_count: 1, // Event every ProcessSkills for this unit test
@@ -600,7 +628,7 @@ mod tests {
                 id: 1,
                 sub_id: 0,
                 ctype: ConditionType::Poison,
-                data: ConditionData::Damage { total_rank: 20 },
+                data: ConditionData::Damage { total_rank: 20, factor_percent: 50 },
                 timer_rounds_left: None,
                 skill_count: 0,
                 skill_max_count: 1,
@@ -617,7 +645,7 @@ mod tests {
             .and_then(|k| {
                 k.base().active_conditions.iter().find_map(|c| {
                     if c.ctype == ConditionType::Poison {
-                        if let ConditionData::Damage { total_rank } = c.data {
+                        if let ConditionData::Damage { total_rank, .. } = c.data {
                             Some(total_rank)
                         } else {
                             None
@@ -628,7 +656,9 @@ mod tests {
                 })
             })
             .unwrap_or(0);
-        assert_eq!(rank, 10, "poison strength should decay 50% per Event");
+        // 772 `TSkillPoison::Process` (`crskill.cc:977`): `Range = (Cycle * 50) / 1000 = 1`.
+        // Pool drains by exactly the damage dealt: 20 - 1 = 19.
+        assert_eq!(rank, 19, "poison pool drains by 5% per Event (factor_percent=50, /1000)");
     }
 
     /// Build a `VocationRegistry` with a single knight vocation (id=4) matching
@@ -850,7 +880,7 @@ mod tests {
             .active_conditions
             .iter()
             .find_map(|c| match (&c.ctype, &c.data) {
-                (ConditionType::Poison, ConditionData::Damage { total_rank }) => Some(*total_rank),
+                (ConditionType::Poison, ConditionData::Damage { total_rank, .. }) => Some(*total_rank),
                 _ => None,
             })
             .expect("strong poison armed");
@@ -873,7 +903,7 @@ mod tests {
             .active_conditions
             .iter()
             .find_map(|c| match (&c.ctype, &c.data) {
-                (ConditionType::Poison, ConditionData::Damage { total_rank }) => Some(*total_rank),
+                (ConditionType::Poison, ConditionData::Damage { total_rank, .. }) => Some(*total_rank),
                 _ => None,
             })
             .expect("poison still present");
@@ -965,7 +995,7 @@ mod tests {
             .active_conditions
             .iter()
             .find_map(|c| match (&c.ctype, &c.data) {
-                (ConditionType::Poison, ConditionData::Damage { total_rank }) => Some(*total_rank),
+                (ConditionType::Poison, ConditionData::Damage { total_rank, .. }) => Some(*total_rank),
                 _ => None,
             })
             .expect("poison armed at full strength");
@@ -982,8 +1012,8 @@ mod tests {
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, 150);
         let mut victim_p = test_player("Victim", pos);
-        victim_p.base.health = 5;
-        victim_p.base.max_health = 5;
+        victim_p.base.health = 1;
+        victim_p.base.max_health = 1;
         let victim = insert_player(&mut world, victim_p);
         let attacker = insert_player(
             &mut world,
@@ -1034,5 +1064,281 @@ mod tests {
                 "poison Event must credit poison_damage_origin"
             );
         }
+    }
+
+    /// C1 — 772 `TSkillPoison::Process` (`crskill.cc:977`): `Range = (Cycle * 50) / 1000`.
+    /// Strength 100 → first Event deals 5, pool → 95.
+    #[test]
+    fn poison_event_deals_five_percent_of_pool() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let mut p = test_player("Pool", pos);
+        p.base.health = 1000;
+        p.base.max_health = 1000;
+        let player = insert_player(&mut world, p);
+
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.active_conditions.push(ActiveCondition {
+                id: 1,
+                sub_id: 0,
+                ctype: ConditionType::Poison,
+                data: ConditionData::Damage { total_rank: 100, factor_percent: 50 },
+                timer_rounds_left: None,
+                skill_count: 0,
+                skill_max_count: 1, // Event every ProcessSkills
+            });
+        }
+        let hp_before = world.creatures.get(player).unwrap().base().health;
+        world.process_skills();
+        let hp_after = world.creatures.get(player).unwrap().base().health;
+        assert_eq!(hp_before - hp_after, 5, "first Event deals 5% of pool (100 * 50 / 1000)");
+
+        let rank = world
+            .creatures
+            .get(player)
+            .and_then(|k| {
+                k.base().active_conditions.iter().find_map(|c| {
+                    if c.ctype == ConditionType::Poison {
+                        if let ConditionData::Damage { total_rank, .. } = c.data {
+                            Some(total_rank)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+            })
+            .unwrap_or(0);
+        assert_eq!(rank, 95, "pool drains by exactly the damage dealt: 100 - 5 = 95");
+    }
+
+    /// C1 — Total lifetime damage equals the initial poison strength.
+    /// Strength 100 → sum of all Events == 100 (±1 from the `Range == 0 → 1` floor).
+    #[test]
+    fn poison_total_lifetime_damage_equals_initial_strength() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let mut p = test_player("Lifetime", pos);
+        p.base.health = 10000;
+        p.base.max_health = 10000;
+        let player = insert_player(&mut world, p);
+
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.active_conditions.push(ActiveCondition {
+                id: 1,
+                sub_id: 0,
+                ctype: ConditionType::Poison,
+                data: ConditionData::Damage { total_rank: 100, factor_percent: 50 },
+                timer_rounds_left: None,
+                skill_count: 0,
+                skill_max_count: 1, // Event every ProcessSkills
+            });
+        }
+        let hp_start = world.creatures.get(player).unwrap().base().health;
+        // Tick until the poison condition is removed (pool exhausted).
+        for _ in 0..200 {
+            world.process_skills();
+            let still_poisoned = world
+                .creatures
+                .get(player)
+                .map(|k| {
+                    k.base()
+                        .active_conditions
+                        .iter()
+                        .any(|c| c.ctype == ConditionType::Poison)
+                })
+                .unwrap_or(false);
+            if !still_poisoned {
+                break;
+            }
+        }
+        let hp_end = world.creatures.get(player).unwrap().base().health;
+        let total_damage = hp_start - hp_end;
+        // 772: total lifetime damage == initial strength (pool drains by exactly the damage dealt).
+        // The `Range == 0 → 1` floor can cause ±1 drift when the pool reaches very small values.
+        assert!(
+            (total_damage - 100).abs() <= 1,
+            "total lifetime damage ~100 (got {total_damage})"
+        );
+    }
+
+    /// C2 — Standing on a fire field extends the burning DoT cycle.
+    /// 772 `TSkillBurning::Event` scans the tile for AVOID+DAMAGE_FIRE and does
+    /// `Cycle += 1` (`crskill.cc:1062-1077`). Without re-extension, the fire condition
+    /// expires after the initial cycle count; with it, the creature keeps burning while
+    /// standing on the field.
+    #[test]
+    fn standing_on_fire_field_extends_burning_cycle() {
+        use std::sync::Arc;
+        use tfs_rust_content::otb::ItemType;
+
+        let mut world = beat_driven_test_world();
+        // Register a fire field item type (1487 = fire field in stock data).
+        let mut db = (*world.items_db).clone();
+        let mut it = ItemType::default();
+        it.server_id = 1487;
+        it.type_tag = 6; // ITEM_TYPE_MAGICFIELD
+        it.xml_attributes
+            .insert("field".into(), "fire".into());
+        it.xml_attributes
+            .insert("field.initdamage".into(), "0".into());
+        it.xml_attributes
+            .insert("field.cycles".into(), "2".into());
+        it.xml_attributes
+            .insert("replacemagicfields".into(), "true".into());
+        db.items.insert(1487, it);
+        world.items_db = Arc::new(db);
+
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let mut p = test_player("Pyro", pos);
+        p.base.health = 10000;
+        p.base.max_health = 10000;
+        let player = insert_player(&mut world, p);
+        world.map.register_creature_at(pos, player);
+
+        // Place the fire field — apply_magic_field_to_tile_creatures arms the DoT.
+        let iid = world.items.insert(crate::item::Item::new_single(1487));
+        world
+            .internal_add_item_to_tile(
+                pos,
+                iid,
+                crate::cylinder::CylinderFlags::NONE,
+            )
+            .expect("place fire field");
+
+        // DoT should be armed.
+        let cond = world
+            .creatures
+            .get(player)
+            .unwrap()
+            .base()
+            .active_conditions
+            .iter()
+            .find(|c| c.ctype == ConditionType::Fire)
+            .expect("fire condition armed");
+        let initial_cycle = cond.timer_rounds_left.expect("cycle set");
+
+        // Tick enough times to exhaust the initial cycle (2 ticks).
+        // Each process_skills with skill_count=0 fires an Event.
+        for _ in 0..10 {
+            world.process_skills();
+        }
+
+        // Without C2, the fire condition would have expired.
+        // With C2, the creature is still burning because the field re-extends the cycle.
+        let still_burning = world
+            .creatures
+            .get(player)
+            .is_some_and(|k| {
+                k.base()
+                    .active_conditions
+                    .iter()
+                    .any(|c| c.ctype == ConditionType::Fire)
+            });
+        assert!(
+            still_burning,
+            "fire condition must persist while standing on a fire field (C2 re-extension)"
+        );
+
+        // Verify the cycle was extended beyond the initial value.
+        let cond = world
+            .creatures
+            .get(player)
+            .unwrap()
+            .base()
+            .active_conditions
+            .iter()
+            .find(|c| c.ctype == ConditionType::Fire)
+            .expect("fire still active");
+        let current_cycle = cond.timer_rounds_left.expect("cycle still set");
+        assert!(
+            current_cycle >= initial_cycle,
+            "cycle must not decrease below initial while on field (got {current_cycle}, initial {initial_cycle})"
+        );
+    }
+
+    /// C2 — After stepping off a fire field, the DoT expires normally.
+    /// Re-extension only happens while standing on the field.
+    #[test]
+    fn fire_dot_expires_after_leaving_field() {
+        use std::sync::Arc;
+        use tfs_rust_content::otb::ItemType;
+
+        let mut world = beat_driven_test_world();
+        let mut db = (*world.items_db).clone();
+        let mut it = ItemType::default();
+        it.server_id = 1487;
+        it.type_tag = 6; // ITEM_TYPE_MAGICFIELD
+        it.xml_attributes
+            .insert("field".into(), "fire".into());
+        it.xml_attributes
+            .insert("field.initdamage".into(), "0".into());
+        it.xml_attributes
+            .insert("field.cycles".into(), "2".into());
+        it.xml_attributes
+            .insert("replacemagicfields".into(), "true".into());
+        db.items.insert(1487, it);
+        world.items_db = Arc::new(db);
+
+        let pos = Position::new(100, 100, 7);
+        let away = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        ensure_walkable_tile(&mut world.map, away, 150);
+        let mut p = test_player("Pyro", pos);
+        p.base.health = 10000;
+        p.base.max_health = 10000;
+        let player = insert_player(&mut world, p);
+        world.map.register_creature_at(pos, player);
+
+        // Place the fire field and arm the DoT.
+        let iid = world.items.insert(crate::item::Item::new_single(1487));
+        world
+            .internal_add_item_to_tile(
+                pos,
+                iid,
+                crate::cylinder::CylinderFlags::NONE,
+            )
+            .expect("place fire field");
+
+        // Tick once to confirm DoT is active.
+        world.process_skills();
+        assert!(world
+            .creatures
+            .get(player)
+            .unwrap()
+            .base()
+            .active_conditions
+            .iter()
+            .any(|c| c.ctype == ConditionType::Fire));
+
+        // Remove the field — simulate it expiring or being cleared.
+        let _ = world.internal_remove_item_from_tile(pos, iid, u16::MAX);
+
+        // Tick enough times — the DoT should expire without re-extension.
+        let mut expired = false;
+        for _ in 0..20 {
+            world.process_skills();
+            let still_burning = world
+                .creatures
+                .get(player)
+                .is_some_and(|k| {
+                    k.base()
+                        .active_conditions
+                        .iter()
+                        .any(|c| c.ctype == ConditionType::Fire)
+                });
+            if !still_burning {
+                expired = true;
+                break;
+            }
+        }
+        assert!(
+            expired,
+            "fire DoT must expire after the field is removed (no re-extension)"
+        );
     }
 }

@@ -541,8 +541,20 @@ pub fn experience_for_level_poly(level: i64, delta: i64) -> i64 {
 /// 772 distributes experience proportionally to damage dealt across the (up to 20-entry)
 /// `CombatList` (`crcombat.cc:891–905`). Returns each sharer's exp in input order; integer
 /// floor per share (remainder is dropped, matching integer C++ division).
-pub fn distribute_experience(total_exp: u64, damage_shares: &[u64]) -> Vec<u64> {
-    let total_damage: u64 = damage_shares.iter().sum();
+///
+/// M8 — `combat_damage_denominator` is the monotonic `TCombat::CombatDamage` accumulator
+/// (`crcombat.cc:863`), which includes damage from attackers evicted from the 20-slot ring
+/// and from attackers that died before the victim. C++ divides by this, not by the sum of
+/// surviving ring entries, so it can legitimately pay out less than 100% of `Exp`.
+/// When `None`, falls back to `damage_shares.iter().sum()` (legacy behavior).
+pub fn distribute_experience(
+    total_exp: u64,
+    damage_shares: &[u64],
+    combat_damage_denominator: Option<u64>,
+) -> Vec<u64> {
+    let total_damage: u64 = combat_damage_denominator
+        .filter(|&d| d > 0)
+        .unwrap_or_else(|| damage_shares.iter().sum());
     if total_damage == 0 || total_exp == 0 {
         return vec![0; damage_shares.len()];
     }
@@ -830,11 +842,27 @@ mod tests {
     #[test]
     fn experience_distribution_is_proportional() {
         // 1000 exp split across damage 30/70 → 300/700.
-        assert_eq!(distribute_experience(1000, &[30, 70]), vec![300, 700]);
+        assert_eq!(distribute_experience(1000, &[30, 70], None), vec![300, 700]);
         // No damage → no exp.
-        assert_eq!(distribute_experience(1000, &[0, 0]), vec![0, 0]);
+        assert_eq!(distribute_experience(1000, &[0, 0], None), vec![0, 0]);
         // Single sharer takes all (integer floor).
-        assert_eq!(distribute_experience(999, &[5]), vec![999]);
+        assert_eq!(distribute_experience(999, &[5], None), vec![999]);
+    }
+
+    /// M8 — `combat_damage` denominator includes evicted/dead attacker damage, so payout
+    /// can be < 100% of Exp. With shares 30+70=100 but denominator 200, each share is
+    /// halved: 1000 * 30/200 = 150, 1000 * 70/200 = 350.
+    #[test]
+    fn experience_distribution_uses_combat_damage_denominator() {
+        assert_eq!(
+            distribute_experience(1000, &[30, 70], Some(200)),
+            vec![150, 350]
+        );
+        // Denominator of 0 falls back to sum of shares.
+        assert_eq!(
+            distribute_experience(1000, &[30, 70], Some(0)),
+            vec![300, 700]
+        );
     }
 
     #[test]

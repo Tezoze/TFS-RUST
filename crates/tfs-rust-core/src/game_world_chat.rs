@@ -1580,7 +1580,7 @@ pub(crate) fn active_condition_from_apply_spec(
                 3
             };
             (
-                ConditionData::Damage { total_rank: rank },
+                ConditionData::Damage { total_rank: rank, factor_percent: 50 },
                 Some(rank),
                 interval,
                 interval,
@@ -1605,7 +1605,7 @@ pub(crate) fn active_condition_from_apply_spec(
             };
             let rank = spec.cycle.abs();
             let data = if rank > 0 {
-                ConditionData::Damage { total_rank: rank }
+                ConditionData::Damage { total_rank: rank, factor_percent: 0 }
             } else {
                 ConditionData::Generic { ticks: spec.ticks }
             };
@@ -1766,7 +1766,7 @@ mod apply_spec_tests {
         };
         let cond = active_condition_from_apply_spec(&spec);
         assert_eq!(cond.ctype, ConditionType::Poison);
-        assert_eq!(cond.data, ConditionData::Damage { total_rank: 40 });
+        assert_eq!(cond.data, ConditionData::Damage { total_rank: 40, factor_percent: 50 });
     }
 
     #[test]

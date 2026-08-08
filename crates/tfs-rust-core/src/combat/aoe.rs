@@ -16,7 +16,6 @@ use tfs_rust_common::enums::{CombatType, ConditionType, WorldType, ZoneType};
 use tfs_rust_common::Position;
 use tfs_rust_lua::CombatExecuteRequest;
 
-use crate::combat::math::armor_reduction;
 use crate::combat::{apply_condition, CombatDamage, CombatParams};
 use crate::creature::{roll_target_defense, CreatureKind};
 use crate::cylinder::CylinderFlags;
@@ -34,8 +33,13 @@ impl GameWorld {
     /// TFS domain: `COMBAT_PARAM_BLOCKSHIELD` / `BLOCKARMOR`. Shared by Lua AoE and
     /// monster CASTING (`AllowDefense=true` always for physical impacts).
     ///
-    /// Returns non-negative remaining magnitude after defense/armor. Broadcasts poff (3)
-    /// or spark (4) when fully absorbed.
+    /// H1 — Armor is no longer subtracted here; it is returned as `Some(armor)` for the
+    /// caller to pass via `CombatParams::armor` so `combat_execute_with_stimulus` applies
+    /// it after PvP-half/absorb (`crmain.cc:624-630`). Defense is still rolled here (C++
+    /// `GetDefendDamage` runs before `Damage()`).
+    ///
+    /// Returns `(post-defense magnitude, optional armor value)`. Broadcasts poff (3)
+    /// when defense fully absorbs.
     pub(crate) fn mitigate_physical_spell_damage(
         &mut self,
         target_id: CreatureId,
@@ -43,16 +47,16 @@ impl GameWorld {
         raw_magnitude: i32,
         block_shield: bool,
         block_armor: bool,
-    ) -> i32 {
+    ) -> (i32, Option<i32>) {
         let mut abs_dmg = raw_magnitude.abs();
         if abs_dmg <= 0 {
-            return 0;
+            return (0, None);
         }
         let profile = self.mechanics.profile;
         let server_ms = self.server_ms;
         let mut defense_snap = self.melee_defense_snapshot_for(target_id);
-        let mut defense_roll = 0i32;
         if block_shield {
+            let defense_roll;
             let defense_gate_passed = self
                 .creatures
                 .get(target_id)
@@ -77,25 +81,13 @@ impl GameWorld {
             }
             abs_dmg = (abs_dmg - defense_roll).max(0);
         }
-        if block_armor {
-            let armor_roll = armor_reduction(
-                &profile,
-                &self.mechanics.hooks,
-                defense_snap.armor,
-                &self.parity_rng,
-            );
-            abs_dmg = (abs_dmg - armor_roll.max(0)).max(0);
-        }
+        // H1 — Return armor value for the shared path instead of subtracting here.
+        let armor = if block_armor { Some(defense_snap.armor) } else { None };
         if abs_dmg <= 0 {
-            // Defense >= attack → poff (3); armor absorbed remainder → spark (4).
-            let effect = if block_shield && defense_roll >= raw_magnitude.abs() {
-                3u8
-            } else {
-                4u8
-            };
-            self.broadcast_magic_effect(target_pos, effect);
+            // Defense >= attack → poff (3).
+            self.broadcast_magic_effect(target_pos, 3u8);
         }
-        abs_dmg
+        (abs_dmg, armor)
     }
 }
 
@@ -453,17 +445,19 @@ impl GameWorld {
 
                 // Healing spells (COMBAT_HEALING) use positive deltas; damage uses
                 // negative. 772 `THealingImpact` vs `TDamageImpact` (`magic.cc:210,119`).
+                let mut physical_armor: Option<i32> = None;
                 let signed_value = if combat_type == CombatType::Healing {
                     value.max(0)
                 } else if combat_type == CombatType::Physical {
                     // Shared with monster CASTING — `mitigate_physical_spell_damage`.
-                    let abs_dmg = self.mitigate_physical_spell_damage(
+                    let (abs_dmg, armor) = self.mitigate_physical_spell_damage(
                         target_id,
                         target_pos,
                         value,
                         block_shield,
                         block_armor,
                     );
+                    physical_armor = armor;
                     -abs_dmg
                 } else {
                     -value.abs()
@@ -478,6 +472,7 @@ impl GameWorld {
                     primary_type: combat_type,
                     dispel: None,
                     apply_condition: None,
+                    armor: physical_armor,
                 };
 
                 self.combat_execute_with_stimulus(caster_id, target_id, &damage, &params);

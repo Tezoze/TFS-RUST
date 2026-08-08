@@ -104,7 +104,8 @@ impl ReturnValue {
             ReturnValue::DestinationOutOfReach => "Destination is out of range.",
             ReturnValue::NotMoveable => "You cannot move this object.",
             ReturnValue::DropTwoHandedItem => "Drop the double-handed object first.",
-            ReturnValue::BothHandsNeedToBeFree => "Both hands need to be free.",
+            // L8 — 772 `sending.cc:304-308` uses "have to be" not "need to be".
+            ReturnValue::BothHandsNeedToBeFree => "Both hands have to be free.",
             ReturnValue::CannotBeDressed => "You cannot dress this object there.",
             ReturnValue::PutThisObjectInYourHand => "Put this object in your hand.",
             ReturnValue::PutThisObjectInBothHands => "Put this object in both hands.",

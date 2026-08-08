@@ -1121,7 +1121,7 @@ pub fn sim_player_damage_monster(
             secondary: (CombatType::Physical, 0),
         },
         &CombatParams::default(),
-    )
+    ) > 0
 }
 
 pub fn insert_npc(world: &mut GameWorld, name: &str, pos: Position, speed: i32) -> CreatureId {

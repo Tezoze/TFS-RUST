@@ -609,11 +609,15 @@ impl GameWorld {
             let Some(CreatureKind::Player(v)) = self.creatures.get(victim) else {
                 return;
             };
-            crate::death::death_loss_fraction(
+            let promoted = v.vocation_profile.from_vocation != v.vocation_profile.id
+                && v.vocation_profile.from_vocation != 0;
+            crate::death::death_loss_fraction_for_profile(
+                &profile,
                 self.config.as_ref(),
                 v.level,
                 v.experience,
                 v.blessings,
+                promoted,
             )
             .clamp(0.0, 1.0)
         };
@@ -632,7 +636,10 @@ impl GameWorld {
     /// PC-5 M7 — amulet of loss + inventory drop onto dead-human corpse.
     ///
     /// C++ `crmain.cc:790-815` (AoL → `LOSE_INVENTORY_NONE` + delete amulet);
-    /// `crmain.cc:267-281` (`LOSE_INVENTORY_SOME`: containers always, else 10% chance).
+    /// `crmain.cc:267-281` drop logic: `LOSE_INVENTORY_ALL` drops everything,
+    /// `LOSE_INVENTORY_SOME` drops containers always + 10% chance per slot.
+    /// `crplayer.cc:292,296-300`: `LOSE_INVENTORY_ALL` when red skull
+    /// (`PlayerkillerEnd != 0`); `LOSE_INVENTORY_NONE` under `KEEP_INVENTORY` right.
     /// Corpse type `3128` (dead human). Default player mode is SOME (`crplayer.cc:30`).
     ///
     /// AoL only when the killing blow was exact (`Damage == HitPoints`) — overkill skips it.
@@ -641,13 +648,24 @@ impl GameWorld {
         const AMULET_OF_LOSS: u16 = 2173;
         const DEAD_HUMAN_CORPSE: u16 = 3128;
 
-        let (pos, exact_lethal) = match self.creatures.get(victim) {
-            Some(CreatureKind::Player(p)) => (p.base.position, p.exact_lethal_blow),
+        let (pos, exact_lethal, playerkiller_end, keep_inventory) = match self.creatures.get(victim)
+        {
+            Some(CreatureKind::Player(p)) => {
+                let keep = self.player_has_flag(
+                    victim,
+                    crate::player_flags::PLAYER_FLAG_KEEP_INVENTORY,
+                );
+                (p.base.position, p.exact_lethal_blow, p.playerkiller_end, keep)
+            }
             _ => return,
         };
 
-        let mut lose_none = false;
-        if exact_lethal {
+        // M7 — Determine LoseInventory mode (`crplayer.cc:292,296-300`).
+        // KEEP_INVENTORY right → NONE; red skull (PlayerkillerEnd != 0) → ALL; else SOME.
+        let mut lose_none = keep_inventory;
+        let lose_all = !lose_none && playerkiller_end != 0;
+
+        if !lose_none && exact_lethal {
             // 772 loops all inventory slots requiring CLOTHES && BODYPOSITION == slot.
             for slot in crate::inventory::PLAYER_INVENTORY_SLOT_FIRST
                 ..=crate::inventory::PLAYER_INVENTORY_SLOT_LAST
@@ -676,7 +694,7 @@ impl GameWorld {
             }
         }
 
-        // Always create the corpse; items only move when lose mode is SOME.
+        // Always create the corpse; items only move when lose mode is not NONE.
         let corpse_id = self.items.insert(crate::item::Item::new(DEAD_HUMAN_CORPSE, 1));
         self.hydrate_container_if_needed(corpse_id);
         let decay_deadline = self
@@ -694,16 +712,21 @@ impl GameWorld {
             return;
         }
 
-        // LOSE_INVENTORY_SOME — drop containers always, other slots with 1/10 chance.
+        // M7 — LOSE_INVENTORY_ALL drops everything; LOSE_INVENTORY_SOME uses 10% chance
+        // + containers always (`crmain.cc:276-281`).
         for slot in 1u8..=10u8 {
             let Some(iid) = self.get_player_inventory_item(victim, slot) else {
                 continue;
             };
-            let is_container = self
-                .items
-                .get(iid)
-                .is_some_and(|i| self.items_db.is_container(i.item_type));
-            let drop = is_container || self.parity_rand_mod(10) == 0;
+            let drop = if lose_all {
+                true
+            } else {
+                let is_container = self
+                    .items
+                    .get(iid)
+                    .is_some_and(|i| self.items_db.is_container(i.item_type));
+                is_container || self.parity_rand_mod(10) == 0
+            };
             if !drop {
                 continue;
             }
@@ -714,5 +737,125 @@ impl GameWorld {
                 self.move_body_item_into_corpse(corpse_id, iid);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sim_harness::{insert_player, minimal_world, test_player};
+    use tfs_rust_common::Position;
+
+    /// Place a non-container item in a player's inventory slot.
+    fn place_item(world: &mut GameWorld, cid: CreatureId, slot: u8, item_type: u16) -> ItemId {
+        let iid = world.items.insert(crate::item::Item::new(item_type, 1));
+        world
+            .internal_add_item_to_inventory_slot(cid, slot, iid)
+            .expect("place item");
+        iid
+    }
+
+    /// M7 — red skull (PlayerkillerEnd != 0) → LOSE_INVENTORY_ALL: every slot drops.
+    #[test]
+    fn m7_red_skull_drops_all_inventory() {
+        let mut world = minimal_world();
+        let cid = insert_player(
+            &mut world,
+            {
+                let mut p = test_player("RedSkull", Position::new(100, 100, 7));
+                p.playerkiller_end = 1_000_000; // non-zero → red skull
+                p.exact_lethal_blow = false; // no AoL scan
+                p
+            },
+        );
+        let iid1 = place_item(&mut world, cid, 1, 2148); // gold
+        let iid2 = place_item(&mut world, cid, 2, 2148); // gold
+        let iid3 = place_item(&mut world, cid, 5, 2148); // gold
+
+        world.player_death_drop_inventory(cid);
+
+        // All three items should have been removed from inventory (parent changed to corpse).
+        let still_in_inv = [iid1, iid2, iid3]
+            .iter()
+            .filter(|iid| {
+                world
+                    .items
+                    .get(**iid)
+                    .is_some_and(|i| matches!(i.parent, Some(crate::cylinder::Cylinder::Inventory { .. })))
+            })
+            .count();
+        assert_eq!(still_in_inv, 0, "red skull drops all inventory items");
+    }
+
+    /// M7 — KEEP_INVENTORY flag → LOSE_INVENTORY_NONE: no items drop.
+    #[test]
+    fn m7_keep_inventory_flag_drops_nothing() {
+        let mut world = minimal_world();
+        // Register a group with the keepinventory flag.
+        let mut groups = std::collections::HashMap::new();
+        let mut flags = std::collections::HashMap::new();
+        flags.insert("keepinventory".to_string(), true);
+        groups.insert(
+            1u16,
+            tfs_rust_content::groups::Group {
+                id: 1,
+                name: "test".into(),
+                access: true,
+                max_depot_items: 0,
+                max_vip_entries: 0,
+                flags,
+            },
+        );
+        world.groups = std::sync::Arc::new(tfs_rust_content::groups::GroupDatabase { groups });
+
+        let cid = insert_player(
+            &mut world,
+            {
+                let mut p = test_player("Keeper", Position::new(100, 100, 7));
+                p.group_id = 1;
+                p.exact_lethal_blow = false;
+                p
+            },
+        );
+        let iid1 = place_item(&mut world, cid, 1, 2148);
+        let iid2 = place_item(&mut world, cid, 5, 2148);
+
+        world.player_death_drop_inventory(cid);
+
+        // Both items should still be in inventory.
+        for iid in [iid1, iid2] {
+            let in_inv = world
+                .items
+                .get(iid)
+                .is_some_and(|i| matches!(i.parent, Some(crate::cylinder::Cylinder::Inventory { .. })));
+            assert!(in_inv, "KEEP_INVENTORY flag preserves item in inventory");
+        }
+    }
+
+    /// M7 — default (no red skull, no KEEP_INVENTORY) → LOSE_INVENTORY_SOME:
+    /// containers always drop, other slots 1/10 chance.
+    #[test]
+    fn m7_default_mode_is_some_creates_corpse() {
+        let mut world = minimal_world();
+        let cid = insert_player(
+            &mut world,
+            {
+                let mut p = test_player("Normal", Position::new(100, 100, 7));
+                p.playerkiller_end = 0;
+                p.exact_lethal_blow = false;
+                p
+            },
+        );
+        let _iid = place_item(&mut world, cid, 1, 2148);
+
+        world.player_death_drop_inventory(cid);
+
+        // Corpse item 3128 should exist on the tile.
+        let corpse_count = world
+            .items
+            .iter()
+            .filter(|(_, i)| i.item_type == 3128)
+            .count();
+        assert_eq!(corpse_count, 1, "corpse 3128 always created on death");
     }
 }

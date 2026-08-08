@@ -8,7 +8,13 @@ use tfs_rust_common::enums::ConditionType;
 pub enum ConditionData {
     Damage {
         /// Total “strength” for merge comparison (higher replaces when same type+subId).
+        /// For poison this is the damage *pool* that drains by the per-Event damage.
+        /// For fire/energy this is the per-Event damage (fixed).
         total_rank: i32,
+        /// 772 `TSkillPoison::FactorPercent` — per-mille drain rate (default 50 = 5% per Event).
+        /// Clamped 10..1000 (`crskill.cc:1004-1010`). `0` = use default 50 (unused for fire/energy).
+        /// C++ reference: `crskill.cc:977` `Range = (Cycle * FactorPercent) / 1000`.
+        factor_percent: i32,
     },
     Speed {
         /// Flat speed delta (positive = haste, negative = paralyze).
@@ -124,9 +130,10 @@ fn merge_into(existing: &mut ActiveCondition, incoming: &ActiveCondition) {
 
     let mut accept_stronger_poison = false;
     match (&mut existing.data, &incoming.data) {
-        (Damage { total_rank: a }, Damage { total_rank: b }) => {
+        (Damage { total_rank: a, factor_percent: fa }, Damage { total_rank: b, factor_percent: fb }) => {
             if *b > *a {
                 *a = *b;
+                *fa = *fb;
                 existing.id = incoming.id;
                 accept_stronger_poison = true;
             }

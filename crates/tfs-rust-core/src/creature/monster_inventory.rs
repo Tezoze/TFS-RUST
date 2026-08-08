@@ -1030,7 +1030,7 @@ mod tests {
             },
             &CombatParams::default(),
         );
-        assert!(applied, "lethal hit must apply");
+        assert!(applied > 0, "lethal hit must apply");
         assert!(
             world.creatures.get(monster).is_none(),
             "monster must be removed after death hook"

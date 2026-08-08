@@ -1,0 +1,31 @@
+---
+trigger: model_decision
+description: Two-axis versioning (wire vs mechanics) and where new versioned code goes. Era source-of-truth table and conflict rule live in TFS-Core — not repeated here.
+globs: ["crates/tfs-rust-net/**/*.rs", "crates/tfs-rust-core/**/*.rs", "data/formulas/**"]
+---
+
+# Protocol & Mechanics Versioning
+
+Config key: `clientVersion` (`772` | `1098`). **Primary development target: 772** (`config.lua`).
+
+## Two independent axes
+
+| Axis | Selector | What differs |
+|------|----------|--------------|
+| **Wire** | `ProtocolVersion` + `ProtocolCaps` + `ProtocolCodec` | Bytes, opcodes, login, transport |
+| **Mechanics** | `MechanicsProfile` + `data/formulas/<version>.lua` | Combat, walk beat, AI knobs, condition ticks |
+
+One binary, both eras — **no** `if version == 772` in core, **no** `condition_772.rs`-style forks. Domain stays TFS-shaped; only profile/codec switch.
+
+## Where new code goes
+
+- **Game logic** → `tfs-rust-core` — shared, protocol-free, reads `MechanicsProfile` for era constants
+- **Wire bytes** → `tfs-rust-net` codec only — see `TFS-wire-codec`
+- **Balance literals** → `MechanicsProfile` / `data/formulas/*.lua` — see `TFS-mechanics-profile`
+- **DB save format** → shared schema — **not** version-gated (except auth: account number vs name)
+- **NPC scripts** → TFS Lua only (`data/npc/scripts/`) — no `.ndb` engine in Rust
+
+## Naming bans
+
+- No `*_1098` / `*_772` in public APIs — use neutral `*Wire`, `encode_*`, `Codec1098`/`Codec772` impls
+- No version suffix on core functions — era is config + profile, not function name

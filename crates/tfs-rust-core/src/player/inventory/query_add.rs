@@ -78,9 +78,10 @@ fn hand_slot_conflict_ret(
     if !split && opposite.item_id == moving_item_id {
         return ReturnValue::NoError;
     }
-    if opposite.weapon_type == WEAPON_SHIELD && weapon_type == WEAPON_SHIELD {
-        return ReturnValue::CanOnlyUseOneShield;
-    }
+    // L7 — 772 `isWeapon()` (`objects.hh:58-63`) is `WEAPON | BOW | THROW | WAND` — shields
+    // are NOT weapons, so `CheckInventoryDestination`'s `ONEWEAPONONLY` test never fires for
+    // two shields. 772 permits one shield per hand. No defensive benefit either way
+    // (`GetDefendValue` reads only the last hand slot).
     if opposite.weapon_type == WEAPON_NONE
         || weapon_type == WEAPON_NONE
         || opposite.weapon_type == WEAPON_SHIELD
@@ -1066,8 +1067,10 @@ mod tests {
         assert_eq!(ret, ReturnValue::CanOnlyUseOneWeapon);
     }
 
+    /// L7 — 772 allows a shield in each hand (`isWeapon()` excludes shields, so
+    /// `ONEWEAPONONLY` never fires). Two shields → `NoError`.
     #[test]
-    fn dual_shield_blocked() {
+    fn dual_shield_allowed_772() {
         let mut sm: SlotMap<ItemId, ()> = SlotMap::with_key();
         let left_id = sm.insert(());
         let move_id = sm.insert(());
@@ -1086,7 +1089,7 @@ mod tests {
             Some(left),
             None,
         );
-        assert_eq!(ret, ReturnValue::CanOnlyUseOneShield);
+        assert_eq!(ret, ReturnValue::NoError);
     }
 
     #[test]

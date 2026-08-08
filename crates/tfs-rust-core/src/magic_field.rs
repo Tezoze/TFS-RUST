@@ -109,22 +109,12 @@ impl GameWorld {
 
         if init_damage > 0 {
             let snap = self.combat_notify_snapshot(target);
-            let hp_before = self
-                .creatures
-                .get(target)
-                .map(|k| k.base().health)
-                .unwrap_or(0);
             let damage = CombatDamage {
                 primary: (instant_combat, -(init_damage)),
                 secondary: (CombatType::Undefined, 0),
             };
-            self.combat_execute_with_stimulus(None, target, &damage, &CombatParams::default());
-            let hp_after = self
-                .creatures
-                .get(target)
-                .map(|k| k.base().health)
-                .unwrap_or(0);
-            let damage_done = (hp_before - hp_after).max(0);
+            let damage_done = self.combat_execute_with_stimulus(None, target, &damage, &CombatParams::default());
+            // M2 — `damage_done` is the real `Damage` scalar (includes mana-shield absorb).
             if let Some(snap) = snap {
                 self.notify_player_combat_damage(None, target, damage_done, instant_combat, snap);
             }
@@ -172,6 +162,33 @@ impl GameWorld {
             Some(CreatureKind::Npc(_)) => true,
             _ => false,
         }
+    }
+
+    /// C2 — Check if `cid` is standing on a magic field of the given damage type.
+    /// 772 `TSkillPoison/Burning/Energy::Event` scans `GetFirstObject(pos)` for AVOID items
+    /// with matching `AVOIDDAMAGETYPES` (`crskill.cc:1032-1044,1065-1075,1091-1101`).
+    pub(crate) fn creature_standing_on_field(
+        &self,
+        cid: CreatureId,
+        kind: FieldDamageType,
+    ) -> bool {
+        let Some(creature) = self.creatures.get(cid) else {
+            return false;
+        };
+        let pos = creature.base().position;
+        let Some(tile) = self.map.get_tile(pos) else {
+            return false;
+        };
+        let body = tile.body();
+        body.down_items
+            .iter()
+            .chain(body.top_items.iter())
+            .any(|&iid| {
+                let Some(sid) = self.items.get(iid).map(|i| i.item_type) else {
+                    return false;
+                };
+                self.items_db.avoid_damage_type(sid) == Some(kind)
+            })
     }
 
     /// Remove replaceable MAGICFIELD items on `pos` before placing another — TFS

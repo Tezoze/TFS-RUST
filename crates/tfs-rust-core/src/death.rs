@@ -76,6 +76,32 @@ pub fn death_loss_fraction(
     (base * (1.0 - reduction).max(0.0)).clamp(0.0, 1.0)
 }
 
+/// Era-aware death loss fraction — M6.
+///
+/// 772 (`ClassicProbe`): flat `(promoted ? 7 : 10) - blessings` percent from
+/// `profile.death_penalty` (`crplayer.cc:344-360`).
+/// 1098 (`Modern`): TFS curve via [`death_loss_fraction`].
+pub fn death_loss_fraction_for_profile(
+    profile: &MechanicsProfile,
+    config: &ConfigManager,
+    level: i32,
+    experience: u64,
+    blessings: i8,
+    promoted: bool,
+) -> f64 {
+    match profile.damage_formula {
+        crate::formulas::DamageFormula::ClassicProbe => {
+            profile
+                .death_penalty
+                .loss_fraction(promoted, blessing_count(blessings))
+                .clamp(0.0, 1.0)
+        }
+        crate::formulas::DamageFormula::Modern => {
+            death_loss_fraction(config, level, experience, blessings)
+        }
+    }
+}
+
 /// One player who received a positive XP share from a death.
 #[derive(Debug, Clone, Copy)]
 pub struct XpShareGrant {
@@ -144,10 +170,21 @@ pub fn handle_creature_death(
     };
     let is_pvp_kill = pvp_pool.is_some();
 
-    // Player victim: experience loss with bless reduction (PC-5 M7). Skill tries are
-    // applied earlier via `GameWorld::apply_player_death_penalties`.
+    // Player victim: experience loss with bless reduction (PC-5 M7, M6 era-gated).
+    // 772 uses flat `(promoted ? 7 : 10) - blessings` percent; 1098 uses TFS curve.
+    // Skill try loss is applied earlier via `GameWorld::apply_player_death_penalties`.
     if let Some(CreatureKind::Player(v)) = creatures.get_mut(victim) {
-        let frac = death_loss_fraction(config, v.level, v.experience, v.blessings).clamp(0.0, 1.0);
+        let promoted = v.vocation_profile.from_vocation != v.vocation_profile.id
+            && v.vocation_profile.from_vocation != 0;
+        let frac = death_loss_fraction_for_profile(
+            mechanics,
+            config,
+            v.level,
+            v.experience,
+            v.blessings,
+            promoted,
+        )
+        .clamp(0.0, 1.0);
         let lose = ((v.experience as f64) * frac).floor() as u64;
         let old_level = v.level;
         if lose > 0 && v.remove_experience(lose, step_speed_model) {
@@ -179,7 +216,11 @@ pub fn handle_creature_death(
     killer_entries.sort_by_key(|(id, _)| *id);
 
     let shares: Vec<u64> = killer_entries.iter().map(|(_, dmg)| *dmg).collect();
-    let grants = distribute_experience(exp_reward, &shares);
+    // M8 — Use the monotonic `CombatDamage` accumulator as the denominator (C++
+    // `DistributeExperiencePoints` `crcombat.cc:906-921`), not the re-sumed surviving ring.
+    // This includes damage from evicted/dead attackers, so payout can be < 100% of Exp.
+    let combat_damage = damage_map.combat_damage;
+    let grants = distribute_experience(exp_reward, &shares, Some(combat_damage));
 
     for ((killer_id, _), share) in killer_entries.iter().zip(grants) {
         let share = if is_pvp_kill {
@@ -446,5 +487,109 @@ mod tests {
         let profile = MechanicsProfile::for_version(tfs_rust_common::ProtocolVersion::V772);
         assert_eq!(pvp_kill_experience_amount(&profile, 100, 110, 1000), 0);
         assert_eq!(pvp_kill_experience_amount(&profile, 100, 100, 1000), 100);
+    }
+
+    // M6 — 772 flat death penalty: (promoted ? 7 : 10) - blessings percent.
+
+    fn world_772() -> crate::game_world::GameWorld {
+        let mut world = minimal_world();
+        world.mechanics.profile =
+            MechanicsProfile::for_version(tfs_rust_common::ProtocolVersion::V772);
+        world
+    }
+
+    #[test]
+    fn m6_death_penalty_flat_772_unpromoted_10_percent() {
+        let mut world = world_772();
+        let cid = insert_player(
+            &mut world,
+            {
+                let mut p = test_player("Vic", Position::new(100, 100, 7));
+                p.experience = 10_000;
+                p.level = 20;
+                p.blessings = 0;
+                p
+            },
+        );
+        let (_, grants) = death_call(&mut world, cid, WorldType::Pvp);
+        let grant = grants.iter().find(|g| g.cid == cid).expect("victim grant");
+        // 10% of 10_000 = 1_000 exp lost → level may drop; check exp delta via grant levels.
+        // The grant amount is 0 (loss path); verify exp was reduced.
+        let exp = match world.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.experience,
+            _ => panic!("victim missing"),
+        };
+        assert_eq!(exp, 9_000, "unpromoted 772 death loses 10% exp");
+        let _ = grant;
+    }
+
+    #[test]
+    fn m6_death_penalty_flat_772_promoted_7_percent() {
+        let mut world = world_772();
+        let cid = insert_player(
+            &mut world,
+            {
+                let mut p = test_player("Vic", Position::new(100, 100, 7));
+                p.experience = 10_000;
+                p.level = 20;
+                p.blessings = 0;
+                // Promoted: from_vocation != id && from_vocation != 0.
+                p.vocation_profile.from_vocation = 1;
+                p.vocation_profile.id = 5;
+                p
+            },
+        );
+        let _ = death_call(&mut world, cid, WorldType::Pvp);
+        let exp = match world.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.experience,
+            _ => panic!("victim missing"),
+        };
+        assert_eq!(exp, 9_300, "promoted 772 death loses 7% exp");
+    }
+
+    #[test]
+    fn m6_death_penalty_flat_772_blessings_reduce() {
+        let mut world = world_772();
+        let cid = insert_player(
+            &mut world,
+            {
+                let mut p = test_player("Vic", Position::new(100, 100, 7));
+                p.experience = 10_000;
+                p.level = 20;
+                p.blessings = 0b00111; // 3 blessings
+                p
+            },
+        );
+        let _ = death_call(&mut world, cid, WorldType::Pvp);
+        let exp = match world.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.experience,
+            _ => panic!("victim missing"),
+        };
+        // 10% - 3 = 7% → lose 700.
+        assert_eq!(exp, 9_300, "3 blessings reduce 772 loss to 7%");
+    }
+
+    #[test]
+    fn m6_death_penalty_flat_772_promoted_with_all_blessings_zero() {
+        let mut world = world_772();
+        let cid = insert_player(
+            &mut world,
+            {
+                let mut p = test_player("Vic", Position::new(100, 100, 7));
+                p.experience = 10_000;
+                p.level = 20;
+                p.blessings = 0b11111; // 5 blessings
+                p.vocation_profile.from_vocation = 1;
+                p.vocation_profile.id = 5;
+                p
+            },
+        );
+        let _ = death_call(&mut world, cid, WorldType::Pvp);
+        let exp = match world.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.experience,
+            _ => panic!("victim missing"),
+        };
+        // 7% - 5 = 2% → lose 200.
+        assert_eq!(exp, 9_800, "promoted + 5 blessings → 2% loss");
     }
 }

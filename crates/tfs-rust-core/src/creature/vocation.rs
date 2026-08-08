@@ -41,6 +41,8 @@ pub fn experience_to_next_level(level: i32) -> u64 {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct VocationProfile {
     pub id: i32,
+    /// `fromvocation` — base vocation id; `!= id` means promoted (`crplayer.cc:344`).
+    pub from_vocation: i32,
     /// `basespeed` — vocation GoStrength floor (`gameserver/src/player.h` `updateBaseSpeed`).
     pub base_speed: i32,
     /// `gainhp` — HP gain per level (`crplayer.cc:1051` `AddLevel`).
@@ -90,6 +92,7 @@ impl VocationProfile {
         // parity; convert here so `Player.capacity` / level-up stay in centi-oz.
         Self {
             id: d.id as i32,
+            from_vocation: d.from_vocation as i32,
             base_speed: d.base_speed,
             gain_hp: d.gain_hp,
             gain_mana: d.gain_mana,
@@ -118,6 +121,7 @@ impl VocationProfile {
     pub fn none_vocation() -> Self {
         Self {
             id: 0,
+            from_vocation: 0,
             base_speed: 70,
             gain_hp: 5,
             gain_mana: 5,

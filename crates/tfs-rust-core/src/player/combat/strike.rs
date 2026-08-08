@@ -9,14 +9,14 @@
 //! - `TCombat::DelayAttack` — `crcombat.cc:523` (`200` before, `attackspeed` after).
 //! - `TSkillProbe::ProbeValue` — `crskill.cc:535` (`Increase(1)` + `LearningPoints--` while > 0).
 //!
-//! Reuses `combat::math::{weapon_damage, armor_reduction, melee_damage_after_defense_and_armor}`,
-//! `roll_target_defense`, and `combat_execute_with_stimulus` — no parallel player combat math
-//! module (`tfs-code-hygiene.md`). Era knobs flow through `MechanicsProfile`/`FormulaHooks`;
+//! Reuses `combat::math::weapon_damage`, `roll_target_defense`, and
+//! `combat_execute_with_stimulus` — no parallel player combat math module
+//! (`tfs-code-hygiene.md`). Era knobs flow through `MechanicsProfile`/`FormulaHooks`;
 //! per-vocation `formula.melee_damage` from the cached `VocationProfile` snapshot.
 
 use tfs_rust_common::enums::CombatType;
 
-use crate::combat::math::{armor_reduction, melee_damage_after_defense_and_armor, weapon_damage};
+use crate::combat::math::weapon_damage;
 use crate::combat::{CombatDamage, CombatParams};
 use crate::creature::{roll_target_defense, CreatureKind};
 use crate::game_world::GameWorld;
@@ -56,7 +56,13 @@ impl GameWorld {
                     } else {
                         1.0
                     },
-                    p.vocation_profile.attack_speed_ms as u64,
+                    // M3 — Use `combat::math::attack_speed_ms` so `MechanicsProfile` /
+                    // Tier-2 `getAttackSpeed` hook is respected (`crcombat.cc:641`).
+                    crate::combat::math::attack_speed_ms(
+                        &profile,
+                        &self.mechanics.hooks,
+                        p.vocation_profile.attack_speed_ms as i32,
+                    ) as u64,
                     p.base.learning_points > 0,
                 ),
                 _ => return,
@@ -120,10 +126,9 @@ impl GameWorld {
             None => return,
         };
 
-        // Armor mitigation — applied inside `Damage(PHYSICAL)` in C++ (`crcombat.cc:302`);
-        // here it feeds `melee_damage_after_defense_and_armor` so the shared physical path
-        // (`combat_execute_with_stimulus`) receives the post-armor HP delta.
-        let armor_roll = armor_reduction(&profile, hooks, defense_snap.armor, &self.parity_rng);
+        // H1 — Armor is now applied in the shared path (`combat_execute_with_stimulus`) after
+        // PvP-half/absorb, matching C++ `crmain.cc:624-630`. Pass the raw armor value via
+        // `CombatParams`; the caller no longer pre-rolls.
         // TFS `addSkillAdvance` → `sendSkills()` + advance text — after `hooks` is last used.
         if skill_trained {
             self.notify_skill_tries_gained(cid, atk_skill_nr, levels_gained);
@@ -135,7 +140,7 @@ impl GameWorld {
         if defense_gate_passed {
             self.player_shield_wearout(target_id);
         }
-        let dmg = melee_damage_after_defense_and_armor(attack_roll, defense_roll, armor_roll);
+        let dmg = (attack_roll - defense_roll).max(0);
 
         // Poff / spark effects — C++ `TCreature::Damage` (`crmain.cc:577-579, 624-628`):
         // `Damage <= 0` (defense >= attack) → `EFFECT_POFF` (3); physical + armor absorbs all
@@ -162,21 +167,28 @@ impl GameWorld {
             .get(target_id)
             .map(|k| k.base().health)
             .unwrap_or(0);
-        let _ = self.combat_execute_with_stimulus(
+        let damage_scalar = self.combat_execute_with_stimulus(
             Some(cid),
             target_id,
             &CombatDamage {
                 primary: (CombatType::Physical, -dmg),
                 secondary: (CombatType::Physical, 0),
             },
-            &CombatParams::default(),
+            &CombatParams {
+                armor: Some(defense_snap.armor),
+                ..CombatParams::default()
+            },
         );
+        // M2 — `combat_execute_with_stimulus` returns the real `Damage` scalar (C++ `return
+        // Damage`), including mana-shield absorb. Use it for `ActivateLearning` and damage
+        // text instead of the HP delta (which is 0 when mana absorbs everything).
+        let damage_done = damage_scalar;
         // `combat_execute_with_stimulus` calls `apply_creature_death` when HP ≤ 0, which
         // removes the target from `world.creatures`. So a missing key means the target died
-        // on this strike — `hp_after = 0` so `damage_done` reflects the killing blow and the
-        // `StopAttack` branch below fires (`crcombat.cc:656`).
+        // on this strike — `hp_after = 0` so the `StopAttack` branch below fires
+        // (`crcombat.cc:656`).
         let target_alive = self.creatures.contains_key(target_id);
-        let hp_after = if target_alive {
+        let _hp_after = if target_alive {
             self.creatures
                 .get(target_id)
                 .map(|k| k.base().health)
@@ -184,7 +196,6 @@ impl GameWorld {
         } else {
             0
         };
-        let damage_done = (hp_before - hp_after).max(0);
         if let Some(snap) = notify_snap {
             self.notify_player_combat_damage(Some(cid), target_id, damage_done, CombatType::Physical, snap);
         }
@@ -276,6 +287,10 @@ impl GameWorld {
             let _ = self.internal_remove_item_from_inventory_slot(cid, slot, iid);
             self.items.remove(iid);
             self.broadcast_player_inventory_slot(cid, slot, None);
+            // M1 — 772 `CheckCombatValues()` on wearout-destroy → `DelayAttack(2000)`
+            // (`crcombat.cc:276-278` shield, `:689-691` weapon). Refreshes `last_combat_weapons`
+            // so a later swap is detected, and applies the 2s post-break attack delay.
+            self.player_check_combat_values(cid);
         } else {
             self.broadcast_player_inventory_slot(cid, slot, Some(iid));
         }

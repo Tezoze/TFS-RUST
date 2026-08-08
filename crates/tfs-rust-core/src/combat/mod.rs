@@ -46,6 +46,11 @@ pub struct CombatParams {
     pub dispel: Option<tfs_rust_common::enums::ConditionType>,
     /// If set, merges a new condition onto the target (no HP change in this branch).
     pub apply_condition: Option<ActiveCondition>,
+    /// H1 — Target armor value for Physical damage subtraction in the shared path.
+    /// When `Some`, `combat_execute_with_stimulus` draws `armor_reduction` and subtracts
+    /// it after PvP-half/absorb, before mana shield (`crmain.cc:624-630`).
+    /// Callers that pre-rolled armor (legacy) leave this `None`.
+    pub armor: Option<i32>,
 }
 
 impl Default for CombatParams {
@@ -54,6 +59,7 @@ impl Default for CombatParams {
             primary_type: CombatType::Physical,
             dispel: None,
             apply_condition: None,
+            armor: None,
         }
     }
 }

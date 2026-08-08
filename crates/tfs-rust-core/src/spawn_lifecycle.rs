@@ -1758,7 +1758,7 @@ mod tests {
             1,
             0,
             ConditionType::Fire,
-            ConditionData::Damage { total_rank: 10 },
+            ConditionData::Damage { total_rank: 10, factor_percent: 0 },
             Some(3),
         ));
         let victim = insert_spectator_player(&mut world, ConnId(9), player);
