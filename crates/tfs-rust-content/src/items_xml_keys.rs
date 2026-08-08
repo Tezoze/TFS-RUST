@@ -53,6 +53,7 @@ const KNOWN_XML_KEYS: &[&str] = &[
     "elementfire",
     "elementholy",
     "elementice",
+    "elevation",
     "extradef",
     "extradefense",
     "femalesleeper",

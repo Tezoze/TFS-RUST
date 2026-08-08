@@ -795,6 +795,12 @@ fn apply_xml_attribute(item: &mut ItemType, key: &str, value: &str, item_id: u16
             }
         }
         "description" => item.description = value.to_string(),
+        // 772 `ELEVATION` attribute (`enums.hh:760`) — used by `GetHeight` (`info.cc:689`).
+        "elevation" => {
+            if let Ok(v) = value.parse::<i32>() {
+                item.elevation = v;
+            }
+        }
         "weight" => {
             if let Ok(v) = value.parse::<u32>() {
                 item.weight = v;

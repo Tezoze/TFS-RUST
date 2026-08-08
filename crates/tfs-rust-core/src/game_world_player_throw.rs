@@ -123,9 +123,9 @@ impl GameWorld {
         from_pos: Position,
         to_pos: Position,
     ) -> Result<(), ReturnValue> {
-        // Extract target position + race flag in a scoped borrow so `self` is free
-        // for the `object_in_range` / `creature_is_peaceful` calls below.
-        let (target_pos, unpushable) = {
+        // Extract target position + race flag + type in a scoped borrow so `self` is free
+        // for the `object_in_range` / `creature_is_peaceful` / `check_push_destination` calls below.
+        let (target_pos, unpushable, moving_is_monster) = {
             let Some(target) = self.creatures.get(moving_creature) else {
                 return Err(ReturnValue::NotPossible);
             };
@@ -141,7 +141,8 @@ impl GameWorld {
                 CreatureKind::Monster(m) => m.race_unpushable(),
                 CreatureKind::Player(_) | CreatureKind::Npc(_) => false,
             };
-            (pos, unpush)
+            let is_monster = matches!(target, CreatureKind::Monster(_));
+            (pos, unpush, is_monster)
         };
         // P12 (C7) — execute-time `ObjectAccessible(CreatureID, Obj, 1)` re-check
         // (`operate.cc:424` inside `CheckMoveObject`, runs before the race-flag
@@ -159,28 +160,20 @@ impl GameWorld {
             return Err(ReturnValue::NotMoveable);
         }
 
+        // 772 `CheckMapDestination` creature-container arm (`operate.cc:493-532`) —
+        // Gate C: range cap (P3), elevation-sum floor-change gate (P5/C1), dest AVOID
+        // (P6), PZ→non-PZ, and `ThrowPossible` (P9/C6). Runs **before** the TFS-style
+        // `tile_query_add_creature` so 772 gates fire with the correct error codes
+        // (e.g. AVOID → `NotEnoughRoom`, not `NotPossible`). The `MovePossible` call
+        // (P-D) slots into the `dz == 0 || !moving_is_monster` guard after this phase.
+        self.check_push_destination(from_pos, to_pos, moving_is_monster)?;
+
         let Some(to_tile) = self.map.get_tile(to_pos) else {
             return Err(ReturnValue::NotPossible);
         };
         let rv = crate::walk::tile_query_add_creature(self, to_tile, moving_creature, 0);
         if rv != ReturnValue::NoError {
             return Err(rv);
-        }
-
-        // 772 `CheckMapDestination` height-24 gate for up/down creature pushes.
-        if crate::walk::walk_tile::tile_has_height_n(
-            to_pos,
-            to_tile.body(),
-            self.items_db.as_ref(),
-            &self.items,
-            24,
-        ) {
-            return Err(ReturnValue::NotPossible);
-        }
-
-        // 772 `CheckMapDestination` protection-zone gate: reject PZ -> non-PZ pushes.
-        if self.tile_in_protection_zone(from_pos) && !self.tile_in_protection_zone(to_pos) {
-            return Err(ReturnValue::NotPossible);
         }
 
         let old_creatures = self
@@ -211,6 +204,98 @@ impl GameWorld {
         if let Some(k) = self.creatures.get_mut(actor) {
             k.base_mut().delay_attack_ms(self.server_ms, 2000);
         }
+        Ok(())
+    }
+
+    /// 772 `CoordinateFlag(x,y,z, AVOID)` (`operate.cc:525`, `enums.hh:240`).
+    /// `AVOID` maps to the `MAGICFIELD` tile-state bit (`walk/walk_tile.rs:656`).
+    fn tile_has_avoid(&self, pos: Position) -> bool {
+        self.map
+            .get_tile(pos)
+            .is_some_and(|t| t.body().flags & tilestate::MAGICFIELD != 0)
+    }
+
+    /// 772 `CheckMapDestination` creature-container arm (`operate.cc:493-532`).
+    ///
+    /// Pre: `moving != actor` (pushing another creature), both on map tiles, `to` is a map tile.
+    /// `moving_is_monster` selects the `OrigZ == DestZ || Type != MONSTER` guard (C5) —
+    /// when the moving creature is a monster changing floors (`dz != 0`), `MovePossible` and
+    /// the AVOID/PZ checks are **skipped** (the decompile only runs them for same-floor or
+    /// non-monster pushes). P-D's `MovePossible` call slots into the guard after this phase.
+    fn check_push_destination(
+        &self,
+        from: Position,
+        to: Position,
+        moving_is_monster: bool,
+    ) -> Result<(), ReturnValue> {
+        // P3: 1-tile range cap (`operate.cc:493-496`).
+        let dx = (to.x as i32 - from.x as i32).abs();
+        let dy = (to.y as i32 - from.y as i32).abs();
+        let dz = (to.z as i32 - from.z as i32).abs();
+        if dx > 1 || dy > 1 || dz > 1 {
+            return Err(ReturnValue::DestinationOutOfReach); // OUTOFRANGE
+        }
+
+        // P5 (C1): up/down elevation-sum split (`operate.cc:499-507`).
+        // Up-floor checks **origin** elevation sum; down-floor checks **dest** elevation sum.
+        // NOT `tile_has_height_n` — that is a hasHeight count; this is `GetHeight` (`info.cc:689`).
+        if to.z == from.z - 1 {
+            // Up a floor — origin must have enough elevation to jump up.
+            let elev = self
+                .map
+                .get_tile(from)
+                .map(|t| {
+                    crate::walk::walk_tile::tile_elevation_sum(
+                        t.body(),
+                        self.items_db.as_ref(),
+                        &self.items,
+                    )
+                })
+                .unwrap_or(0);
+            if elev < 24 {
+                return Err(ReturnValue::NotEnoughRoom); // NOROOM
+            }
+        } else if to.z == from.z + 1 {
+            // Down a floor — dest must have enough elevation to jump down.
+            let elev = self
+                .map
+                .get_tile(to)
+                .map(|t| {
+                    crate::walk::walk_tile::tile_elevation_sum(
+                        t.body(),
+                        self.items_db.as_ref(),
+                        &self.items,
+                    )
+                })
+                .unwrap_or(0);
+            if elev < 24 {
+                return Err(ReturnValue::ThereIsNoWay); // NOWAY
+            }
+        }
+
+        // C5: AVOID and PZ checks are nested inside `if(OrigZ == DestZ || Type != MONSTER)`,
+        // after `MovePossible` succeeds (`operate.cc:515-532`). P-D's `MovePossible` call
+        // goes here; the AVOID/PZ branches below fire only after it returns Ok.
+        if dz == 0 || !moving_is_monster {
+            // P-D's MovePossible call slots in here (Phase P-D). For now, no-op.
+
+            // P6: dest AVOID (magic field) blocks pushing another creature (`operate.cc:525`).
+            if self.tile_has_avoid(to) {
+                return Err(ReturnValue::NotEnoughRoom); // NOROOM
+            }
+
+            // PZ → non-PZ (`operate.cc:529-530`).
+            if self.tile_in_protection_zone(from) && !self.tile_in_protection_zone(to) {
+                return Err(ReturnValue::ActionNotPermittedInProtectionZone); // PROTECTIONZONE
+            }
+        }
+
+        // P9 (C6): `ThrowPossible(Orig, Dest, 1)` (`operate.cc:576`) — NOT trivially true;
+        // tests `UNTHROW` on the dest tile + floor-descent loop for `dz != 0`.
+        if !self.map.throw_possible(from, to, 1) {
+            return Err(ReturnValue::CannotThrow); // CANNOTTHROW
+        }
+
         Ok(())
     }
 
@@ -885,5 +970,239 @@ mod push_phase_b_tests {
             todo.queue[0],
             CreatureAction::Wait { deadline_ms: 6000 }
         ));
+    }
+}
+
+#[cfg(test)]
+mod push_phase_c_tests {
+    //! Phase P-C — `CheckMapDestination` creature-container arm (`operate.cc:493-532`).
+    //! Tests P3 (range cap), P5 (elevation-sum gate), P6 (dest AVOID), P9 (ThrowPossible),
+    //! and PZ→non-PZ. See `docs/772_PLAYER_PUSH_AUDIT.md` §4 P-C.
+    use super::*;
+    use crate::sim_harness::{
+        beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player,
+        test_player,
+    };
+    use tfs_rust_common::enums::ZoneType;
+    use tfs_rust_common::Position;
+    use tfs_rust_content::otb::ItemType;
+
+    /// Item type ID for test height items (avoids collision with 1987/2148).
+    const HEIGHT_ITEM_TYPE: u16 = 500;
+
+    /// Create an `ItemType` with `has_height` flag and the given `elevation` value.
+    /// 772 `HEIGHT` flag + `ELEVATION` attribute (`enums.hh:760`, `info.cc:689`).
+    /// `FLAG_HAS_HEIGHT` = `1 << 3` (private in `ItemType` — use raw value).
+    fn height_item_type(elevation: i32) -> ItemType {
+        ItemType {
+            server_id: HEIGHT_ITEM_TYPE,
+            flags: 1 << 3, // FLAG_HAS_HEIGHT
+            elevation,
+            ..Default::default()
+        }
+    }
+
+    /// Set up a push arena: actor adjacent to `from`, monster at `from`, dest at `to`.
+    /// Optionally registers a height item type with the given elevation in the items_db.
+    fn setup_push_arena_pc(
+        world: &mut GameWorld,
+        from: Position,
+        to: Position,
+        height_elevation: Option<i32>,
+    ) -> (CreatureId, CreatureId) {
+        ensure_walkable_tile(&mut world.map, from, 1);
+        ensure_walkable_tile(&mut world.map, to, 1);
+        let actor_pos = Position::new(from.x, from.y.saturating_sub(1), from.z);
+        ensure_walkable_tile(&mut world.map, actor_pos, 1);
+        let actor = insert_player(world, test_player("Actor", actor_pos));
+        let mover = insert_monster_with_config(world, "Mover", from, 200, Default::default());
+        if let Some(elev) = height_elevation {
+            let mut new_db = (*world.items_db).clone();
+            new_db.items.insert(HEIGHT_ITEM_TYPE, height_item_type(elev));
+            world.items_db = std::sync::Arc::new(new_db);
+        }
+        (actor, mover)
+    }
+
+    /// Place a height item (type `HEIGHT_ITEM_TYPE`) on the tile at `pos`.
+    fn place_height_item(world: &mut GameWorld, pos: Position) {
+        let item_id = world.items.insert(crate::item::Item::new_single(HEIGHT_ITEM_TYPE));
+        if let Some(tile) = world.map.get_tile_mut(pos) {
+            tile.body_mut().down_items.push(item_id);
+        }
+    }
+
+    /// Set a tile's zone to Protection.
+    fn set_pz_tile(world: &mut GameWorld, pos: Position) {
+        if let Some(tile) = world.map.get_tile_mut(pos) {
+            tile.body_mut().zone = ZoneType::Protection;
+        }
+    }
+
+    /// Set a tile's flags to include MAGICFIELD (772 AVOID).
+    fn set_avoid_tile(world: &mut GameWorld, pos: Position) {
+        if let Some(tile) = world.map.get_tile_mut(pos) {
+            tile.body_mut().flags |= tilestate::MAGICFIELD;
+        }
+    }
+
+    /// Set a tile's flags to include UNTHROW.
+    fn set_unthrow_tile(world: &mut GameWorld, pos: Position) {
+        if let Some(tile) = world.map.get_tile_mut(pos) {
+            tile.body_mut().flags |= tilestate::UNTHROW;
+        }
+    }
+
+    /// P3: push 2 tiles away → `DestinationOutOfReach` (772 `OUTOFRANGE`).
+    #[test]
+    fn p3_two_tile_push_rejected() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(102, 100, 7); // dx=2 > 1
+        let (actor, mover) = setup_push_arena_pc(&mut world, from, to, None);
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::DestinationOutOfReach));
+    }
+
+    /// P3: push 1 tile away → succeeds (positive case).
+    #[test]
+    fn p3_one_tile_push_succeeds() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7); // dx=1
+        let (actor, mover) = setup_push_arena_pc(&mut world, from, to, None);
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Ok(()));
+    }
+
+    /// P5 (C1): push up a floor from a low-elevation-sum origin → `NotEnoughRoom`
+    /// (772 `NOROOM`). Origin elevation sum < 24.
+    #[test]
+    fn p5_push_up_low_elevation_origin_rejected() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(100, 100, 6); // up a floor (to.z = from.z - 1)
+        let (actor, mover) = setup_push_arena_pc(&mut world, from, to, Some(23));
+        // Place a height item with elevation 23 on the origin tile → sum = 23 < 24.
+        place_height_item(&mut world, from);
+        // Dest tile at z=6 must exist.
+        ensure_walkable_tile(&mut world.map, to, 1);
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::NotEnoughRoom)); // NOROOM
+    }
+
+    /// P5 (C1): push up a floor from a sufficient-elevation-sum origin → passes the
+    /// elevation gate (elevation sum ≥ 24). May fail at a later gate, but not NOROOM.
+    #[test]
+    fn p5_push_up_sufficient_elevation_passes_height_gate() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(100, 100, 6);
+        let (actor, mover) = setup_push_arena_pc(&mut world, from, to, Some(24));
+        place_height_item(&mut world, from); // sum = 24 ≥ 24
+        ensure_walkable_tile(&mut world.map, to, 1);
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        // Should NOT be NotEnoughRoom (elevation gate passed). May fail at ThrowPossible
+        // or MovePossible (P-D), but the height gate itself passes.
+        assert_ne!(rv, Err(ReturnValue::NotEnoughRoom));
+    }
+
+    /// P5 (C1): push down a floor to a low-elevation-sum dest → `ThereIsNoWay`
+    /// (772 `NOWAY`). Dest elevation sum < 24.
+    #[test]
+    fn p5_push_down_low_elevation_dest_rejected() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(100, 100, 8); // down a floor (to.z = from.z + 1)
+        let (actor, mover) = setup_push_arena_pc(&mut world, from, to, Some(23));
+        // Place a height item with elevation 23 on the DEST tile → sum = 23 < 24.
+        place_height_item(&mut world, to);
+        ensure_walkable_tile(&mut world.map, to, 1);
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::ThereIsNoWay)); // NOWAY
+    }
+
+    /// P5 (C1): same-floor push ignores elevation entirely — no height items needed.
+    /// The elevation gate only fires for `dz != 0`.
+    #[test]
+    fn p5_same_floor_push_ignores_elevation() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7); // dz = 0
+        let (actor, mover) = setup_push_arena_pc(&mut world, from, to, None);
+        // No height items anywhere — elevation sum = 0. Same-floor push should succeed.
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Ok(()));
+    }
+
+    /// P6: push onto a magic-field tile (772 `AVOID`) → `NotEnoughRoom` (772 `NOROOM`).
+    /// `AVOID` maps to `MAGICFIELD` tile-state (`walk/walk_tile.rs:656`).
+    #[test]
+    fn p6_push_onto_magic_field_rejected() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let (actor, mover) = setup_push_arena_pc(&mut world, from, to, None);
+        set_avoid_tile(&mut world, to);
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::NotEnoughRoom)); // NOROOM
+    }
+
+    /// PZ → non-PZ: pushing a creature from a PZ tile to a non-PZ tile →
+    /// `ActionNotPermittedInProtectionZone` (772 `PROTECTIONZONE`).
+    #[test]
+    fn pz_to_non_pz_push_rejected() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let (actor, mover) = setup_push_arena_pc(&mut world, from, to, None);
+        set_pz_tile(&mut world, from);
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::ActionNotPermittedInProtectionZone));
+    }
+
+    /// P9 (C6): push onto a `UNTHROW` dest tile → `CannotThrow` (772 `CANNOTTHROW`).
+    /// Requires a floor tile below the origin so `ThrowPossible` checks the dest at z.
+    #[test]
+    fn p9_push_onto_unthrow_dest_rejected() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let (actor, mover) = setup_push_arena_pc(&mut world, from, to, None);
+        // Place a ground tile at z=6 below the origin so `ThrowPossible` checks z=7.
+        ensure_walkable_tile(&mut world.map, Position::new(100, 100, 6), 1);
+        set_unthrow_tile(&mut world, to);
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::CannotThrow));
+    }
+
+    /// C5: monster changing floors (dz != 0) skips the AVOID/PZ guard.
+    /// A monster pushed down a floor onto an AVOID tile should NOT be rejected by
+    /// the AVOID check (the guard `dz == 0 || !moving_is_monster` is false).
+    /// It may fail at the elevation gate or ThrowPossible, but not at AVOID.
+    #[test]
+    fn c5_monster_floor_change_skips_avoid_guard() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(100, 100, 8); // down a floor, dz=1
+        let (actor, mover) = setup_push_arena_pc(&mut world, from, to, Some(24));
+        // Place height item on dest with elevation 24 → passes elevation gate.
+        place_height_item(&mut world, to);
+        ensure_walkable_tile(&mut world.map, to, 1);
+        set_avoid_tile(&mut world, to); // AVOID on dest — should be skipped for monster floor-change
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        // Should NOT be NotEnoughRoom (AVOID is skipped for monster floor-change).
+        // May fail at ThrowPossible, but the AVOID check must not fire.
+        assert_ne!(rv, Err(ReturnValue::NotEnoughRoom));
     }
 }

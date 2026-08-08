@@ -127,6 +127,10 @@ pub struct ItemType {
     pub rune_mag_level: i32,
     /// 772 `UNLAY` flag — items.xml `unlay="true"` override of the OTB-derived rule.
     pub unlay: bool,
+    /// 772 `ELEVATION` attribute (`enums.hh:760`, `info.cc:689` `GetHeight`) — the elevation
+    /// value summed by `GetHeight` for `HEIGHT`-flagged items. Parsed from items.xml
+    /// `<attribute key="elevation" value="N"/>`. Default `0`.
+    pub elevation: i32,
 }
 
 /// `SLOTP_HAND` — `src/items.h`
@@ -203,6 +207,7 @@ impl Default for ItemType {
             rune_level: 0,
             rune_mag_level: 0,
             unlay: false,
+            elevation: 0,
         }
     }
 }
@@ -524,6 +529,13 @@ impl ItemType {
     #[inline]
     pub fn has_height(&self) -> bool {
         self.flags & Self::FLAG_HAS_HEIGHT != 0
+    }
+
+    /// 772 `ELEVATION` attribute (`enums.hh:760`) — elevation value used by `GetHeight`
+    /// (`info.cc:689`) to sum `HEIGHT`-flagged items on a tile.
+    #[inline]
+    pub fn elevation(&self) -> i32 {
+        self.elevation
     }
 
     #[inline]

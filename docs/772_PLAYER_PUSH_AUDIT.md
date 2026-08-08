@@ -4,7 +4,11 @@
 **P-A implemented:** 2026-08-08 (commit `876c145`) — Gate A pushability predicate ported; P2/P7/P10
 resolved. See §0, §3.1, §4 P-A for the landed changes.
 **P-B implemented:** 2026-08-08 — `ToDoMove` creature-container delay (P1) + execute-time
-adjacency re-check (P12) ported. See §0, §3.1, §4 P-B for the landed changes. P-C..P-E remain.
+adjacency re-check (P12) ported. See §0, §3.1, §4 P-B for the landed changes.
+**P-C implemented:** 2026-08-08 — `CheckMapDestination` creature-container arm ported:
+P3 (1-tile range cap), P5 (elevation-sum floor-change gate), P6 (dest AVOID), P9
+(`ThrowPossible`), PZ→non-PZ, C5 nesting. `Elevation` attribute added to `ItemType`
++ `tile_elevation_sum` helper. See §0, §3.1, §4 P-C for the landed changes. P-D..P-E remain.
 **Re-verified:** 2026-08-08 — all decompile citations and Rust claims re-checked against source;
 three corrections applied (V1: P-D kick loop, V2: `Radius` is per-creature not race, V3: TFS
 `canPushCreatures` conflation). Open questions Q1–Q4 resolved (§6).
@@ -71,13 +75,13 @@ walk-cooldown `ToDoMove` creature-container delay is not ported — already trac
 |---|---------|----------|------------------|
 | P1 | `ToDoMove` creature-container delay (1000 ms + walk cooldown) not ported | **High** | ~~Yes~~ **Fixed (P-B)** — creature-container branch in `enqueue_player_move` sets `Wait{1000 + cooldown}`; BANK dest check; item path stays `Wait{100}` |
 | P2 | Pushability uses TFS `is_pushable()` (`pushable && speed != 0`) instead of 772 `!GetRaceUnpushable \|\| (NON_PVP && IsPeaceful)` | **High** | ~~Yes~~ **Fixed (P-A)** — `race_unpushable()` + NON_PVP peaceful exception; `speed==0` pushable-race now passes Gate A |
-| P3 | No 1-tile destination range cap (`\|Δx\|>1 \|\| \|Δy\|>1 \|\| \|Δz\|>1 → OUTOFRANGE`) | **High** | Yes — can push 2+ tiles away |
+| P3 | No 1-tile destination range cap (`\|Δx\|>1 \|\| \|Δy\|>1 \|\| \|Δz\|>1 → OUTOFRANGE`) | **High** | ~~Yes~~ **Fixed (P-C)** — `check_push_destination` rejects `\|Δ\| > 1` with `DestinationOutOfReach` |
 | P4 | No per-creature `MovePossible` on the moving creature (home range, radius, house, PZ-enter, GO_STRENGTH, summon anti-crowd) | **High** | Yes — pushes monsters out of home range / into houses / into PZ |
-| P5 | Height-24 gate is **dead code**: uses `tile_has_height_n` (a hasHeight **count** ≥ 24, never true) instead of 772 `GetHeight` (an **elevation sum** `< 24`); has no `dz` condition so it nominally applies to same-floor pushes too; and `Elevation` is not parsed anywhere in `crates/` | **High** | Yes — **every** floor-change push passes; low-origin creature can be pushed up; low-dest down push passes |
-| P6 | No dest `AVOID` flag → `NOROOM` rule when pushing another creature | Medium | Yes — can push onto a magic-field tile |
+| P5 | Height-24 gate is **dead code**: uses `tile_has_height_n` (a hasHeight **count** ≥ 24, never true) instead of 772 `GetHeight` (an **elevation sum** `< 24`); has no `dz` condition so it nominally applies to same-floor pushes too; and `Elevation` is not parsed anywhere in `crates/` | **High** | ~~Yes~~ **Fixed (P-C)** — `Elevation` attribute added to `ItemType` (parsed from items.xml); `tile_elevation_sum` helper mirrors `GetHeight`; up-floor checks origin sum, down-floor checks dest sum, same-floor ignores elevation |
+| P6 | No dest `AVOID` flag → `NOROOM` rule when pushing another creature | Medium | ~~Yes~~ **Fixed (P-C)** — `tile_has_avoid` checks `MAGICFIELD` flag; nested inside C5 guard; `check_push_destination` runs before `tile_query_add_creature` |
 | P7 | NPC pushability hardcoded `false` instead of race-driven | Low | ~~Edge~~ **Fixed (P-A)** — NPCs have no 772 `Race` for Gate A → `unpushable=false`; governed by Gate B/C |
 | P8 | `BANK` dest first-object check (`cract.cc:1145`) not explicit (partially covered by `tile_query_add_creature` ground check) | Low | Edge |
-| P9 | `ThrowPossible(..., 1)` not called on the push destination | Medium | Yes — at range 1 it tests `UNTHROW` on the destination tile and runs the floor-descent loop for `dz != 0`; not trivially true (C6) |
+| P9 | `ThrowPossible(..., 1)` not called on the push destination | Medium | ~~Yes~~ **Fixed (P-C)** — `check_push_destination` calls `map.throw_possible(from, to, 1)`; `UNTHROW` dest tile rejected with `CannotThrow` |
 | P10 | `IsPeaceful` (player-summon predicate) not modeled as a shared helper | Low | ~~Refactor~~ **Fixed (P-A)** — reused existing `creature_is_peaceful` (`player/combat/mod.rs:744`); no new file needed |
 | P11 | `CheckTopMoveObject` (`operate.cc:1356`) not implemented — only the first creature in the tile stack is eligible to be pushed; a second creature behind it throws `NOTACCESSIBLE` | Medium | Yes — can push a creature that is not the top move object |
 | P12 | Execute-time `ObjectAccessible(CreatureID, Obj, 1)` re-check (`operate.cc:424` inside `CheckMoveObject`) not ported — Rust only checks actor↔target adjacency at enqueue (`object_in_range` in `enqueue_player_move`). **Gets worse with P-B**: the 1000 ms wait lets the target walk away; 772 rejects at execute, Rust still pushes | Medium | ~~Yes~~ **Fixed (P-B)** — `object_in_range(actor, target_pos, 1)` at top of `player_push_creature` checks the creature's **current** position |
@@ -452,7 +456,43 @@ harness if available.
   in-range succeeds. 969 passed, 0 failed (2 pre-existing `mechanics_formulas` failures
   unrelated to push). 0 new clippy warnings.
 
-### Phase P-C — Destination validation (P3, P5, P6, P8, P9) [High]
+### Phase P-C — Destination validation (P3, P5, P6, P8, P9) [High] — ✅ DONE
+
+**Goal:** port the `CheckMapDestination` creature-container arm (`operate.cc:493-532`) into
+`player_push_creature` as a dedicated `check_push_destination` helper.
+
+**Landed files:**
+- `crates/tfs-rust-content/src/otb.rs` — added `pub elevation: i32` field to `ItemType`
+  (parsed from items.xml `<attribute key="elevation" value="N"/>`; default `0`). Added
+  `elevation()` accessor. 772 `ELEVATION` attribute (`enums.hh:760`, `info.cc:689` `GetHeight`).
+- `crates/tfs-rust-content/src/items.rs` — `apply_xml_attribute` parses `"elevation"` → `item.elevation`.
+- `crates/tfs-rust-content/src/items_xml_keys.rs` — `"elevation"` added to `KNOWN_XML_KEYS`.
+- `crates/tfs-rust-core/src/walk/walk_tile.rs` — added `tile_elevation_sum(body, items_db, items)
+  -> i32` mirroring 772 `GetHeight` (`info.cc:689`): sums `elevation()` of all `has_height()`
+  items on the tile stack (ground + down_items + top_items). Distinct from `tile_has_height_n`
+  (a hasHeight **count**); this is an **elevation sum**.
+- `crates/tfs-rust-core/src/game_world_player_throw.rs` — extracted `check_push_destination(from,
+  to, moving_is_monster)` helper + `tile_has_avoid(pos)` helper. Replaced the inline dead-code
+  height-24 check (`tile_has_height_n`) and PZ check with the helper. `check_push_destination`
+  runs **before** `tile_query_add_creature` so 772 gates fire with correct error codes.
+  **C5 nesting:** AVOID and PZ checks are inside `if dz == 0 || !moving_is_monster` (matching
+  `operate.cc:515` `if(OrigZ == DestZ || Type != MONSTER)`), with a placeholder for P-D's
+  `MovePossible` call. **Return value mappings:** OUTOFRANGE→`DestinationOutOfReach`,
+  NOROOM→`NotEnoughRoom`, NOWAY→`ThereIsNoWay`, AVOID→`NotEnoughRoom`,
+  PROTECTIONZONE→`ActionNotPermittedInProtectionZone`, CANNOTTHROW→`CannotThrow`.
+
+**Implementation divergence from plan (idiomatic Rust, same outcome):** the plan sketched
+`ReturnValue::NotPossible` for OUTOFRANGE, NOWAY, and PROTECTIONZONE; the landed code uses the
+correct 772 `sending.cc` mappings (`DestinationOutOfReach`, `ThereIsNoWay`,
+`ActionNotPermittedInProtectionZone`) for exact client message parity.
+
+**Verify:** ✅ `cargo check`, `cargo clippy` (0 new warnings), `cargo test` — 10 tests in
+`push_phase_c_tests`: P3 2-tile rejected; P3 1-tile succeeds; P5 up-from-low-elevation rejected
+(23<24); P5 up-sufficient passes height gate (24≥24); P5 down-to-low-elevation rejected;
+P5 same-floor ignores elevation; P6 magic-field dest rejected; PZ→non-PZ rejected; P9 UNTHROW
+dest rejected; C5 monster floor-change skips AVOID guard. 979 passed, 0 regressions (2
+pre-existing `mechanics_formulas` failures + 1 pre-existing `samples_recognized` failure,
+all unrelated to push).
 
 **Goal:** port the `CheckMapDestination` creature-container arm (`operate.cc:493-532`) into
 `player_push_creature` as a dedicated `check_push_destination` helper.

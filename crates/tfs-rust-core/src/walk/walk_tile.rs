@@ -118,6 +118,41 @@ pub(crate) fn tile_has_height_n(
     false
 }
 
+/// 772 `GetHeight` (`info.cc:689`) — sums the `ELEVATION` attribute of every `HEIGHT`-flagged
+/// object on the tile stack. Distinct from `tile_has_height_n` (a hasHeight **count**);
+/// this is an **elevation sum** used by the `CheckMapDestination` floor-change gate (P5/C1).
+pub(crate) fn tile_elevation_sum(
+    body: &crate::tile::TileBody,
+    items_db: &ItemDatabase,
+    items: &slotmap::SlotMap<crate::ids::ItemId, crate::item::Item>,
+) -> i32 {
+    let mut sum = 0i32;
+    if let Some(gid) = body.ground {
+        if items_db.items.get(&gid).is_some_and(|t| t.has_height()) {
+            sum += items_db.items.get(&gid).map(|t| t.elevation()).unwrap_or(0);
+        }
+    }
+    for &item_id in &body.down_items {
+        if let Some(item) = items.get(item_id) {
+            if let Some(it) = items_db.items.get(&item.item_type) {
+                if it.has_height() {
+                    sum += it.elevation();
+                }
+            }
+        }
+    }
+    for &item_id in &body.top_items {
+        if let Some(item) = items.get(item_id) {
+            if let Some(it) = items_db.items.get(&item.item_type) {
+                if it.has_height() {
+                    sum += it.elevation();
+                }
+            }
+        }
+    }
+    sum
+}
+
 #[inline]
 fn tile_is_hole_like(body: &crate::tile::TileBody) -> bool {
     body.ground.is_none() && (body.flags & tilestate::BLOCKSOLID) == 0
