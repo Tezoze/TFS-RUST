@@ -26,6 +26,18 @@ use crate::item::Item;
 use crate::item_attributes::ItemAttributes;
 use crate::login_out::creature_wire_id;
 
+/// Tile iteration result from 772 `ExecuteCircleSpell` filtering (`magic.cc:468-500`).
+///
+/// `tiles` is every position that passed PZ + LoS checks; `targets` is every
+/// `(creature, tile)` pair from those tiles (after caster/NPC filtering).
+/// Callers broadcast effects, create fields, and apply impacts from these lists.
+pub(crate) struct AreaIteration {
+    /// All tile positions that passed PZ + LoS filtering.
+    pub tiles: Vec<Position>,
+    /// Creatures on passing tiles: `(creature_id, tile_position)`.
+    pub targets: Vec<(CreatureId, Position)>,
+}
+
 impl GameWorld {
     /// Physical spell mitigation — 772 `TDamageImpact` AllowDefense + `Damage()` armor.
     ///
@@ -88,6 +100,92 @@ impl GameWorld {
             self.broadcast_magic_effect(target_pos, 3u8);
         }
         (abs_dmg, armor)
+    }
+
+    /// 772 `ExecuteCircleSpell` tile iteration from offsets — `magic.cc:468-500`.
+    ///
+    /// Converts `offsets` relative to `center` into absolute positions (skipping
+    /// negative coordinates), then delegates to [`filter_area_positions`] for the
+    /// shared per-tile filtering. Used by the Lua `Combat:execute` path.
+    pub(crate) fn collect_area_targets(
+        &self,
+        center: Position,
+        los_origin: Position,
+        offsets: &[(i32, i32)],
+        aggressive: bool,
+        skip_caster: Option<CreatureId>,
+        skip_npcs: bool,
+    ) -> AreaIteration {
+        let positions: Vec<Position> = offsets
+            .iter()
+            .filter_map(|&(dx, dy)| {
+                let tx = center.x as i32 + dx;
+                let ty = center.y as i32 + dy;
+                if tx < 0 || ty < 0 {
+                    return None;
+                }
+                Some(Position {
+                    x: tx as u16,
+                    y: ty as u16,
+                    z: center.z,
+                })
+            })
+            .collect();
+        self.filter_area_positions(&positions, los_origin, aggressive, skip_caster, skip_npcs)
+    }
+
+    /// Per-tile filtering shared by Lua and monster paths — 772 `ExecuteCircleSpell`
+    /// `magic.cc:468-500`: PZ skip, `ThrowPossible` LoS, creature collection.
+    ///
+    /// Takes absolute tile positions (from `monster_idle_spell_tiles` or converted
+    /// from offsets by `collect_area_targets`). Returns passing tiles + filtered
+    /// `(creature, tile)` pairs. Callers handle effect broadcast, field creation,
+    /// and impact application.
+    pub(crate) fn filter_area_positions(
+        &self,
+        tiles: &[Position],
+        los_origin: Position,
+        aggressive: bool,
+        skip_caster: Option<CreatureId>,
+        skip_npcs: bool,
+    ) -> AreaIteration {
+        let mut result_tiles: Vec<Position> = Vec::new();
+        let mut targets: Vec<(CreatureId, Position)> = Vec::new();
+
+        for &tile_pos in tiles {
+            // PZ skip — 772 `magic.cc:475`.
+            if aggressive && self.tile_in_protection_zone(tile_pos) {
+                continue;
+            }
+
+            // LoS — 772 `ThrowPossible` (`magic.cc:479/589`), power 0.
+            if !self.map.throw_possible(los_origin, tile_pos, 0) {
+                continue;
+            }
+
+            result_tiles.push(tile_pos);
+
+            // Collect creatures — 772 `GetFirstObject` loop (`magic.cc:485-494`).
+            if let Some(tile) = self.map.get_tile(tile_pos) {
+                for &cid in &tile.body().creatures {
+                    if skip_caster == Some(cid) {
+                        continue;
+                    }
+                    if skip_npcs
+                        && aggressive
+                        && matches!(self.creatures.get(cid), Some(CreatureKind::Npc(_)))
+                    {
+                        continue;
+                    }
+                    targets.push((cid, tile_pos));
+                }
+            }
+        }
+
+        AreaIteration {
+            tiles: result_tiles,
+            targets,
+        }
     }
 }
 
@@ -207,9 +305,10 @@ impl GameWorld {
             }
         }
 
-        // Iterate area offsets — 772 `ExecuteCircleSpell` `magic.cc:468-500`.
-        // Collect target creature IDs first to avoid borrow conflicts during
-        // `combat_execute_with_stimulus` (which borrows `&mut self`).
+        // Shared tile iteration — 772 `ExecuteCircleSpell` `magic.cc:468-500`.
+        // `collect_area_targets` handles PZ skip, LoS (`ThrowPossible`), and creature
+        // collection (with NPC skip for aggressive). Effect broadcast and create-item
+        // collection are deferred to after `CheckAffectedPlayers` (which may abort).
         //
         // LoS origin: 772 `AngleShapeSpell` checks `ThrowPossible` from the
         // **caster** position (`magic.cc:589`), while `ExecuteCircleSpell`
@@ -228,70 +327,34 @@ impl GameWorld {
             caster_pos
         };
 
-        let mut targets: Vec<(CreatureId, Position)> = Vec::new();
-        let mut effect_tiles: Vec<Position> = Vec::new();
-        let mut create_tiles: Vec<(Position, ZoneType)> = Vec::new();
-        for &(dx, dy) in &request.area_offsets {
-            let tx = center.x as i32 + dx;
-            let ty = center.y as i32 + dy;
-            if tx < 0 || ty < 0 {
-                continue;
-            }
-            let tile_pos = Position {
-                x: tx as u16,
-                y: ty as u16,
-                z: center.z,
-            };
+        let skip_caster = if request.aggressive { caster_id } else { None };
+        let iter = self.collect_area_targets(
+            center,
+            los_origin,
+            &request.area_offsets,
+            request.aggressive,
+            skip_caster,
+            true, // skip NPCs for aggressive — TFS `Combat::canDoCombat` (`combat.cpp:243-248`)
+        );
+        let targets = iter.targets;
 
-            // PZ skip for aggressive combat — 772 `magic.cc:475` / 1098 `canDoCombat`.
-            if request.aggressive
-                && self
-                    .map
-                    .get_tile(tile_pos)
-                    .is_some_and(|t| t.body().zone == ZoneType::Protection)
-            {
-                continue;
-            }
-
-            // LoS check — 772 `ThrowPossible` (`magic.cc:479/589`). Power 0.
-            // Directional spells (beams/waves) check from caster; circle spells
-            // check from center. `los_origin` picks the right one.
-            if !self.map.throw_possible(los_origin, tile_pos, 0) {
-                continue;
-            }
-
-            // Broadcast the magic effect at each affected tile — 772
-            // `ExecuteCircleSpell` applies the effect per-tile as it iterates
-            // the area (`magic.cc:468-500`). TFS `Combat::postCombatEffects`
-            // (`combat.cpp:643`) also broadcasts per-tile for area spells.
-            if request.effect > 0 {
-                effect_tiles.push(tile_pos);
-            }
-
-            if request.create_item > 0 {
-                let zone = self
-                    .map
-                    .get_tile(tile_pos)
-                    .map(|t| t.body().zone)
-                    .unwrap_or(ZoneType::Normal);
-                create_tiles.push((tile_pos, zone));
-            }
-
-            // Collect creatures on this tile — 772 `GetFirstObject` loop (`magic.cc:485-494`).
-            // Aggressive combat skips NPCs — TFS `Combat::canDoCombat` + `!isAttackable()`
-            // (`combat.cpp:243-248`, `npc.h:308-310`). Prevents AoE spells from damaging or
-            // conditioning temple NPCs that share the blast tile.
-            if let Some(tile) = self.map.get_tile(tile_pos) {
-                for &cid in &tile.body().creatures {
-                    if request.aggressive
-                        && matches!(self.creatures.get(cid), Some(CreatureKind::Npc(_)))
-                    {
-                        continue;
-                    }
-                    targets.push((cid, tile_pos));
-                }
-            }
-        }
+        // Collect create-item tiles from passing positions — Lua-specific
+        // (`Combat::combatTileEffects` — `combat.cpp:557`).
+        let create_tiles: Vec<(Position, ZoneType)> = if request.create_item > 0 {
+            iter.tiles
+                .iter()
+                .map(|&pos| {
+                    let zone = self
+                        .map
+                        .get_tile(pos)
+                        .map(|t| t.body().zone)
+                        .unwrap_or(ZoneType::Normal);
+                    (pos, zone)
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         // 772 `CheckAffectedPlayers` — deny whole cast under secure + unmarked player on any tile.
         if request.aggressive {
@@ -334,10 +397,14 @@ impl GameWorld {
             }
         }
 
-        // Broadcast magic effects at all affected tiles — collected above to
-        // avoid borrowing `self` while iterating the map.
-        for pos in &effect_tiles {
-            self.broadcast_magic_effect(*pos, request.effect as u8);
+        // Broadcast magic effects at all passing tiles — deferred until after
+        // `CheckAffectedPlayers` (which may abort the cast). 772 `ExecuteCircleSpell`
+        // applies `GraphicalEffect` per-tile (`magic.cc:496-498`); TFS
+        // `Combat::postCombatEffects` (`combat.cpp:643`) also broadcasts per-tile.
+        if request.effect > 0 {
+            for &pos in &iter.tiles {
+                self.broadcast_magic_effect(pos, request.effect as u8);
+            }
         }
 
         // CREATEITEM — `combatTileEffects` (`combat.cpp:557-631`).

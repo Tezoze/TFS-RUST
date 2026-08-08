@@ -1597,24 +1597,18 @@ impl GameWorld {
                             let tiles = Self::monster_idle_spell_tiles(
                                 &spell, pos, caster_dir, pos,
                             );
-                            for tile in tiles {
-                                if !self.monster_sight_clear(pos, tile) {
-                                    continue;
-                                }
+                            // Shared `ExecuteCircleSpell` tile filtering — non-aggressive,
+                            // LoS from caster, skip self.
+                            let iter = self.filter_area_positions(
+                                &tiles, pos, false, Some(cid), false,
+                            );
+                            for &tile in &iter.tiles {
                                 if let Some(effect) = spell.area_effect {
                                     self.broadcast_magic_effect(tile, effect);
                                 }
-                                let victims: Vec<CreatureId> = self
-                                    .map
-                                    .get_tile(tile)
-                                    .map(|t| t.body().creatures.clone())
-                                    .unwrap_or_default();
-                                for victim_id in victims {
-                                    if victim_id == cid {
-                                        continue;
-                                    }
-                                    self.monster_idle_apply_spell_impact(cid, victim_id, &spell);
-                                }
+                            }
+                            for (victim_id, _) in &iter.targets {
+                                self.monster_idle_apply_spell_impact(cid, *victim_id, &spell);
                             }
                         }
                         // Victim/Destination require a target — skip.
@@ -1690,31 +1684,21 @@ impl GameWorld {
                     if let Some(shoot) = spell.shoot_effect {
                         self.broadcast_distance_shoot(pos, target_pos, shoot);
                     }
-                    for tile in tiles {
-                        // `ExecuteCircleSpell` PZ skip — `magic.cc:475–477`.
-                        if spell.impact.is_aggressive()
-                            && self.tile_in_protection_zone(tile)
-                        {
-                            continue;
-                        }
-                        if !self.monster_sight_clear(pos, tile) {
-                            continue;
-                        }
+                    // Shared `ExecuteCircleSpell` tile filtering — PZ skip when
+                    // aggressive, LoS from caster, skip self.
+                    let aggressive = spell.impact.is_aggressive();
+                    let iter = self.filter_area_positions(
+                        &tiles, pos, aggressive, Some(cid), false,
+                    );
+                    for &tile in &iter.tiles {
                         if let Some(effect) = spell.area_effect {
                             self.broadcast_magic_effect(tile, effect);
                         }
+                        // `TFieldImpact` / `TSummonImpact` override `handleField` only.
                         self.monster_idle_apply_spell_field(cid, tile, &spell);
-                        let victims: Vec<CreatureId> = self
-                            .map
-                            .get_tile(tile)
-                            .map(|t| t.body().creatures.clone())
-                            .unwrap_or_default();
-                        for victim_id in victims {
-                            if victim_id == cid {
-                                continue;
-                            }
-                            self.monster_idle_apply_spell_impact(cid, victim_id, &spell);
-                        }
+                    }
+                    for (victim_id, _) in &iter.targets {
+                        self.monster_idle_apply_spell_impact(cid, *victim_id, &spell);
                     }
                 }
                 SpellShape::Actor => {
@@ -1731,35 +1715,22 @@ impl GameWorld {
                 SpellShape::Origin | SpellShape::Angle => {
                     // 772 `OriginShapeSpell`/`AngleShapeSpell` — `ExecuteCircleSpell`/beam:
                     // `handleField` then `handleCreature` per victim (`magic.cc:483–494`).
-                    for tile in tiles {
-                        // `ExecuteCircleSpell` PZ skip — `magic.cc:475–477`.
-                        if spell.impact.is_aggressive()
-                            && self.tile_in_protection_zone(tile)
-                        {
-                            continue;
-                        }
-                        if !self.monster_sight_clear(pos, tile) {
-                            continue;
-                        }
+                    let aggressive = spell.impact.is_aggressive();
+                    let iter = self.filter_area_positions(
+                        &tiles, pos, aggressive, Some(cid), false,
+                    );
+                    for &tile in &iter.tiles {
                         if let Some(effect) = spell.area_effect {
                             self.broadcast_magic_effect(tile, effect);
                         }
                         // `TSummonImpact` / `TFieldImpact` override `handleField` only.
                         self.monster_idle_apply_spell_field(cid, tile, &spell);
-                        let victims: Vec<CreatureId> = self
-                            .map
-                            .get_tile(tile)
-                            .map(|t| t.body().creatures.clone())
-                            .unwrap_or_default();
-                        for victim_id in victims {
-                            if victim_id == cid {
-                                continue;
-                            }
-                            if let Some(shoot) = spell.shoot_effect {
-                                self.broadcast_distance_shoot(pos, tile, shoot);
-                            }
-                            self.monster_idle_apply_spell_impact(cid, victim_id, &spell);
+                    }
+                    for (victim_id, tile) in &iter.targets {
+                        if let Some(shoot) = spell.shoot_effect {
+                            self.broadcast_distance_shoot(pos, *tile, shoot);
                         }
+                        self.monster_idle_apply_spell_impact(cid, *victim_id, &spell);
                     }
                 }
             }

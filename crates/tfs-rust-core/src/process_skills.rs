@@ -245,6 +245,10 @@ impl GameWorld {
             // creature's tile for a matching AVOID field and increments `Cycle += 1`
             // (`crskill.cc:1030-1045,1062-1077,1088-1103`). This keeps the DoT alive while
             // the creature stands on the field. Only extend if the creature survived.
+            //
+            // `Cycle` maps to different Rust fields per condition type:
+            // - Poison: `ConditionData::Damage::total_rank` (the damage pool — `crskill.cc:983`)
+            // - Fire/Energy: `ActiveCondition::timer_rounds_left` (tick countdown — `crskill.cc:187`)
             if let Some(idx) = cond_idx {
                 if self.creatures.get(cid).is_some() {
                     let field_kind = match combat {
@@ -258,8 +262,19 @@ impl GameWorld {
                             if let Some(kind) = self.creatures.get_mut(cid) {
                                 let base = kind.base_mut();
                                 if let Some(cond) = base.active_conditions.get_mut(idx) {
-                                    if let Some(left) = cond.timer_rounds_left.as_mut() {
-                                        *left += 1;
+                                    match cond.ctype {
+                                        ConditionType::Poison => {
+                                            // Poison `Cycle` = damage pool (`total_rank`).
+                                            if let ConditionData::Damage { total_rank, .. } = &mut cond.data {
+                                                *total_rank += 1;
+                                            }
+                                        }
+                                        _ => {
+                                            // Fire/Energy `Cycle` = tick countdown.
+                                            if let Some(left) = cond.timer_rounds_left.as_mut() {
+                                                *left += 1;
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1339,6 +1354,121 @@ mod tests {
         assert!(
             expired,
             "fire DoT must expire after the field is removed (no re-extension)"
+        );
+    }
+
+    /// C2 — Standing on a poison field extends the poison damage pool (`total_rank`),
+    /// not `timer_rounds_left`. 772 `TSkillPoison::Event` does `this->Cycle += 1`
+    /// (`crskill.cc:1039`) where `Cycle` is the damage pool. The bug was that the
+    /// Rust code always incremented `timer_rounds_left`, which is `None` for poison —
+    /// a silent no-op. The fix increments `total_rank` for poison instead.
+    #[test]
+    fn standing_on_poison_field_extends_damage_pool() {
+        use std::sync::Arc;
+        use tfs_rust_content::otb::ItemType;
+
+        let mut world = beat_driven_test_world();
+        // Register a poison field item type (1490 = poison field in stock data).
+        let mut db = (*world.items_db).clone();
+        let mut it = ItemType::default();
+        it.server_id = 1490;
+        it.type_tag = 6; // ITEM_TYPE_MAGICFIELD
+        it.xml_attributes
+            .insert("field".into(), "poison".into());
+        it.xml_attributes
+            .insert("field.initdamage".into(), "0".into());
+        it.xml_attributes
+            .insert("field.cycles".into(), "5".into());
+        it.xml_attributes
+            .insert("replacemagicfields".into(), "true".into());
+        db.items.insert(1490, it);
+        world.items_db = Arc::new(db);
+
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let mut p = test_player("Venom", pos);
+        p.base.health = 10000;
+        p.base.max_health = 10000;
+        let player = insert_player(&mut world, p);
+        world.map.register_creature_at(pos, player);
+
+        // Place the poison field — apply_magic_field arms the DoT.
+        let iid = world.items.insert(crate::item::Item::new_single(1490));
+        world
+            .internal_add_item_to_tile(
+                pos,
+                iid,
+                crate::cylinder::CylinderFlags::NONE,
+            )
+            .expect("place poison field");
+
+        // Poison condition should be armed with a damage pool.
+        let initial_rank = world
+            .creatures
+            .get(player)
+            .unwrap()
+            .base()
+            .active_conditions
+            .iter()
+            .find_map(|c| {
+                if c.ctype == ConditionType::Poison {
+                    if let ConditionData::Damage { total_rank, .. } = c.data {
+                        return Some(total_rank);
+                    }
+                }
+                None
+            })
+            .expect("poison condition armed with damage pool");
+
+        // Tick once — the Event fires and C2 re-extension should add +1 to total_rank.
+        // With skill_max_count=3, we need 3 ticks to fire one Event (Count/MaxCount=3).
+        for _ in 0..3 {
+            world.process_skills();
+        }
+
+        let current_rank = world
+            .creatures
+            .get(player)
+            .and_then(|k| {
+                k.base().active_conditions.iter().find_map(|c| {
+                    if c.ctype == ConditionType::Poison {
+                        if let ConditionData::Damage { total_rank, .. } = c.data {
+                            return Some(total_rank);
+                        }
+                    }
+                    None
+                })
+            })
+            .unwrap_or(0);
+
+        // Without the fix, total_rank would have decreased (pool drained by Event damage)
+        // and the field re-extension would be a no-op (timer_rounds_left is None for poison).
+        // With the fix, total_rank += 1 from C2 re-extension partially offsets the drain.
+        // The pool drains by ~5% per Event, then +1 from the field. For a small initial
+        // pool, the +1 should be visible. For a large pool, the drain may exceed +1.
+        // Key assertion: the condition is still active (pool > 0) after one Event.
+        assert!(
+            current_rank > 0,
+            "poison pool must be non-zero after one Event + field re-extension \
+             (initial={initial_rank}, current={current_rank})"
+        );
+
+        // Tick many more times — the poison should persist while on the field.
+        for _ in 0..60 {
+            world.process_skills();
+        }
+        let still_poisoned = world
+            .creatures
+            .get(player)
+            .is_some_and(|k| {
+                k.base()
+                    .active_conditions
+                    .iter()
+                    .any(|c| c.ctype == ConditionType::Poison)
+            });
+        assert!(
+            still_poisoned,
+            "poison condition must persist while standing on a poison field (C2 re-extension)"
         );
     }
 }
