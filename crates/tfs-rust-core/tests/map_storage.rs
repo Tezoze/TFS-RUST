@@ -15,6 +15,8 @@ use tfs_rust_core::tile::{Tile, TileBody};
 fn ground_tile() -> Tile {
     Tile::Normal(TileBody {
         ground: Some(100),
+
+        ground_item: None,
         down_items: vec![],
         top_items: vec![],
         creatures: vec![],

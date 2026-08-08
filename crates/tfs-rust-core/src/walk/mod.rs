@@ -333,13 +333,17 @@ pub(crate) fn internal_teleport_player(
         } else {
             world.emit_move_packet(cid, conn_id, old_pos, new_pos, old_stack);
         }
-        world.broadcast_spectator_move(cid, old_pos, new_pos, &old_creatures);
         let step_dir = direction_from_positions(old_pos, new_pos);
         world.apply_notify_go_after_relocate(cid, old_pos, new_pos, step_dir, false);
         world.reschedule_wakeup_for_earliest_walk(cid);
     }
-    // C++ `Map::moveCreature`: StepOut/StepIn after sendCreatureMove (`map.cpp` ~326–327).
+    // 772 `operate.cc` Move: CollisionEvent fires AFTER NotifyCreature (self move
+    // packet, emitted above) and BEFORE NotifyAllCreatures (spectator broadcast
+    // below).  See `on_walk` path for the full rationale.
     world.flush_pending_creature_step_events();
+    if !teleport {
+        world.broadcast_spectator_move(cid, old_pos, new_pos, &old_creatures);
+    }
     ReturnValue::NoError
 }
 
@@ -1857,6 +1861,21 @@ impl GameWorld {
                                 }
                             }
                         }
+                        // 772 `operate.cc` Move: CollisionEvent fires AFTER NotifyCreature (self
+                        // move packet, emitted above) and BEFORE NotifyAllCreatures (spectator
+                        // broadcast below).  This matches the decompile's synchronous collision
+                        // rule execution: `MoveTopRel` (teleport) + `Change` (transform) execute
+                        // back-to-back inside the same `Move` call, so the transform tile-update
+                        // packet lands in the same batch as the move packets — no visible gap.
+                        //
+                        // The previous deferral (after spectator broadcast) caused a perceptible
+                        // delay on grass-hole (293): the Lua StepIn overhead (scope setup +
+                        // callback + `item:transform` + `item:decay` + `doRelocate`) sat between
+                        // the move batch and the transform batch.  Firing here — after the self
+                        // move packet but before the spectator broadcast — preserves the 772
+                        // ordering while keeping the 0x6B-after-NotifyGo safety invariant.
+                        self.flush_pending_creature_step_events();
+
                         // Broadcast to spectators using overall old→new for now.
                         // C++ broadcasts per moveCreature call, but the initial step is most
                         // important for spectator rendering. `old_creatures` was captured before
@@ -1872,10 +1891,6 @@ impl GameWorld {
                         if let Some(pt) = pending_turn {
                             internal_creature_turn_broadcast_only(self, pt.cid, pt.dir);
                         }
-
-                        // C++ `Map::moveCreature`: postRemove/postAdd (StepOut/StepIn) after
-                        // sendCreatureMove — door auto-close transform must not precede NotifyGo.
-                        self.flush_pending_creature_step_events();
 
                         // Player-only walk debug — before NotifyGo mutates `earliest_walk_server_ms`.
                         // Matches decompile `NotifyGo` (`cract.cc:1518-1534`) + `GetSpeed` (`crmain.cc:477`).
@@ -2390,12 +2405,19 @@ impl GameWorld {
     }
 
     /// Item ids + types on a tile for `MoveEvents::onCreatureMove` item iteration.
+    /// Includes the ground item — TFS `MoveEvents::onCreatureMove` iterates from
+    /// `getFirstIndex` which includes the ground (`tile.cpp` postAddNotification).
     fn tile_move_event_items(&self, pos: Position) -> Vec<(ItemId, u16)> {
         let Some(tile) = self.map.get_tile(pos) else {
             return Vec::new();
         };
         let body = tile.body();
         let mut out = Vec::new();
+        // Ground first — TFS iterates ground before top/down items.
+        if let Some(gid) = body.ground_item {
+            let typ = self.items.get(gid).map(|i| i.item_type).unwrap_or(0);
+            out.push((gid, typ));
+        }
         for &iid in body.top_items.iter().chain(body.down_items.iter()) {
             let typ = self.items.get(iid).map(|i| i.item_type).unwrap_or(0);
             out.push((iid, typ));

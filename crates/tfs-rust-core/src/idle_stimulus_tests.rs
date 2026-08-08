@@ -816,6 +816,8 @@ fn test_772_cornered_flee_falls_through_to_roam() {
             pos,
             Tile::Normal(TileBody {
                 ground: None,
+
+                ground_item: None,
                 down_items: Vec::new(),
                 top_items: Vec::new(),
                 creatures: Vec::new(),
@@ -1121,6 +1123,8 @@ fn test_772_idle_hold_no_dance_poll() {
             Position::new(x, y, 7),
             Tile::Normal(TileBody {
                 ground: Some(150),
+
+                ground_item: None,
                 down_items: Vec::new(),
                 top_items: Vec::new(),
                 creatures: Vec::new(),
@@ -1700,6 +1704,8 @@ fn test_772_dist_flee_fail_enqueues_wait() {
             Position::new(x, y, 7),
             Tile::Normal(TileBody {
                 ground: Some(TEST_SYNTHETIC_GROUND_WP),
+
+                ground_item: None,
                 down_items: Vec::new(),
                 top_items: Vec::new(),
                 creatures: Vec::new(),
@@ -1848,6 +1854,8 @@ fn test_772_attack_from_idle_queue() {
             Position::new(x, y, 7),
             Tile::Normal(TileBody {
                 ground: Some(TEST_SYNTHETIC_GROUND_WP),
+
+                ground_item: None,
                 down_items: Vec::new(),
                 top_items: Vec::new(),
                 creatures: Vec::new(),
@@ -1951,6 +1959,8 @@ fn test_772_melee_stick_fight_no_wait_after_attack() {
             Position::new(x, y, 7),
             Tile::Normal(TileBody {
                 ground: Some(TEST_SYNTHETIC_GROUND_WP),
+
+                ground_item: None,
                 down_items: Vec::new(),
                 top_items: Vec::new(),
                 creatures: Vec::new(),
@@ -3451,6 +3461,8 @@ fn test_chase_freeze_attack_path_noway_clears_target() {
             pos,
             Tile::Normal(TileBody {
                 ground: None,
+
+                ground_item: None,
                 down_items: Vec::new(),
                 top_items: Vec::new(),
                 creatures: Vec::new(),
@@ -3542,6 +3554,8 @@ fn test_772_attacking_no_path_roams_not_park() {
             pos,
             Tile::Normal(TileBody {
                 ground: None,
+
+                ground_item: None,
                 down_items: Vec::new(),
                 top_items: Vec::new(),
                 creatures: Vec::new(),
@@ -3835,6 +3849,8 @@ fn test_772_attacking_los_blocked_does_not_freeze() {
         wall,
         Tile::Normal(TileBody {
             ground: Some(TEST_SYNTHETIC_GROUND_WP),
+
+            ground_item: None,
             down_items: Vec::new(),
             top_items: Vec::new(),
             creatures: Vec::new(),
@@ -4370,6 +4386,8 @@ fn test_phase9_772_loses_target_entering_house() {
         Tile::House(HouseTile {
             inner: TileBody {
                 ground: Some(1),
+
+                ground_item: None,
                 down_items: Vec::new(),
                 top_items: Vec::new(),
                 creatures: Vec::new(),
@@ -6656,6 +6674,8 @@ fn setup_south_stair_world(
         Position::new(100, 100, 8),
         Tile::Normal(TileBody {
             ground: Some(TEST_SYNTHETIC_GROUND_WP),
+
+            ground_item: None,
             down_items: Vec::new(),
             top_items: Vec::new(),
             creatures: Vec::new(),
@@ -6813,6 +6833,8 @@ fn otclient_772_up_from_surface_skips_remove() {
         Position::new(100, 100, 7),
         Tile::Normal(TileBody {
             ground: Some(TEST_SYNTHETIC_GROUND_WP),
+
+            ground_item: None,
             down_items: Vec::new(),
             top_items: Vec::new(),
             creatures: Vec::new(),
@@ -7067,6 +7089,8 @@ fn ensure_pz_tile(map: &mut crate::map::Map, pos: Position, ground_type: u16) {
         pos,
         Tile::Normal(TileBody {
             ground: Some(ground_type),
+
+            ground_item: None,
             down_items: Vec::new(),
             top_items: Vec::new(),
             creatures: Vec::new(),

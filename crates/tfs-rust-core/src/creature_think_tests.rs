@@ -152,6 +152,8 @@ fn ensure_pz_tile(map: &mut crate::map::Map, pos: Position, ground_type: u16) {
         pos,
         Tile::Normal(TileBody {
             ground: Some(ground_type),
+
+            ground_item: None,
             down_items: Vec::new(),
             top_items: Vec::new(),
             creatures: Vec::new(),

@@ -124,6 +124,8 @@ fn scan_min_terrain_waypoints_ignores_blocked_tiles() {
         Position::new(2, 1, 7),
         Tile::Normal(TileBody {
             ground: Some(50),
+
+            ground_item: None,
             down_items: Vec::new(),
             top_items: Vec::new(),
             creatures: Vec::new(),
@@ -300,6 +302,8 @@ fn reverse_falls_back_to_forward_around_obstacle() {
         Position::new(3, 10, 7),
         Tile::Normal(TileBody {
             ground: Some(100),
+
+            ground_item: None,
             down_items: Vec::new(),
             top_items: Vec::new(),
             creatures: Vec::new(),
@@ -472,6 +476,8 @@ fn forward_pathfinder_obeys_allow_diagonal() {
             bp,
             Tile::Normal(TileBody {
                 ground: Some(100),
+
+                ground_item: None,
                 down_items: Vec::new(),
                 top_items: Vec::new(),
                 creatures: Vec::new(),
@@ -546,6 +552,8 @@ fn reverse_noway_without_fallback() {
             Position::new(4, y, 7),
             Tile::Normal(TileBody {
                 ground: Some(100),
+
+                ground_item: None,
                 down_items: Vec::new(),
                 top_items: Vec::new(),
                 creatures: Vec::new(),

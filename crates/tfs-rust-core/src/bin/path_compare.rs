@@ -98,6 +98,8 @@ fn build_map(s: &Scenario) -> Map {
                     Position::new(x, y, 7),
                     Tile::Normal(TileBody {
                         ground: Some(wp as u16),
+
+                        ground_item: None,
                         down_items: Vec::new(),
                         top_items: Vec::new(),
                         creatures: Vec::new(),

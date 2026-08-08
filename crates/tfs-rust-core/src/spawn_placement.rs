@@ -646,6 +646,8 @@ mod tests {
             wall,
             Tile::Normal(TileBody {
                 ground: Some(DIRT_WALL),
+
+                ground_item: None,
                 down_items: Vec::new(),
                 top_items: Vec::new(),
                 creatures: Vec::new(),

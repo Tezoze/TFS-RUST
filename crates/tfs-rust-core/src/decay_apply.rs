@@ -257,6 +257,10 @@ impl GameWorld {
         if let Some(pos) = tile_pos {
             if let Some(new_it) = self.items_db.items.get(&new_type).cloned() {
                 if let Some(tile) = self.map.get_tile_mut(pos) {
+                    // Sync cached ground type if the transformed item is this tile's ground.
+                    if tile.body().ground_item == Some(item_id) {
+                        tile.body_mut().ground = Some(new_type);
+                    }
                     crate::map::apply_item_tile_flags(tile.body_mut(), &new_it, &self.items_db);
                 }
             }

@@ -1185,6 +1185,8 @@ mod tests {
             container_pos,
             Tile::Normal(TileBody {
                 ground: Some(100),
+
+                ground_item: None,
                 down_items: vec![container_item_id],
                 ..TileBody::new()
             }),
@@ -1233,6 +1235,8 @@ mod tests {
             container_pos,
             Tile::Normal(TileBody {
                 ground: Some(100),
+
+                ground_item: None,
                 down_items: vec![container_item_id],
                 ..TileBody::new()
             }),

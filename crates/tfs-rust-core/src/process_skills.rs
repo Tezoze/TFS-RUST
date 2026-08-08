@@ -718,6 +718,8 @@ mod tests {
             pos,
             Tile::Normal(TileBody {
                 ground: Some(ground_type),
+
+                ground_item: None,
                 down_items: Vec::new(),
                 top_items: Vec::new(),
                 creatures: Vec::new(),

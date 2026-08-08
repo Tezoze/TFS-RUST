@@ -66,6 +66,9 @@ pub mod flags {
 #[derive(Debug, Clone)]
 pub struct TileBody {
     pub ground: Option<u16>,
+    /// Item instance for the ground — TFS `Tile::getGround()` returns a full `Item*`.
+    /// Needed so StepIn/transform/decay can mutate the ground (e.g. pitfall 293↔294).
+    pub ground_item: Option<ItemId>,
     /// Non-ground items below creatures on the wire (`Tile::getBeginDownItem`, `src/tile.cpp`).
     pub down_items: Vec<ItemId>,
     /// Always-on-top items, sent before creatures (`getBeginTopItem` … `getEndTopItem`).
@@ -85,6 +88,8 @@ impl TileBody {
     pub fn new() -> Self {
         Self {
             ground: None,
+
+            ground_item: None,
             down_items: Vec::new(),
             top_items: Vec::new(),
             creatures: Vec::new(),
@@ -219,7 +224,13 @@ impl Tile {
     // C++ ref: src/tile.cpp Tile::removeThing — preserves ordering.
     pub fn remove_item_by_id(&mut self, item_id: ItemId) -> Option<usize> {
         let body = self.body_mut();
-        // Try down_items first
+        // Try ground first
+        if body.ground_item == Some(item_id) {
+            body.ground = None;
+            body.ground_item = None;
+            return Some(0);
+        }
+        // Try down_items
         if let Some(i) = body.down_items.iter().position(|&id| id == item_id) {
             body.down_items.remove(i);
             return Some(i);
@@ -235,7 +246,9 @@ impl Tile {
     /// Check if this tile has a specific item
     pub fn has_item(&self, item_id: ItemId) -> bool {
         let body = self.body();
-        body.down_items.contains(&item_id) || body.top_items.contains(&item_id)
+        body.ground_item == Some(item_id)
+            || body.down_items.contains(&item_id)
+            || body.top_items.contains(&item_id)
     }
 
     /// Total number of items on this tile (top + down, excluding ground).
@@ -566,6 +579,7 @@ mod look_tests {
     ) -> TileBody {
         TileBody {
             ground,
+            ground_item: None,
             down_items: down,
             top_items: top,
             creatures,
@@ -581,6 +595,8 @@ mod look_tests {
         let top = items.insert(());
         let body = TileBody {
             ground: Some(102),
+
+            ground_item: None,
             down_items: vec![top, bottom],
             top_items: vec![],
             creatures: vec![],

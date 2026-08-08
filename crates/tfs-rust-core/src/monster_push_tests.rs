@@ -659,6 +659,8 @@ fn house_tile_is_hard_block_in_move_possible() {
         Tile::House(HouseTile {
             inner: TileBody {
                 ground: Some(1),
+
+                ground_item: None,
                 down_items: Vec::new(),
                 top_items: Vec::new(),
                 creatures: Vec::new(),

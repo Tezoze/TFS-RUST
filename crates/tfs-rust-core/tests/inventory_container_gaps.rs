@@ -40,6 +40,8 @@ fn map_find_item_position_finds_down_item() {
     let pos = Position::new(10, 20, 7);
     let body = tfs_rust_core::tile::TileBody {
         ground: Some(100),
+
+        ground_item: None,
         down_items: vec![iid],
         top_items: Vec::new(),
         creatures: Vec::new(),

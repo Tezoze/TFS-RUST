@@ -7,6 +7,8 @@ fn body_at(x: u16, y: u16, flags: u32) -> Tile {
     let _ = (x, y);
     Tile::Normal(TileBody {
         ground: Some(100),
+
+        ground_item: None,
         down_items: vec![],
         top_items: vec![],
         creatures: vec![],
@@ -112,6 +114,8 @@ fn los_symmetric_when_clear() {
                 pos,
                 Tile::Normal(TileBody {
                     ground: Some(1),
+
+                    ground_item: None,
                     down_items: vec![],
                     top_items: vec![],
                     creatures: vec![],

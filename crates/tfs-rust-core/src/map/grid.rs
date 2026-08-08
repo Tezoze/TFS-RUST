@@ -315,6 +315,8 @@ mod tests {
         let item = items.insert(crate::item::Item::new_single(100));
         let tile = crate::tile::Tile::Normal(TileBody {
             ground: Some(100),
+
+            ground_item: None,
             down_items: vec![item],
             top_items: vec![],
             creatures: vec![],
@@ -356,6 +358,8 @@ mod tests {
         for (x, y, id) in [(16u16, 8u16, id_a), (0u16, 8u16, id_b)] {
             let tile = crate::tile::Tile::Normal(TileBody {
                 ground: Some(100),
+
+                ground_item: None,
                 down_items: vec![],
                 top_items: vec![],
                 creatures: vec![id],
@@ -390,6 +394,8 @@ mod tests {
         let mut grid = SparseGrid::new();
         let tile = crate::tile::Tile::Normal(TileBody {
             ground: Some(100),
+
+            ground_item: None,
             down_items: vec![],
             top_items: vec![],
             creatures: vec![],
@@ -425,6 +431,8 @@ mod tests {
 
         let tile = crate::tile::Tile::Normal(TileBody {
             ground: Some(100),
+
+            ground_item: None,
             down_items: vec![],
             top_items: vec![],
             creatures: vec![orphan],
@@ -461,6 +469,8 @@ mod tests {
 
         let tile = crate::tile::Tile::Normal(TileBody {
             ground: Some(100),
+
+            ground_item: None,
             down_items: vec![],
             top_items: vec![],
             creatures: vec![id],

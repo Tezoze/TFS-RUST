@@ -936,6 +936,8 @@ fn test_772_diagonal_detour_when_cardinals_blocked() {
             Position::new(x, y, 7),
             Tile::Normal(TileBody {
                 ground: Some(150),
+
+                ground_item: None,
                 down_items: Vec::new(),
                 top_items: Vec::new(),
                 creatures: Vec::new(),
@@ -1081,6 +1083,8 @@ fn test_772_blocked_flee_stops() {
             pos,
             Tile::Normal(TileBody {
                 ground: None,
+
+                ground_item: None,
                 down_items: Vec::new(),
                 top_items: Vec::new(),
                 creatures: Vec::new(),

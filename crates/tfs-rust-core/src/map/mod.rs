@@ -167,7 +167,13 @@ fn internal_add_item_id(
     let it = items_db.items.get(&id);
     let is_ground = it.map(|t| t.is_ground_tile()).unwrap_or(false);
     if is_ground && body.ground.is_none() {
+        // TFS `Tile::setGround` stores a full `Item*` — create an Item instance
+        // so StepIn/transform/decay can mutate the ground (e.g. pitfall 293↔294).
+        let mut ground_item = Item::new_single(id);
+        ground_item.parent = Some(crate::cylinder::Cylinder::Tile { pos });
+        let gid = items.insert(ground_item);
         body.ground = Some(id);
+        body.ground_item = Some(gid);
         return;
     }
 
@@ -513,6 +519,8 @@ fn tile_from_data(
 
     let mut body = TileBody {
         ground: None,
+
+        ground_item: None,
         down_items: Vec::new(),
         top_items: Vec::new(),
         creatures: Vec::new(),
