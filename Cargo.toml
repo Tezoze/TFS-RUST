@@ -27,25 +27,25 @@ tfs-rust-net = { path = "crates/tfs-rust-net" }
 tfs-rust-lua = { path = "crates/tfs-rust-lua" }
 tfs-rust-core = { path = "crates/tfs-rust-core" }
 
-tokio = { version = "1.37", features = ["full"] }
+tokio = { version = "1.53", features = ["full"] }
 tracing = "0.1"
-thiserror = "1.0"
+thiserror = "2"
 anyhow = "1.0"
 byteorder = "1.5"
-bytes = "1.5"
+bytes = "1.12"
 rsa = "0.9"
-num-bigint-dig = "0.8"
-rand_core = { version = "0.6", features = ["getrandom"] }
-base64 = "0.22"
-flate2 = "1.0"
-sqlx = { version = "0.7", features = ["macros", "mysql", "runtime-tokio-rustls", "chrono", "migrate"] }
+num-bigint-dig = "0.9"
+rand_core = "0.10"
+base64 = "0.23"
+flate2 = "1.1"
+sqlx = { version = "0.9", features = ["macros", "mysql", "runtime-tokio", "tls-rustls", "chrono", "migrate"] }
 async-trait = "0.1"
-quick-xml = { version = "0.31", features = ["serialize"] }
-slotmap = "1.0"
-bitflags = "2.6"
-dashmap = "6.1"
-mlua = { version = "0.10", default-features = false, features = ["luajit", "vendored", "serialize"] }
-bcrypt = "0.16"
+quick-xml = { version = "0.41", features = ["serialize"] }
+slotmap = "1.1"
+bitflags = "2.13"
+dashmap = "6.2"
+mlua = { version = "0.12", default-features = false, features = ["luajit", "vendored", "serialize"] }
+bcrypt = "0.19"
 
 [dependencies]
 tfs-rust-core = { workspace = true }

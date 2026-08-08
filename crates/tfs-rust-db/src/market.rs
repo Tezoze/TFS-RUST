@@ -101,9 +101,8 @@ impl<'a> MarketStore<'a> {
             .pool
             .execute_with_retry(|| {
                 let pool = self.pool.inner().clone();
-                let sql = sql.to_string();
                 async move {
-                    sqlx::query_as::<_, ActiveOfferRow>(&sql)
+                    sqlx::query_as::<_, ActiveOfferRow>(sql)
                         .bind(sale as i8)
                         .bind(itemtype)
                         .fetch_all(&pool)
@@ -151,9 +150,8 @@ impl<'a> MarketStore<'a> {
             .pool
             .execute_with_retry(|| {
                 let pool = self.pool.inner().clone();
-                let sql = sql.to_string();
                 async move {
-                    sqlx::query_as::<_, OwnOfferRow>(&sql)
+                    sqlx::query_as::<_, OwnOfferRow>(sql)
                         .bind(player_id)
                         .bind(sale as i8)
                         .fetch_all(&pool)
@@ -192,9 +190,8 @@ impl<'a> MarketStore<'a> {
         self.pool
             .execute_with_retry(|| {
                 let pool = self.pool.inner().clone();
-                let sql = sql.to_string();
                 async move {
-                    sqlx::query(&sql)
+                    sqlx::query(sql)
                         .bind(player_id)
                         .bind(sale as i8)
                         .bind(itemtype)
@@ -217,9 +214,8 @@ impl<'a> MarketStore<'a> {
         self.pool
             .execute_with_retry(|| {
                 let pool = self.pool.inner().clone();
-                let sql = sql.to_string();
                 async move {
-                    sqlx::query(&sql)
+                    sqlx::query(sql)
                         .bind(amount)
                         .bind(offer_id)
                         .execute(&pool)
@@ -237,8 +233,7 @@ impl<'a> MarketStore<'a> {
         self.pool
             .execute_with_retry(|| {
                 let pool = self.pool.inner().clone();
-                let sql = sql.to_string();
-                async move { sqlx::query(&sql).bind(offer_id).execute(&pool).await }
+                async move { sqlx::query(sql).bind(offer_id).execute(&pool).await }
             })
             .await
             .map_err(|e| TfsRustError::Database(e.to_string()))?;
@@ -255,9 +250,8 @@ impl<'a> MarketStore<'a> {
         self.pool
             .execute_with_retry(|| {
                 let pool = self.pool.inner().clone();
-                let sql = sql.to_string();
                 async move {
-                    sqlx::query(&sql)
+                    sqlx::query(sql)
                         .bind(input.player_id)
                         .bind(input.sale as i8)
                         .bind(input.itemtype)
@@ -298,9 +292,8 @@ impl<'a> MarketStore<'a> {
             .pool
             .execute_with_retry(|| {
                 let pool = self.pool.inner().clone();
-                let select_sql = select_sql.to_string();
                 async move {
-                    sqlx::query_as::<_, OfferSnapshot>(&select_sql)
+                    sqlx::query_as::<_, OfferSnapshot>(select_sql)
                         .bind(offer_id)
                         .fetch_optional(&pool)
                         .await
@@ -317,8 +310,7 @@ impl<'a> MarketStore<'a> {
         self.pool
             .execute_with_retry(|| {
                 let pool = self.pool.inner().clone();
-                let delete_sql = delete_sql.to_string();
-                async move { sqlx::query(&delete_sql).bind(offer_id).execute(&pool).await }
+                async move { sqlx::query(delete_sql).bind(offer_id).execute(&pool).await }
             })
             .await
             .map_err(|e| TfsRustError::Database(e.to_string()))?;
@@ -348,9 +340,8 @@ impl<'a> MarketStore<'a> {
         self.pool
             .execute_with_retry(|| {
                 let pool = self.pool.inner().clone();
-                let sql = sql.to_string();
                 async move {
-                    sqlx::query_as::<_, MarketOfferRecord>(&sql)
+                    sqlx::query_as::<_, MarketOfferRecord>(sql)
                         .bind(itemtype)
                         .fetch_all(&pool)
                         .await
@@ -365,9 +356,8 @@ impl<'a> MarketStore<'a> {
         self.pool
             .execute_with_retry(|| {
                 let pool = self.pool.inner().clone();
-                let sql = sql.to_string();
                 async move {
-                    sqlx::query_as::<_, MarketOfferRecord>(&sql)
+                    sqlx::query_as::<_, MarketOfferRecord>(sql)
                         .bind(player_id)
                         .fetch_all(&pool)
                         .await
@@ -382,9 +372,8 @@ impl<'a> MarketStore<'a> {
         self.pool
             .execute_with_retry(|| {
                 let pool = self.pool.inner().clone();
-                let sql = sql.to_string();
                 async move {
-                    sqlx::query_as::<_, MarketHistoryRecord>(&sql)
+                    sqlx::query_as::<_, MarketHistoryRecord>(sql)
                         .bind(player_id)
                         .fetch_all(&pool)
                         .await

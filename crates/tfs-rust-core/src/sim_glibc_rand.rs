@@ -260,8 +260,8 @@ pub fn parity_random(min: i32, max: i32) -> i32 {
     if sim_glibc_rng_enabled() {
         return sim_random(min, max);
     }
-    use rand::Rng;
-    rand::thread_rng().gen_range(min..=max)
+    use rand::RngExt;
+    rand::rng().random_range(min..=max)
 }
 
 /// Modulo roll — production uses `thread_rng`, sim uses glibc `rand()`.
@@ -273,8 +273,8 @@ pub fn parity_rand_mod(modulus: u32) -> u32 {
     if sim_glibc_rng_enabled() {
         return sim_rand_mod(modulus);
     }
-    use rand::Rng;
-    rand::thread_rng().gen_range(0..modulus)
+    use rand::RngExt;
+    rand::rng().random_range(0..modulus)
 }
 
 /// C++ `RandomShuffle` (`common.hh:206`) — **forward** Fisher-Yates over glibc `random(Min, Size-1)`

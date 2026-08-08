@@ -771,7 +771,7 @@ impl UserData for CreatureRef {
         // C++ reference: TFS `LuaScriptInterface::registerClass` sets
         // `Creature`/`Player` method tables so `self:method()` resolves via the
         // class hierarchy. We mirror that by chaining `__index` → `Player` table.
-        methods.add_meta_method(MetaMethod::Index, |lua, _this, key: mlua::String| {
+        methods.add_meta_method(MetaMethod::Index, |lua, _this, key: mlua::LuaString| {
             let player_table: mlua::Table = lua.globals().get("Player")?;
             player_table.get::<mlua::Value>(key)
         });

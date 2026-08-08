@@ -15,11 +15,11 @@ tfs-rust-lua = { path = "../tfs-rust-lua" }
 slotmap = { workspace = true }
 dashmap = { workspace = true }
 mlua = { workspace = true }
-rand = "0.8"
+rand = "0.10"
 libc = "0.2"
 bitflags = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-rustc-hash = "1"
+rustc-hash = "2"
 smallvec = { version = "1", features = ["union"] }
 
 [features]
@@ -30,7 +30,7 @@ default = []
 sim = []
 
 [dev-dependencies]
-proptest = "1.4"
+proptest = "1.11"
 
 [[bin]]
 name = "path_compare"

@@ -10,7 +10,7 @@ tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }
 thiserror = { workspace = true }
 byteorder = { workspace = true }
 quick-xml = { workspace = true }
-roxmltree = "0.20"
+roxmltree = "0.21"
 mlua = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 

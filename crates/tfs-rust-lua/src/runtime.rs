@@ -1144,7 +1144,7 @@ fn attach_variant_methods(lua: &Lua, table: mlua::Table) -> Result<mlua::Value, 
         )
         .map_err(LuaError::Init)?;
     mt.set("__index", index).map_err(LuaError::Init)?;
-    table.set_metatable(Some(mt));
+    table.set_metatable(Some(mt)).map_err(LuaError::Init)?;
     Ok(Value::Table(table))
 }
 
@@ -1531,7 +1531,7 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
             }
         })?,
     )?;
-    player_table.set_metatable(Some(player_meta));
+    player_table.set_metatable(Some(player_meta))?;
 
     // `Creature(id)` — resolve a creature by slotmap key bits → `CreatureRef`
     // userdata or `nil`. PC-3a Phase 3: `envenom_rune` / `soulfire_rune` use
@@ -1555,7 +1555,7 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
             Ok(mlua::Value::UserData(ud))
         })?,
     )?;
-    creature_table.set_metatable(Some(creature_meta));
+    creature_table.set_metatable(Some(creature_meta))?;
 
     // `sendChannelMessage(channelId, type, message)` — LUA-4 §1.7.
     // Server-originated channel broadcast (anonymous speaker). Routes to

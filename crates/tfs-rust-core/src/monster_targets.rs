@@ -5,6 +5,7 @@
 //! - `Monster::updateIdleStatus` / `setIdle` — `monster.cpp` (~700–711).
 //! - `Monster::canUseAttack` / `isTarget` — `monster.cpp` (~649, ~876).
 
+use rand::RngExt;
 use tfs_rust_common::enums::ZoneType;
 use tfs_rust_common::Position;
 use tfs_rust_content::monsters::MonsterSpellNode;
@@ -581,7 +582,7 @@ impl GameWorld {
                     let idx = if result_list.len() == 1 {
                         0
                     } else {
-                        rand::random::<usize>() % result_list.len()
+                        rand::rng().random_range(0..result_list.len())
                     };
                     return self.monster_select_target(monster_id, result_list[idx]);
                 }

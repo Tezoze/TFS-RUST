@@ -14,7 +14,7 @@ Guide to building and running the server from source on Linux, macOS, and Window
 
 | Tool | Notes |
 |------|--------|
-| **Rust (stable)** | Install via [rustup](https://rustup.rs/) — `rustup default stable` |
+| **Rust (stable, ≥ 1.94)** | Install via [rustup](https://rustup.rs/) — `rustup default stable`. MSRV is driven by sqlx 0.9. |
 | **C toolchain** | `gcc`/`clang` + `make` — needed to build vendored **LuaJIT** (`mlua`) |
 | **Git** | Clone the repository |
 | **MariaDB or MySQL** | Runtime only — for accounts, characters, save/load |
@@ -32,6 +32,32 @@ Guide to building and running the server from source on Linux, macOS, and Window
 - The legacy **C++** tree (`src/`, `CMakeLists.txt`) — reference only; Rust does not build it
 - The root **`Dockerfile`** — still targets the old C++ `tfs` binary; use native Rust build for now
 - A live database — if `.sqlx/` is present, set `SQLX_OFFLINE=true` to compile without MariaDB
+
+### Key dependencies
+
+All versions are pinned in the root `Cargo.toml` `[workspace.dependencies]`. Major crates:
+
+| Crate | Version | Role |
+|-------|---------|------|
+| `tokio` | 1.53 | Async runtime (networking, DB I/O) |
+| `sqlx` | 0.9 | MariaDB driver (compile-time checked queries, migrations) |
+| `mlua` | 0.12 | LuaJIT bindings (vendored, `serialize` feature) |
+| `quick-xml` | 0.41 | XML parsing for items, monsters, mounts, outfits (`serialize` feature) |
+| `roxmltree` | 0.21 | DOM-style XML parsing for OTB/OTBM |
+| `rand` | 0.10 | RNG (combat rolls, spawn shuffles; `RngExt` trait for range sampling) |
+| `rand_core` | 0.10 | Core RNG traits (used by `rsa` / crypto stack) |
+| `rsa` | 0.9 | OT protocol RSA key exchange |
+| `num-bigint-dig` | 0.9 | Big-integer arithmetic for RSA |
+| `bcrypt` | 0.19 | Account password hashing |
+| `sha1` | 0.11 | SHA-1 for auth / protocol checksums |
+| `base64` | 0.23 | Base64 encode/decode |
+| `thiserror` | 2 | Derive `Error` for domain error types |
+| `rustc-hash` | 2 | `FxHashMap` for chunk lookups (non-deterministic iteration order in v2) |
+| `slotmap` | 1.1 | Generational entity storage (`CreatureId`, `PlayerId`, etc.) |
+| `dashmap` | 6.2 | Concurrent map for I/O-thread-side registries |
+| `bitflags` | 2.13 | Bitflag types for creature/item flags |
+| `bytes` | 1.12 | Zero-copy packet buffer manipulation |
+| `flate2` | 1.1 | Zlib compression for map data |
 
 ---
 

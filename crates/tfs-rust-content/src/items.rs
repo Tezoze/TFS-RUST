@@ -344,7 +344,7 @@ impl ItemDatabase {
         })?;
 
         let mut reader = Reader::from_str(&xml_str);
-        reader.trim_text(true);
+        reader.config_mut().trim_text(true);
         let mut buf = Vec::new();
         let mut current_ids: Vec<u16> = Vec::new();
         let mut xml_defined_ids: HashSet<u16> = HashSet::new();

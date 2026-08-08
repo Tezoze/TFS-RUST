@@ -5,7 +5,7 @@
 // helpers below. The generic `Rng` variants remain for non-simulation call sites
 // (e.g. walk UI) that still use `thread_rng`.
 
-use rand::Rng;
+use rand::{Rng, RngExt};
 
 use crate::sim_glibc_rand::GlibcRngState;
 
@@ -19,7 +19,7 @@ pub fn uniform_random<R: Rng + ?Sized>(rng: &mut R, min_n: i32, max_n: i32) -> i
     } else {
         (max_n, min_n)
     };
-    rng.gen_range(lo..=hi)
+    rng.random_range(lo..=hi)
 }
 
 /// Inclusive uniform on the per-world glibc stream (sim harness overrides when enabled).

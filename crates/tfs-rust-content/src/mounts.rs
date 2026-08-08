@@ -27,7 +27,7 @@ impl MountDatabase {
         })?;
 
         let mut reader = Reader::from_str(&xml);
-        reader.trim_text(true);
+        reader.config_mut().trim_text(true);
         let mut buf = Vec::new();
         let mut mounts = HashMap::new();
 

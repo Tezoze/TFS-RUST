@@ -29,7 +29,7 @@
 
 use std::time::Instant;
 
-use rand::thread_rng;
+use rand::rng;
 use tfs_rust_common::enums::{ConditionType, Direction};
 use tfs_rust_common::Position;
 use tfs_rust_content::items::ItemDatabase;
@@ -216,14 +216,14 @@ fn try_drunk_walk_direction(base: &crate::creature::CreatureBase) -> Option<Dire
     let drunk_level = base.drunkenness as i32;
     let stagger_chance = (7 - drunk_level).max(1) as u32;
     let r = uniform_random(
-        &mut thread_rng(),
+        &mut rng(),
         0,
         (stagger_chance as i32).saturating_sub(1),
     ) as u32;
     if r != 0 {
         return None;
     }
-    let dir_roll = uniform_random(&mut thread_rng(), 0, 3) as u32;
+    let dir_roll = uniform_random(&mut rng(), 0, 3) as u32;
     Some(match dir_roll {
         0 => Direction::North,
         1 => Direction::East,

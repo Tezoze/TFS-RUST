@@ -10,7 +10,8 @@
           "type": "Long",
           "flags": "NOT_NULL | BINARY",
           "char_set": 63,
-          "max_size": 1
+          "max_size": 1,
+          "collation": 63
         }
       }
     ],

@@ -386,8 +386,8 @@ impl UserData for SpellBuilder {
         methods.add_method_mut("vocation", |_, this, vocs: mlua::MultiValue| {
             let mut b = this.spell.borrow_mut();
             for v in vocs.into_vec() {
-                if let Some(s) = v.as_str() {
-                    b.vocations.push(s.to_string());
+                if let Some(s) = v.as_string() {
+                    b.vocations.push(s.to_str()?.to_string());
                 }
             }
             Ok(true)

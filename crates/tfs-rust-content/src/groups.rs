@@ -118,7 +118,7 @@ fn load_xml_for_golden_test(path: &Path) -> Result<Vec<Group>> {
     })?;
 
     let mut reader = Reader::from_str(&xml);
-    reader.trim_text(true);
+    reader.config_mut().trim_text(true);
     let mut buf = Vec::new();
     let mut groups = Vec::new();
     let mut current_group_id: Option<u16> = None;

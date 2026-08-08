@@ -7,9 +7,9 @@ edition = "2024"
 tfs-rust-common = { workspace = true }
 tfs-rust-content = { workspace = true }
 mlua = { workspace = true }
-thiserror = "2.0"
+thiserror = { workspace = true }
 tracing = "0.1"
-quick-xml = { version = "0.37", features = ["serialize"] }
+quick-xml = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 
 [[bin]]

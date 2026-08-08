@@ -1,7 +1,7 @@
 //! Monster/NPC spawn scheduling from loaded spawn XML + OTBM references.
 // C++ reference: `spawn.cpp` `Spawn::checkSpawn`, `Spawn::spawnMonster`, `Spawn::startup`, `Spawn::findPlayer`.
 
-use rand::Rng;
+use rand::RngExt;
 use tfs_rust_common::Position;
 use tfs_rust_content::spawns::{MonsterWeight, SpawnEntry, SpawnZone};
 
@@ -305,9 +305,9 @@ pub fn pick_weighted_monster(weights: &[MonsterWeight]) -> Option<String> {
     if weights.len() == 1 {
         return Some(weights[0].name.clone());
     }
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     for w in weights {
-        let roll: u16 = rng.gen_range(1..=100);
+        let roll: u16 = rng.random_range(1..=100);
         if w.chance >= roll {
             return Some(w.name.clone());
         }

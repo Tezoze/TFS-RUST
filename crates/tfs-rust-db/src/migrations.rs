@@ -217,6 +217,7 @@ pub async fn run_migrations(pool: &DbPool, path: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use sqlx::migrate::MigrationType;
+    use sqlx::SqlStr;
     use std::borrow::Cow;
 
     /// Build a `Migration` with the given checksum and description for testing.
@@ -225,8 +226,9 @@ mod tests {
             version: BASELINE_VERSION,
             description: Cow::Owned(description.to_owned()),
             migration_type: MigrationType::Simple,
-            sql: Cow::Borrowed("-- baseline"),
+            sql: SqlStr::from_static("-- baseline"),
             checksum: Cow::Owned(checksum.to_vec()),
+            no_tx: false,
         }
     }
 

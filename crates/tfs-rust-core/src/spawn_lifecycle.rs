@@ -1036,7 +1036,7 @@ impl GameWorld {
             } else {
                 NORMAL_REL.to_vec()
             };
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             if extended_pos {
                 rel[..4].shuffle(&mut rng);
                 rel[4..].shuffle(&mut rng);
@@ -1058,7 +1058,7 @@ impl GameWorld {
 
         if found_pos.is_none() && search_radius >= 2 {
             let mut offsets = spawn_radius_offsets(search_radius);
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             offsets.shuffle(&mut rng);
             for (dx, dy) in offsets {
                 let try_pos = offset_position(center, dx, dy);
