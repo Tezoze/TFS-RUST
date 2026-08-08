@@ -5,6 +5,7 @@ mod base;
 mod kind;
 mod light;
 mod monster;
+mod move_possible;
 mod monster_combat;
 mod monster_inventory;
 mod npc;

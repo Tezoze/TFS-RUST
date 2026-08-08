@@ -90,7 +90,7 @@ impl GameWorld {
     }
 
     /// 772 `JumpPossible` (`info.cc:702-726`). `avoid_players` unused by ClearField (`false`).
-    fn jump_possible(&self, pos: Position, avoid_players: bool) -> bool {
+    pub(crate) fn jump_possible(&self, pos: Position, avoid_players: bool) -> bool {
         let Some(tile) = self.map.get_tile(pos) else {
             return false;
         };

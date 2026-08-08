@@ -161,12 +161,19 @@ impl GameWorld {
         }
 
         // 772 `CheckMapDestination` creature-container arm (`operate.cc:493-532`) —
-        // Gate C: range cap (P3), elevation-sum floor-change gate (P5/C1), dest AVOID
-        // (P6), PZ→non-PZ, and `ThrowPossible` (P9/C6). Runs **before** the TFS-style
-        // `tile_query_add_creature` so 772 gates fire with the correct error codes
-        // (e.g. AVOID → `NotEnoughRoom`, not `NotPossible`). The `MovePossible` call
-        // (P-D) slots into the `dz == 0 || !moving_is_monster` guard after this phase.
-        self.check_push_destination(from_pos, to_pos, moving_is_monster)?;
+        // Gate C: range cap (P3), elevation-sum floor-change gate (P5/C1), per-creature
+        // `MovePossible` (P-D/Gate B), dest AVOID (P6), PZ→non-PZ, and `ThrowPossible`
+        // (P9/C6). Runs **before** the TFS-style `tile_query_add_creature` so 772 gates
+        // fire with the correct error codes (e.g. AVOID → `NotEnoughRoom`, not
+        // `NotPossible`). `target_pos` is the creature's **current** position (not
+        // `from_pos`) — `MovePossible` uses `this->posx/posy/posz` internally.
+        self.check_push_destination(
+            moving_creature,
+            from_pos,
+            to_pos,
+            target_pos,
+            moving_is_monster,
+        )?;
 
         let Some(to_tile) = self.map.get_tile(to_pos) else {
             return Err(ReturnValue::NotPossible);
@@ -209,7 +216,7 @@ impl GameWorld {
 
     /// 772 `CoordinateFlag(x,y,z, AVOID)` (`operate.cc:525`, `enums.hh:240`).
     /// `AVOID` maps to the `MAGICFIELD` tile-state bit (`walk/walk_tile.rs:656`).
-    fn tile_has_avoid(&self, pos: Position) -> bool {
+    pub(crate) fn tile_has_avoid(&self, pos: Position) -> bool {
         self.map
             .get_tile(pos)
             .is_some_and(|t| t.body().flags & tilestate::MAGICFIELD != 0)
@@ -221,11 +228,14 @@ impl GameWorld {
     /// `moving_is_monster` selects the `OrigZ == DestZ || Type != MONSTER` guard (C5) —
     /// when the moving creature is a monster changing floors (`dz != 0`), `MovePossible` and
     /// the AVOID/PZ checks are **skipped** (the decompile only runs them for same-floor or
-    /// non-monster pushes). P-D's `MovePossible` call slots into the guard after this phase.
+    /// non-monster pushes). `origin` is the moving creature's **current** position (used by
+    /// `MovePossible` as `this->posx/posy/posz`).
     fn check_push_destination(
-        &self,
+        &mut self,
+        moving_creature: CreatureId,
         from: Position,
         to: Position,
+        origin: Position,
         moving_is_monster: bool,
     ) -> Result<(), ReturnValue> {
         // P3: 1-tile range cap (`operate.cc:493-496`).
@@ -273,11 +283,36 @@ impl GameWorld {
             }
         }
 
-        // C5: AVOID and PZ checks are nested inside `if(OrigZ == DestZ || Type != MONSTER)`,
-        // after `MovePossible` succeeds (`operate.cc:515-532`). P-D's `MovePossible` call
-        // goes here; the AVOID/PZ branches below fire only after it returns Ok.
+        // C5: `MovePossible`, AVOID, and PZ checks are nested inside
+        // `if(OrigZ == DestZ || Type != MONSTER)` (`operate.cc:515-532`). When the moving
+        // creature is a monster changing floors (`dz != 0`), all three are skipped.
         if dz == 0 || !moving_is_monster {
-            // P-D's MovePossible call slots in here (Phase P-D). For now, no-op.
+            // P-D / Gate B — per-creature `MovePossible(Execute=true, OrigZ != DestZ)`
+            // (`operate.cc:515-516`). Dispatch on the moving creature's type.
+            // C2/C3: thrown results (`ENTERPROTECTIONZONE`, `NOTINVITED`, `EXHAUSTED`)
+            // propagate unchanged; `Ok(false)` → `NOROOM` for pushing another creature
+            // (`operate.cc:517-518`: `CreatureID != MovingCreature->ID` → `NOROOM`).
+            let jump = from.z != to.z;
+            let result = match self.creatures.get(moving_creature) {
+                Some(CreatureKind::Player(_)) => {
+                    self.player_move_possible_push(moving_creature, to, origin, jump)
+                }
+                Some(CreatureKind::Monster(_)) => {
+                    self.monster_move_possible_push(moving_creature, to)
+                }
+                Some(CreatureKind::Npc(_)) => {
+                    self.npc_move_possible_push(moving_creature, to)
+                }
+                None => Ok(false),
+            };
+            match result {
+                // C2/C3: thrown results propagate unchanged (ENTERPROTECTIONZONE,
+                // NOTINVITED, EXHAUSTED) — not remapped to NOROOM.
+                Err(rv) => return Err(rv),
+                // `Ok(false)` → NOROOM for pushing another creature (`operate.cc:518`).
+                Ok(false) => return Err(ReturnValue::NotEnoughRoom),
+                Ok(true) => {}
+            }
 
             // P6: dest AVOID (magic field) blocks pushing another creature (`operate.cc:525`).
             if self.tile_has_avoid(to) {
@@ -1204,5 +1239,394 @@ mod push_phase_c_tests {
         // Should NOT be NotEnoughRoom (AVOID is skipped for monster floor-change).
         // May fail at ThrowPossible, but the AVOID check must not fire.
         assert_ne!(rv, Err(ReturnValue::NotEnoughRoom));
+    }
+}
+
+#[cfg(test)]
+mod push_phase_d_tests {
+    //! Phase P-D — per-creature `MovePossible(Execute=true)` push predicates (Gate B).
+    //! Tests P4: home range, house, PZ, GO_STRENGTH, summon anti-crowd (C4), kick EXHAUSTED
+    //! (C3), NPC radius, player PZ-enter (C2), player house-invite (C2).
+    //! See `docs/772_PLAYER_PUSH_AUDIT.md` §4 P-D.
+    use super::*;
+    use crate::creature::{CreatureBase, MonsterAiConfig, MonsterState, Npc, Outfit, Player};
+    use crate::sim_harness::{
+        beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player,
+        synthetic_ground_item_type, test_player,
+    };
+    use crate::tile::{HouseTile, Tile, TileBody};
+    use tfs_rust_common::enums::{Direction, SkullType, ZoneType};
+    use tfs_rust_common::Position;
+
+    /// Register ground type 1 as a BANK ground tile in the items_db.
+    /// `beat_driven_world()` doesn't register ground type 1 by default — needed for
+    /// `tile_is_bank_and_passable` (772 `BANK` flag) in player `MovePossible`.
+    fn register_ground_bank(world: &mut GameWorld) {
+        let mut new_db = (*world.items_db).clone();
+        new_db.items.insert(1, synthetic_ground_item_type(1, 150));
+        world.items_db = std::sync::Arc::new(new_db);
+    }
+
+    /// Insert a player AND register them on the map tile (unlike `insert_player` which only
+    /// adds to the SlotMap). Needed for tile-creature lookups in `MovePossible`/kick loop.
+    fn insert_player_on_tile(world: &mut GameWorld, player: Player, pos: Position) -> CreatureId {
+        let cid = world.creatures.insert(CreatureKind::Player(player));
+        world.map.register_creature_at(pos, cid);
+        cid
+    }
+
+    /// Set a tile's zone to Protection.
+    fn set_pz_tile(world: &mut GameWorld, pos: Position) {
+        if let Some(tile) = world.map.get_tile_mut(pos) {
+            tile.body_mut().zone = ZoneType::Protection;
+            tile.body_mut().flags |= tilestate::PROTECTIONZONE;
+        }
+    }
+
+    /// Insert a house tile at `pos` with the given `house_id`.
+    fn insert_house_tile(world: &mut GameWorld, pos: Position, house_id: u32) {
+        world.map.insert_tile(
+            pos,
+            Tile::House(HouseTile {
+                inner: TileBody {
+                    ground: Some(1),
+                    ground_item: None,
+                    down_items: Vec::new(),
+                    top_items: Vec::new(),
+                    creatures: Vec::new(),
+                    flags: 0,
+                    zone: ZoneType::Normal,
+                },
+                house_id,
+            }),
+        );
+    }
+
+    /// Set up a push arena: actor adjacent to `from`, monster at `from`, dest at `to`.
+    /// Returns `(actor, mover)`.
+    fn setup_push_arena_pd(
+        world: &mut GameWorld,
+        from: Position,
+        to: Position,
+    ) -> (CreatureId, CreatureId) {
+        ensure_walkable_tile(&mut world.map, from, 1);
+        ensure_walkable_tile(&mut world.map, to, 1);
+        let actor_pos = Position::new(from.x, from.y.saturating_sub(1), from.z);
+        ensure_walkable_tile(&mut world.map, actor_pos, 1);
+        let actor = insert_player(world, test_player("Actor", actor_pos));
+        let mover = insert_monster_with_config(world, "Mover", from, 200, MonsterAiConfig::default());
+        (actor, mover)
+    }
+
+    /// P4: push a monster out of its home range → `NotEnoughRoom` (772 `NOROOM`).
+    /// `crnonpl.cc:2148-2151`: `MonsterhomeInRange(this->Home, x, y, z)` → false.
+    #[test]
+    fn p4_push_monster_out_of_home_range_rejected() {
+        let mut world = beat_driven_world();
+        // Spawn at (100,100,7); monster moved to (101,100,7); push to (102,100,7).
+        // Dest (102,100,7) is distance 2 from spawn → outside home_radius=1.
+        let from = Position::new(101, 100, 7);
+        let to = Position::new(102, 100, 7);
+        ensure_walkable_tile(&mut world.map, from, 1);
+        ensure_walkable_tile(&mut world.map, to, 1);
+        let actor_pos = Position::new(101, 99, 7);
+        ensure_walkable_tile(&mut world.map, actor_pos, 1);
+        let actor = insert_player(&mut world, test_player("Actor", actor_pos));
+        let mover = insert_monster_with_config(&mut world, "Mover", from, 200, MonsterAiConfig::default());
+        // Set spawn at (100,100,7) and home_radius=1.
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
+            m.spawn_position = Position::new(100, 100, 7);
+            m.home_radius = 1;
+        }
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::NotEnoughRoom)); // NOROOM
+    }
+
+    /// P4: push a monster into a house tile → `NotEnoughRoom` (772 `NOROOM`).
+    /// `crnonpl.cc:2168`: `IsHouse(x, y, z)` → false.
+    #[test]
+    fn p4_push_monster_into_house_rejected() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let (actor, mover) = setup_push_arena_pd(&mut world, from, to);
+        // Replace dest with a house tile.
+        insert_house_tile(&mut world, to, 1);
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::NotEnoughRoom)); // NOROOM
+    }
+
+    /// P4: push a monster into a PZ tile → `NotEnoughRoom` (772 `NOROOM`).
+    /// `crnonpl.cc:2168`: `IsProtectionZone(x, y, z)` → false.
+    #[test]
+    fn p4_push_monster_into_pz_rejected() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let (actor, mover) = setup_push_arena_pd(&mut world, from, to);
+        set_pz_tile(&mut world, to);
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::NotEnoughRoom)); // NOROOM
+    }
+
+    /// P4: push a monster with `GO_STRENGTH < 0` (`speed < 0`) → `NotEnoughRoom`.
+    /// `crnonpl.cc:2162`: `Skills[SKILL_GO_STRENGTH]->Act < 0` → false.
+    #[test]
+    fn p4_push_monster_negative_go_strength_rejected() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let (actor, mover) = setup_push_arena_pd(&mut world, from, to);
+        // GO_STRENGTH < 0 → speed < 0.
+        if let Some(k) = world.creatures.get_mut(mover) {
+            k.base_mut().speed = -1;
+        }
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::NotEnoughRoom)); // NOROOM
+    }
+
+    /// P4/C4: push a summon currently 2 tiles from master onto a tile adjacent to master
+    /// → `NotEnoughRoom` (anti-crowd rule, NOT a leash/distance cap).
+    /// `crnonpl.cc:2171-2181`: summon not-adjacent → dest-adjacent rejected.
+    #[test]
+    fn p4_c4_summon_anti_crowd_rejected() {
+        let mut world = beat_driven_world();
+        // Master at (100,100,7); summon at (102,100,7) (manhattan 2); push to (101,100,7)
+        // (manhattan 1 from master — adjacent).
+        let master_pos = Position::new(100, 100, 7);
+        let from = Position::new(102, 100, 7);
+        let to = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, master_pos, 1);
+        ensure_walkable_tile(&mut world.map, from, 1);
+        ensure_walkable_tile(&mut world.map, to, 1);
+        let actor_pos = Position::new(102, 99, 7);
+        ensure_walkable_tile(&mut world.map, actor_pos, 1);
+        let master = insert_player(&mut world, test_player("Master", master_pos));
+        let actor = insert_player(&mut world, test_player("Actor", actor_pos));
+        let mover = insert_monster_with_config(&mut world, "Summon", from, 200, MonsterAiConfig::default());
+        // Make the mover a summon (master set) — not ATTACKING/PANIC.
+        if let Some(k) = world.creatures.get_mut(mover) {
+            k.base_mut().master = Some(master);
+        }
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::NotEnoughRoom)); // NOROOM (anti-crowd)
+    }
+
+    /// P4/C4: push a summon currently adjacent to master onto another adjacent tile →
+    /// succeeds (anti-crowd only rejects not-adjacent → adjacent, not adjacent → adjacent).
+    #[test]
+    fn p4_c4_summon_adjacent_to_adjacent_succeeds() {
+        let mut world = beat_driven_world();
+        // Master at (100,100,7); summon at (101,100,7) (manhattan 1 — adjacent);
+        // push to (101,99,7) (manhattan 1 from master — still adjacent).
+        let master_pos = Position::new(100, 100, 7);
+        let from = Position::new(101, 100, 7);
+        let to = Position::new(101, 99, 7);
+        ensure_walkable_tile(&mut world.map, master_pos, 1);
+        ensure_walkable_tile(&mut world.map, from, 1);
+        ensure_walkable_tile(&mut world.map, to, 1);
+        // Actor at (102,100,7) — adjacent to `from`.
+        let actor_pos = Position::new(102, 100, 7);
+        ensure_walkable_tile(&mut world.map, actor_pos, 1);
+        let master = insert_player(&mut world, test_player("Master", master_pos));
+        let actor = insert_player(&mut world, test_player("Actor", actor_pos));
+        let mover = insert_monster_with_config(&mut world, "Summon", from, 200, MonsterAiConfig::default());
+        if let Some(k) = world.creatures.get_mut(mover) {
+            k.base_mut().master = Some(master);
+        }
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        // Anti-crowd does NOT fire (currently adjacent → dest adjacent is allowed).
+        assert_eq!(rv, Ok(()));
+    }
+
+    /// P4/C2: push a player into a PZ during `EarliestProtectionZoneRound` →
+    /// `PlayerIsPzLocked` (772 `ENTERPROTECTIONZONE`), NOT `NotEnoughRoom`.
+    /// `crplayer.cc:366-369`: throws `ENTERPROTECTIONZONE`.
+    #[test]
+    fn p4_c2_push_player_into_pz_while_locked_rejected() {
+        let mut world = beat_driven_world();
+        register_ground_bank(&mut world);
+        world.round_nr = 100;
+        // Moving player at (100,100,7) — NOT in PZ; push to (101,100,7) — IS in PZ.
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, from, 1);
+        ensure_walkable_tile(&mut world.map, to, 1);
+        set_pz_tile(&mut world, to);
+        // Actor adjacent to the moving player.
+        let actor_pos = Position::new(100, 99, 7);
+        ensure_walkable_tile(&mut world.map, actor_pos, 1);
+        let actor = insert_player(&mut world, test_player("Actor", actor_pos));
+        let mover = insert_player_on_tile(&mut world, test_player("Mover", from), from);
+        // Set EarliestProtectionZoneRound > round_nr.
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(mover) {
+            p.earliest_protection_zone_round = 160;
+        }
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::PlayerIsPzLocked)); // ENTERPROTECTIONZONE
+    }
+
+    /// P4/C2: push a player into an uninvited house → `PlayerIsNotInvited`
+    /// (772 `NOTINVITED`), NOT `NotEnoughRoom`.
+    /// `crplayer.cc:372-377`: throws `NOTINVITED`.
+    #[test]
+    fn p4_c2_push_player_into_uninvited_house_rejected() {
+        let mut world = beat_driven_world();
+        register_ground_bank(&mut world);
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, from, 1);
+        let actor_pos = Position::new(100, 99, 7);
+        ensure_walkable_tile(&mut world.map, actor_pos, 1);
+        let actor = insert_player(&mut world, test_player("Actor", actor_pos));
+        let mover = insert_player_on_tile(&mut world, test_player("Mover", from), from);
+        // Replace dest with a house tile (house_id=1).
+        insert_house_tile(&mut world, to, 1);
+        // Register house 1 with no owner/guests → player is not invited.
+        world.houses.ensure_houses([1]);
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::PlayerIsNotInvited)); // NOTINVITED
+    }
+
+    /// P4/C3: push an ATTACKING monster with `KickCreatures` onto a player-blocker tile
+    /// → `YouAreExhausted` (772 `EXHAUSTED`) with `Target = 0` side effect.
+    /// `crnonpl.cc:2236-2238`: `this->Target = 0; throw EXHAUSTED`.
+    #[test]
+    fn p4_c3_push_monster_onto_player_blocker_exhausted() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, from, 1);
+        ensure_walkable_tile(&mut world.map, to, 1);
+        let actor_pos = Position::new(100, 99, 7);
+        ensure_walkable_tile(&mut world.map, actor_pos, 1);
+        let actor = insert_player(&mut world, test_player("Actor", actor_pos));
+        let mover = insert_monster_with_config(
+            &mut world,
+            "Kicker",
+            from,
+            200,
+            MonsterAiConfig {
+                can_push_creatures: true,
+                ..MonsterAiConfig::default()
+            },
+        );
+        // Monster is ATTACKING with a target (a different player, not the blocker).
+        let target_pos = Position::new(100, 102, 7);
+        ensure_walkable_tile(&mut world.map, target_pos, 1);
+        let target = insert_player(&mut world, test_player("Target", target_pos));
+        // Blocker player on the dest tile — must be registered on the map for the kick loop.
+        let blocker = insert_player_on_tile(&mut world, test_player("Blocker", to), to);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
+            m.state = MonsterState::Attacking;
+            m.base.attack_target = Some(target);
+        }
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::YouAreExhausted)); // EXHAUSTED
+        // C3: Target = 0 side effect applied at the throw site.
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get(mover) {
+            assert!(
+                m.base.attack_target.is_none() && m.base.follow_target.is_none(),
+                "Target must be cleared after EXHAUSTED (crnonpl.cc:2237)"
+            );
+        }
+    }
+
+    /// P4: push an NPC outside its radius → `NotEnoughRoom` (772 `NOROOM`).
+    /// `crnonpl.cc:1672-1679`: `abs(x - startx) <= Radius` → false.
+    #[test]
+    fn p4_push_npc_outside_radius_rejected() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, from, 1);
+        ensure_walkable_tile(&mut world.map, to, 1);
+        let actor_pos = Position::new(100, 99, 7);
+        ensure_walkable_tile(&mut world.map, actor_pos, 1);
+        let actor = insert_player(&mut world, test_player("Actor", actor_pos));
+        // Build a minimal NPC at `from` with radius=0 (only home tile passes).
+        let base = CreatureBase {
+            name: "Npc".into(),
+            position: from,
+            direction: Direction::North,
+            health: 100,
+            max_health: 100,
+            outfit: Outfit::default(),
+            speed: 220,
+            base_speed: 220,
+            var_speed: 0,
+            skull: SkullType::None,
+            drunkenness: 0,
+            active_conditions: Vec::new(),
+            walk_queue: Default::default(),
+            walk_destinations: Default::default(),
+            last_step: None,
+            last_step_cost: 1,
+            last_step_ground_speed: 150,
+            next_wakeup: None,
+            last_step_server_ms: None,
+            earliest_walk_server_ms: 0,
+            earliest_spell_server_ms: 0,
+            earliest_multiuse_server_ms: 0,
+            cancel_next_walk: false,
+            force_update_follow_path: false,
+            walk_update_ticks: 0,
+            is_updating_path: false,
+            has_follow_path: false,
+            movement_blocked: false,
+            stairhop_blocked_until: None,
+            follow_target: None,
+            attack_target: None,
+            master: None,
+            damage_map: Default::default(),
+            last_hit_by: None,
+            poison_damage_origin: None,
+            fire_damage_origin: None,
+            energy_damage_origin: None,
+            earliest_attack_ms: 0,
+            latest_attack_round: 0,
+            earliest_defend_ms: 0,
+            last_defend_ms: 0,
+            learning_points: 0,
+            todo: Default::default(),
+            chase_mode: Default::default(),
+            last_auto_walk_armed_ms: u64::MAX,
+        };
+        let mut npc = Npc::placeholder(base);
+        // radius=0 → only the home tile itself passes.
+        npc.runtime.radius = 0;
+        npc.runtime.home_position = from;
+        let npc_id = world.creatures.insert(CreatureKind::Npc(npc));
+        crate::login_out::assign_creature_wire_id(&mut world, npc_id);
+        world.map.register_creature_at(from, npc_id);
+
+        let rv = world.player_push_creature(actor, npc_id, from, to);
+        assert_eq!(rv, Err(ReturnValue::NotEnoughRoom)); // NOROOM
+    }
+
+    /// P4: push a monster within its home range → succeeds (positive case for home range).
+    #[test]
+    fn p4_push_monster_within_home_range_succeeds() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let (actor, mover) = setup_push_arena_pd(&mut world, from, to);
+        // Set spawn at (100,100,7) and home_radius=1. Dest (101,100,7) is distance 1 — within range.
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
+            m.spawn_position = from;
+            m.home_radius = 1;
+        }
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Ok(()));
     }
 }

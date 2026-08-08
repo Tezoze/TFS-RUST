@@ -112,7 +112,7 @@ impl GameWorld {
     /// the loop kicks again. This lets a monster step through a multi-deep creature wall on the
     /// same beat. After 100 attempts or a non-recoverable block (player, IGNORED, invisible,
     /// forced kill), returns `Exhausted`.
-    fn monster_kick_before_step(
+    pub(crate) fn monster_kick_before_step(
         &mut self,
         mover: CreatureId,
         dest: Position,
@@ -359,7 +359,7 @@ impl GameWorld {
 
     /// 772 `CoordinateFlag(Dest, BANK) && !CoordinateFlag(Dest, UNPASS)` — a walkable terrain tile
     /// with no solid blocker (`crnonpl.cc:3018-3019`).
-    fn tile_is_bank_and_passable(&self, pos: Position) -> bool {
+    pub(crate) fn tile_is_bank_and_passable(&self, pos: Position) -> bool {
         let Some(tile) = self.map.get_tile(pos) else {
             return false;
         };

@@ -186,6 +186,12 @@ pub struct Monster {
     /// `MovePossible` leash (`crnonpl.cc:2148-2157`, `MonsterhomeInRange`). `0` = unset → fall back
     /// to the global despawn radius. Set from the spawn zone `radius` at spawn time.
     pub home_radius: i32,
+    /// CipSoft `TCreature::Radius` — per-creature max distance from current position
+    /// (`crmain.cc:174`, default `INT_MAX`; set from spawn-wave `Wave->Radius` at
+    /// `crmain.cc:1886,2061`). Distinct from `home_radius` (per-home) — this is a per-creature
+    /// leash from the **current** position, checked by `MovePossible` (`crnonpl.cc:2154-2159`).
+    /// Not yet wired from spawn-wave data; defaults to `i32::MAX` (check never fires).
+    pub radius: i32,
     pub ai_phase: MonsterAiPhase,
     pub think_interval_ms: u32,
     /// Script registration: only if contains `onThink` does core invoke Lua think (Phase 8).
@@ -285,6 +291,7 @@ impl Monster {
             base,
             spawn_position: spawn,
             home_radius: 0,
+            radius: i32::MAX,
             ai_phase: MonsterAiPhase::Idle,
             think_interval_ms: 1000,
             registered_events: HashSet::new(),
