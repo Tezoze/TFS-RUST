@@ -5,7 +5,7 @@
 
 use std::time::Instant;
 
-use tfs_rust_common::{ConnId, Position};
+use tfs_rust_common::{ConnId, Position, WorldType};
 
 use crate::creature::CreatureKind;
 use crate::creature_todo::{ActionObjectRef, CreatureAction};
@@ -126,13 +126,22 @@ impl GameWorld {
         let Some(target) = self.creatures.get(moving_creature) else {
             return Err(ReturnValue::NotPossible);
         };
-        let pushable = match target {
-            CreatureKind::Monster(m) => m.is_pushable(),
-            CreatureKind::Player(_) => true,
-            CreatureKind::Npc(_) => false,
+        // 772 Gate A — `CheckMoveObject` race-flag predicate (`operate.cc:439`):
+        //   if GetRaceUnpushable(Race) && (WorldType != NON_PVP || !IsPeaceful()) throw NOTMOVABLE
+        // Players/NPCs have no `Race` in the 772 sense for this gate — they're never
+        // `GetRaceUnpushable`-blocked (P7: the old hardcoded `Npc(_) => false` is removed;
+        // NPC pushability is now governed by Gate B/C `MovePossible`, matching the decompile).
+        // `race_unpushable` is the race flag only; the NON_PVP peaceful exception
+        // (`crmain.cc:900` base, `crnonpl.cc:2295` `TMonster::IsPeaceful`) is applied here.
+        let unpushable = match target {
+            CreatureKind::Monster(m) => m.race_unpushable(),
+            CreatureKind::Player(_) | CreatureKind::Npc(_) => false,
         };
-        if !pushable {
-            return Err(ReturnValue::NotPossible);
+        if unpushable
+            && !(matches!(self.pvp_config.world_type, WorldType::NoPvp)
+                && self.creature_is_peaceful(moving_creature))
+        {
+            return Err(ReturnValue::NotMoveable);
         }
 
         let Some(to_tile) = self.map.get_tile(to_pos) else {
@@ -479,4 +488,200 @@ impl GameWorld {
 
 
 
+}
+
+#[cfg(test)]
+mod push_gate_a_tests {
+    //! Phase P-A — 772 Gate A pushability predicate (`operate.cc:439` `CheckMoveObject`).
+    use super::*;
+    use crate::creature::MonsterAiConfig;
+    use crate::sim_harness::{
+        beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player,
+        test_player,
+    };
+    use tfs_rust_common::Position;
+
+    /// Walkable `from`/`to` tiles + moving creature registered at `from`. Returns `(actor, mover)`.
+    fn setup_push_arena(
+        world: &mut GameWorld,
+        from: Position,
+        to: Position,
+        mover_cfg: MonsterAiConfig,
+    ) -> (CreatureId, CreatureId) {
+        ensure_walkable_tile(&mut world.map, from, 1);
+        ensure_walkable_tile(&mut world.map, to, 1);
+        // Actor player — only needed for the trailing `DelayAttack`; place it anywhere walkable.
+        let actor_pos = Position::new(from.x, from.y.saturating_sub(2), from.z);
+        ensure_walkable_tile(&mut world.map, actor_pos, 1);
+        let actor = insert_player(world, test_player("Actor", actor_pos));
+        let mover = insert_monster_with_config(world, "Mover", from, 200, mover_cfg);
+        (actor, mover)
+    }
+
+    /// P2: PVP world, `unpushable`-race monster → Gate A blocks with `NotMoveable`
+    /// (772 `NOTMOVABLE`), regardless of speed.
+    #[test]
+    fn pvp_unpushable_race_monster_blocked() {
+        let mut world = beat_driven_world();
+        // default world_type is Pvp.
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let cfg = MonsterAiConfig {
+            pushable: false,
+            ..MonsterAiConfig::default()
+        };
+        let (actor, mover) = setup_push_arena(&mut world, from, to, cfg);
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::NotMoveable));
+    }
+
+    /// P2 core divergence: a `pushable`-race monster with `speed == 0` **passes** Gate A.
+    /// 772 `GetRaceUnpushable` consults the race flag only — not speed. The old TFS
+    /// `is_pushable()` (`pushable && speed != 0`) would have blocked this; P-A removes that.
+    #[test]
+    fn speed_zero_pushable_race_passes_gate_a() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        // pushable race (default true), but speed 0.
+        let (actor, mover) = setup_push_arena(&mut world, from, to, MonsterAiConfig::default());
+        if let Some(k) = world.creatures.get_mut(mover) {
+            k.base_mut().speed = 0;
+        }
+
+        // Gate A passes; the full push succeeds on the valid arena.
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Ok(()));
+    }
+
+    /// P2 NON_PVP exception: a player-summon of an `unpushable` race is peaceful
+    /// (`crnonpl.cc:2295` `TMonster::IsPeaceful`) → pushable in NON_PVP.
+    #[test]
+    fn nopvp_peaceful_summon_of_unpushable_race_pushable() {
+        let mut world = beat_driven_world();
+        world.pvp_config.world_type = WorldType::NoPvp;
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let cfg = MonsterAiConfig {
+            pushable: false,
+            ..MonsterAiConfig::default()
+        };
+        let (actor, mover) = setup_push_arena(&mut world, from, to, cfg);
+        // Make the mover a player-summon → peaceful.
+        if let Some(k) = world.creatures.get_mut(mover) {
+            k.base_mut().master = Some(actor);
+        }
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Ok(()));
+    }
+
+    /// P2: NON_PVP world, `unpushable`-race monster that is **not** peaceful (no player
+    /// master) → still blocked. The peaceful exception only covers peaceful creatures.
+    #[test]
+    fn nopvp_unpushable_non_peaceful_monster_blocked() {
+        let mut world = beat_driven_world();
+        world.pvp_config.world_type = WorldType::NoPvp;
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let cfg = MonsterAiConfig {
+            pushable: false,
+            ..MonsterAiConfig::default()
+        };
+        let (actor, mover) = setup_push_arena(&mut world, from, to, cfg);
+        // No master → not peaceful.
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::NotMoveable));
+    }
+
+    /// Baseline: a normal (`pushable`-race) monster is pushable in PVP.
+    #[test]
+    fn normal_monster_pushable_in_pvp() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let (actor, mover) = setup_push_arena(&mut world, from, to, MonsterAiConfig::default());
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Ok(()));
+    }
+
+    /// P7: NPC pushability is no longer hardcoded `false`. NPCs have no 772 `Race` for
+    /// Gate A → `unpushable = false` → passes Gate A. (Gate B/C `MovePossible` govern NPC
+    /// pushability, not Gate A.) Verified in NON_PVP where the old code also blocked.
+    #[test]
+    fn npc_passes_gate_a() {
+        use crate::creature::{CreatureBase, Npc, Outfit};
+        use tfs_rust_common::enums::{Direction, SkullType};
+
+        let mut world = beat_driven_world();
+        world.pvp_config.world_type = WorldType::NoPvp;
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, from, 1);
+        ensure_walkable_tile(&mut world.map, to, 1);
+        let actor_pos = Position::new(100, 98, 7);
+        ensure_walkable_tile(&mut world.map, actor_pos, 1);
+        let actor = insert_player(&mut world, test_player("Actor", actor_pos));
+
+        // Build a minimal NPC at `from` (no definition DB entry — `Npc::placeholder`).
+        let base = CreatureBase {
+            name: "Npc".into(),
+            position: from,
+            direction: Direction::North,
+            health: 100,
+            max_health: 100,
+            outfit: Outfit::default(),
+            speed: 220,
+            base_speed: 220,
+            var_speed: 0,
+            skull: SkullType::None,
+            drunkenness: 0,
+            active_conditions: Vec::new(),
+            walk_queue: Default::default(),
+            walk_destinations: Default::default(),
+            last_step: None,
+            last_step_cost: 1,
+            last_step_ground_speed: 150,
+            next_wakeup: None,
+            last_step_server_ms: None,
+            earliest_walk_server_ms: 0,
+            earliest_spell_server_ms: 0,
+            earliest_multiuse_server_ms: 0,
+            cancel_next_walk: false,
+            force_update_follow_path: false,
+            walk_update_ticks: 0,
+            is_updating_path: false,
+            has_follow_path: false,
+            movement_blocked: false,
+            stairhop_blocked_until: None,
+            follow_target: None,
+            attack_target: None,
+            master: None,
+            damage_map: Default::default(),
+            last_hit_by: None,
+            poison_damage_origin: None,
+            fire_damage_origin: None,
+            energy_damage_origin: None,
+            earliest_attack_ms: 0,
+            latest_attack_round: 0,
+            earliest_defend_ms: 0,
+            last_defend_ms: 0,
+            learning_points: 0,
+            todo: Default::default(),
+            chase_mode: Default::default(),
+            last_auto_walk_armed_ms: u64::MAX,
+        };
+        let npc = world
+            .creatures
+            .insert(CreatureKind::Npc(Npc::placeholder(base)));
+        world.map.register_creature_at(from, npc);
+
+        // Gate A passes (NPC has no race flag). The push may fail at a later gate, but it
+        // must NOT be `NotMoveable` (the old hardcoded `Npc => false` return).
+        let rv = world.player_push_creature(actor, npc, from, to);
+        assert_ne!(rv, Err(ReturnValue::NotMoveable));
+    }
 }

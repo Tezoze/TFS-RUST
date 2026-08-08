@@ -343,8 +343,20 @@ impl Monster {
     }
 
     /// TFS `Monster::isPushable` — `monster.h` (`pushable && baseSpeed != 0`).
+    /// Used by TFS-style monster-AI kick gates; **not** the 772 player-push gate
+    /// (see [`GameWorld::player_push_creature`] / P-A).
     pub fn is_pushable(&self) -> bool {
         self.pushable && self.base.speed != 0
+    }
+
+    /// 772 `GetRaceUnpushable(Race)` — `crmain.cc:1356`, set by the `unpushable` race flag
+    /// (`crmain.cc:1495`). This is the **race flag** only (Gate A of `CheckMoveObject`,
+    /// `operate.cc:439`); the NON_PVP peaceful exception and Gate B/C are applied by the
+    /// caller. Distinct from [`Monster::is_pushable`] (TFS `pushable && speed != 0`): 772
+    /// Gate A does **not** consult `speed`, and a `speed == 0` monster is still pushable
+    /// here unless its race is `unpushable`.
+    pub fn race_unpushable(&self) -> bool {
+        !self.pushable
     }
 
     /// 772 `TMonster::IsFleeing` — `crnonpl.cc:3136` (HP threshold only; PANIC is separate).
