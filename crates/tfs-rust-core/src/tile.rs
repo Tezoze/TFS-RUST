@@ -422,6 +422,10 @@ impl Tile {
         is_priority_bottom: impl Fn(ItemId) -> bool,
     ) -> Option<ItemId> {
         let body = self.body();
+        // Ground item occupies stackpos 0 — must match `get_item_stack_pos_cip` (`:302`).
+        if stack_pos == 0 {
+            return body.ground_item;
+        }
         let mut n: u8 = if body.ground.is_some() { 1 } else { 0 };
 
         if cip_order {
@@ -751,6 +755,43 @@ mod look_tests {
             );
         }
         assert_eq!(tile.item_id_at_stack_pos_ordered(3, true, is_bottom), None);
+    }
+
+    /// Ground items occupy stackpos 0 in `get_item_stack_pos_cip`; the inverse must resolve
+    /// stackpos 0 back to the ground item. Without this, a Use/Move targeting the ground tile
+    /// (stackpos 0) returned `None` instead of the ground `ItemId`.
+    #[test]
+    fn ground_item_stackpos_0_round_trips_through_the_inverse_lookup() {
+        let mut items: SlotMap<ItemId, _> = SlotMap::with_key();
+        let ground_item = items.insert(());
+        let ladder = items.insert(());
+        let mut body = tile_body(Some(106), vec![ladder], vec![], vec![]);
+        body.ground_item = Some(ground_item);
+        let tile = Tile::Normal(body);
+
+        let stack = tile
+            .get_item_stack_pos_cip(ground_item, true, |_| false)
+            .expect("ground item stack pos");
+        assert_eq!(stack, 0);
+        assert_eq!(
+            tile.item_id_at_stack_pos_ordered(0, true, |_| false),
+            Some(ground_item),
+            "stackpos 0 must resolve back to the ground item"
+        );
+        // Non-ordered path too.
+        assert_eq!(
+            tile.item_id_at_stack_pos(0),
+            Some(ground_item),
+            "stackpos 0 must resolve back to the ground item (non-ordered)"
+        );
+        // Stackpos 0 on a tile with ground but no ground_item → None.
+        let body2 = tile_body(Some(106), vec![ladder], vec![], vec![]);
+        let tile2 = Tile::Normal(body2);
+        assert_eq!(
+            tile2.item_id_at_stack_pos_ordered(0, true, |_| false),
+            None,
+            "stackpos 0 with no ground_item must return None"
+        );
     }
 
     #[test]
