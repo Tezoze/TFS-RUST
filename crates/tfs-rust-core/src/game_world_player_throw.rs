@@ -123,20 +123,35 @@ impl GameWorld {
         from_pos: Position,
         to_pos: Position,
     ) -> Result<(), ReturnValue> {
-        let Some(target) = self.creatures.get(moving_creature) else {
+        // Extract target position + race flag in a scoped borrow so `self` is free
+        // for the `object_in_range` / `creature_is_peaceful` calls below.
+        let (target_pos, unpushable) = {
+            let Some(target) = self.creatures.get(moving_creature) else {
+                return Err(ReturnValue::NotPossible);
+            };
+            let pos = target.position();
+            // 772 Gate A — `CheckMoveObject` race-flag predicate (`operate.cc:439`):
+            //   if GetRaceUnpushable(Race) && (WorldType != NON_PVP || !IsPeaceful()) throw NOTMOVABLE
+            // Players/NPCs have no `Race` in the 772 sense for this gate — they're never
+            // `GetRaceUnpushable`-blocked (P7: the old hardcoded `Npc(_) => false` is removed;
+            // NPC pushability is now governed by Gate B/C `MovePossible`, matching the decompile).
+            // `race_unpushable` is the race flag only; the NON_PVP peaceful exception
+            // (`crmain.cc:900` base, `crnonpl.cc:2295` `TMonster::IsPeaceful`) is applied below.
+            let unpush = match target {
+                CreatureKind::Monster(m) => m.race_unpushable(),
+                CreatureKind::Player(_) | CreatureKind::Npc(_) => false,
+            };
+            (pos, unpush)
+        };
+        // P12 (C7) — execute-time `ObjectAccessible(CreatureID, Obj, 1)` re-check
+        // (`operate.cc:424` inside `CheckMoveObject`, runs before the race-flag
+        // gate at `operate.cc:439`). The 1000ms `ToDoMove` wait (P-B) lets the
+        // target walk away; 772 rejects at execute, so must Rust. Checks the
+        // creature's **current** position, not the enqueue-time `from_pos`.
+        if !self.object_in_range(actor, target_pos, 1) {
             return Err(ReturnValue::NotPossible);
-        };
-        // 772 Gate A — `CheckMoveObject` race-flag predicate (`operate.cc:439`):
-        //   if GetRaceUnpushable(Race) && (WorldType != NON_PVP || !IsPeaceful()) throw NOTMOVABLE
-        // Players/NPCs have no `Race` in the 772 sense for this gate — they're never
-        // `GetRaceUnpushable`-blocked (P7: the old hardcoded `Npc(_) => false` is removed;
-        // NPC pushability is now governed by Gate B/C `MovePossible`, matching the decompile).
-        // `race_unpushable` is the race flag only; the NON_PVP peaceful exception
-        // (`crmain.cc:900` base, `crnonpl.cc:2295` `TMonster::IsPeaceful`) is applied here.
-        let unpushable = match target {
-            CreatureKind::Monster(m) => m.race_unpushable(),
-            CreatureKind::Player(_) | CreatureKind::Npc(_) => false,
-        };
+        }
+        // Gate A — race-flag predicate with NON_PVP peaceful exception.
         if unpushable
             && !(matches!(self.pvp_config.world_type, WorldType::NoPvp)
                 && self.creature_is_peaceful(moving_creature))
@@ -502,6 +517,11 @@ mod push_gate_a_tests {
     use tfs_rust_common::Position;
 
     /// Walkable `from`/`to` tiles + moving creature registered at `from`. Returns `(actor, mover)`.
+    ///
+    /// **P-B (P12):** the actor is placed **adjacent** to `from` (within range 1)
+    /// so the execute-time `ObjectAccessible(CreatureID, Obj, 1)` re-check passes.
+    /// The old P-A setup placed the actor 2 tiles away (only needed for
+    /// `DelayAttack`); P12's adjacency re-check now rejects that.
     fn setup_push_arena(
         world: &mut GameWorld,
         from: Position,
@@ -510,8 +530,9 @@ mod push_gate_a_tests {
     ) -> (CreatureId, CreatureId) {
         ensure_walkable_tile(&mut world.map, from, 1);
         ensure_walkable_tile(&mut world.map, to, 1);
-        // Actor player — only needed for the trailing `DelayAttack`; place it anywhere walkable.
-        let actor_pos = Position::new(from.x, from.y.saturating_sub(2), from.z);
+        // Actor player — adjacent to `from` for P12's `ObjectAccessible(…, 1)`.
+        // Place on the opposite side of `to` to avoid overlapping the destination.
+        let actor_pos = Position::new(from.x, from.y.saturating_sub(1), from.z);
         ensure_walkable_tile(&mut world.map, actor_pos, 1);
         let actor = insert_player(world, test_player("Actor", actor_pos));
         let mover = insert_monster_with_config(world, "Mover", from, 200, mover_cfg);
@@ -622,7 +643,7 @@ mod push_gate_a_tests {
         let to = Position::new(101, 100, 7);
         ensure_walkable_tile(&mut world.map, from, 1);
         ensure_walkable_tile(&mut world.map, to, 1);
-        let actor_pos = Position::new(100, 98, 7);
+        let actor_pos = Position::new(100, 99, 7); // P12: adjacent to `from` (dy=1)
         ensure_walkable_tile(&mut world.map, actor_pos, 1);
         let actor = insert_player(&mut world, test_player("Actor", actor_pos));
 
@@ -683,5 +704,186 @@ mod push_gate_a_tests {
         // must NOT be `NotMoveable` (the old hardcoded `Npc => false` return).
         let rv = world.player_push_creature(actor, npc, from, to);
         assert_ne!(rv, Err(ReturnValue::NotMoveable));
+    }
+}
+
+#[cfg(test)]
+mod push_phase_b_tests {
+    //! Phase P-B — `ToDoMove` creature-container delay (P1) + execute-time
+    //! adjacency re-check (P12). See `docs/772_PLAYER_PUSH_AUDIT.md` §4 P-B.
+    use super::*;
+    use crate::creature_todo::CreatureAction;
+    use crate::sim_harness::{
+        beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player,
+        test_player,
+    };
+    use tfs_rust_common::Position;
+
+    /// Default outfit `look_type` for `insert_monster_with_config` (`Outfit::default`).
+    /// `internal_get_thing_move` resolves a creature via `find_tile_creature_by_client_sprite`
+    /// when this matches the wire `sprite_id` and no item on the tile matches first.
+    const MONSTER_SPRITE: u16 = 136;
+
+    /// Set up a push arena: actor adjacent to `from`, monster at `from`, dest at `to`.
+    /// `server_ms` is set to `server_ms`. Returns `(actor, mover, obj)`.
+    fn setup_push_arena_pb(
+        world: &mut GameWorld,
+        server_ms: u64,
+        from: Position,
+        to: Position,
+    ) -> (CreatureId, CreatureId, ActionObjectRef) {
+        world.server_ms = server_ms;
+        ensure_walkable_tile(&mut world.map, from, 1);
+        ensure_walkable_tile(&mut world.map, to, 1);
+        // Actor adjacent to `from` (dy=1) for P12's `ObjectAccessible(…, 1)`.
+        let actor_pos = Position::new(from.x, from.y.saturating_sub(1), from.z);
+        ensure_walkable_tile(&mut world.map, actor_pos, 1);
+        let actor = insert_player(world, test_player("Actor", actor_pos));
+        let mover = insert_monster_with_config(world, "Mover", from, 200, Default::default());
+        let obj = ActionObjectRef {
+            pos: from,
+            stack_pos: 0,
+            sprite_id: MONSTER_SPRITE,
+        };
+        (actor, mover, obj)
+    }
+
+    /// P1: creature-container push enqueues `Wait{1000}` (not `Wait{100}`).
+    /// 772 `cract.cc:1156-1159`: `Delay = 1000` for creature containers.
+    #[test]
+    fn creature_push_enqueues_1000ms_delay() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let (actor, _mover, obj) = setup_push_arena_pb(&mut world, 5000, from, to);
+
+        world.enqueue_player_move(actor, obj, to, 1).expect("creature push enqueues");
+
+        let todo = &world.creatures.get(actor).unwrap().base().todo;
+        assert_eq!(todo.queue.len(), 2, "creature push → [Wait(1000), Move]");
+        // Deadline = server_ms + 1000 = 5000 + 1000 = 6000.
+        assert!(matches!(
+            todo.queue[0],
+            CreatureAction::Wait { deadline_ms: 6000 }
+        ));
+        assert!(matches!(todo.queue[1], CreatureAction::Move { .. }));
+    }
+
+    /// P1: creature-container push adds the remaining walk cooldown to the 1000ms delay.
+    /// 772 `cract.cc:1157-1159`: `if EarliestWalkTime > ServerMilliseconds:
+    /// Delay += (int)(EarliestWalkTime - ServerMilliseconds)`.
+    #[test]
+    fn creature_push_delay_includes_walk_cooldown() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let (actor, _mover, obj) = setup_push_arena_pb(&mut world, 5000, from, to);
+        // 3000ms walk cooldown remaining → delay = 1000 + 3000 = 4000.
+        world
+            .creatures
+            .get_mut(actor)
+            .unwrap()
+            .base_mut()
+            .earliest_walk_server_ms = 8000;
+
+        world.enqueue_player_move(actor, obj, to, 1).expect("creature push enqueues");
+
+        let todo = &world.creatures.get(actor).unwrap().base().todo;
+        // Deadline = server_ms + 1000 + 3000 = 5000 + 4000 = 9000.
+        assert!(matches!(
+            todo.queue[0],
+            CreatureAction::Wait { deadline_ms: 9000 }
+        ));
+    }
+
+    /// P1: creature-container push to a dest with no ground (BANK) → `Err(NotPossible)`.
+    /// 772 `cract.cc:1145-1148`: `DestBank = GetFirstObject(DestX, DestY, DestZ)`;
+    /// if `DestBank == NONE || !BANK` → throw NOTACCESSIBLE.
+    #[test]
+    fn creature_push_dest_without_ground_rejected() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        // Only set up `from` tile + actor; leave `to` without a tile (no ground).
+        world.server_ms = 5000;
+        ensure_walkable_tile(&mut world.map, from, 1);
+        let actor_pos = Position::new(100, 99, 7);
+        ensure_walkable_tile(&mut world.map, actor_pos, 1);
+        let actor = insert_player(&mut world, test_player("Actor", actor_pos));
+        insert_monster_with_config(&mut world, "Mover", from, 200, Default::default());
+        let obj = ActionObjectRef {
+            pos: from,
+            stack_pos: 0,
+            sprite_id: MONSTER_SPRITE,
+        };
+
+        let rv = world.enqueue_player_move(actor, obj, to, 1);
+        assert_eq!(rv, Err(ReturnValue::NotPossible));
+    }
+
+    /// P12 (C7): execute-time `ObjectAccessible(…, 1)` re-check — if the target
+    /// walks out of range during the 1000ms wait, the push is rejected at execute.
+    /// `player_push_creature` checks the creature's **current** position, not
+    /// `from_pos`. Here the actor is 2 tiles from the target → rejected.
+    #[test]
+    fn p12_target_out_of_range_rejected() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, from, 1);
+        ensure_walkable_tile(&mut world.map, to, 1);
+        // Actor 2 tiles away (dy=2) — NOT within range 1.
+        let actor_pos = Position::new(100, 98, 7);
+        ensure_walkable_tile(&mut world.map, actor_pos, 1);
+        let actor = insert_player(&mut world, test_player("Actor", actor_pos));
+        let mover = insert_monster_with_config(&mut world, "Mover", from, 200, Default::default());
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Err(ReturnValue::NotPossible));
+    }
+
+    /// P12 (C7): when the target is adjacent, the push succeeds (positive case).
+    /// Verifies the adjacency check doesn't over-reject.
+    #[test]
+    fn p12_target_in_range_succeeds() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, from, 1);
+        ensure_walkable_tile(&mut world.map, to, 1);
+        // Actor adjacent (dy=1) — within range 1.
+        let actor_pos = Position::new(100, 99, 7);
+        ensure_walkable_tile(&mut world.map, actor_pos, 1);
+        let actor = insert_player(&mut world, test_player("Actor", actor_pos));
+        let mover = insert_monster_with_config(&mut world, "Mover", from, 200, Default::default());
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(rv, Ok(()));
+    }
+
+    /// P1: creature-container push with `earliest_walk_server_ms` in the past
+    /// (cooldown already expired) → delay is exactly 1000ms (no negative addition).
+    #[test]
+    fn creature_push_expired_cooldown_is_exactly_1000ms() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        let (actor, _mover, obj) = setup_push_arena_pb(&mut world, 5000, from, to);
+        // Cooldown already expired (earliest_walk < server_ms).
+        world
+            .creatures
+            .get_mut(actor)
+            .unwrap()
+            .base_mut()
+            .earliest_walk_server_ms = 3000;
+
+        world.enqueue_player_move(actor, obj, to, 1).expect("creature push enqueues");
+
+        let todo = &world.creatures.get(actor).unwrap().base().todo;
+        // Deadline = 5000 + 1000 = 6000 (no cooldown addition).
+        assert!(matches!(
+            todo.queue[0],
+            CreatureAction::Wait { deadline_ms: 6000 }
+        ));
     }
 }

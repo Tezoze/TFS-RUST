@@ -448,32 +448,6 @@ impl GameWorld {
         Err(ReturnValue::NotPossible)
     }
 
-    /// F8 S2 — validate that a moveable item exists at the wire location, using the
-    /// **Move** resolution path (`internal_get_thing_move` — `STACKPOS_MOVE`). Same
-    /// `GetObject` → `throw RESULT` contract as [`validate_action_object_ref`], but
-    /// the Move executor (`player_move_item`) resolves via `internal_get_thing_move`
-    /// (moveable-priority stack walk), not `resolve_item_at_position`
-    /// (container-priority). The builder validates with the same path its S4
-    /// executor will re-validate with.
-    pub(crate) fn validate_move_object_ref(
-        &self,
-        cid: CreatureId,
-        obj: ActionObjectRef,
-    ) -> Result<ActionObjectRef, ReturnValue> {
-        let thing = self.internal_get_thing_move(cid, obj.pos, obj.stack_pos, obj.sprite_id);
-        let item_id = match thing {
-            Some(Thing::Item(id)) => Some(id),
-            _ => None,
-        };
-        let Some(item_id) = item_id else {
-            return Err(ReturnValue::NotPossible);
-        };
-        if !self.validate_item_sprite(item_id, obj.sprite_id) {
-            return Err(ReturnValue::NotPossible);
-        }
-        Ok(obj)
-    }
-
     /// F8 D2/D6 — `ObjectInRange` z-floor gate shared by `ToDoUse`/`ToDoMove`/
     /// `ToDoTurn` (`cract.cc:1131-1135/1272-1276/1332-1336`). For map-tile sources
     /// (`obj.pos.x != 0xFFFF`), throws `UPSTAIRS`/`DOWNSTAIRS` (Rust
@@ -565,15 +539,16 @@ impl GameWorld {
     /// `receiving.cc:233`). Resolves the source object now, applies the D2/D6
     /// z-floor gate (`cract.cc:1131-1135`), enqueues walk-to-reach `Go` if the
     /// player isn't adjacent (`cract.cc:1138-1140` `ObjectInRange(1)` → `ToDoGo`),
-    /// then `Wait{100}` (`cract.cc:1155` `int Delay = 100;` → `this->ToDoWait(Delay)`
-    /// at `cract.cc:1165`), then `Move`. The `CMoveObject` handler itself adds no
+    /// then `Wait{Delay}` + `Move`. The `CMoveObject` handler itself adds no
     /// leading `ToDoWait` — but `ToDoMove` **always** does, so the resulting queue
-    /// for an adjacent map item is `[Wait{100}, Move]`. The creature-container
-    /// branch (`Delay = 1000` + `BANK` dest check, `cract.cc:1156-1163`) is not
-    /// ported yet (D9 — creature push is out of scope); when it lands, the delay
-    /// must be selected per source kind. `dest` is the throw destination
-    /// (map/inventory/container encoded in `Position`), `count` is the stack
-    /// count. Maps to Rust `GamePacket::Throw` (not `MoveObject` — F8 §0.1 F5).
+    /// for an adjacent map item is `[Wait{100}, Move]`.
+    ///
+    /// **P-B (P1):** the creature-container branch (`cract.cc:1144-1163`) sets
+    /// `Delay = 1000` + remaining walk cooldown and requires the destination to
+    /// have a `BANK` first object (ground tile). The item branch uses `Delay = 100`
+    /// (`cract.cc:1155`). `dest` is the throw destination (map/inventory/container
+    /// encoded in `Position`), `count` is the stack count. Maps to Rust
+    /// `GamePacket::Throw` (not `MoveObject` — F8 §0.1 F5).
     pub(crate) fn enqueue_player_move(
         &mut self,
         cid: CreatureId,
@@ -581,7 +556,17 @@ impl GameWorld {
         dest: Position,
         count: u8,
     ) -> Result<(), ReturnValue> {
-        self.validate_move_object_ref(cid, obj)?;
+        // 772 `ToDoMove` resolves the source object now via `GetObject`
+        // (`cract.cc:1125`). Branch on creature-container vs item to select the
+        // correct delay — P1 (`cract.cc:1144-1163`). `internal_get_thing_move`
+        // already validates the sprite for items, so `validate_move_object_ref`
+        // (which rejects creatures) is not called here.
+        let thing = self.internal_get_thing_move(cid, obj.pos, obj.stack_pos, obj.sprite_id);
+        let is_creature_container = matches!(thing, Some(Thing::Creature(_)));
+        // 772 `GetObject` throws NOTACCESSIBLE if the object doesn't exist.
+        if thing.is_none() {
+            return Err(ReturnValue::NotPossible);
+        }
         // D2/D6 — `UPSTAIRS`/`DOWNSTAIRS` z-floor before walk/wait (`cract.cc:1131-1135`).
         self.validate_action_object_z_floor(cid, obj)?;
         // D6 — `ObjectInRange(1)` enqueue-time range check (`cract.cc:1138-1140`).
@@ -598,12 +583,38 @@ impl GameWorld {
                 }
             }
         }
-        // D1 — `ToDoMove` always calls `this->ToDoWait(Delay)` with `Delay = 100`
-        // for the non-creature-container path (`cract.cc:1155,1165`). Without this
-        // the throw executes on the next beat (~1 ms) instead of ~100 ms out, so
-        // items move faster than the reference and rapid move packets have no
-        // pacing. Creature-container push (Delay = 1000) is D9, not yet ported.
-        self.enqueue_creature_wait(cid, 100);
+        // P-B (P1) — `cract.cc:1144-1163`: creature-container branch sets
+        // `Delay = 1000` + remaining walk cooldown and requires a `BANK` (ground)
+        // first object on the destination. Item branch uses `Delay = 100`
+        // (`cract.cc:1155`). Without this, creature pushes fire at ~100 ms
+        // instead of ~1000 ms (P1).
+        let delay = if is_creature_container {
+            // 772 `cract.cc:1145-1148`: dest must have a BANK first object (ground).
+            // `ReturnValue::NotAccessible` doesn't exist in the Rust enum — use
+            // `NotPossible` (matching existing `validate_move_object_ref` patterns).
+            if dest.x == 0xFFFF {
+                return Err(ReturnValue::NotPossible);
+            }
+            let Some(to_tile) = self.map.get_tile(dest) else {
+                return Err(ReturnValue::NotPossible);
+            };
+            if to_tile.body().ground.is_none() {
+                return Err(ReturnValue::NotPossible);
+            }
+            // 772 `cract.cc:1156-1159`: `Delay = 1000` + remaining walk cooldown.
+            let mut d: u64 = 1000;
+            if let Some(k) = self.creatures.get(cid) {
+                let base = k.base();
+                if base.earliest_walk_server_ms > self.server_ms {
+                    d += base.earliest_walk_server_ms - self.server_ms;
+                }
+            }
+            d
+        } else {
+            // D1 — item path: `Delay = 100` (`cract.cc:1155,1165`).
+            100
+        };
+        self.enqueue_creature_wait(cid, delay);
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut()
                 .todo
@@ -1717,15 +1728,26 @@ mod tests {
     /// `Move` execute arm: re-validation failure (absent object) → `Err(NotPossible)`.
     /// The `RESULT` catch is applied by the caller (`execute_creature_todo_action`);
     /// here we verify the executor returns the error.
+    ///
+    /// **P-B:** `validate_move_object_ref` was removed from `execute_player_move`
+    /// (it rejected creatures). Re-validation now happens inside `player_move_thing`
+    /// via `internal_get_thing_move`. The test registers a conn (so the executor
+    /// doesn't short-circuit on "no conn") and uses a non-zero sprite (so
+    /// `player_move_thing` doesn't silently reject `sprite_id == 0`).
     #[test]
     fn execute_player_move_fails_on_absent_object() {
         let mut world = beat_driven_test_world();
         let player_pos = Position::new(100, 100, 7);
         let cid = insert_test_player(&mut world, player_pos);
+        // P-B: register a conn so `execute_player_move` reaches `player_move_thing`.
+        world.register_conn_mapping(tfs_rust_common::ConnId(1), cid);
         let absent = ActionObjectRef {
             pos: Position::new(200, 200, 7),
             stack_pos: 0,
-            sprite_id: 0,
+            // P-B: non-zero sprite — `player_move_thing` silently rejects sprite 0
+            // (772 `Type.isMapContainer()`). Use a non-zero sprite so the absent
+            // object is actually re-resolved and rejected.
+            sprite_id: 100,
         };
 
         let result = world.execute_player_move(cid, absent, Position::new(105, 100, 7), 1);

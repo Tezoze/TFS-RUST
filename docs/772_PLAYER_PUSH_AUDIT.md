@@ -2,7 +2,9 @@
 
 **Audited:** 2026-08-08
 **P-A implemented:** 2026-08-08 (commit `876c145`) — Gate A pushability predicate ported; P2/P7/P10
-resolved. See §0, §3.1, §4 P-A for the landed changes. P-B..P-E remain.
+resolved. See §0, §3.1, §4 P-A for the landed changes.
+**P-B implemented:** 2026-08-08 — `ToDoMove` creature-container delay (P1) + execute-time
+adjacency re-check (P12) ported. See §0, §3.1, §4 P-B for the landed changes. P-C..P-E remain.
 **Re-verified:** 2026-08-08 — all decompile citations and Rust claims re-checked against source;
 three corrections applied (V1: P-D kick loop, V2: `Radius` is per-creature not race, V3: TFS
 `canPushCreatures` conflation). Open questions Q1–Q4 resolved (§6).
@@ -67,7 +69,7 @@ walk-cooldown `ToDoMove` creature-container delay is not ported — already trac
 
 | # | Finding | Severity | Outcome differs? |
 |---|---------|----------|------------------|
-| P1 | `ToDoMove` creature-container delay (1000 ms + walk cooldown) not ported | **High** | Yes — pushes fire at ~100 ms instead of ~1000 ms |
+| P1 | `ToDoMove` creature-container delay (1000 ms + walk cooldown) not ported | **High** | ~~Yes~~ **Fixed (P-B)** — creature-container branch in `enqueue_player_move` sets `Wait{1000 + cooldown}`; BANK dest check; item path stays `Wait{100}` |
 | P2 | Pushability uses TFS `is_pushable()` (`pushable && speed != 0`) instead of 772 `!GetRaceUnpushable \|\| (NON_PVP && IsPeaceful)` | **High** | ~~Yes~~ **Fixed (P-A)** — `race_unpushable()` + NON_PVP peaceful exception; `speed==0` pushable-race now passes Gate A |
 | P3 | No 1-tile destination range cap (`\|Δx\|>1 \|\| \|Δy\|>1 \|\| \|Δz\|>1 → OUTOFRANGE`) | **High** | Yes — can push 2+ tiles away |
 | P4 | No per-creature `MovePossible` on the moving creature (home range, radius, house, PZ-enter, GO_STRENGTH, summon anti-crowd) | **High** | Yes — pushes monsters out of home range / into houses / into PZ |
@@ -78,7 +80,7 @@ walk-cooldown `ToDoMove` creature-container delay is not ported — already trac
 | P9 | `ThrowPossible(..., 1)` not called on the push destination | Medium | Yes — at range 1 it tests `UNTHROW` on the destination tile and runs the floor-descent loop for `dz != 0`; not trivially true (C6) |
 | P10 | `IsPeaceful` (player-summon predicate) not modeled as a shared helper | Low | ~~Refactor~~ **Fixed (P-A)** — reused existing `creature_is_peaceful` (`player/combat/mod.rs:744`); no new file needed |
 | P11 | `CheckTopMoveObject` (`operate.cc:1356`) not implemented — only the first creature in the tile stack is eligible to be pushed; a second creature behind it throws `NOTACCESSIBLE` | Medium | Yes — can push a creature that is not the top move object |
-| P12 | Execute-time `ObjectAccessible(CreatureID, Obj, 1)` re-check (`operate.cc:424` inside `CheckMoveObject`) not ported — Rust only checks actor↔target adjacency at enqueue (`object_in_range` in `enqueue_player_move`). **Gets worse with P-B**: the 1000 ms wait lets the target walk away; 772 rejects at execute, Rust still pushes | Medium | Yes — target can walk out of range during the wait and still be pushed |
+| P12 | Execute-time `ObjectAccessible(CreatureID, Obj, 1)` re-check (`operate.cc:424` inside `CheckMoveObject`) not ported — Rust only checks actor↔target adjacency at enqueue (`object_in_range` in `enqueue_player_move`). **Gets worse with P-B**: the 1000 ms wait lets the target walk away; 772 rejects at execute, Rust still pushes | Medium | ~~Yes~~ **Fixed (P-B)** — `object_in_range(actor, target_pos, 1)` at top of `player_push_creature` checks the creature's **current** position |
 | P13 | `SeparationEvent(Obj, OldCon)` (before `MoveObject`, `operate.cc:1386`) and `MovementEvent`/`CollisionEvent`/`NotifyAllCreatures(OBJECT_MOVED)` (after) not audited for the push path — §1.4 lists them but §3.1 never checks whether `flush_pending_creature_step_events` / `apply_notify_go_after_relocate` cover trap/teleporter/field-on-destination side effects for pushed creatures | Low | Unknown — needs audit |
 
 ---
@@ -294,18 +296,21 @@ gate.
 | 7 | 1-tile destination range (`\|Δ\|>1 → OUTOFRANGE`) | ❌ P3 — not enforced |
 | 8 | Dest `AVOID` → `NOROOM` (pushing another creature, nested after `MovePossible`) | ❌ P6 |
 | 9 | Per-creature `MovePossible` (home range, radius, house, PZ-enter, GO_STRENGTH, summon anti-crowd) | ❌ P4 — `tile_query_add_creature` covers tile occupancy only |
-| 10 | `Delay = 1000` + walk-cooldown remainder (`cract.cc:1156-1159`) | ❌ P1 — `enqueue_player_move` always uses `Wait{100}` |
+| 10 | `Delay = 1000` + walk-cooldown remainder (`cract.cc:1156-1159`) | ✅ **P-B** — `enqueue_player_move` branches on `Thing::Creature` → `Wait{1000 + cooldown}` + BANK dest check; item path stays `Wait{100}` |
 | 11 | `BANK` dest first-object (`cract.cc:1145`) | ⚠️ P8 — partially covered by `tile_query_add_creature` ground check |
 | 12 | `ThrowPossible(..., 1)` — tests `UNTHROW` on dest + floor-descent loop | ❌ P9 — not called (C6: not trivially true) |
 | 13 | `CheckTopMoveObject` (`operate.cc:1356`) — only first creature in tile stack is pushable; else `NOTACCESSIBLE` | ❌ P11 — not implemented (C7) |
-| 14 | Execute-time `ObjectAccessible(CreatureID, Obj, 1)` (`operate.cc:424` in `CheckMoveObject`) — actor↔target adjacency re-check at execute | ❌ P12 — only checked at enqueue; gets worse with P-B's 1000 ms wait (C7) |
+| 14 | Execute-time `ObjectAccessible(CreatureID, Obj, 1)` (`operate.cc:424` in `CheckMoveObject`) — actor↔target adjacency re-check at execute | ✅ **P-B** — `object_in_range(actor, target_pos, 1)` at top of `player_push_creature` (checks creature's current position, not `from_pos`) |
 | 15 | `SeparationEvent` (before `MoveObject`) + `MovementEvent`/`CollisionEvent`/`NotifyAllCreatures(OBJECT_MOVED)` (after) for pushed creatures | ⚠️ P13 — not audited for push path; `flush_pending_creature_step_events`/`apply_notify_go_after_relocate` coverage unverified (C7) |
 
 ### 3.2 `enqueue_player_move` (`creature_todo.rs:577`)
 
-Already flagged as unported "D9" at lines 572-573, 605: the creature-container branch (`Delay =
-1000` + `BANK` dest check + walk-cooldown remainder) is not implemented. The current code always
-calls `enqueue_creature_wait(cid, 100)`.
+**P-B landed:** the creature-container branch (`Delay = 1000` + `BANK` dest check +
+walk-cooldown remainder, `cract.cc:1144-1163`) is now implemented. `enqueue_player_move` resolves
+the source thing via `internal_get_thing_move` and branches: `Thing::Creature` → `Wait{1000 +
+cooldown}` + BANK dest check; `Thing::Item` → `Wait{100}`. The old `validate_move_object_ref`
+(rejected creatures) was removed — `internal_get_thing_move` already validates sprites for items,
+and `player_move_thing` re-resolves at execute time. The "D9" markers are superseded.
 
 ### 3.3 Primitives that already exist (reusable)
 
@@ -373,7 +378,7 @@ if unpushable
 peaceful summon pushable; NON_PvP unpushable non-peaceful blocked; normal monster pushable; NPC
 passes Gate A. 959 passed, 0 regressions (4 pre-existing failures unrelated to push).
 
-### Phase P-B — `ToDoMove` creature-container delay (P1) [High]
+### Phase P-B — `ToDoMove` creature-container delay (P1) + P12 execute-time adjacency [High] — ✅ DONE
 
 **Goal:** port the `cract.cc:1144-1160` creature-container branch of `ToDoMove` so pushes are
 paced at 1000 ms + walk-cooldown remainder.
@@ -427,6 +432,25 @@ paced at 1000 ms + walk-cooldown remainder.
 during walk cooldown waits the cooldown remainder + 1000 ms; **target walks out of range during
 the wait → push rejected at execute** (P12). Compare beat timing vs a `chase_kite_sim`-style
 harness if available.
+
+**Landed files:**
+- `creature_todo.rs` — `enqueue_player_move` now resolves the source thing via
+  `internal_get_thing_move` and branches: `Thing::Creature` → `Wait{1000 + walk cooldown}` with
+  BANK dest check (ground tile required); `Thing::Item` → `Wait{100}`. Removed the dead
+  `validate_move_object_ref` (rejected creatures — `internal_get_thing_move` already validates
+  sprites for items; `player_move_thing` re-resolves at execute).
+- `idle_stimulus.rs` — `execute_player_move` no longer calls `validate_move_object_ref` (which
+  rejected creatures, breaking the production packet flow for pushes). `player_move_thing`
+  handles re-validation for both items and creatures.
+- `game_world_player_throw.rs` — `player_push_creature` now starts with an execute-time
+  `object_in_range(actor, target_pos, 1)` re-check (P12), mirroring `ObjectAccessible` at
+  `operate.cc:424`. Checks the creature's **current** position (not `from_pos`), runs before
+  Gate A (matching 772 order). P-A test fixtures updated: actor placed adjacent (`dy=1`) instead
+  of 2 tiles away.
+- **Tests:** 6 tests in `push_phase_b_tests`: 1000ms delay; walk-cooldown addition; expired
+  cooldown = exactly 1000ms; dest without ground rejected; P12 out-of-range rejected; P12
+  in-range succeeds. 969 passed, 0 failed (2 pre-existing `mechanics_formulas` failures
+  unrelated to push). 0 new clippy warnings.
 
 ### Phase P-C — Destination validation (P3, P5, P6, P8, P9) [High]
 
@@ -627,7 +651,7 @@ rejected (C4 anti-crowd, not leash)**.
 | Phase | `cargo` | Tests |
 |---|---|---|
 | P-A | ✅ `rtk cargo check`, `rtk cargo clippy`, `rtk cargo test` | ✅ NON_PvP peaceful-summon pushable; PVP unpushable-race blocked; `speed==0` pushable-race passes; normal monster pushable; NPC passes Gate A; **unpushable message is `NotMoveable` not `NotPossible` (minor nit)** — 6 tests, 0 regressions |
-| P-B | same | Push delay ≥ 1000 ms; walk-cooldown remainder added; **target walks out of range during wait → rejected at execute (P12)** |
+| P-B | ✅ `rtk cargo check`, `rtk cargo clippy`, `rtk cargo test` | ✅ Push delay ≥ 1000 ms; walk-cooldown remainder added; **target walks out of range → rejected at execute (P12)** — 6 tests in `push_phase_b_tests`, 969 passed, 0 regressions |
 | P-C | same | 2-tile push rejected; **up-from-low-elevation-sum origin rejected (23 vs 24)**; **down-to-low-elevation-sum dest rejected**; **same-floor push ignores elevation**; **`UNTHROW` dest tile rejected (P9/C6)**; magic-field dest rejected; PZ boundary regression |
 | P-D | same | Out-of-home-range monster → `NOROOM`; house/PZ monster → `NOROOM`; NPC radius → `NOROOM`; **player into PZ during `EarliestProtectionZoneRound` → `ENTERPROTECTIONZONE` (C2)**; **player into uninvited house → `NOTINVITED` (C2)**; **monster onto player-blocker → `EXHAUSTED` + `Target=0` (C3)**; **summon 2-from-master pushed to master-adjacent → rejected (C4 anti-crowd)**; push onto blocked tile triggers kick (or rejects if kick fails) |
 | P-E | same + `rtk cargo clippy -- -D warnings` | No new dead code; lessons updated; **`Elevation` parsing verified (`rtk grep -n ELEVATION crates/`)** |

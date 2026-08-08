@@ -4062,6 +4062,12 @@ impl GameWorld {
     /// the `ThrowPayload` from the `ActionObjectRef` + destination, and calls the
     /// existing `player_move_thing` executor (reroute only — F8 §0.1 F5). Returns
     /// `Err(rv)` on re-validation or executor failure for the `RESULT` catch.
+    ///
+    /// **P-B:** `validate_move_object_ref` rejected creatures (only accepted
+    /// `Thing::Item`), so creature pushes never reached `player_push_creature`
+    /// through the ToDo engine. Removed — `player_move_thing` re-resolves via
+    /// `internal_get_thing_move` and handles both items and creatures (the sprite
+    /// match is already done inside `internal_get_thing_move`).
     pub(crate) fn execute_player_move(
         &mut self,
         cid: CreatureId,
@@ -4069,8 +4075,6 @@ impl GameWorld {
         dest: Position,
         count: u8,
     ) -> Result<(), ReturnValue> {
-        self.validate_move_object_ref(cid, obj)?;
-
         let Some(conn_id) = self.conn_for_creature(cid) else {
             tracing::debug!(?cid, "execute_player_move: no conn — skipping");
             return Ok(());
