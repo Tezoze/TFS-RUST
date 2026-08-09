@@ -317,6 +317,18 @@ pub trait ScriptContext {
         false
     }
 
+    /// `group:getMaxDepotItems()` — `Group::maxDepotItems` (`luascript.cpp:11459`).
+    fn get_group_max_depot_items(&self, group_id: u16) -> u32 {
+        let _ = group_id;
+        2000
+    }
+
+    /// `group:getMaxVipEntries()` — `Group::maxVipEntries` (`luascript.cpp:11471`).
+    fn get_group_max_vip_entries(&self, group_id: u16) -> u32 {
+        let _ = group_id;
+        20
+    }
+
     /// `player:getPosition()` backing read — `Creature::getPosition`
     /// (`creature.h`). CH-6 talkaction `sendMagicEffect` at player position;
     /// defaults to `None`.
@@ -510,6 +522,30 @@ pub trait ScriptContext {
     fn is_creature_player(&self, creature_id: ScriptCreatureId) -> bool {
         let _ = creature_id;
         false
+    }
+
+    /// `creature:isInGhostMode()` — `Creature::isInGhostMode` (`creature.h`):
+    /// `false` for non-players; `Player::isInGhostMode` returns `ghostMode`
+    /// (`player.h:363`). Safe to call on any creature (`luascript.cpp:7515`).
+    fn is_creature_in_ghost_mode(&self, creature_id: ScriptCreatureId) -> bool {
+        let _ = creature_id;
+        false
+    }
+
+    /// `item:getUniqueId()` fallback — TFS `ScriptEnvironment::addThing`
+    /// (`luascript.cpp:110-134`): returns `ATTR_UNIQUE_ID` if set, otherwise
+    /// registers the item in the script env local map with a generated UID > 65535.
+    fn register_script_item_uid(&self, item_id: ScriptItemId) -> u32 {
+        let _ = item_id;
+        0
+    }
+
+    /// `getDepotId(uid)` — TFS `luaGetDepotId` (`luascript.cpp:3766`):
+    /// looks up the item by UID (ATTR_UNIQUE_ID ≤ 65535 or local map UID > 65535)
+    /// and returns its `ATTR_DEPOT_ID` (`DepotLocker::getDepotId`).
+    fn get_depot_id_by_uid(&self, uid: u32) -> Option<u32> {
+        let _ = uid;
+        None
     }
 
     /// `Tile(pos)` existence — true when the map has a tile at `(x,y,z)`.

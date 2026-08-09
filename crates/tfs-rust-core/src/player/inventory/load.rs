@@ -440,7 +440,38 @@ impl GameWorld {
                 continue;
             };
             let pid = rec.pid;
-            if (0..100).contains(&pid) {
+            // 772 loose locker items: `pid = 0x10000 + town_id` — place directly in the
+            // depot locker (not the chest), preserving their original placement.
+            if pid >= 0x10000 {
+                let town_id = (pid - 0x10000) as u32;
+                self.container_registry = registry;
+                let locker_id = match self.player_get_depot_locker(cid, town_id) {
+                    Some(id) => id,
+                    None => {
+                        registry = std::mem::take(&mut self.container_registry);
+                        continue;
+                    }
+                };
+                registry = std::mem::take(&mut self.container_registry);
+                if let Some(cont) = registry.get_mut(locker_id) {
+                    let _ = cont.add_item(item_id);
+                }
+                if self
+                    .items_db
+                    .is_container(self.items.get(item_id).map(|i| i.item_type).unwrap_or(0))
+                {
+                    self.ensure_container_registered(
+                        &mut registry,
+                        item_id,
+                        cid,
+                        ContainerType::Normal,
+                        None,
+                    );
+                    if let Some(ch) = registry.get_mut(item_id) {
+                        ch.parent_container = Some(locker_id);
+                    }
+                }
+            } else if (0..100).contains(&pid) {
                 let town_id = pid as u32;
                 self.container_registry = registry;
                 let chest_id = match self.player_get_depot_chest(cid, town_id, true) {
@@ -782,5 +813,102 @@ mod tests {
         let bag = world.container_registry.get(bag_id).expect("nested bag");
         assert_eq!(bag.items.len(), 1);
         assert_eq!(world.items.get(bag.items[0]).map(|i| i.count), Some(3));
+    }
+
+    /// 772: loose locker items (pid = 0x10000 + town_id) must load into the locker,
+    /// not the chest — preserving their original placement.
+    #[test]
+    fn load_depot_loose_locker_items_go_to_locker() {
+        let mut world = minimal_world();
+        world.mechanics.profile.depot_locker_structure =
+            crate::formulas::DepotLockerStructure::ClassicDepotChest;
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("loose_load", pos));
+        let rows = vec![
+            // A coin placed directly in the locker (pid = 0x10000 + 1).
+            ItemRecord {
+                pid: 0x10001,
+                sid: 101,
+                itemtype: 2148,
+                count: 5,
+                attributes: Vec::new(),
+            },
+            // A bag placed directly in the locker, with a coin inside it.
+            ItemRecord {
+                pid: 0x10001,
+                sid: 102,
+                itemtype: 1987,
+                count: 1,
+                attributes: Vec::new(),
+            },
+            ItemRecord {
+                pid: 102,
+                sid: 103,
+                itemtype: 2148,
+                count: 2,
+                attributes: Vec::new(),
+            },
+        ];
+        world.hydrate_player_inventory_from_db(cid, &[], &[], &rows, &[]);
+
+        // The locker should exist and contain the coin + bag (but NOT the chest —
+        // the chest is structural and should also be there from auto-creation).
+        let locker_id = world
+            .creatures
+            .get(cid)
+            .and_then(|k| match k {
+                CreatureKind::Player(p) => p.depot_lockers.get(&1).copied(),
+                _ => None,
+            })
+            .expect("town 1 depot locker");
+        let locker = world
+            .container_registry
+            .get(locker_id)
+            .expect("locker registered");
+
+        // Locker should contain: the depot chest (auto-created) + the coin + the bag.
+        let chest_id = world
+            .creatures
+            .get(cid)
+            .and_then(|k| match k {
+                CreatureKind::Player(p) => p.depot_chests.get(&1).copied(),
+                _ => None,
+            })
+            .expect("town 1 depot chest");
+
+        let has_coin = locker.items.iter().any(|&id| {
+            world.items.get(id).is_some_and(|i| i.item_type == 2148 && i.count == 5)
+        });
+        assert!(has_coin, "loose coin should be in the locker");
+
+        let bag_in_locker = locker
+            .items
+            .iter()
+            .find(|&&id| {
+                world.items.get(id).is_some_and(|i| i.item_type == 1987)
+            })
+            .copied()
+            .expect("bag should be in the locker");
+        assert_ne!(bag_in_locker, chest_id, "bag should not be the chest");
+
+        let bag_cont = world
+            .container_registry
+            .get(bag_in_locker)
+            .expect("bag registered");
+        assert_eq!(bag_cont.items.len(), 1);
+        assert_eq!(
+            world.items.get(bag_cont.items[0]).map(|i| i.count),
+            Some(2),
+            "inner coin should be in the bag"
+        );
+
+        // The chest should be empty (no items were placed in it).
+        let chest = world.container_registry.get(chest_id).expect("chest registered");
+        assert!(
+            chest.items.iter().all(|&id| {
+                world.items.get(id).is_some_and(|i| i.item_type != 2148)
+            }),
+            "loose locker coin should NOT be in the chest"
+        );
     }
 }

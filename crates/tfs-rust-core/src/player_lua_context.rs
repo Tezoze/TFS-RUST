@@ -12,11 +12,16 @@ use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 
 impl GameWorld {
+    /// O(1) resolve via `KeyData::from_ffi` — slotmap keys are reconstructable
+    /// from their `as_ffi()` bits (slot index + generation). `.get()` validates
+    /// the generation, returning `None` for stale/freed slots.
     pub(crate) fn resolve_item_u64(&self, id: u64) -> Option<ItemId> {
-        self.items
-            .iter()
-            .find(|(item_id, _)| item_id.data().as_ffi() == id)
-            .map(|(k, _)| k)
+        let key = ItemId::from(slotmap::KeyData::from_ffi(id));
+        if self.items.get(key).is_some() {
+            Some(key)
+        } else {
+            None
+        }
     }
 
     pub(crate) fn item_to_script_id(iid: ItemId) -> ScriptItemId {
@@ -27,11 +32,14 @@ impl GameWorld {
         cid.data().as_ffi()
     }
 
+    /// O(1) resolve — same approach as `resolve_item_u64`.
     pub(crate) fn resolve_creature_from_script(&self, id: u64) -> Option<CreatureId> {
-        self.creatures
-            .iter()
-            .find(|(k, _)| k.data().as_ffi() == id)
-            .map(|(k, _)| k)
+        let key = CreatureId::from(slotmap::KeyData::from_ffi(id));
+        if self.creatures.get(key).is_some() {
+            Some(key)
+        } else {
+            None
+        }
     }
 
     /// TFS `Item::getParent` cylinder — `item.cpp` / `luascript.cpp` `luaItemGetParent`.
@@ -85,11 +93,22 @@ impl GameWorld {
 
     pub fn script_container_data(&self, container_id: ItemId) -> Option<ScriptContainerData> {
         let cont = self.container_registry.get(container_id)?;
+        // 772: `getItemHoldingCount` on a depot locker excludes the chest itself
+        // (`moveuse.cc:640`: `CountObjects(Con) - 1`). TFS 1098 includes it.
+        let holding_count = if cont.depot_locker_town_id.is_some()
+            && matches!(
+                self.mechanics.profile.depot_locker_structure,
+                crate::formulas::DepotLockerStructure::ClassicDepotChest
+            ) {
+            cont.total_item_count.saturating_sub(1)
+        } else {
+            cont.total_item_count
+        };
         Some(ScriptContainerData {
             size: cont.size() as u32,
             capacity: cont.capacity,
             empty_slots: cont.available_slots(),
-            item_holding_count: cont.total_item_count,
+            item_holding_count: holding_count,
             corpse_owner: self
                 .items
                 .get(container_id)

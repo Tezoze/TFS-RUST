@@ -7,7 +7,7 @@
 
 pub use crate::game_world_spectators::{creature_can_see, protocol_can_see};
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -210,6 +210,15 @@ pub struct GameWorld {
     pub(crate) scratch_spectator_gen: u32,
     /// OBS-1: aggregated window histograms / counters (Phase 0).
     pub(crate) obs: crate::obs::GameObs,
+    /// TFS `ScriptEnvironment::localMap` — per-script-execution UID → ItemId mapping
+    /// for items without `ATTR_UNIQUE_ID` (`luascript.cpp:110-134`). Generated UIDs
+    /// start at 65536 (`> u16::MAX`) to distinguish from `ATTR_UNIQUE_ID` lookups.
+    /// Not cleared between executions (UIDs are unique; depot items are static map items).
+    /// Interior-mutable because `ScriptContext` trait methods receive `&self`.
+    pub(crate) script_env_local_map: RefCell<HashMap<u32, ItemId>>,
+    /// Reverse index for `script_env_local_map` — O(1) "is this item already registered?".
+    pub(crate) script_env_item_to_uid: RefCell<HashMap<ItemId, u32>>,
+    pub(crate) script_env_last_uid: Cell<u32>,
 }
 
 impl GameWorld {
@@ -417,6 +426,9 @@ impl GameWorld {
             scratch_spectator_seen: rustc_hash::FxHashMap::default(),
             scratch_spectator_gen: 0,
             obs: crate::obs::GameObs::new(),
+            script_env_local_map: RefCell::new(HashMap::new()),
+            script_env_item_to_uid: RefCell::new(HashMap::new()),
+            script_env_last_uid: Cell::new(65536),
         }
     }
 

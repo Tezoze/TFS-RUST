@@ -164,11 +164,14 @@ impl GameWorld {
     }
 
     /// Resolve `CreatureId` from Lua / protocol `KeyData::as_ffi` bits.
+    /// O(1) via `KeyData::from_ffi` — `.get()` validates the generation.
     pub(crate) fn resolve_creature_u64(&self, id: u64) -> Option<CreatureId> {
-        self.creatures
-            .iter()
-            .find(|(k, _)| k.data().as_ffi() == id)
-            .map(|(k, _)| k)
+        let key = CreatureId::from(slotmap::KeyData::from_ffi(id));
+        if self.creatures.get(key).is_some() {
+            Some(key)
+        } else {
+            None
+        }
     }
 
     /// Lua `Player:addItem` — adds a new stack into the backpack container (`luascript.cpp` `Player::addItem` subset).
@@ -254,6 +257,21 @@ impl GameWorld {
         } else {
             Ok(None)
         }
+    }
+
+    /// Lua `player:getDepotLocker(depotId)` — `Player::getDepotLocker` (`player.cpp:826`).
+    /// Always auto-creates (matches TFS data-pack usage `getDepotLocker(depotId, true)`).
+    pub fn lua_script_get_depot_locker(
+        &mut self,
+        creature_u64: u64,
+        depot_id: u32,
+    ) -> Result<Option<u64>, String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "creature not found".to_string())?;
+        Ok(self
+            .player_get_depot_locker(cid, depot_id)
+            .map(|i| i.data().as_ffi()))
     }
 
     /// Lua `player:getInbox` — `luascript.cpp` `luaPlayerGetInbox`.

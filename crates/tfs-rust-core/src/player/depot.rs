@@ -162,6 +162,8 @@ impl GameWorld {
     }
 
     /// C++ `Player::getDepotLocker` — `player.cpp` ~826.
+    /// 772: locker contains only a single depot chest (`crplayer.cc:2004` `LoadDepot`).
+    /// 1098: locker contains market + inbox + unified depot with per-town chests.
     pub fn player_get_depot_locker(&mut self, cid: CreatureId, depot_id: u32) -> Option<ItemId> {
         let existing = self.creatures.get(cid).and_then(|k| match k {
             CreatureKind::Player(p) => p.depot_lockers.get(&depot_id).copied(),
@@ -172,6 +174,77 @@ impl GameWorld {
             return Some(locker_id);
         }
 
+        use crate::formulas::DepotLockerStructure;
+        match self.mechanics.profile.depot_locker_structure {
+            DepotLockerStructure::ClassicDepotChest => {
+                self.create_classic_depot_locker(cid, depot_id)
+            }
+            DepotLockerStructure::TfsMarketInbox => {
+                self.create_tfs_depot_locker(cid, depot_id)
+            }
+        }
+    }
+
+    /// 772 depot locker — single depot chest directly inside the locker
+    /// (`crplayer.cc:2004` `LoadDepot` → `Create(Con, GetSpecialObject(DEPOT_CHEST), 0)`).
+    fn create_classic_depot_locker(
+        &mut self,
+        cid: CreatureId,
+        depot_id: u32,
+    ) -> Option<ItemId> {
+        let locker_cap = self.container_capacity(ITEM_LOCKER1);
+        let locker_iid = self.items.insert(Item::new_single(ITEM_LOCKER1));
+
+        // Reuse existing depot chest if login already created one with loaded items.
+        // `load_depot_table` calls `player_get_depot_chest` which populates
+        // `player.depot_chests` but does NOT create a locker. Without this reuse,
+        // creating a new empty chest would overwrite the reference to the chest
+        // that holds all loaded depot items, orphaning them.
+        let chest_iid = self
+            .creatures
+            .get(cid)
+            .and_then(|k| match k {
+                CreatureKind::Player(p) => p.depot_chests.get(&depot_id).copied(),
+                _ => None,
+            })
+            .unwrap_or_else(|| {
+                let max_items = self.player_get_max_depot_items(cid);
+                let chest_cap = self.container_capacity(ITEM_DEPOT);
+                let new_chest = self.items.insert(Item::new_single(ITEM_DEPOT));
+                let mut reg = std::mem::take(&mut self.container_registry);
+                let mut chest = Container::new_depot(new_chest, depot_id, chest_cap, max_items);
+                chest.parent_container = Some(locker_iid);
+                reg.register(chest);
+                self.container_registry = reg;
+                if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                    p.depot_chests.insert(depot_id, new_chest);
+                }
+                new_chest
+            });
+
+        let mut reg = std::mem::take(&mut self.container_registry);
+        let mut locker = Container::new(locker_iid, locker_cap);
+        locker.depot_locker_town_id = Some(depot_id);
+        reg.register(locker);
+        self.container_registry = reg;
+
+        // Re-parent the existing chest under the new locker.
+        Self::link_child_in_registry(&mut self.container_registry, &mut self.items, locker_iid, chest_iid);
+
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.depot_lockers.insert(depot_id, locker_iid);
+        }
+
+        self.refresh_container_chain(locker_iid);
+        Some(locker_iid)
+    }
+
+    /// 1098 / TFS depot locker — market + inbox + unified depot with per-town chests.
+    fn create_tfs_depot_locker(
+        &mut self,
+        cid: CreatureId,
+        depot_id: u32,
+    ) -> Option<ItemId> {
         let locker_cap = self.container_capacity(ITEM_LOCKER1);
         let max_items = self.player_get_max_depot_items(cid);
         let locker_iid = self.items.insert(Item::new_single(ITEM_LOCKER1));
@@ -217,6 +290,13 @@ impl GameWorld {
 
     /// Re-parent inbox and depot chests when reopening an existing virtual locker.
     fn sync_depot_locker_contents(&mut self, cid: CreatureId, locker_id: ItemId) {
+        use crate::formulas::DepotLockerStructure;
+        // 772 lockers have a single depot chest at index 0 — no inbox/market to sync.
+        if self.mechanics.profile.depot_locker_structure
+            == DepotLockerStructure::ClassicDepotChest
+        {
+            return;
+        }
         let inbox_id = match self.player_get_inbox(cid, false) {
             Some(id) => id,
             None => return,
@@ -441,5 +521,54 @@ mod tests {
             }),
             Some(5)
         );
+    }
+
+    /// Regression: opening a depot locker after login must reuse the chest
+    /// that `load_depot_table` already created with loaded items, not create
+    /// a new empty chest that orphans the old one.
+    #[test]
+    fn classic_depot_locker_reuses_existing_chest() {
+        let mut world = minimal_world();
+        // Force 772 depot locker structure (single chest inside locker).
+        world.mechanics.profile.depot_locker_structure =
+            crate::formulas::DepotLockerStructure::ClassicDepotChest;
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("depot", pos));
+
+        // Simulate login: create a depot chest and add an item to it.
+        let chest = world
+            .player_get_depot_chest(cid, 1, true)
+            .expect("depot chest");
+        let coin = world.items.insert(Item::new_single(2148));
+        if let Some(cont) = world.container_registry.get_mut(chest) {
+            let _ = cont.add_item(coin);
+        }
+        world.refresh_container_derived(chest);
+
+        // Now open the depot locker (as the player would by clicking the depot).
+        let locker = world
+            .player_get_depot_locker(cid, 1)
+            .expect("depot locker");
+
+        // The locker should contain the SAME chest, not a new empty one.
+        let locker_cont = world.container_registry.get(locker).expect("locker registered");
+        assert_eq!(locker_cont.items.len(), 1);
+        assert_eq!(locker_cont.items[0], chest);
+
+        // The chest should still contain the coin.
+        let chest_cont = world.container_registry.get(chest).expect("chest registered");
+        assert_eq!(chest_cont.items.len(), 1);
+        assert_eq!(chest_cont.items[0], coin);
+
+        // player.depot_chests should still point to the original chest.
+        let stored_chest = world
+            .creatures
+            .get(cid)
+            .and_then(|k| match k {
+                CreatureKind::Player(p) => p.depot_chests.get(&1).copied(),
+                _ => None,
+            })
+            .expect("depot_chests entry");
+        assert_eq!(stored_chest, chest);
     }
 }

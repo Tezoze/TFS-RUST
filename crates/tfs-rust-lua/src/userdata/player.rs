@@ -8,9 +8,9 @@ use std::cell::RefCell;
 use crate::context::{CURRENT_CTX, CreatureData, CreatureRef, ItemRef, LuaContext};
 use crate::lua_mutation::{
     call_lua_add_condition, call_lua_add_item, call_lua_add_item_full, call_lua_add_mana,
-    call_lua_add_mana_spent, call_lua_feed, call_lua_get_depot_chest, call_lua_get_inbox,
-    call_lua_remove_condition, call_lua_remove_item, call_lua_send_cancel_message,
-    call_lua_set_in_fight,
+    call_lua_add_mana_spent, call_lua_feed, call_lua_get_depot_chest, call_lua_get_depot_locker,
+    call_lua_get_inbox, call_lua_remove_condition, call_lua_remove_item,
+    call_lua_send_cancel_message, call_lua_set_in_fight,
 };
 use crate::userdata::container::ContainerRef;
 use crate::userdata::group::GroupRef;
@@ -499,6 +499,25 @@ impl UserData for CreatureRef {
             },
         );
 
+        // `player:getDepotLocker(depotId[, autoCreate])` — `Player::getDepotLocker`
+        // (`player.cpp:826`). Used by `data/lib/core/player.lua` `getDepotItems` and
+        // `data/scripts/movements/other/tiles.lua`. Always auto-creates (matches
+        // data-pack usage `getDepotLocker(depotId, true)`).
+        methods.add_method(
+            "getDepotLocker",
+            |lua, this, (depot_id, _auto_create): (u32, Option<bool>)| {
+                let id_opt = call_lua_get_depot_locker(this.0, depot_id)
+                    .map_err(mlua::Error::runtime)?;
+                match id_opt {
+                    Some(iid) => {
+                        let ud = lua.create_userdata(ContainerRef(iid))?;
+                        Ok(Value::UserData(ud))
+                    }
+                    None => Ok(Value::Boolean(false)),
+                }
+            },
+        );
+
         methods.add_method("getInbox", |lua, this, ()| {
             let id_opt = call_lua_get_inbox(this.0).map_err(mlua::Error::runtime)?;
             match id_opt {
@@ -625,6 +644,13 @@ impl UserData for CreatureRef {
         // `creature:isPlayer()` — PC-3a Phase 3 (`poison_storm.lua`).
         methods.add_method("isPlayer", |_, this, ()| {
             with_ctx(|ctx| Ok(ctx.is_creature_player(this.0)))
+        });
+
+        // `creature:isInGhostMode()` — `Creature::isInGhostMode` (`creature.h`):
+        // `false` for non-players; `Player::isInGhostMode` returns `ghostMode`
+        // (`player.h:363`). Used by `tiles.lua` step events (`luascript.cpp:7515`).
+        methods.add_method("isInGhostMode", |_, this, ()| {
+            with_ctx(|ctx| Ok(ctx.is_creature_in_ghost_mode(this.0)))
         });
 
         // `creature:isItem()` — Thing discriminator (`data/lib/core/creature.lua`).

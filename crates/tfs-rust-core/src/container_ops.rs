@@ -220,7 +220,16 @@ impl GameWorld {
             return ReturnValue::NotPossible;
         };
         let chest = self.container_is_chest(container_item_id);
-        if cont.depot_locker_town_id.is_some() && !flags.contains(CylinderFlags::NO_LIMIT) {
+        // TFS 1098 `DepotLocker::queryAdd` blocks direct adds (`depotlocker.cpp:22-30`).
+        // 772 allows placing items directly in the locker (`operate.cc` `CheckDepotSpace`
+        // only checks the depot-wide item count, not container capacity).
+        if cont.depot_locker_town_id.is_some()
+            && !flags.contains(CylinderFlags::NO_LIMIT)
+            && matches!(
+                self.mechanics.profile.depot_locker_structure,
+                crate::formulas::DepotLockerStructure::TfsMarketInbox
+            )
+        {
             return ReturnValue::ContainerNotEnoughRoom;
         }
         if cont.container_type == ContainerType::Inbox && !flags.contains(CylinderFlags::NO_LIMIT) {
@@ -250,16 +259,55 @@ impl GameWorld {
             return ReturnValue::ThisIsImpossible;
         }
 
-        if !same_depot && cont.container_type == ContainerType::Depot && !flags.contains(CylinderFlags::NO_LIMIT) {
-            if let Some((holder_id, max_items)) = self.depot_limit_holder(container_item_id) {
-                let add_count = self.depot_add_count_for_item(container_item_id, item_id, count);
-                let holder_count = self
-                    .container_registry
-                    .get(holder_id)
-                    .map(|c| c.total_item_count)
-                    .unwrap_or(0);
-                if holder_count.saturating_add(add_count) > max_items {
-                    return ReturnValue::DepotIsFull;
+        if !same_depot && !flags.contains(CylinderFlags::NO_LIMIT) {
+            // Depot chest limit (`DepotChest::queryAdd` — `depotchest.cpp`).
+            if cont.container_type == ContainerType::Depot {
+                if let Some((holder_id, max_items)) = self.depot_limit_holder(container_item_id) {
+                    let add_count = self.depot_add_count_for_item(container_item_id, item_id, count);
+                    let holder_count = self
+                        .container_registry
+                        .get(holder_id)
+                        .map(|c| {
+                            // 772: `CountObjects(locker) - 1` — exclude the chest itself
+                            // from the depot count (`moveuse.cc:640`).
+                            if c.depot_locker_town_id.is_some()
+                                && matches!(
+                                    self.mechanics.profile.depot_locker_structure,
+                                    crate::formulas::DepotLockerStructure::ClassicDepotChest
+                                )
+                            {
+                                c.total_item_count.saturating_sub(1)
+                            } else {
+                                c.total_item_count
+                            }
+                        })
+                        .unwrap_or(0);
+                    if holder_count.saturating_add(add_count) > max_items {
+                        return ReturnValue::DepotIsFull;
+                    }
+                }
+            }
+            // 772 locker direct-add: check depot-wide item count limit
+            // (`operate.cc:646` `CheckDepotSpace` — `Count <= Player->DepotSpace`).
+            // `DepotSpace = DepotCapacity - (CountObjects(locker) - 1)` — the chest
+            // itself doesn't count (`moveuse.cc:640`).
+            if cont.depot_locker_town_id.is_some()
+                && matches!(
+                    self.mechanics.profile.depot_locker_structure,
+                    crate::formulas::DepotLockerStructure::ClassicDepotChest
+                )
+            {
+                if let Some(actor_cid) = actor {
+                    let max_items = self.player_get_max_depot_items(actor_cid);
+                    let add_count = self.depot_add_count_for_item(container_item_id, item_id, count);
+                    let holder_count = self
+                        .container_registry
+                        .get(container_item_id)
+                        .map(|c| c.total_item_count.saturating_sub(1))
+                        .unwrap_or(0);
+                    if holder_count.saturating_add(add_count) > max_items {
+                        return ReturnValue::DepotIsFull;
+                    }
                 }
             }
         }
@@ -843,5 +891,83 @@ mod depot_query_tests {
         let coin = world.items.insert(Item::new_single(2148));
         let ret = world.container_query_add(chest, -1, coin, 1, CylinderFlags::NONE, Some(cid));
         assert_eq!(ret, ReturnValue::DepotIsFull);
+    }
+
+    /// 772: depot count excludes the chest itself (`CountObjects(locker) - 1`).
+    /// Adding to the chest when the locker has only the chest (0 real items) should
+    /// succeed when max_depot_items = 1.
+    #[test]
+    fn depot_count_excludes_chest_772() {
+        let mut world = minimal_world();
+        world.mechanics.profile.depot_locker_structure =
+            crate::formulas::DepotLockerStructure::ClassicDepotChest;
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("count", pos));
+
+        let locker = world.player_get_depot_locker(cid, 1).expect("locker");
+        let chest = world
+            .creatures
+            .get(cid)
+            .and_then(|k| match k {
+                CreatureKind::Player(p) => p.depot_chests.get(&1).copied(),
+                _ => None,
+            })
+            .expect("chest");
+
+        // Set max_depot_items = 1 on the chest.
+        if let Some(chest_cont) = world.container_registry.get_mut(chest) {
+            chest_cont.max_depot_items = 1;
+        }
+
+        // Locker has: chest only (0 real depot items). Adding 1 coin should succeed
+        // because count (0) + 1 <= max (1).
+        let coin = world.items.insert(Item::new_single(2148));
+        let ret = world.container_query_add(chest, -1, coin, 1, CylinderFlags::NONE, Some(cid));
+        assert_eq!(
+            ret,
+            ReturnValue::NoError,
+            "should succeed — chest excluded from count"
+        );
+    }
+
+    /// 772: `getItemHoldingCount` on a depot locker excludes the chest itself.
+    #[test]
+    fn depot_locker_holding_count_excludes_chest_772() {
+        let mut world = minimal_world();
+        world.mechanics.profile.depot_locker_structure =
+            crate::formulas::DepotLockerStructure::ClassicDepotChest;
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("hc", pos));
+
+        let locker = world.player_get_depot_locker(cid, 1).expect("locker");
+        let chest = world
+            .creatures
+            .get(cid)
+            .and_then(|k| match k {
+                CreatureKind::Player(p) => p.depot_chests.get(&1).copied(),
+                _ => None,
+            })
+            .expect("chest");
+
+        // Empty depot: locker has only the chest.
+        let data = world.script_container_data(locker).expect("data");
+        assert_eq!(
+            data.item_holding_count, 0,
+            "empty depot should report 0 items (chest excluded)"
+        );
+
+        // Add a coin to the chest.
+        let coin = world.items.insert(Item::new_single(2148));
+        if let Some(cont) = world.container_registry.get_mut(chest) {
+            let _ = cont.add_item(coin);
+        }
+        world.refresh_container_derived(chest);
+        world.refresh_container_derived(locker);
+
+        let data = world.script_container_data(locker).expect("data");
+        assert_eq!(
+            data.item_holding_count, 1,
+            "1 coin in chest should report 1 (chest excluded)"
+        );
     }
 }

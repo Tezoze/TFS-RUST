@@ -156,7 +156,15 @@ impl UserData for ItemRef {
         });
 
         methods.add_method("getUniqueId", |_, this, ()| {
-            with_ctx(|ctx| Ok(ctx.get_item_data(this.0).map(|d| d.unique_id).unwrap_or(0)))
+            // TFS `luaItemGetUniqueId` (`luascript.cpp:6495`): returns ATTR_UNIQUE_ID
+            // if set, otherwise registers via `addThing` and returns a local UID > 65535.
+            with_ctx(|ctx| {
+                let uid = ctx.get_item_data(this.0).map(|d| d.unique_id).unwrap_or(0);
+                if uid != 0 {
+                    return Ok(uid);
+                }
+                Ok(ctx.register_script_item_uid(this.0))
+            })
         });
 
         methods.add_method("setUniqueId", |_, this, unique_id: u16| {

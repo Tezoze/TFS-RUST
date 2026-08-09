@@ -255,7 +255,10 @@ impl GameWorld {
     }
 
     /// Whether `viewer` may keep a window open on `container_root` (held in inventory or adjacent map tile).
-    // C++ ref: `Player::autoCloseContainers`, `Position::areInRange<1,1,0>` (`player.cpp` ~3119).
+    // C++ ref: `Player::postAddNotification` walk check — `Position::areInRange<1,1,0>`
+    // (`player.cpp` ~3117-3127). Depot lockers are per-player virtual containers with no
+    // tile, so `getPosition()` returns nullptr_tile (0xFFFF,0xFFFF,0xFF) — always out of
+    // range, so they close on walk (matches TFS).
     fn player_may_view_open_container_window(
         &self,
         viewer: CreatureId,
@@ -265,9 +268,6 @@ impl GameWorld {
         if self.player_holds_container_tree(viewer, top) {
             return true;
         }
-        if self.player_owns_depot_container_tree(viewer, top) {
-            return true;
-        }
         let Some(viewer_pos) = self.creatures.get(viewer).map(|k| k.position()) else {
             return false;
         };
@@ -275,6 +275,7 @@ impl GameWorld {
         // Never `map.find_item_position` here: that is a full-world tile scan and runs on
         // every player step while a ground corpse/container window is open (`walk/mod.rs`
         // → `auto_close_containers_for_player`).
+        // Depot containers have no tile parent → `script_item_position` returns None → closed.
         if let Some(pos) = self.script_item_position(top) {
             return are_in_range_1_1_0(viewer_pos, pos);
         }

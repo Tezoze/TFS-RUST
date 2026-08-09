@@ -225,10 +225,32 @@ impl GameWorld {
         let mut depot = Vec::new();
         if !skip_depot_save {
             let mut depot_roots: Vec<(i32, ItemId)> = Vec::new();
+            // Save items inside depot chests (existing behavior — TFS `saveItems`).
             for (&town_id, &chest_id) in &player.depot_chests {
                 if let Some(cont) = self.container_registry.get(chest_id) {
                     for &child in &cont.items {
                         depot_roots.push((town_id as i32, child));
+                    }
+                }
+            }
+            // 772: items can also be placed directly in the locker alongside the chest.
+            // `SaveDepot` saves ALL items in the locker container (`crplayer.cc:2046`).
+            // Use `pid = 0x10000 + town_id` to distinguish "loose in locker" from
+            // "in chest" (pid 0-99). On load, `load_depot_table` routes 0x10000+ pids
+            // back into the locker, preserving placement.
+            if matches!(
+                self.mechanics.profile.depot_locker_structure,
+                crate::formulas::DepotLockerStructure::ClassicDepotChest
+            ) {
+                for (&town_id, &locker_id) in &player.depot_lockers {
+                    let chest_id = player.depot_chests.get(&town_id).copied();
+                    if let Some(cont) = self.container_registry.get(locker_id) {
+                        for &child in &cont.items {
+                            if Some(child) == chest_id {
+                                continue; // skip the depot chest — structural, auto-created
+                            }
+                            depot_roots.push((0x10000 + town_id as i32, child));
+                        }
                     }
                 }
             }
@@ -305,6 +327,88 @@ mod tests {
         assert_eq!(save.items.depot.len(), 1);
         assert_eq!(save.items.depot[0].pid, 1);
         assert_eq!(save.items.depot[0].itemtype, 2148);
+    }
+
+    /// 772: items placed directly in the locker (not inside the chest) must be saved.
+    /// `SaveDepot` saves ALL items in the locker (`crplayer.cc:2046`).
+    #[test]
+    fn save_depot_includes_loose_locker_items_772() {
+        let mut world = minimal_world();
+        world.mechanics.profile.depot_locker_structure =
+            crate::formulas::DepotLockerStructure::ClassicDepotChest;
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("loose", pos));
+
+        // Open the locker (creates locker + chest).
+        let locker = world
+            .player_get_depot_locker(cid, 1)
+            .expect("depot locker");
+        world.player_set_last_depot_id(cid, 1);
+
+        // Put a coin directly in the locker (not in the chest).
+        let coin = world.items.insert(Item::new_single(2148));
+        if let Some(cont) = world.container_registry.get_mut(locker) {
+            let _ = cont.add_item(coin);
+        }
+        world.refresh_container_derived(locker);
+
+        // Also put a bag with a coin inside it directly in the locker — verifies
+        // recursive save of nested containers placed loose in the locker.
+        let bag = world.items.insert(Item::new_single(1987));
+        let inner_coin = world.items.insert(Item::new_single(2148));
+        let mut reg = std::mem::take(&mut world.container_registry);
+        world.ensure_container_registered_simple(&mut reg, bag, cid);
+        if let Some(bag_cont) = reg.get_mut(bag) {
+            let _ = bag_cont.add_item(inner_coin);
+        }
+        if let Some(locker_cont) = reg.get_mut(locker) {
+            let _ = locker_cont.add_item(bag);
+        }
+        world.container_registry = reg;
+        world.refresh_container_derived(bag);
+        world.refresh_container_derived(locker);
+
+        let save = world.build_player_save_data(cid).expect("save data");
+        assert!(!save.skip_depot_save);
+
+        // The loose coin should appear with pid=0x10001 (0x10000 + town_id=1).
+        let coin_rows: Vec<_> = save.items.depot.iter().filter(|r| r.itemtype == 2148).collect();
+        assert!(
+            coin_rows.iter().any(|r| r.pid == 0x10001),
+            "loose locker coin saved with locker pid"
+        );
+
+        // The bag should appear with pid=0x10001, and the inner coin with pid=bag's sid.
+        let bag_row = save
+            .items
+            .depot
+            .iter()
+            .find(|r| r.itemtype == 1987)
+            .expect("loose locker bag saved");
+        assert_eq!(bag_row.pid, 0x10001);
+        let inner_coin_row = coin_rows
+            .iter()
+            .find(|r| r.pid == bag_row.sid)
+            .expect("inner coin saved under bag's sid");
+        assert_eq!(inner_coin_row.itemtype, 2148);
+
+        // The depot chest itself must NOT appear in the save list (structural, auto-created).
+        let chest_id = world
+            .creatures
+            .get(cid)
+            .and_then(|k| match k {
+                CreatureKind::Player(p) => p.depot_chests.get(&1).copied(),
+                _ => None,
+            })
+            .expect("chest exists");
+        let chest_type = world.items.get(chest_id).map(|i| i.item_type).unwrap_or(0);
+        assert!(
+            !save.items.depot.iter().any(|r| {
+                r.itemtype == chest_type
+                    && save.items.depot.iter().any(|child| child.pid == r.sid)
+            }),
+            "depot chest itself should not be saved as a loose locker item"
+        );
     }
 
     #[test]

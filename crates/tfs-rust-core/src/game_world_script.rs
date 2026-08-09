@@ -13,38 +13,29 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         &self,
         id: tfs_rust_common::ScriptCreatureId,
     ) -> Option<tfs_rust_common::ScriptCreatureData> {
-        self.creatures
-            .iter()
-            .find_map(|(cid, k)| {
-                if cid.data().as_ffi() != id {
-                    return None;
-                }
-                Some(match k {
-                    CreatureKind::Player(p) => Some(tfs_rust_common::ScriptCreatureData {
-                        name: p.base.name.clone(),
-                        guid: p.guid,
-                    }),
-                    CreatureKind::Monster(m) => Some(tfs_rust_common::ScriptCreatureData {
-                        name: m.base.name.clone(),
-                        guid: 0, // Monsters don't have GUIDs
-                    }),
-                    CreatureKind::Npc(n) => Some(tfs_rust_common::ScriptCreatureData {
-                        name: n.base.name.clone(),
-                        guid: 0, // NPCs don't have GUIDs
-                    }),
-                })
-            })
-            .flatten()
+        let cid = self.resolve_creature_from_script(id)?;
+        match self.creatures.get(cid)? {
+            CreatureKind::Player(p) => Some(tfs_rust_common::ScriptCreatureData {
+                name: p.base.name.clone(),
+                guid: p.guid,
+            }),
+            CreatureKind::Monster(m) => Some(tfs_rust_common::ScriptCreatureData {
+                name: m.base.name.clone(),
+                guid: 0, // Monsters don't have GUIDs
+            }),
+            CreatureKind::Npc(n) => Some(tfs_rust_common::ScriptCreatureData {
+                name: n.base.name.clone(),
+                guid: 0, // NPCs don't have GUIDs
+            }),
+        }
     }
 
     fn get_item(
         &self,
         id: tfs_rust_common::ScriptItemId,
     ) -> Option<tfs_rust_common::ScriptItemRef> {
-        self.items
-            .iter()
-            .find(|(item_id, _)| item_id.data().as_ffi() == id)
-            .map(|_| tfs_rust_common::ScriptItemRef(id))
+        self.resolve_item_u64(id)?;
+        Some(tfs_rust_common::ScriptItemRef(id))
     }
 
     fn get_config_string(&self, key: &str) -> Option<String> {
@@ -56,34 +47,22 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         creature_id: tfs_rust_common::ScriptCreatureId,
         slot: u8,
     ) -> Option<tfs_rust_common::ScriptItemId> {
-        let cid = self
-            .creatures
-            .iter()
-            .find(|(k, _)| k.data().as_ffi() == creature_id)
-            .map(|(k, _)| k)?;
+        let cid = self.resolve_creature_from_script(creature_id)?;
         self.get_player_inventory_item(cid, slot)
             .map(|i| i.data().as_ffi())
     }
 
     fn get_player_capacity(&self, creature_id: tfs_rust_common::ScriptCreatureId) -> Option<u32> {
-        let _cid = self
-            .creatures
-            .iter()
-            .find(|(k, _)| k.data().as_ffi() == creature_id)
-            .map(|(k, _)| k)?;
-        self.player_capacity_u32(_cid)
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        self.player_capacity_u32(cid)
     }
 
     fn get_player_free_capacity(
         &self,
         creature_id: tfs_rust_common::ScriptCreatureId,
     ) -> Option<u32> {
-        let _cid = self
-            .creatures
-            .iter()
-            .find(|(k, _)| k.data().as_ffi() == creature_id)
-            .map(|(k, _)| k)?;
-        self.player_free_capacity_u32(_cid)
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        self.player_free_capacity_u32(cid)
     }
 
     fn get_player_item_type_count(
@@ -92,11 +71,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         item_id: u16,
         sub_type: i32,
     ) -> Option<u32> {
-        let cid = self
-            .creatures
-            .iter()
-            .find(|(k, _)| k.data().as_ffi() == creature_id)
-            .map(|(k, _)| k)?;
+        let cid = self.resolve_creature_from_script(creature_id)?;
         Some(self.player_get_item_type_count(cid, item_id, sub_type))
     }
 
@@ -104,11 +79,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         &self,
         id: tfs_rust_common::ScriptItemId,
     ) -> Option<tfs_rust_common::ScriptItemData> {
-        let iid = self
-            .items
-            .iter()
-            .find(|(item_id, _)| item_id.data().as_ffi() == id)
-            .map(|(k, _)| k)?;
+        let iid = self.resolve_item_u64(id)?;
         let item = self.items.get(iid)?;
         let it = self.items_db.items.get(&item.item_type);
         let tw = it.map(|t| t.weight).unwrap_or(0);
@@ -399,6 +370,22 @@ impl tfs_rust_common::ScriptContext for GameWorld {
     /// CH-6 talkaction access gating.
     fn get_group_access(&self, group_id: u16) -> bool {
         self.groups.groups.get(&group_id).is_some_and(|g| g.access)
+    }
+
+    fn get_group_max_depot_items(&self, group_id: u16) -> u32 {
+        self.groups
+            .groups
+            .get(&group_id)
+            .map(|g| g.max_depot_items)
+            .unwrap_or(2000)
+    }
+
+    fn get_group_max_vip_entries(&self, group_id: u16) -> u32 {
+        self.groups
+            .groups
+            .get(&group_id)
+            .map(|g| g.max_vip_entries)
+            .unwrap_or(20)
     }
 
     /// `player:getPosition()` backing read — `Creature::getPosition`.
@@ -771,6 +758,61 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             return false;
         };
         matches!(self.creatures.get(cid), Some(CreatureKind::Player(_)))
+    }
+
+    fn is_creature_in_ghost_mode(&self, creature_id: tfs_rust_common::ScriptCreatureId) -> bool {
+        let Some(cid) = self.resolve_creature_from_script(creature_id) else {
+            return false;
+        };
+        matches!(
+            self.creatures.get(cid),
+            Some(CreatureKind::Player(p)) if p.ghost_mode
+        )
+    }
+
+    fn register_script_item_uid(&self, item_id: ScriptItemId) -> u32 {
+        // TFS `ScriptEnvironment::addThing` (`luascript.cpp:110-134`):
+        // if the item has ATTR_UNIQUE_ID, return it; otherwise add to local map.
+        let Some(iid) = self.resolve_item_u64(item_id) else {
+            return 0;
+        };
+        let Some(item) = self.items.get(iid) else {
+            return 0;
+        };
+        let uid = u32::from(item.unique_id());
+        if uid != 0 {
+            return uid;
+        }
+        // No ATTR_UNIQUE_ID — check reverse index for O(1) "already registered?".
+        if let Some(&existing) = self.script_env_item_to_uid.borrow().get(&iid) {
+            return existing;
+        }
+        let local_uid = self.script_env_last_uid.get();
+        self.script_env_last_uid.set(local_uid + 1);
+        self.script_env_local_map.borrow_mut().insert(local_uid, iid);
+        self.script_env_item_to_uid.borrow_mut().insert(iid, local_uid);
+        local_uid
+    }
+
+    fn get_depot_id_by_uid(&self, uid: u32) -> Option<u32> {
+        // TFS `luaGetDepotId` (`luascript.cpp:3766`) → `getContainerByUID` →
+        // `DepotLocker::getDepotId` (`ATTR_DEPOT_ID`).
+        let iid = if uid <= u16::MAX as u32 {
+            // ATTR_UNIQUE_ID path — search all items for matching unique_id.
+            self.items
+                .iter()
+                .find(|(_, item)| u32::from(item.unique_id()) == uid)
+                .map(|(k, _)| k)?
+        } else {
+            // Script env local map path.
+            *self.script_env_local_map.borrow().get(&uid)?
+        };
+        let item = self.items.get(iid)?;
+        if item.attributes.as_deref().is_some_and(|a| a.has_depot_id()) {
+            Some(u32::from(item.depot_id()))
+        } else {
+            None
+        }
     }
 
     fn tile_exists(&self, x: u16, y: u16, z: u8) -> bool {

@@ -33,6 +33,10 @@ pub enum LuaMutation {
         depot_id: u32,
         auto_create: bool,
     },
+    PlayerGetDepotLocker {
+        creature_id: u64,
+        depot_id: u32,
+    },
     PlayerGetInbox {
         creature_id: u64,
     },
@@ -462,6 +466,18 @@ pub fn call_lua_get_depot_chest(
         creature_id,
         depot_id,
         auto_create,
+    })?;
+    Ok(take_mutation_item_result())
+}
+
+/// `player:getDepotLocker(depotId)` — TFS `Player::getDepotLocker` (`player.cpp:826`).
+pub fn call_lua_get_depot_locker(
+    creature_id: u64,
+    depot_id: u32,
+) -> Result<Option<u64>, String> {
+    apply_mutation(LuaMutation::PlayerGetDepotLocker {
+        creature_id,
+        depot_id,
     })?;
     Ok(take_mutation_item_result())
 }

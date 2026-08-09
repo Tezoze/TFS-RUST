@@ -73,6 +73,19 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             }
             Ok(())
         }
+        LuaMutation::PlayerGetDepotLocker {
+            creature_id,
+            depot_id,
+        } => {
+            let result = unsafe { &mut *world }.lua_script_get_depot_locker(
+                creature_id,
+                depot_id,
+            )?;
+            if let Some(id) = result {
+                set_mutation_item_result(id);
+            }
+            Ok(())
+        }
         LuaMutation::PlayerGetInbox { creature_id } => {
             let result = unsafe { &mut *world }.lua_script_get_inbox(creature_id)?;
             if let Some(id) = result {

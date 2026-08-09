@@ -439,6 +439,18 @@ pub struct MechanicsProfile {
     pub npc: NpcTuning,
     /// 772 flat death-penalty percent (used when `damage_formula == ClassicProbe`).
     pub death_penalty: DeathPenalty,
+    /// Depot locker child layout — 772: single depot chest; 1098: market + inbox + unified.
+    pub depot_locker_structure: DepotLockerStructure,
+}
+
+/// Depot locker child container layout — era domain shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DepotLockerStructure {
+    /// 772 — locker contains a single `DEPOT_CHEST` (`crplayer.cc:2004` `LoadDepot`).
+    /// No market or inbox; `getItemHoldingCount` counts only the chest + its items.
+    ClassicDepotChest,
+    /// 1098 / TFS — locker contains market + inbox + unified depot with per-town chests.
+    TfsMarketInbox,
 }
 
 /// Which logical clock drives item decay deadlines for the active era.
@@ -529,6 +541,7 @@ impl MechanicsProfile {
                     promoted_percent: 7,
                     per_blessing: 1,
                 },
+                depot_locker_structure: DepotLockerStructure::ClassicDepotChest,
             },
             1098 => Self {
                 beat_ms: 50,
@@ -594,6 +607,7 @@ impl MechanicsProfile {
                     promoted_percent: 0,
                     per_blessing: 0,
                 },
+                depot_locker_structure: DepotLockerStructure::TfsMarketInbox,
             },
             other => unreachable!("unsupported protocol version {other}"),
         }

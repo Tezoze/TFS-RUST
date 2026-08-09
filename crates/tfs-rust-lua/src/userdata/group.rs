@@ -67,6 +67,33 @@ impl UserData for GroupRef {
                 Ok(format!("group_{}", this.0))
             })
         });
+
+        // `group:getMaxDepotItems()` — `Group::maxDepotItems` (`luascript.cpp:11459`).
+        // Used by `data/scripts/movements/other/tiles.lua` depot-full check.
+        methods.add_method("getMaxDepotItems", |_, this, ()| {
+            CURRENT_CTX.with(|c: &RefCell<Option<*const dyn LuaContext>>| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.get_group_max_depot_items(this.0))
+            })
+        });
+
+        // `group:getMaxVipEntries()` — `Group::maxVipEntries` (`luascript.cpp:11471`).
+        methods.add_method("getMaxVipEntries", |_, this, ()| {
+            CURRENT_CTX.with(|c: &RefCell<Option<*const dyn LuaContext>>| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.get_group_max_vip_entries(this.0))
+            })
+        });
     }
 }
 

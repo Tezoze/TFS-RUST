@@ -1587,6 +1587,28 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
         lua.create_function(|_, _: mlua::MultiValue| Ok(false))?,
     )?;
 
+    // `getDepotId(uid)` — TFS `luaGetDepotId` (`luascript.cpp:3766`).
+    // Looks up a depot locker by its UID (from `item:getUniqueId()`) and returns
+    // its `ATTR_DEPOT_ID`. Used by `data/scripts/movements/other/tiles.lua`.
+    globals.set(
+        "getDepotId",
+        lua.create_function(|_, uid: u32| {
+            use crate::context::CURRENT_CTX;
+            CURRENT_CTX.with(|c| {
+                let ptr = (*c.borrow())
+                    .ok_or_else(|| mlua::Error::runtime("getDepotId: LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("getDepotId: LuaContext is null"));
+                }
+                let ctx = unsafe { &*ptr };
+                match ctx.get_depot_id_by_uid(uid) {
+                    Some(depot_id) => Ok(mlua::Value::Number(f64::from(depot_id))),
+                    None => Ok(mlua::Value::Boolean(false)),
+                }
+            })
+        })?,
+    )?;
+
     Ok(())
 }
 

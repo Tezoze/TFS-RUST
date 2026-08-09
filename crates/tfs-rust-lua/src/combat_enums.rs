@@ -36,6 +36,7 @@ pub fn register_combat_enums(lua: &Lua) -> Result<(), mlua::Error> {
     register_message_types(&globals)?;
     register_world_types(&globals)?;
     register_cylinder_flags(&globals)?;
+    register_item_types(&globals)?;
 
     Ok(())
 }
@@ -436,8 +437,22 @@ fn register_cylinder_flags(globals: &mlua::Table) -> Result<(), mlua::Error> {
     // cylinder.h — used by levitate `creature:move(tile, flags)`.
     globals.set("FLAG_IGNOREBLOCKITEM", 1i32 << 1)?;
     globals.set("FLAG_IGNOREBLOCKCREATURE", 1i32 << 2)?;
-    // items.h ITEM_TYPE_MAGICFIELD
+    Ok(())
+}
+
+/// `ItemTypes_t` — `items.h:30-41`. Used by `tile:getItemByType` and `data/items/#items.lua`.
+fn register_item_types(globals: &mlua::Table) -> Result<(), mlua::Error> {
+    globals.set("ITEM_TYPE_NONE", 0i32)?;
+    globals.set("ITEM_TYPE_DEPOT", 1i32)?;
+    globals.set("ITEM_TYPE_MAILBOX", 2i32)?;
+    globals.set("ITEM_TYPE_TRASHHOLDER", 3i32)?;
+    globals.set("ITEM_TYPE_CONTAINER", 4i32)?;
+    globals.set("ITEM_TYPE_DOOR", 5i32)?;
     globals.set("ITEM_TYPE_MAGICFIELD", 6i32)?;
+    globals.set("ITEM_TYPE_TELEPORT", 7i32)?;
+    globals.set("ITEM_TYPE_BED", 8i32)?;
+    globals.set("ITEM_TYPE_KEY", 9i32)?;
+    globals.set("ITEM_TYPE_RUNE", 10i32)?;
     Ok(())
 }
 
