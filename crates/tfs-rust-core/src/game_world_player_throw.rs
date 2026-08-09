@@ -172,9 +172,8 @@ impl GameWorld {
         // 772 `CheckMapDestination` creature-container arm (`operate.cc:493-532`) —
         // Gate C: range cap (P3), elevation-sum floor-change gate (P5/C1), per-creature
         // `MovePossible` (P-D/Gate B), dest AVOID (P6), PZ→non-PZ, and `ThrowPossible`
-        // (P9/C6). Runs **before** the TFS-style `tile_query_add_creature` so 772 gates
-        // fire with the correct error codes (e.g. AVOID → `NotEnoughRoom`, not
-        // `NotPossible`).
+        // (P9/C6). D3: no TFS-style `tile_query_add_creature` follows — Gate A/B/C are
+        // the whole 772 push gate (`operate.cc:1356-1359`).
         // D4: 772 `CheckMapDestination` reads `Orig*` from `GetObjectCoordinates(Obj)` —
         // the creature's **live** position (`operate.cc:482`), not the packet-time
         // `from_pos`. With P-B's 1000 ms `ToDoMove` wait the target can walk in between;
@@ -190,22 +189,14 @@ impl GameWorld {
             can_push_all,
         )?;
 
-        let Some(to_tile) = self.map.get_tile(to_pos) else {
-            return Err(ReturnValue::NotPossible);
-        };
-        // GM bypass: `FLAG_NOLIMIT` skips the TFS-domain `tile_query_add_creature` checks
-        // (PZ, floorchange, blocking creatures/items) that duplicate 772 `MovePossible`
-        // constraints already bypassed above. The 772 gates in `check_push_destination`
-        // (range, elevation, AVOID, PZ→non-PZ, ThrowPossible) still apply.
-        let query_flags = if can_push_all {
-            crate::walk::FLAG_NOLIMIT
-        } else {
-            0
-        };
-        let rv = crate::walk::tile_query_add_creature(self, to_tile, moving_creature, query_flags);
-        if rv != ReturnValue::NoError {
-            return Err(rv);
-        }
+        // D3: 772 `::Move` (`operate.cc:1356-1359`) runs no TFS-style `queryAdd` on the
+        // push path — `CheckTopMoveObject` / `CheckMoveObject` / `CheckMapDestination`
+        // (Gate A/B/C) are the whole gate. Creature blocking now lives in
+        // `tile_is_bank_and_passable` (D1) via `base_move_possible` / `MovePossible`, so
+        // same-floor pushes onto occupied tiles return `NOROOM` with the correct error
+        // code. Cross-floor pushes onto occupied tiles stack (D2 — 772 quirk: a creature
+        // is `Unpass` but not `Unmove`, so `JumpPossible(dest, false)` passes and
+        // `MovePossible` is skipped for monster floor-changes via C5).
 
         let old_creatures = self
             .map
@@ -2058,6 +2049,162 @@ mod push_followup_d4_d8_tests {
             Err(ReturnValue::NotEnoughRoom),
             "D4: range cap must use live position (passes), then AVOID blocks — \
              not DestinationOutOfReach from stale position"
+        );
+    }
+}
+
+#[cfg(test)]
+mod push_followup_d1_d2_d3_tests {
+    //! Follow-up audit D1 + D2 + D3 — creatures are UNPASS (D1), cross-floor stacking
+    //! (D2), and removal of `tile_query_add_creature` from the push path (D3).
+    //! See `docs/772_PLAYER_PUSH_AUDIT_FOLLOWUP.md` §3 D1/D2/D3.
+    use super::*;
+    use crate::creature::{CreatureKind, MonsterAiConfig, Player};
+    use crate::sim_harness::{
+        beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player,
+        synthetic_ground_item_type, test_player,
+    };
+    use tfs_rust_content::otb::ItemType;
+    use tfs_rust_common::Position;
+
+    /// Item type ID for test height items (avoids collision with 1987/2148).
+    /// Mirrors `push_phase_c_tests::HEIGHT_ITEM_TYPE`.
+    const HEIGHT_ITEM_TYPE: u16 = 500;
+
+    /// `ItemType` with `has_height` flag and the given `elevation` value.
+    /// 772 `HEIGHT` flag + `ELEVATION` attribute (`enums.hh:760`, `info.cc:689`).
+    fn height_item_type(elevation: i32) -> ItemType {
+        ItemType {
+            server_id: HEIGHT_ITEM_TYPE,
+            flags: 1 << 3, // FLAG_HAS_HEIGHT
+            elevation,
+            ..Default::default()
+        }
+    }
+
+    /// Register ground type 1 as a BANK ground in the items_db.
+    /// Needed for `tile_is_bank_and_passable` (772 `BANK` flag) in player `MovePossible`.
+    fn register_ground_bank(world: &mut GameWorld) {
+        let mut new_db = (*world.items_db).clone();
+        new_db.items.insert(1, synthetic_ground_item_type(1, 150));
+        world.items_db = std::sync::Arc::new(new_db);
+    }
+
+    /// Register the height item type with the given elevation in the items_db.
+    fn register_height_item(world: &mut GameWorld, elevation: i32) {
+        let mut new_db = (*world.items_db).clone();
+        new_db.items.insert(HEIGHT_ITEM_TYPE, height_item_type(elevation));
+        world.items_db = std::sync::Arc::new(new_db);
+    }
+
+    /// Insert a player AND register them on the map tile.
+    fn insert_player_on_tile(world: &mut GameWorld, player: Player, pos: Position) -> CreatureId {
+        let cid = world.creatures.insert(CreatureKind::Player(player));
+        world.map.register_creature_at(pos, cid);
+        cid
+    }
+
+    /// Place a height item (type `HEIGHT_ITEM_TYPE`) on the tile at `pos`.
+    fn place_height_item(world: &mut GameWorld, pos: Position) {
+        let item_id = world.items.insert(crate::item::Item::new_single(HEIGHT_ITEM_TYPE));
+        if let Some(tile) = world.map.get_tile_mut(pos) {
+            tile.body_mut().down_items.push(item_id);
+        }
+    }
+
+    /// D1: pushing a player onto a tile occupied by another creature (same floor) must
+    /// return `NotEnoughRoom` (772 `NOROOM`) from Gate B (`MovePossible`), not a late
+    /// `tile_query_add_creature` block. 772 `objects.srv` TypeID 99 = `{Container,Unpass}`
+    /// (`objects.srv:61-64`) — any creature on the tile makes `CoordinateFlag(UNPASS)`
+    /// true → `tile_is_bank_and_passable` returns false → `Ok(false)` → `NOROOM`.
+    #[test]
+    fn player_push_player_onto_occupied_tile_is_noroom() {
+        let mut world = beat_driven_world();
+        register_ground_bank(&mut world);
+
+        let actor_pos = Position::new(100, 99, 7);
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        for &p in &[actor_pos, from, to] {
+            ensure_walkable_tile(&mut world.map, p, 1);
+        }
+
+        let actor = insert_player(&mut world, test_player("Actor", actor_pos));
+        let mover = insert_player_on_tile(&mut world, test_player("Mover", from), from);
+        // Blocker creature on the dest tile — registered on the map.
+        let blocker = insert_monster_with_config(&mut world, "Blocker", to, 200, MonsterAiConfig::default());
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(
+            rv,
+            Err(ReturnValue::NotEnoughRoom),
+            "D1: pushing a player onto an occupied tile must be NOROOM from Gate B"
+        );
+
+        // Neither the mover nor the blocker moved.
+        assert_eq!(
+            world.creatures.get(mover).map(|k| k.position()),
+            Some(from),
+            "mover must not have moved"
+        );
+        assert_eq!(
+            world.creatures.get(blocker).map(|k| k.position()),
+            Some(to),
+            "blocker must not have moved"
+        );
+    }
+
+    /// D2: cross-floor push onto an occupied tile — 772 lets creatures stack because a
+    /// creature is `Unpass` but not `Unmove`, so `JumpPossible(dest, false)` passes. For
+    /// a monster cross-floor push, C5 skips `MovePossible` entirely. After D3, no
+    /// `tile_query_add_creature` blocks the stack. Both creatures end up on the dest tile.
+    #[test]
+    fn player_push_across_floor_onto_occupied_tile_stacks() {
+        let mut world = beat_driven_world();
+        register_height_item(&mut world, 24);
+
+        let actor_pos = Position::new(100, 99, 7);
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(100, 100, 8); // down a floor (dz = 1)
+        for &p in &[actor_pos, from, to] {
+            ensure_walkable_tile(&mut world.map, p, 1);
+        }
+        // Place a height item on the dest tile → elevation sum = 24 ≥ 24 (passes gate).
+        place_height_item(&mut world, to);
+
+        let actor = insert_player(&mut world, test_player("Actor", actor_pos));
+        // Monster mover — C5 skips MovePossible for dz != 0.
+        let mover = insert_monster_with_config(&mut world, "Mover", from, 200, MonsterAiConfig::default());
+        // Blocker creature on the dest tile.
+        let blocker = insert_monster_with_config(&mut world, "Blocker", to, 200, MonsterAiConfig::default());
+
+        let rv = world.player_push_creature(actor, mover, from, to);
+        assert_eq!(
+            rv,
+            Ok(()),
+            "D2: cross-floor push onto an occupied tile must succeed (creatures stack in 772)"
+        );
+
+        // Both creatures are now on the dest tile — stacked.
+        assert_eq!(
+            world.creatures.get(mover).map(|k| k.position()),
+            Some(to),
+            "mover must be on the dest tile after the cross-floor push"
+        );
+        assert_eq!(
+            world.creatures.get(blocker).map(|k| k.position()),
+            Some(to),
+            "blocker must still be on the dest tile (stacked)"
+        );
+        // Verify they actually share the tile in the map.
+        let dest_creatures = world
+            .map
+            .get_tile(to)
+            .map(|t| t.body().creatures.clone())
+            .unwrap_or_default();
+        assert!(
+            dest_creatures.contains(&mover) && dest_creatures.contains(&blocker),
+            "D2: both mover and blocker must be registered on the dest tile (stacked)"
         );
     }
 }

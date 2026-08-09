@@ -374,6 +374,13 @@ impl GameWorld {
         if (body.flags & tilestate::BLOCKSOLID) != 0 {
             return false;
         }
+        // D1: 772 `objects.srv` TypeID 99 (creature container) = `{Container,Unpass}`
+        // (`objects.srv:61-64`), so any creature on the tile makes
+        // `CoordinateFlag(UNPASS)` true. Without this, a player/NPC Gate B wrongly
+        // *passes* on an occupied tile and the block lands later (wrong error code).
+        if !body.creatures.is_empty() {
+            return false;
+        }
         !body
             .down_items
             .iter()
