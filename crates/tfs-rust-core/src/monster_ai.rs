@@ -1851,6 +1851,28 @@ impl GameWorld {
                     if self.items_db.is_unpassable_for_field(*server_id) {
                         return false;
                     }
+                    // Ground AVOID: Bank+Avoid grounds (trapdoors, stairs with `Avoid`
+                    // in objects.srv) map to OTB `blockPathFind`. Monsters treat these
+                    // like item AVOID — kick or block (`crnonpl.cc:2249-2271`).
+                    if self.items_db.is_avoid(*server_id) {
+                        let ignore_hazard = match self.items_db.avoid_damage_type(*server_id) {
+                            Some(tfs_rust_content::items::FieldDamageType::Poison) => {
+                                state == MonsterState::Panic || immunity_poison
+                            }
+                            Some(tfs_rust_content::items::FieldDamageType::Fire) => {
+                                state == MonsterState::Panic || immunity_fire
+                            }
+                            Some(tfs_rust_content::items::FieldDamageType::Energy) => {
+                                state == MonsterState::Panic || immunity_energy
+                            }
+                            None => false,
+                        };
+                        if !ignore_hazard
+                            && (self.items_db.is_immovable(*server_id) || !can_push_items)
+                        {
+                            return false;
+                        }
+                    }
                 }
                 MapStackEntry::Creature(tile_c) => {
                     if *tile_c == cid {
@@ -1921,23 +1943,25 @@ impl GameWorld {
                         }
                         continue;
                     }
-                    if self.items_db.is_avoid_hazard(server_id) {
+                    if self.items_db.is_avoid(server_id) {
                         // C++ `MovePossible` AVOID branch (`crnonpl.cc:2264-2267`): per-damage-type
-                        // immunity — PANIC ignores all hazards; NoPoison/NoBurning/NoEnergy ignore
-                        // matching fields only. P1-B1: was poison-only, now per-type.
-                        let ignore_hazard = state == MonsterState::Panic
-                            || match self.items_db.avoid_damage_type(server_id) {
-                                Some(tfs_rust_content::items::FieldDamageType::Poison) => {
-                                    immunity_poison
-                                }
-                                Some(tfs_rust_content::items::FieldDamageType::Fire) => {
-                                    immunity_fire
-                                }
-                                Some(tfs_rust_content::items::FieldDamageType::Energy) => {
-                                    immunity_energy
-                                }
-                                None => false,
-                            };
+                        // immunity — PANIC ignores **damaging** hazards only (`AvoidDamageTypes != 0`);
+                        // NoPoison/NoBurning/NoEnergy ignore matching fields only. Furniture
+                        // (`AvoidDamageTypes=0` → `avoid_damage_type() == None`) is never ignored,
+                        // even in PANIC. P1-B1: was poison-only, now per-type.
+                        let ignore_hazard = match self.items_db.avoid_damage_type(server_id) {
+                            Some(tfs_rust_content::items::FieldDamageType::Poison) => {
+                                state == MonsterState::Panic || immunity_poison
+                            }
+                            Some(tfs_rust_content::items::FieldDamageType::Fire) => {
+                                state == MonsterState::Panic || immunity_fire
+                            }
+                            Some(tfs_rust_content::items::FieldDamageType::Energy) => {
+                                state == MonsterState::Panic || immunity_energy
+                            }
+                            // Furniture/terrain AVOID (`AvoidDamageTypes=0`) — never ignored.
+                            None => false,
+                        };
                         if !ignore_hazard
                             && (self.items_db.is_immovable(server_id) || !can_push_items)
                         {

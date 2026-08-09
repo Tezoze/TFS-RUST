@@ -1605,3 +1605,194 @@ fn d5_hard_block_does_not_kick_boxes() {
         "D5: unpushable blocker must not be relocated"
     );
 }
+
+// ── Furniture AVOID tests for monsters (772 `Avoid` + `AvoidDamageTypes=0`) ──
+//
+// 772 `objects.srv` marks chairs, boxes, crates with `Avoid` (non-damaging). OTB maps
+// these to `blockPathFind` (bit 2). Monster `MovePossible` treats AVOID like UNPASS —
+// kickable with `CanKickBoxes`, hard block otherwise (`crnonpl.cc:2264-2271`).
+
+/// Synthetic furniture type: `blockPathFind` + movable (kickable), NOT `blockSolid`.
+const FURNITURE_TYPE: u16 = 700;
+
+fn install_furniture_type(world: &mut crate::game_world::GameWorld) {
+    use tfs_rust_content::otb::ItemType;
+    let mut new_db = (*world.items_db).clone();
+    new_db.items.insert(
+        FURNITURE_TYPE,
+        ItemType {
+            server_id: FURNITURE_TYPE,
+            flags: (1 << 2) | (1 << 3) | (1 << 6), // BLOCK_PATHFIND | HAS_HEIGHT | MOVEABLE
+            ..ItemType::default()
+        },
+    );
+    world.items_db = std::sync::Arc::new(new_db);
+}
+
+fn place_furniture(world: &mut crate::game_world::GameWorld, pos: Position) {
+    use crate::item::Item;
+    let item_id = world.items.insert(Item::new_single(FURNITURE_TYPE));
+    if let Some(tile) = world.map.get_tile_mut(pos) {
+        let body = tile.body_mut();
+        body.down_items.push(item_id);
+        body.flags |= crate::tile::flags::BLOCKPATH;
+    }
+}
+
+/// Monster with `canPushItems` can plan through furniture AVOID (kickable, like UNPASS).
+#[test]
+fn monster_plans_through_furniture_with_kick_items() {
+    let mut world = beat_driven_world();
+    install_furniture_type(&mut world);
+    let mpos = Position::new(100, 100, 7);
+    let dest = Position::new(101, 100, 7);
+    for &p in &[mpos, dest] {
+        ensure_walkable_tile(&mut world.map, p, 1);
+    }
+    place_furniture(&mut world, dest);
+
+    let cfg = MonsterAiConfig {
+        can_push_items: true,
+        target_distance: 1,
+        ..MonsterAiConfig::default()
+    };
+    let mover = insert_monster_with_config(&mut world, "Cyclops", mpos, 200, cfg);
+    // Planning gate (Execute=false) — furniture is kickable, so planning passes.
+    assert!(
+        world.monster_move_possible_planning(mover, dest, false),
+        "monster with canPushItems must plan through furniture AVOID (kickable)"
+    );
+}
+
+/// Monster WITHOUT `canPushItems` is blocked by furniture AVOID.
+#[test]
+fn monster_blocked_by_furniture_without_kick_items() {
+    let mut world = beat_driven_world();
+    install_furniture_type(&mut world);
+    let mpos = Position::new(100, 100, 7);
+    let dest = Position::new(101, 100, 7);
+    for &p in &[mpos, dest] {
+        ensure_walkable_tile(&mut world.map, p, 1);
+    }
+    place_furniture(&mut world, dest);
+
+    let cfg = MonsterAiConfig {
+        can_push_items: false,
+        target_distance: 1,
+        ..MonsterAiConfig::default()
+    };
+    let mover = insert_monster_with_config(&mut world, "Rat", mpos, 200, cfg);
+    assert!(
+        !world.monster_move_possible_planning(mover, dest, false),
+        "monster without canPushItems must be blocked by furniture AVOID"
+    );
+}
+
+/// Monster self-walk queryAdd: furniture BLOCKPATH blocks without `canPushItems`.
+#[test]
+fn monster_queryadd_blocked_by_furniture_without_kick() {
+    use crate::walk::tile_query_add_creature;
+    let mut world = beat_driven_world();
+    install_furniture_type(&mut world);
+    let pos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, pos, 1);
+    place_furniture(&mut world, pos);
+
+    let cfg = MonsterAiConfig {
+        can_push_items: false,
+        ..MonsterAiConfig::default()
+    };
+    let mover = insert_monster_with_config(&mut world, "Rat", Position::new(99, 100, 7), 200, cfg);
+    let tile = world.map.get_tile(pos).expect("tile");
+    let ret = tile_query_add_creature(&world, tile, mover, 0);
+    assert_ne!(
+        ret,
+        crate::return_value::ReturnValue::NoError,
+        "monster without canPushItems must be blocked by furniture BLOCKPATH"
+    );
+}
+
+/// Monster self-walk queryAdd: furniture BLOCKPATH passes with `canPushItems`.
+#[test]
+fn monster_queryadd_passes_furniture_with_kick() {
+    use crate::walk::tile_query_add_creature;
+    let mut world = beat_driven_world();
+    install_furniture_type(&mut world);
+    let pos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, pos, 1);
+    place_furniture(&mut world, pos);
+
+    let cfg = MonsterAiConfig {
+        can_push_items: true,
+        ..MonsterAiConfig::default()
+    };
+    let mover = insert_monster_with_config(&mut world, "Cyclops", Position::new(99, 100, 7), 200, cfg);
+    let tile = world.map.get_tile(pos).expect("tile");
+    let ret = tile_query_add_creature(&world, tile, mover, 0);
+    assert_eq!(
+        ret,
+        crate::return_value::ReturnValue::NoError,
+        "monster with canPushItems must pass furniture BLOCKPATH"
+    );
+}
+
+/// Monster with `canPushItems` kicks furniture out of the way during a push.
+/// 772 `MovePossible(Execute=true)` runs `KickBoxes` which shoves AVOID furniture,
+/// then `CheckMapDestination`'s AVOID re-scan finds the tile clear (`operate.cc:515-525`).
+#[test]
+fn monster_kick_boxes_handles_furniture_avoid() {
+    let mut world = beat_driven_world();
+    install_furniture_type(&mut world);
+    let mpos = Position::new(100, 100, 7);
+    let dest = Position::new(101, 100, 7);
+    let escape = Position::new(101, 99, 7); // free escape for the furniture (N of dest)
+    for &p in &[mpos, dest, escape] {
+        ensure_walkable_tile(&mut world.map, p, 1);
+    }
+    place_furniture(&mut world, dest);
+
+    // `item_is_kickable_box` must recognize furniture AVOID as kickable.
+    let cfg = MonsterAiConfig {
+        can_push_items: true,
+        ..MonsterAiConfig::default()
+    };
+    let mover = insert_monster_with_config(&mut world, "Cyclops", mpos, 200, cfg);
+    // The furniture item must be kickable.
+    let furniture_iid = world
+        .map
+        .get_tile(dest)
+        .and_then(|t| t.body().down_items.first().copied())
+        .expect("furniture on dest");
+    assert!(
+        world.item_is_kickable_box(furniture_iid, MonsterState::Attacking, false, false, false),
+        "item_is_kickable_box must recognize furniture AVOID as kickable"
+    );
+}
+
+/// Furniture AVOID is NOT ignored in PANIC — 772 `PANIC && AvoidDamageTypes != 0` only.
+/// A PANIC monster without `canPushItems` is still blocked by furniture.
+#[test]
+fn monster_panic_still_blocked_by_furniture() {
+    let mut world = beat_driven_world();
+    install_furniture_type(&mut world);
+    let mpos = Position::new(100, 100, 7);
+    let dest = Position::new(101, 100, 7);
+    for &p in &[mpos, dest] {
+        ensure_walkable_tile(&mut world.map, p, 1);
+    }
+    place_furniture(&mut world, dest);
+
+    let cfg = MonsterAiConfig {
+        can_push_items: false,
+        ..MonsterAiConfig::default()
+    };
+    let mover = insert_monster_with_config(&mut world, "Rat", mpos, 200, cfg);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
+        m.state = MonsterState::Panic;
+    }
+    // PANIC does NOT ignore furniture (AvoidDamageTypes=0) — still blocked.
+    assert!(
+        !world.monster_move_possible_planning(mover, dest, false),
+        "PANIC monster must still be blocked by furniture (AvoidDamageTypes=0)"
+    );
+}

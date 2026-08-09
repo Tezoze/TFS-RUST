@@ -2425,3 +2425,136 @@ fn player_set_storage_erases_on_minus_one() {
     world.player_set_storage(p1, 320, -1).expect("erase");
     assert_eq!(world.player_get_storage(p1, 320), -1);
 }
+
+// ── Furniture AVOID tests (772 `Avoid` + `AvoidDamageTypes=0` → OTB `blockPathFind`) ──
+//
+// 772 `objects.srv` marks chairs, boxes, crates, stairs, trapdoors, etc. with `Avoid`
+// + `AvoidDamageTypes=0`. OTB maps these to `blockPathFind` (bit 2), NOT `blockSolid`.
+// NPC/monster `MovePossible` rejects AVOID tiles (`crnonpl.cc:1672-1679`, `:2141-2293`);
+// players walk freely (`crmain.cc:893` skips AVOID at `Execute=true`).
+
+/// Item type id for synthetic furniture (blockPathFind, not blockSolid).
+const FURNITURE_TYPE: u16 = 700;
+
+/// Install a synthetic furniture item type (OTB `blockPathFind`, movable, not blockSolid).
+fn install_furniture_type(world: &mut GameWorld) {
+    use tfs_rust_content::otb::ItemType;
+    let mut new_db = (*world.items_db).clone();
+    new_db.items.insert(
+        FURNITURE_TYPE,
+        ItemType {
+            server_id: FURNITURE_TYPE,
+            flags: (1 << 2) | (1 << 3) | (1 << 6), // BLOCK_PATHFIND | HAS_HEIGHT | MOVEABLE
+            ..ItemType::default()
+        },
+    );
+    world.items_db = std::sync::Arc::new(new_db);
+}
+
+/// Place a furniture item on a tile and set the BLOCKPATH tile flag.
+fn place_furniture(world: &mut GameWorld, pos: Position) {
+    let item_id = world.items.insert(Item::new_single(FURNITURE_TYPE));
+    if let Some(tile) = world.map.get_tile_mut(pos) {
+        let body = tile.body_mut();
+        body.down_items.push(item_id);
+        body.flags |= crate::tile::flags::BLOCKPATH;
+    }
+}
+
+/// NPC self-walk: `npc_move_possible` rejects a tile with furniture (blockPathFind AVOID).
+#[test]
+fn npc_self_walk_blocked_by_furniture() {
+    use crate::sim_harness::insert_npc;
+    let mut world = minimal_world();
+    install_furniture_type(&mut world);
+    let home = Position::new(100, 100, 7);
+    let dest = Position::new(101, 100, 7);
+    for &p in &[home, dest] {
+        ensure_walkable_tile(&mut world.map, p, 100);
+    }
+    place_furniture(&mut world, dest);
+
+    let npc = insert_npc(&mut world, "Test", home, 100);
+    // Give the NPC a roam radius so dest is in range.
+    if let Some(CreatureKind::Npc(n)) = world.creatures.get_mut(npc) {
+        n.runtime.radius = 5;
+    }
+
+    // tile_has_avoid must see the furniture.
+    assert!(
+        world.tile_has_avoid(dest),
+        "tile_has_avoid must detect furniture (blockPathFind) AVOID"
+    );
+
+    // NPC idle roam must NOT walk onto the furniture tile.
+    world.mechanics.profile.npc = NpcTuning::classic_772();
+    world.seed_parity_rng(42);
+    world.server_ms = 10_000;
+    let _ = world.creature_todo_clear(npc);
+    let mut trace = DialogueTrace::default();
+    world.npc_idle_stimulus(npc, &mut trace);
+    let base = world.creatures.get(npc).expect("npc").base();
+    // The roam may enqueue Wait (all dirs blocked by furniture or out-of-range),
+    // but must NOT enqueue a Go onto the furniture tile.
+    if let Some(dest_queued) = base.walk_destinations.front() {
+        assert_ne!(
+            *dest_queued, dest,
+            "NPC must not walk onto furniture tile (AVOID)"
+        );
+    }
+}
+
+/// Player self-walk: AVOID furniture does NOT block players (`crmain.cc:893` skips
+/// AVOID at `Execute=true`). The player queryAdd only checks BLOCKSOLID, not BLOCKPATH.
+#[test]
+fn player_walk_unchanged_on_furniture() {
+    use crate::tile::Tile;
+    use crate::walk::tile_query_add_creature;
+    let mut world = minimal_world();
+    install_furniture_type(&mut world);
+    let pos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, pos, 100);
+    place_furniture(&mut world, pos);
+
+    let hero = sim_hero_player("Hero", Position::new(99, 100, 7));
+    let p1 = insert_player(&mut world, hero);
+
+    let tile = world.map.get_tile(pos).expect("tile");
+    // Player queryAdd must NOT reject a BLOCKPATH (furniture AVOID) tile.
+    let ret = tile_query_add_creature(&world, tile, p1, 0);
+    assert_eq!(
+        ret,
+        crate::return_value::ReturnValue::NoError,
+        "player must walk onto furniture (AVOID doesn't block players at Execute=true)"
+    );
+    // Sanity: the tile IS marked BLOCKPATH.
+    assert!(
+        tile.body().flags & crate::tile::flags::BLOCKPATH != 0,
+        "test setup: tile must have BLOCKPATH flag"
+    );
+}
+
+/// Push AVOID gate: pushing a creature onto a furniture tile returns NOROOM
+/// (`operate.cc:525` `CoordinateFlag(Dest, AVOID)`).
+#[test]
+fn push_blocked_by_furniture_avoid() {
+    let mut world = minimal_world();
+    install_furniture_type(&mut world);
+    let from = Position::new(100, 100, 7);
+    let dest = Position::new(101, 100, 7);
+    for &p in &[from, dest] {
+        ensure_walkable_tile(&mut world.map, p, 100);
+    }
+    place_furniture(&mut world, dest);
+
+    // tile_has_avoid is the push AVOID gate — must detect furniture.
+    assert!(
+        world.tile_has_avoid(dest),
+        "push AVOID gate must detect furniture (blockPathFind)"
+    );
+    // The source tile must NOT have AVOID.
+    assert!(
+        !world.tile_has_avoid(from),
+        "source tile must not have AVOID"
+    );
+}

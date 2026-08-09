@@ -734,6 +734,23 @@ impl ItemType {
         self.is_magic_field()
     }
 
+    /// 772 `CoordinateFlag(AVOID)` (`enums.hh:240`) — any avoid-flagged object.
+    ///
+    /// Two sources in `objects.srv`:
+    /// - **Magic fields** (`Avoid` + `AvoidDamageTypes=DAMAGE_FIRE/POISON/ENERGY`) →
+    ///   OTB `ITEM_TYPE_MAGICFIELD` (`type_tag == 6`); damaging, race/immunity-gated.
+    /// - **Furniture / terrain** (`Avoid` + `AvoidDamageTypes=0`) → OTB `blockPathFind`
+    ///   (bit 2); non-damaging, blocks NPC/monster walk but not player `Execute=true`
+    ///   (`crmain.cc:893`). Covers chairs, boxes, crates, stairs, trapdoors, holes.
+    ///
+    /// `is_avoid_hazard()` is the magic-field-only subset; `is_avoid()` is the full
+    /// `AVOID` flag used by NPC/monster `MovePossible` (`crnonpl.cc:1672-1679`,
+    /// `:2141-2293`).
+    #[inline]
+    pub fn is_avoid(&self) -> bool {
+        self.is_magic_field() || self.block_path_find()
+    }
+
     /// Cip map-container `PRIORITY_BOTTOM` (`map.hh` / `GetObjectPriority`).
     ///
     /// 772 `objects.srv`: liquid pools carry `Bottom` (before creatures). Magic fields

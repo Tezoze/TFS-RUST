@@ -230,11 +230,37 @@ impl GameWorld {
     }
 
     /// 772 `CoordinateFlag(x,y,z, AVOID)` (`operate.cc:525`, `enums.hh:240`).
-    /// `AVOID` maps to the `MAGICFIELD` tile-state bit (`walk/walk_tile.rs:656`).
+    ///
+    /// `AVOID` covers two `objects.srv` sources:
+    /// - **Magic fields** (`Avoid` + `AvoidDamageTypes≠0`) → `MAGICFIELD` tile-state bit
+    ///   (set on field creation, `walk/walk_tile.rs:656`).
+    /// - **Furniture / terrain** (`Avoid` + `AvoidDamageTypes=0`) → OTB `blockPathFind`
+    ///   per-item flag (chairs, boxes, crates, stairs, trapdoors, …). Not captured by
+    ///   the `MAGICFIELD` tile flag — must scan the tile stack.
     pub(crate) fn tile_has_avoid(&self, pos: Position) -> bool {
-        self.map
-            .get_tile(pos)
-            .is_some_and(|t| t.body().flags & tilestate::MAGICFIELD != 0)
+        let Some(tile) = self.map.get_tile(pos) else {
+            return false;
+        };
+        let body = tile.body();
+        // Magic-field AVOID (tile flag, set on field creation).
+        if body.flags & tilestate::MAGICFIELD != 0 {
+            return true;
+        }
+        // Furniture/terrain AVOID — per-item `blockPathFind` (772 `Avoid` + `AvoidDamageTypes=0`).
+        // Check ground + down/top items; ground AVOID covers Bank+Avoid trapdoors/stairs.
+        if let Some(ground) = body.ground {
+            if self.items_db.is_avoid(ground) {
+                return true;
+            }
+        }
+        body.down_items
+            .iter()
+            .chain(body.top_items.iter())
+            .any(|&iid| {
+                self.items
+                    .get(iid)
+                    .is_some_and(|it| self.items_db.is_avoid(it.item_type))
+            })
     }
 
     /// 772 `CheckMapDestination` creature-container arm (`operate.cc:493-532`).

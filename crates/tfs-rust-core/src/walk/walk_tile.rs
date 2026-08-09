@@ -488,11 +488,21 @@ pub(crate) fn tile_query_add_monster(
         return ReturnValue::NotPossible;
     }
 
+    // 772 `AVOID` furniture/terrain — immovable `blockPathFind` (stairs, trapdoors) is
+    // a hard block for monsters (`crnonpl.cc:2268` `UNMOVE || !CanKickBoxes`). Movable
+    // furniture (chairs, boxes) is kickable when `can_push_items`.
+    if (body.flags & tilestate::IMMOVABLEBLOCKPATH) != 0
+        && !(can_push_items || (flags & FLAG_IGNOREBLOCKITEM) != 0)
+    {
+        return ReturnValue::NotPossible;
+    }
+
     if (flags & FLAG_PATHFINDING) != 0 && (body.flags & tilestate::IMMOVABLENOFIELDBLOCKPATH) != 0 {
         return ReturnValue::NotPossible;
     }
 
     if ((body.flags & tilestate::BLOCKSOLID) != 0
+        || (body.flags & tilestate::BLOCKPATH) != 0
         || ((flags & FLAG_PATHFINDING) != 0 && (body.flags & tilestate::NOFIELDBLOCKPATH) != 0))
         && !(can_push_items || (flags & FLAG_IGNOREBLOCKITEM) != 0)
     {
@@ -560,6 +570,11 @@ pub(crate) fn tile_query_add_npc(
 
     if (flags & FLAG_IGNOREBLOCKITEM) == 0 {
         if (body.flags & tilestate::BLOCKSOLID) != 0 {
+            return ReturnValue::NotEnoughRoom;
+        }
+        // 772 `AVOID` furniture/terrain (OTB `blockPathFind`, `AvoidDamageTypes=0`).
+        // NPCs reject all AVOID tiles (`crnonpl.cc:1675` `!CoordinateFlag(AVOID)`).
+        if (body.flags & tilestate::BLOCKPATH) != 0 {
             return ReturnValue::NotEnoughRoom;
         }
         if (flags & FLAG_PATHFINDING) != 0 && (body.flags & tilestate::NOFIELDBLOCKPATH) != 0 {

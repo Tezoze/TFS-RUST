@@ -311,6 +311,10 @@ impl GameWorld {
     }
 
     /// 772 `TNPC::MovePossible` — `crnonpl.cc:1672-1679`.
+    ///
+    /// `BANK && !UNPASS && !AVOID && z==startz && within Radius && !House`.
+    /// `AVOID` covers both magic fields (damaging) and furniture/terrain
+    /// (`AvoidDamageTypes=0` → OTB `blockPathFind`: chairs, boxes, stairs, …).
     fn npc_move_possible(
         &self,
         npc_id: CreatureId,
@@ -343,7 +347,9 @@ impl GameWorld {
         for entry in &chain {
             match entry {
                 crate::tile::MapStackEntry::Ground(sid) => {
-                    if self.items_db.is_avoid_hazard(*sid) {
+                    // Ground AVOID: Bank+Avoid grounds (trapdoors, stairs with
+                    // `Avoid` in objects.srv) map to OTB `blockPathFind`.
+                    if self.items_db.is_avoid(*sid) {
                         return false;
                     }
                 }
@@ -352,7 +358,7 @@ impl GameWorld {
                         return false;
                     };
                     let sid = item.item_type;
-                    if self.items_db.is_avoid_hazard(sid)
+                    if self.items_db.is_avoid(sid)
                         || self.items_db.is_unpassable_for_field(sid)
                     {
                         return false;

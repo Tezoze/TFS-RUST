@@ -274,8 +274,9 @@ impl GameWorld {
             None => return,
         };
         // P1-B1: C++ `MovePossible` AVOID branch (`crnonpl.cc:2264-2267`) — per-damage-type
-        // immunity. PANIC ignores all hazards; NoPoison/NoBurning/NoEnergy ignore matching
-        // fields only. Was poison-only, now per-type.
+        // immunity. PANIC ignores damaging hazards only (`AvoidDamageTypes != 0`);
+        // NoPoison/NoBurning/NoEnergy ignore matching fields only. Furniture
+        // (`AvoidDamageTypes=0`) is never ignored. Was poison-only, now per-type.
         let (immunity_poison, immunity_fire, immunity_energy) = match self.creatures.get(mover) {
             Some(CreatureKind::Monster(m)) => {
                 (m.immunity_poison, m.immunity_fire, m.immunity_energy)
@@ -312,9 +313,11 @@ impl GameWorld {
     }
 
     /// True when an item on a destination tile is a movable blocker the mover must shove
-    /// (`MovePossible` `UNPASS`/`AVOID` branches, `crnonpl.cc:2250-2284`). Hazard `AVOID` fields
-    /// are ignored while `PANIC` or when the mover is immune to the field's damage type
-    /// (`crnonpl.cc:2264-2267`).
+    /// (`MovePossible` `UNPASS`/`AVOID` branches, `crnonpl.cc:2250-2284`). AVOID covers
+    /// magic fields (damaging, `AvoidDamageTypes≠0`) and furniture/terrain (non-damaging,
+    /// `AvoidDamageTypes=0` → OTB `blockPathFind`). Hazard AVOID fields are ignored while
+    /// PANIC (damaging only) or when the mover is immune to the field's damage type
+    /// (`crnonpl.cc:2264-2267`). Furniture (`AvoidDamageTypes=0`) is never ignored.
     fn item_is_kickable_box(
         &self,
         item_id: ItemId,
@@ -330,16 +333,24 @@ impl GameWorld {
         if self.items_db.is_unpassable(server_id) {
             return !self.items_db.is_immovable(server_id);
         }
-        if self.items_db.is_avoid_hazard(server_id) {
-            // P1-B1: per-damage-type immunity — PANIC ignores all; type-specific immunity
-            // ignores matching fields only.
-            let ignore_hazard = state == MonsterState::Panic
-                || match self.items_db.avoid_damage_type(server_id) {
-                    Some(tfs_rust_content::items::FieldDamageType::Poison) => immunity_poison,
-                    Some(tfs_rust_content::items::FieldDamageType::Fire) => immunity_fire,
-                    Some(tfs_rust_content::items::FieldDamageType::Energy) => immunity_energy,
-                    None => false,
-                };
+        if self.items_db.is_avoid(server_id) {
+            // P1-B1: per-damage-type immunity — PANIC ignores damaging hazards only
+            // (`AvoidDamageTypes != 0`); type-specific immunity ignores matching fields.
+            // Furniture (`AvoidDamageTypes=0` → `avoid_damage_type() == None`) is never
+            // ignored, even in PANIC (`crnonpl.cc:2264`: `PANIC && AvoidDamageTypes != 0`).
+            let ignore_hazard = match self.items_db.avoid_damage_type(server_id) {
+                Some(tfs_rust_content::items::FieldDamageType::Poison) => {
+                    state == MonsterState::Panic || immunity_poison
+                }
+                Some(tfs_rust_content::items::FieldDamageType::Fire) => {
+                    state == MonsterState::Panic || immunity_fire
+                }
+                Some(tfs_rust_content::items::FieldDamageType::Energy) => {
+                    state == MonsterState::Panic || immunity_energy
+                }
+                // Furniture/terrain AVOID (`AvoidDamageTypes=0`) — never ignored.
+                None => false,
+            };
             return !ignore_hazard && !self.items_db.is_immovable(server_id);
         }
         false

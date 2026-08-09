@@ -267,6 +267,18 @@ impl ItemDatabase {
             .is_some_and(|t| t.is_avoid_hazard())
     }
 
+    /// 772 `CoordinateFlag(AVOID)` — magic fields **and** furniture/terrain
+    /// (`objects.srv` `Avoid` flag). Furniture (`AvoidDamageTypes=0`) maps to OTB
+    /// `blockPathFind`; magic fields map to `ITEM_TYPE_MAGICFIELD`. Used by NPC/monster
+    /// `MovePossible` (`crnonpl.cc:1672-1679`, `:2141-2293`) and the push AVOID gate
+    /// (`operate.cc:525`).
+    #[inline]
+    pub fn is_avoid(&self, server_id: u16) -> bool {
+        self.items
+            .get(&server_id)
+            .is_some_and(|t| t.is_avoid())
+    }
+
     /// 772 `ObjType.getAttribute(AVOIDDAMAGETYPES)` — the damage type a magic field inflicts
     /// (`crnonpl.cc:2263`). Resolved from the items.xml `<attribute key="field" value="…"/>`
     /// (fire/poison/energy). Returns `None` for non-fields or unknown field kinds.
