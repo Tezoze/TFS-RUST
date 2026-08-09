@@ -207,24 +207,14 @@ impl LuaRuntime {
             }
         }
 
-        // PC-3a Phase 1: Load `data/scripts/functions.lua` before spell scripts.
-        // It defines `Player:conjureItem`, `Player:computeDamage` /
-        // `computeHealing` / `computeSkillDamage` as `function Player:method`
-        // table fields. The `CreatureRef` `__index` fallback bridges these onto
-        // userdata so value-callback spell bodies can call them.
-        let functions_path = data_dir.join("scripts/functions.lua");
-        if functions_path.exists() {
-            let path_str = functions_path.display().to_string();
-            if let Err(e) = self
-                .lua
-                .load(&std::fs::read_to_string(&functions_path).map_err(|e| e.to_string())?)
-                .set_name(&path_str)
-                .exec()
-            {
-                tracing::warn!("Failed to load functions.lua: {}", e);
-            }
-        } else {
-            tracing::warn!("functions.lua not found: {}", functions_path.display());
+        // PC-3a Phase 1: Load `data/lib/core/*.lua` + `data/scripts/functions.lua`
+        // before spell scripts. `functions.lua` defines `Player:conjureItem`,
+        // `Player:computeDamage` / `computeHealing` / `computeSkillDamage` as
+        // `function Player:method` table fields. The `CreatureRef` `__index`
+        // fallback bridges these onto userdata so value-callback spell bodies can
+        // call them. Shared helper also used by `run_server.rs` before actions.
+        if let Err(e) = crate::actions::load_data_lib(self, data_dir) {
+            tracing::warn!("data lib loading failed: {}", e);
         }
 
         // Recursively collect all .lua files (excluding areas.lua and #example.lua).

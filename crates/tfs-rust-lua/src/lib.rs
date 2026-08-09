@@ -22,7 +22,7 @@ pub mod userdata;
 
 // Re-export commonly used types
 pub use actions::{
-    ActionDef, inject_door_tables_from_global, load_action_scripts,
+    ActionDef, inject_door_tables_from_global, load_action_scripts, load_data_lib,
 };
 pub use chat_channels::{ChatChannelDef, load_chat_channel_scripts};
 pub use constants::register_constants;

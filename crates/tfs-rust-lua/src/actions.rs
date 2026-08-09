@@ -74,6 +74,68 @@ pub fn inject_door_tables_from_global(
     runtime.exec_chunk("door_tables_from_global", &chunk)
 }
 
+/// Load `data/lib/core/*.lua` (in `core.lua` dependency order) then
+/// `data/scripts/functions.lua` into the runtime.
+///
+/// C++ reference: `data/lib/lib.lua` / `data/lib/core/core.lua` `dofile` chain.
+/// `dofile` is not wired in our Lua VM, so we load the files explicitly from Rust
+/// in the same order `core.lua` prescribes (`storages.lua` first, then the rest).
+/// `compat.lua` and `debugging/` are deliberately skipped (minimal blast radius —
+/// see `tasks/tools-actions-gap.md` open question #2).
+///
+/// Each file is warn-and-continue: a missing or erroring lib file logs a warning
+/// but does not abort the load, mirroring `combat_scripts.rs` spell-path behavior.
+pub fn load_data_lib(runtime: &LuaRuntime, data_dir: &Path) -> Result<(), LuaError> {
+    // Order mirrors `data/lib/core/core.lua` dofile sequence.
+    const CORE_FILES: &[&str] = &[
+        "storages.lua",
+        "achievements.lua",
+        "combat.lua",
+        "constants.lua",
+        "container.lua",
+        "creature.lua",
+        "game.lua",
+        "item.lua",
+        "itemtype.lua",
+        "party.lua",
+        "player.lua",
+        "position.lua",
+        "teleport.lua",
+        "tile.lua",
+        "vocation.lua",
+    ];
+
+    let core_dir = data_dir.join("lib/core");
+    for name in CORE_FILES {
+        let path = core_dir.join(name);
+        if !path.exists() {
+            tracing::warn!("data lib core file not found: {}", path.display());
+            continue;
+        }
+        let src = std::fs::read_to_string(&path)
+            .map_err(|e| LuaError::ScriptIo(path.display().to_string(), e.to_string()))?;
+        if let Err(e) = runtime.exec_chunk(name, &src) {
+            tracing::warn!("Failed to load {}: {}", path.display(), e);
+        }
+    }
+
+    // `data/scripts/functions.lua` — defines `onUseRope` / `onUseShovel` / `destroyItem`
+    // / `Player:computeDamage` / `Player:conjureItem` etc. Required by action scripts
+    // (tools, food, levers) and spell scripts alike.
+    let functions_path = data_dir.join("scripts/functions.lua");
+    if functions_path.exists() {
+        let src = std::fs::read_to_string(&functions_path)
+            .map_err(|e| LuaError::ScriptIo(functions_path.display().to_string(), e.to_string()))?;
+        if let Err(e) = runtime.exec_chunk("functions.lua", &src) {
+            tracing::warn!("Failed to load functions.lua: {}", e);
+        }
+    } else {
+        tracing::warn!("functions.lua not found: {}", functions_path.display());
+    }
+
+    Ok(())
+}
+
 /// Load all action scripts from `data/scripts/actions/**/*.lua`.
 ///
 /// C++ reference: `actions.cpp` `Actions::loadFromXml` (adapted to revscript scan).
@@ -140,6 +202,66 @@ mod tests {
             food_def.unwrap().on_use.is_some(),
             "food action must have onUse"
         );
+    }
+
+    /// All 9 `data/scripts/actions/tools/*.lua` must load and register their
+    /// item ids. `fishing_rod.lua` currently fails (Gap 1: missing
+    /// `Action:allowFarUse`) — it's excluded until that gap is closed.
+    #[test]
+    fn tools_scripts_load_and_register() {
+        let data_root = workspace_data_root();
+        let tools_dir = data_root.join("scripts/actions/tools");
+        if !tools_dir.exists() {
+            eprintln!("tools dir not found — skipping");
+            return;
+        }
+
+        let mut runtime = LuaRuntime::new().expect("runtime init");
+        inject_door_tables_from_global(&runtime, &data_root).expect("door tables");
+        load_data_lib(&runtime, &data_root).expect("data lib");
+
+        let mut lua_files: Vec<PathBuf> = Vec::new();
+        collect_lua_files(&tools_dir, &mut lua_files);
+        lua_files.sort();
+
+        // fishing_rod.lua requires Action:allowFarUse (Gap 1 — not yet implemented).
+        lua_files.retain(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n != "fishing_rod.lua")
+        });
+
+        let mut errors = Vec::new();
+        for path in &lua_files {
+            let path_string = path.display().to_string();
+            if let Err(e) = runtime.load_action_script(&path_string) {
+                errors.push((path_string, e.to_string()));
+            }
+        }
+
+        let pending = runtime.drain_pending_actions();
+        assert!(
+            errors.is_empty(),
+            "tool script load errors (excluding fishing_rod): {errors:?}"
+        );
+
+        // 8 scripts (all except fishing_rod) should each register at least one id.
+        assert_eq!(
+            pending.len(),
+            8,
+            "expected 8 tool actions (excluding fishing_rod), got {}: {:?}",
+            pending.len(),
+            pending.iter().map(|p| &p.item_ids).collect::<Vec<_>>()
+        );
+
+        // Verify key item ids are registered.
+        let all_ids: Vec<u16> = pending.iter().flat_map(|p| p.item_ids.iter().copied()).collect();
+        for expected in [2416u16, 2342, 2566, 2420, 2442, 2553, 2120, 2550, 2554] {
+            assert!(
+                all_ids.contains(&expected),
+                "expected item id {expected} in tool action registrations, got {all_ids:?}"
+            );
+        }
     }
 
     #[test]
