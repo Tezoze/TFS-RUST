@@ -174,13 +174,16 @@ impl GameWorld {
         // `MovePossible` (P-D/Gate B), dest AVOID (P6), PZ→non-PZ, and `ThrowPossible`
         // (P9/C6). Runs **before** the TFS-style `tile_query_add_creature` so 772 gates
         // fire with the correct error codes (e.g. AVOID → `NotEnoughRoom`, not
-        // `NotPossible`). `target_pos` is the creature's **current** position (not
-        // `from_pos`) — `MovePossible` uses `this->posx/posy/posz` internally.
-        // `bypass_move_possible` = GM `CanPushAllCreatures` — skips Gate B
+        // `NotPossible`).
+        // D4: 772 `CheckMapDestination` reads `Orig*` from `GetObjectCoordinates(Obj)` —
+        // the creature's **live** position (`operate.cc:482`), not the packet-time
+        // `from_pos`. With P-B's 1000 ms `ToDoMove` wait the target can walk in between;
+        // all gates (range cap, elevation, PZ→non-PZ, `ThrowPossible`) must use the live
+        // position. `bypass_move_possible` = GM `CanPushAllCreatures` — skips Gate B
         // (`MovePossible`) but keeps AVOID/PZ→non-PZ (Gate C).
         self.check_push_destination(
             moving_creature,
-            from_pos,
+            target_pos,
             to_pos,
             target_pos,
             moving_is_monster,
@@ -249,8 +252,11 @@ impl GameWorld {
     /// `moving_is_monster` selects the `OrigZ == DestZ || Type != MONSTER` guard (C5) —
     /// when the moving creature is a monster changing floors (`dz != 0`), `MovePossible` and
     /// the AVOID/PZ checks are **skipped** (the decompile only runs them for same-floor or
-    /// non-monster pushes). `origin` is the moving creature's **current** position (used by
-    /// `MovePossible` as `this->posx/posy/posz`).
+    /// non-monster pushes). `from` is the moving creature's **live** position
+    /// (`GetObjectCoordinates(Obj)` — `operate.cc:482`), used for the range cap, elevation
+    /// gate, PZ→non-PZ, and `ThrowPossible`. D4: callers must pass the live position, not
+    /// the packet-time `from_pos`. `origin` is also the live position (used by `MovePossible`
+    /// as `this->posx/posy/posz`); `from` and `origin` are the same value from the push path.
     /// `bypass_move_possible` = GM `CanPushAllCreatures` — skips Gate B (`MovePossible`)
     /// but keeps AVOID/PZ→non-PZ (Gate C). **772 deviation** — 772 has no such bypass.
     fn check_push_destination(
@@ -1863,5 +1869,195 @@ mod push_gm_bypass_tests {
 
         let rv = world.player_push_creature(actor, mover, from, to);
         assert_eq!(rv, Err(ReturnValue::NotEnoughRoom)); // Gate C enforced
+    }
+}
+
+#[cfg(test)]
+mod push_followup_d4_d8_tests {
+    //! Follow-up audit D4 + D8 — live origin gates + end-to-end chain-push from the
+    //! player-push entry. See `docs/772_PLAYER_PUSH_AUDIT_FOLLOWUP.md` §3 D4/D8.
+    use super::*;
+    use crate::creature::{CreatureKind, MonsterAiConfig, MonsterState};
+    use crate::sim_harness::{
+        beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player,
+        test_player,
+    };
+    use tfs_rust_common::Position;
+
+    /// `KickCreatures` + ATTACKING + target set — the posture required for the kick loop
+    /// (`crnonpl.cc:2194-2202`).
+    fn kicker_config() -> MonsterAiConfig {
+        MonsterAiConfig {
+            can_push_creatures: true,
+            target_distance: 1,
+            ..MonsterAiConfig::default()
+        }
+    }
+
+    /// Insert a chain-push monster: `KickCreatures`, ATTACKING, target set, registered on tile.
+    fn insert_chain_monster(
+        world: &mut GameWorld,
+        name: &str,
+        pos: Position,
+        target: CreatureId,
+    ) -> CreatureId {
+        let cid = insert_monster_with_config(world, name, pos, 200, kicker_config());
+        world.map.register_creature_at(pos, cid);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cid) {
+            m.state = MonsterState::Attacking;
+            m.base.attack_target = Some(target);
+            m.base.follow_target = Some(target);
+        }
+        cid
+    }
+
+    /// D8: A→B→C chain-push driven from `player_push_creature` (not `monster_push_before_step`).
+    /// Actor pushes attacking cyclops (Target set, `canPushCreatures`) onto a tile held by a
+    /// pushable monster which is itself boxed in by a third → chain-push via the player-push
+    /// entry, not the on-walk entry. This is the "X - X - X" scenario the user described.
+    /// 772: `operate.cc:516` → `crnonpl.cc:2141` → `crnonpl.cc:2241` → `crnonpl.cc:3066`.
+    #[test]
+    fn player_push_chains_three_monsters() {
+        let mut world = beat_driven_world();
+
+        // Layout (same as `f2_chain_push_three_monsters` but driven from player push):
+        //   actor(100,99) → mover(100,100) → blocker(101,100) → third(101,101) → escape(101,102)
+        // N(101,99) is absent so the blocker tries S(101,101) first → chain-kicks third.
+        let actor_pos = Position::new(100, 99, 7);
+        let mpos = Position::new(100, 100, 7);
+        let bpos = Position::new(101, 100, 7);
+        let cpos = Position::new(101, 101, 7);
+        let escape = Position::new(101, 102, 7);
+        let tpos = Position::new(105, 105, 7);
+        for &p in &[actor_pos, mpos, bpos, cpos, escape, tpos] {
+            ensure_walkable_tile(&mut world.map, p, 1);
+        }
+
+        let actor = insert_player(&mut world, test_player("Actor", actor_pos));
+        let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+        let c = insert_chain_monster(&mut world, "RatC", cpos, target);
+        let b = insert_chain_monster(&mut world, "RatB", bpos, target);
+        let a = insert_chain_monster(&mut world, "Cyclops", mpos, target);
+
+        // Player pushes the cyclops from (100,100) to (101,100) — the blocker's tile.
+        // The kick loop inside `monster_move_possible_push` chains: A kicks B, B kicks C,
+        // C relocates to escape, B relocates to C's old spot, A's dest is clear.
+        let rv = world.player_push_creature(actor, a, mpos, bpos);
+        assert_eq!(rv, Ok(()), "chain-push from player entry must succeed");
+
+        // B relocated to C's old spot (chain-push).
+        assert_eq!(
+            world.creatures.get(b).map(|k| k.position()),
+            Some(cpos),
+            "B must relocate to C's old spot (chain-push)"
+        );
+        // C relocated to the free escape tile.
+        assert_eq!(
+            world.creatures.get(c).map(|k| k.position()),
+            Some(escape),
+            "C must relocate to the free escape tile"
+        );
+        // A (the pushed mover) is now on the destination tile.
+        assert_eq!(
+            world.creatures.get(a).map(|k| k.position()),
+            Some(bpos),
+            "A must be on the destination tile after the push"
+        );
+        // No stacking: A, B, C on different tiles.
+        let a_pos = world.creatures.get(a).map(|k| k.position());
+        let b_pos = world.creatures.get(b).map(|k| k.position());
+        let c_pos = world.creatures.get(c).map(|k| k.position());
+        assert_ne!(a_pos, b_pos, "A and B must not share a tile");
+        assert_ne!(b_pos, c_pos, "B and C must not share a tile");
+        assert_ne!(a_pos, c_pos, "A and C must not share a tile");
+    }
+
+    /// D8: a monster without a target (`Target = 0`) does NOT enter the kick loop — the
+    /// blocker on the dest tile is a hard block → `NotEnoughRoom` (772 `NOROOM`), no kick
+    /// side effects. `crnonpl.cc:2198`: `Target == 0` → no kick.
+    #[test]
+    fn player_push_monster_without_target_is_noroom() {
+        let mut world = beat_driven_world();
+
+        let actor_pos = Position::new(100, 99, 7);
+        let mpos = Position::new(100, 100, 7);
+        let bpos = Position::new(101, 100, 7);
+        let escape = Position::new(101, 99, 7); // free escape for the blocker (not used)
+        for &p in &[actor_pos, mpos, bpos, escape] {
+            ensure_walkable_tile(&mut world.map, p, 1);
+        }
+
+        let actor = insert_player(&mut world, test_player("Actor", actor_pos));
+        // Mover: `can_push_creatures` but NO target, NOT attacking → kick loop skipped.
+        let mover = insert_monster_with_config(&mut world, "Cyclops", mpos, 200, kicker_config());
+        // Blocker: pushable monster on the dest tile.
+        let blocker = insert_monster_with_config(&mut world, "Blocker", bpos, 200, MonsterAiConfig::default());
+        world.map.register_creature_at(bpos, blocker);
+
+        let rv = world.player_push_creature(actor, mover, mpos, bpos);
+        assert_eq!(rv, Err(ReturnValue::NotEnoughRoom), "no target → NOROOM");
+
+        // Blocker must NOT have been kicked — still on its original tile.
+        assert_eq!(
+            world.creatures.get(blocker).map(|k| k.position()),
+            Some(bpos),
+            "blocker must not be relocated without a kick loop"
+        );
+        // Mover must NOT have moved.
+        assert_eq!(
+            world.creatures.get(mover).map(|k| k.position()),
+            Some(mpos),
+            "mover must not have moved"
+        );
+    }
+
+    /// D4: the push gates (range cap, elevation, PZ, `ThrowPossible`) must use the
+    /// creature's **live** position, not the packet-time `from_pos`. 772
+    /// `CheckMapDestination` reads `Orig*` from `GetObjectCoordinates(Obj)` — the live
+    /// position (`operate.cc:482`).
+    ///
+    /// Setup: the mover's live position is 1 tile from `to`, but the stale `from_pos` is
+    /// >1 tile away. With the D4 fix, the range cap uses the live position → passes. Without
+    /// it, the range cap uses the stale position → `DestinationOutOfReach`.
+    ///
+    /// To avoid the actual move step (which would ghost with a stale `from_pos`), the dest
+    /// tile has a `MAGICFIELD` (AVOID) flag so the push fails at the AVOID gate with
+    /// `NotEnoughRoom` — proving the range cap passed.
+    #[test]
+    fn player_push_uses_live_target_position() {
+        let mut world = beat_driven_world();
+
+        // Mover's live position: (101, 102). Stale from_pos: (101, 100). Dest: (101, 101).
+        // Live → dest: dy=1 (in range). Stale → dest: dy=1 (also in range — need a bigger gap).
+        // Adjust: live (101, 103), stale (101, 100), dest (101, 102).
+        // Live → dest: dy=1 (in range). Stale → dest: dy=2 (OUTOFRANGE).
+        let live_pos = Position::new(101, 103, 7);
+        let stale_from = Position::new(101, 100, 7);
+        let to = Position::new(101, 102, 7);
+        // Actor adjacent to live position for `object_in_range`.
+        let actor_pos = Position::new(101, 104, 7);
+        for &p in &[live_pos, stale_from, to, actor_pos] {
+            ensure_walkable_tile(&mut world.map, p, 1);
+        }
+        // Set AVOID (MAGICFIELD) on dest so the push fails there (not at range cap).
+        if let Some(tile) = world.map.get_tile_mut(to) {
+            tile.body_mut().flags |= tilestate::MAGICFIELD;
+        }
+
+        let actor = insert_player(&mut world, test_player("Actor", actor_pos));
+        // Mover registered at live position.
+        let mover = insert_monster_with_config(&mut world, "Mover", live_pos, 200, MonsterAiConfig::default());
+        world.map.register_creature_at(live_pos, mover);
+
+        // Call with stale from_pos — D4 fix makes the range cap use live_pos instead.
+        let rv = world.player_push_creature(actor, mover, stale_from, to);
+        // With D4 fix: range cap passes (live → dest = 1 tile), then AVOID → NotEnoughRoom.
+        // Without D4 fix: range cap fails (stale → dest = 2 tiles) → DestinationOutOfReach.
+        assert_eq!(
+            rv,
+            Err(ReturnValue::NotEnoughRoom),
+            "D4: range cap must use live position (passes), then AVOID blocks — \
+             not DestinationOutOfReach from stale position"
+        );
     }
 }
