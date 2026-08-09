@@ -148,7 +148,10 @@ impl GameWorld {
         // `KickCreatures` race flag ever kicks a blocking creature. P1-A1: no `!is_summon` gate —
         // C++ `MovePossible` (`crnonpl.cc:2202`) has no summon check; a summon with KickCreatures
         // can kick blocking monsters.
-        let has_target = target_attack.is_some() || target_follow.is_some();
+        // D7: 772 checks the single `this->Target` (`crnonpl.cc:2198`) — the attack target. A
+        // follow-only monster (follow_target set, attack_target None) does NOT enter the kick
+        // loop in 772. Was `target_attack.is_some() || target_follow.is_some()`.
+        let has_target = target_attack.is_some();
         let posture = matches!(state, MonsterState::Attacking | MonsterState::Panic);
         let creature_kicker = can_push_creatures && posture && has_target;
 
@@ -157,6 +160,11 @@ impl GameWorld {
 
         // C++ kick-and-retry loop (`crnonpl.cc:2185` `for Attempt 0..100`): after each kick,
         // re-check the destination. If still blocked, kick again. Up to 100 attempts.
+        // D5: 772 `MovePossible` `return false`s immediately on a creature hard block
+        // (`crnonpl.cc:2194-2233`) — the item (`KickBoxes`) branch is never reached. Track
+        // hard blocks via `creature_hard_block` so `monster_kick_boxes` is skipped when one
+        // was hit, matching 772's `return false` before the `else` (item) branch.
+        let mut creature_hard_block = false;
         if creature_kicker {
             for _attempt in 0..100 {
                 let blockers: Vec<CreatureId> = self
@@ -183,24 +191,32 @@ impl GameWorld {
                     || Some(blocker) == target_follow
                     || Some(blocker) == master
                 {
+                    creature_hard_block = true;
                     break; // hard block — stop kicking, but still proceed (step will fail at tile_query)
                 }
                 match self.creatures.get(blocker) {
                     // P1-B3: C++ `crnonpl.cc:2221-2223`: invisible blocker (when mover lacks
                     // SeeInvisible) is a hard block — not kicked, not EXHAUSTED.
-                    Some(k) if !see_invisible && k.base().is_invisible() => break,
+                    Some(k) if !see_invisible && k.base().is_invisible() => {
+                        creature_hard_block = true;
+                        break;
+                    }
                     // P1-B2: C++ `crnonpl.cc:2230`: a summon (Master != 0) treats a player tile
                     // as a hard block. A player with `IGNORED_BY_MONSTERS` is also a hard block.
                     // Otherwise (`crnonpl.cc:2236-2238`): a player blocker clears `Target` and
                     // throws `EXHAUSTED`.
-                    Some(CreatureKind::Player(p)) if master.is_some() => break,
+                    Some(CreatureKind::Player(p)) if master.is_some() => {
+                        creature_hard_block = true;
+                        break;
+                    }
                     Some(CreatureKind::Player(p))
                         if has_player_flag(
                             flags_for_group(&self.groups, p.group_id),
                             PLAYER_FLAG_IGNORED_BY_MONSTERS,
                         ) =>
                     {
-                        break
+                        creature_hard_block = true;
+                        break;
                     }
                     // C++ `crnonpl.cc:2236-2238`: player-tile `EXHAUSTED` — `Target = 0` before
                     // `throw EXHAUSTED`. The `Execute` catch (`cract.cc:870-877`) does NOT clear
@@ -209,8 +225,14 @@ impl GameWorld {
                         return MonsterKickOutcome::ExhaustedDropTarget
                     }
                     // NPC / unpushable monster → hard block (`crnonpl.cc:2216,2228`), not kicked.
-                    Some(CreatureKind::Npc(_)) => break,
-                    Some(CreatureKind::Monster(m)) if !m.is_pushable() => break,
+                    Some(CreatureKind::Npc(_)) => {
+                        creature_hard_block = true;
+                        break;
+                    }
+                    Some(CreatureKind::Monster(m)) if !m.is_pushable() => {
+                        creature_hard_block = true;
+                        break;
+                    }
                     Some(CreatureKind::Monster(_)) => {
                         // C++ `crnonpl.cc:2240-2242`: kick the blocker; a forced kill (no free
                         // adjacent tile) still throws `EXHAUSTED`. F3: `Exhausted` (not
@@ -222,13 +244,18 @@ impl GameWorld {
                         }
                         // Kick succeeded — loop re-checks the destination tile for more blockers.
                     }
-                    None => break,
+                    None => {
+                        creature_hard_block = true;
+                        break;
+                    }
                 }
             }
         }
 
         // Boxes / hazard fields — `MovePossible` `UNPASS`/`AVOID` branches (`crnonpl.cc:2249-2287`).
-        if can_kick_boxes {
+        // D5: skip when a creature hard block was hit — 772 `return false`s before the item
+        // branch (`crnonpl.cc:2194-2233`).
+        if can_kick_boxes && !creature_hard_block {
             self.monster_kick_boxes(mover, dest, state);
         }
 
@@ -572,7 +599,9 @@ impl GameWorld {
         // Reuse the planning gate for non-creature blocks (leash, PZ, house, items, terrain).
         // Hard blocks (unpushable, target, master, invisible, NPC, summon-player, IGNORED) return
         // false here. Pushable monsters and players are plannable-through (planning `continue`s).
-        if !self.monster_move_possible_planning(blocker, try_pos) {
+        // D6: kick-chain path — allow FLOORCHANGE|TELEPORT (772 `MovePossible` has no such check,
+        // `crnonpl.cc:2141-2293`); a chain-kicked creature can be shoved onto stairs/teleport.
+        if !self.monster_move_possible_planning(blocker, try_pos, true) {
             return false;
         }
         // Planning passed — but if a pushable creature is on `try_pos`, planning treated it as

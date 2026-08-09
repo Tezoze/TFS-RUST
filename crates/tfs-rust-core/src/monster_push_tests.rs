@@ -409,7 +409,7 @@ fn cyclops_kills_boxed_in_pushable_blocker_end_to_end() {
 
     // Step 1: planning must route through the pushable rat.
     assert!(
-        world.monster_move_possible_planning(cyclops, bpos),
+        world.monster_move_possible_planning(cyclops, bpos, false),
         "planning gate must allow routing through pushable rat"
     );
 
@@ -548,7 +548,7 @@ fn invisible_blocker_is_hard_block_in_planning() {
 
     // Planning gate: invisible blocker is a hard block (no SeeInvisible).
     assert!(
-        !world.monster_move_possible_planning(mover, bpos),
+        !world.monster_move_possible_planning(mover, bpos, false),
         "invisible blocker must be a hard block when mover lacks SeeInvisible"
     );
 
@@ -557,7 +557,7 @@ fn invisible_blocker_is_hard_block_in_planning() {
         m.see_invisible = true;
     }
     assert!(
-        world.monster_move_possible_planning(mover, bpos),
+        world.monster_move_possible_planning(mover, bpos, false),
         "invisible blocker is plannable when mover has SeeInvisible"
     );
 }
@@ -637,7 +637,7 @@ fn player_tile_is_plannable_through_in_move_possible() {
 
     // Player tile is plannable-through (non-summon, non-IGNORED, has KickCreatures + target).
     assert!(
-        world.monster_move_possible_planning(mover, ppos),
+        world.monster_move_possible_planning(mover, ppos, false),
         "player tile must be plannable-through for non-summon kicker with target"
     );
 }
@@ -677,7 +677,7 @@ fn house_tile_is_hard_block_in_move_possible() {
     }
 
     assert!(
-        !world.monster_move_possible_planning(mover, hpos),
+        !world.monster_move_possible_planning(mover, hpos, false),
         "house tile must be a hard block in MovePossible planning"
     );
 }
@@ -1480,5 +1480,128 @@ fn fast_kicker_steps_onto_vacated_tiles_three_pushes() {
         world.creatures.get(kicker).map(|k| k.position()),
         Some(Position::new(103, 100, 7)),
         "after three pushes kicker must sit on the third vacated tile"
+    );
+}
+
+// ─── D5: hard block aborts before KickBoxes ───
+
+/// D5: 772 `MovePossible` `return false`s immediately on a creature hard block
+/// (`crnonpl.cc:2194-2233`) — the item (`KickBoxes`) branch is never reached. Rust
+/// `break`s the creature loop and then still ran `monster_kick_boxes`, shoving/destroying
+/// boxes on a push that then fails. The fix tracks `creature_hard_block` and skips
+/// `monster_kick_boxes` when set.
+///
+/// Driven from `monster_push_before_step` directly (the on-walk entry) — the only path
+/// where a hard-block creature can appear on the dest tile (planning gates hard blocks
+/// before `monster_kick_before_step` is reached from `monster_move_possible_push`).
+#[test]
+fn d5_hard_block_does_not_kick_boxes() {
+    use crate::item::Item;
+    use crate::sim_harness::synthetic_ground_item_type;
+    use tfs_rust_content::otb::ItemType;
+
+    let mut world = beat_driven_world();
+    let now = std::time::Instant::now();
+
+    // Register ground type 1 as BANK so `tile_is_bank_and_passable` works for escape tiles.
+    {
+        let mut new_db = (*world.items_db).clone();
+        new_db.items.insert(1, synthetic_ground_item_type(1, 150));
+        world.items_db = std::sync::Arc::new(new_db);
+    }
+
+    // Box item type: UNPASS (block_solid) + movable (not immovable) → kickable.
+    const BOX_TYPE: u16 = 600;
+    {
+        let mut new_db = (*world.items_db).clone();
+        new_db.items.insert(
+            BOX_TYPE,
+            ItemType {
+                server_id: BOX_TYPE,
+                block_solid_override: Some(true),
+                moveable_override: Some(true),
+                ..ItemType::default()
+            },
+        );
+        world.items_db = std::sync::Arc::new(new_db);
+    }
+
+    let mpos = Position::new(100, 100, 7);
+    let dest = Position::new(101, 100, 7);
+    let escape = Position::new(101, 99, 7); // free escape for the box (N of dest)
+    let tpos = Position::new(105, 100, 7); // far-away attack target
+    for &p in &[mpos, dest, escape, tpos] {
+        ensure_walkable_tile(&mut world.map, p, 1);
+    }
+
+    // Place a kickable box on the dest tile.
+    let box_item = world.items.insert(Item::new_single(BOX_TYPE));
+    if let Some(tile) = world.map.get_tile_mut(dest) {
+        tile.body_mut().down_items.push(box_item);
+    }
+
+    let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
+    // Unpushable monster on the dest tile — a hard block in the kick loop.
+    let unpushable = insert_monster_with_config(
+        &mut world,
+        "Wall",
+        dest,
+        200,
+        MonsterAiConfig {
+            pushable: false,
+            ..MonsterAiConfig::default()
+        },
+    );
+    // Mover: KickCreatures + KickBoxes, ATTACKING, target set.
+    let mover = insert_monster_with_config(
+        &mut world,
+        "Cyclops",
+        mpos,
+        200,
+        MonsterAiConfig {
+            can_push_creatures: true,
+            can_push_items: true,
+            target_distance: 1,
+            ..MonsterAiConfig::default()
+        },
+    );
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
+        m.state = MonsterState::Attacking;
+        m.base.attack_target = Some(target);
+    }
+
+    let outcome = world.monster_push_before_step(mover, dest, now);
+    // Hard block is not EXHAUSTED — the mover simply can't step (caller re-validates).
+    assert_eq!(
+        outcome,
+        MonsterKickOutcome::Proceed,
+        "D5: hard block is not EXHAUSTED — Proceed (caller re-validates the tile)"
+    );
+
+    // D5: the box must NOT have been kicked — still on the dest tile.
+    let dest_items = world
+        .map
+        .get_tile(dest)
+        .map(|t| t.body().down_items.clone())
+        .unwrap_or_default();
+    assert!(
+        dest_items.contains(&box_item),
+        "D5: box must NOT be kicked when a creature hard block was hit (772 return false before KickBoxes)"
+    );
+    // The escape tile must NOT contain the box.
+    let escape_items = world
+        .map
+        .get_tile(escape)
+        .map(|t| t.body().down_items.clone())
+        .unwrap_or_default();
+    assert!(
+        !escape_items.contains(&box_item),
+        "D5: box must NOT be relocated to the escape tile"
+    );
+    // The unpushable monster is untouched — still on the dest tile.
+    assert_eq!(
+        world.creatures.get(unpushable).map(|k| k.position()),
+        Some(dest),
+        "D5: unpushable blocker must not be relocated"
     );
 }

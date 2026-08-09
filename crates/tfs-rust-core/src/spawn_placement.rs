@@ -672,7 +672,7 @@ mod tests {
             "field Unpass must include Bank+wp0"
         );
         assert!(
-            !world.monster_move_possible_planning(cid, wall),
+            !world.monster_move_possible_planning(cid, wall, false),
             "monsters must not plan steps onto Bank+wp0 dirt walls"
         );
         let wall_tile = world.map.get_tile(wall).expect("wall tile");

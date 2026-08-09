@@ -1768,7 +1768,19 @@ impl GameWorld {
     /// It does **not** include the `TShortway::FillMap` terrain checks (`BANK`, waypoint chain) —
     /// those are [`Self::monster_tshortway_fill_walkable`]'s responsibility. Used by
     /// [`Self::monster_can_occupy_chase_tile`] for single-step gates (dance/roam/flee/chase).
-    pub(crate) fn monster_move_possible_planning(&self, cid: CreatureId, pos: Position) -> bool {
+    ///
+    /// `allow_floorchange_teleport`: when `true`, `FLOORCHANGE|TELEPORT` tiles are **not**
+    /// rejected. 772 `TMonster::MovePossible` (`crnonpl.cc:2141-2293`) has no such check — it
+    /// only blocks `PROTECTIONZONE|HOUSE` (`crnonpl.cc:2168`). The walk-time pathfinder passes
+    /// `false` (keeps the TFS-style stair/teleport block so monsters don't wander onto stairs
+    /// during chase); the push/kick path passes `true` (D6 — a pushed monster can be shoved onto
+    /// stairs/teleport in 772).
+    pub(crate) fn monster_move_possible_planning(
+        &self,
+        cid: CreatureId,
+        pos: Position,
+        allow_floorchange_teleport: bool,
+    ) -> bool {
         let (
             spawn,
             cfg,
@@ -1815,13 +1827,19 @@ impl GameWorld {
             return false;
         }
         let body = tile.body();
-        if (body.flags
-            & (tilestate::PROTECTIONZONE
+        // D6: 772 `MovePossible` blocks only `PROTECTIONZONE|HOUSE` (`crnonpl.cc:2168`).
+        // `FLOORCHANGE|TELEPORT` is a TFS-style walk-pathfinder gate — not in 772. The push/kick
+        // path passes `allow_floorchange_teleport = true` so a pushed monster can land on
+        // stairs/teleport (`crnonpl.cc:2141-2293` has no such rejection).
+        let tile_block_mask = if allow_floorchange_teleport {
+            tilestate::PROTECTIONZONE | tilestate::BLOCKSOLID
+        } else {
+            tilestate::PROTECTIONZONE
                 | tilestate::FLOORCHANGE
                 | tilestate::TELEPORT
-                | tilestate::BLOCKSOLID))
-            != 0
-        {
+                | tilestate::BLOCKSOLID
+        };
+        if (body.flags & tile_block_mask) != 0 {
             return false;
         }
 
@@ -1943,7 +1961,8 @@ impl GameWorld {
         _target: Position,
     ) -> bool {
         // `MovePossible` creature/item gate (PZ, house, leash, creatures, items).
-        if !self.monster_move_possible_planning(cid, pos) {
+        // Walk-path: keep FLOORCHANGE|TELEPORT block (TFS-style stair/teleport avoidance).
+        if !self.monster_move_possible_planning(cid, pos, false) {
             return false;
         }
         // TShortway `FillMap` terrain gate — `BANK` ground required for waypoint overlay.
@@ -1969,7 +1988,8 @@ impl GameWorld {
     fn monster_can_occupy_chase_tile(&self, cid: CreatureId, pos: Position) -> bool {
         // P1-A3: route single-step gates (dance/roam/flee/chase) through the 772 `MovePossible`
         // planning model. Uses `monster_move_possible_planning` (no TShortway terrain checks).
-        self.monster_move_possible_planning(cid, pos)
+        // Walk-path: keep FLOORCHANGE|TELEPORT block (TFS-style stair/teleport avoidance).
+        self.monster_move_possible_planning(cid, pos, false)
     }
 
     /// Effective per-home roam leash radius (axis-box, non-attacking). Uses the monster's

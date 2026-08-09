@@ -231,7 +231,9 @@ impl GameWorld {
         // `monster_move_possible_planning` covers `MonsterhomeInRange` (`crnonpl.cc:2149`),
         // `IsProtectionZone || IsHouse` (`crnonpl.cc:2168`), and the tile-stack creature/item
         // checks. Pushable creatures are plannable-through (the kick loop handles them).
-        if !self.monster_move_possible_planning(cid, dest) {
+        // D6: 772 `MovePossible` has no FLOORCHANGE|TELEPORT check (`crnonpl.cc:2141-2293`) —
+        // a pushed monster can land on stairs/teleport. Pass `allow_floorchange_teleport = true`.
+        if !self.monster_move_possible_planning(cid, dest, true) {
             return Ok(false);
         }
 
@@ -267,7 +269,8 @@ impl GameWorld {
         // master, invisible, summon-player, IGNORED). `monster_move_possible_planning` returns
         // `false` for hard blocks and `true` when the tile is clear (pushable creatures were
         // kicked or killed by the loop above).
-        if self.monster_move_possible_planning(cid, dest) {
+        // D6: push path — allow FLOORCHANGE|TELEPORT (772 `MovePossible` has no such check).
+        if self.monster_move_possible_planning(cid, dest, true) {
             Ok(true)
         } else {
             Ok(false)
