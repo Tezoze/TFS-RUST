@@ -522,7 +522,7 @@ So: **two runtime call sites** become a `tfs.appendLog(kind, text)` capability c
 
 | Pillar | When | Gate |
 |---|---|---|
-| 4 — `set_memory_limit` | **Now** — independent of everything else | none; no JIT impact |
+| 4 — `set_memory_limit` | ✅ done (2026-08-10) — independent of everything else | none; no JIT impact |
 | 5 — LuaLS generation | Immediately after **Gap 7a** | needs `register_class` as single owner |
 | 4 — instruction hook | After Gaps 1-6 (tools running end-to-end); **before any production or third-party exposure** | needs a JIT-cost measurement + a chosen budget |
 | 1 — stdlib allowlist | After Gaps 1-6, alongside or after the instruction hook | needs the `tfs.appendLog` capability first |
@@ -546,7 +546,7 @@ Rationale for the ordering: the memory limit is free and prevents a whole-proces
 10. **Gap 6** — relocate the pick / fishing parity numbers into the profile once the scripts actually run and can be observed.
 11. **`global.lua` via dofile** — optional cleanup once 3-5 land: delete `inject_door_tables_from_global`, the inline `string.trim` chunk, and the `data/lib/core` scan. Pure deletion, no behavior change.
 12. **LuaLS type definitions from the class registry** — emit `.d.lua` for every registered class, method, and constant. Enabled by 3 (`register_class` as single owner); gives the data pack autocomplete + static missing-global detection. Highest-value item after the tools scripts run. See *VM hardening* pillar 5.
-13. **VM hardening** — `set_memory_limit` can land **now**, independent of this list. Instruction-budget hook and stdlib allowlist after 1-6, before production/third-party exposure. See *VM hardening* for gates and caveats.
+13. **VM hardening** — `set_memory_limit` ✅ **DONE (2026-08-10)** — `DEFAULT_LUA_MEMORY_LIMIT_BYTES` (512 MiB) applied in `LuaRuntime::new` (`runtime.rs`), overridable from `config.lua` via `luaMemoryLimit` (MB) in `run_server.rs`; test `memory_limit_default_applied_and_enforced` asserts the default + an over-limit allocation errors instead of OOM-killing the process. Instruction-budget hook and stdlib allowlist still gated on Gaps 1-6 + JIT-cost measurement / `tfs.appendLog` capability. See *VM hardening* for gates and caveats.
 
 Dependency summary: 7 → 5a → 3 (re-audit then implement); 3 depends on 4 for the fishing path; 6 is easiest after 3 makes the paths reachable; 1 is independent; 11 is last and optional.
 

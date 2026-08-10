@@ -9,6 +9,17 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
 
+/// Default Lua VM memory limit (512 MiB).
+///
+/// VM hardening pillar 4 — `set_memory_limit` (`tasks/tools-actions-gap.md`
+/// item 13). Game simulation is single-threaded (`TFS-threading`); a runaway
+/// allocation in any `data/scripts/**` callback would otherwise OOM-kill the
+/// whole process — no ticks, no packets, no saves. This turns a total outage
+/// into one failed script call. Generous enough for large loot loops and
+/// map-wide iteration; override from `config.lua` via `luaMemoryLimit` (MB).
+/// No JIT impact (unlike the instruction-count hook, which is still gated).
+pub const DEFAULT_LUA_MEMORY_LIMIT_BYTES: usize = 512 * 1024 * 1024;
+
 use crate::constants::register_constants;
 use crate::context::{CreatureRef, ItemRef};
 use crate::userdata::PositionRef;
@@ -120,6 +131,13 @@ impl LuaRuntime {
     pub fn new() -> Result<Self, LuaError> {
         let lua = Lua::new();
 
+        // VM hardening pillar 4 — `set_memory_limit` (tasks/tools-actions-gap.md
+        // item 13). Applied before any data-pack allocation so a runaway script
+        // can't OOM-kill the whole game thread. Override from `config.lua` via
+        // `luaMemoryLimit` (MB) in `run_server.rs`. No JIT impact.
+        lua.set_memory_limit(DEFAULT_LUA_MEMORY_LIMIT_BYTES)
+            .map_err(LuaError::Registration)?;
+
         // Register minimal global functions via RegisterLuaFunctions
         let registrar = MinimalGlobalFunctions;
         registrar
@@ -215,6 +233,26 @@ impl LuaRuntime {
             weapon_callbacks: HashMap::new(),
             npc_callbacks: HashMap::new(),
         })
+    }
+
+    /// Set the Lua VM memory limit (in bytes). Returns the previous limit.
+    ///
+    /// VM hardening pillar 4 — `tasks/tools-actions-gap.md` item 13. The
+    /// default (`DEFAULT_LUA_MEMORY_LIMIT_BYTES`, 512 MiB) is applied in
+    /// [`LuaRuntime::new`]; this lets `run_server.rs` override it from
+    /// `config.lua` (`luaMemoryLimit`, in MB). Once an allocation would pass
+    /// the limit, mlua raises `Error::MemoryError` instead of OOM-killing the
+    /// process. No JIT impact (unlike the instruction-count hook, which is
+    /// still gated on Gaps 1-6 + a JIT-cost measurement).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LuaError::Registration`] if memory control is unavailable on
+    /// this Lua state (should not happen with our `Lua::new()` LuaJIT build).
+    pub fn set_memory_limit(&self, limit_bytes: usize) -> Result<usize, LuaError> {
+        self.lua
+            .set_memory_limit(limit_bytes)
+            .map_err(LuaError::Registration)
     }
 
     /// Load and compile a Lua script file.
@@ -2099,5 +2137,39 @@ mod tests {
         // us what's still missing. Once Gap 7 is fixed, flip to
         // `assert!(result.is_ok())`.
         let _ = result;
+    }
+
+    /// VM hardening pillar 4 — `set_memory_limit` (tasks/tools-actions-gap.md
+    /// item 13). Asserts the default is applied in `new()`, that an override
+    /// takes effect, and that an over-limit allocation aborts the script
+    /// instead of OOM-killing the process.
+    #[test]
+    fn memory_limit_default_applied_and_enforced() {
+        let runtime = LuaRuntime::new().expect("runtime");
+
+        // `set_memory_limit` returns the *previous* limit — proves the default
+        // was applied during construction.
+        let prev = runtime
+            .set_memory_limit(DEFAULT_LUA_MEMORY_LIMIT_BYTES)
+            .expect("set_memory_limit");
+        assert_eq!(
+            prev, DEFAULT_LUA_MEMORY_LIMIT_BYTES,
+            "LuaRuntime::new must apply DEFAULT_LUA_MEMORY_LIMIT_BYTES"
+        );
+
+        // Tighten to 64 KiB and attempt a 4 MiB string allocation. The custom
+        // allocator returns null past the limit → LuaJIT raises a memory error
+        // surfaced as `mlua::Error::RuntimeError` wrapping "not enough memory".
+        runtime.set_memory_limit(64 * 1024).expect("tighten limit");
+        let err = runtime
+            .lua
+            .load(r#"local s = string.rep("x", 4 * 1024 * 1024); return s"#)
+            .exec()
+            .expect_err("over-limit allocation must error, not OOM the process");
+        let msg = err.to_string().to_lowercase();
+        assert!(
+            msg.contains("memory") || msg.contains("not enough"),
+            "expected a memory error, got: {msg}"
+        );
     }
 }

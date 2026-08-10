@@ -195,6 +195,26 @@ pub async fn run() -> anyhow::Result<()> {
         tfs_rust_content::npcs::NpcDatabase,
     ) = match LuaRuntime::new() {
         Ok(mut lua_runtime) => {
+            // VM hardening pillar 4 — override the default Lua memory limit
+            // from `config.lua` (`luaMemoryLimit`, in MB). The default
+            // (512 MiB) is already applied in `LuaRuntime::new`; this lets
+            // operators tune it per shard. tasks/tools-actions-gap.md item 13.
+            if let Ok(mb) = config.get_i64("luaMemoryLimit") {
+                if mb > 0 {
+                    let bytes = (mb as usize).saturating_mul(1024).saturating_mul(1024);
+                    match lua_runtime.set_memory_limit(bytes) {
+                        Ok(prev) => tracing::info!(
+                            lua_memory_limit_mb = mb,
+                            previous_limit_bytes = prev,
+                            "Lua VM memory limit overridden from config.lua"
+                        ),
+                        Err(e) => tracing::warn!(
+                            "luaMemoryLimit override failed (keeping default): {e}"
+                        ),
+                    }
+                }
+            }
+
             // Load chat channels from Lua scripts (CH-4)
             let chat_channels = match load_chat_channel_scripts(&mut lua_runtime, &data_path) {
                 Ok(channels) => {
