@@ -388,6 +388,10 @@ fn parse_tile_args(args: mlua::MultiValue) -> Result<(u16, u16, u8), mlua::Error
 }
 
 /// Register `Tile(pos)` / `Tile(x,y,z)` constructor — C++ `luaTileCreate`.
+///
+/// `Tile` is registered via `register_class` so it is a class table (extensible
+/// by `function Tile.relocateTo(self, ...)` in `data/lib/core/tile.lua`) with a
+/// `__call` ctor. Gap 7a — C++ `LuaScriptInterface::registerClass`.
 pub fn register_tile_constructor(lua: &mlua::Lua) -> Result<(), mlua::Error> {
     lua.register_userdata_type::<TileRef>(|_registry| {})?;
     let tile_new = lua.create_function(|lua, args: mlua::MultiValue| {
@@ -408,6 +412,6 @@ pub fn register_tile_constructor(lua: &mlua::Lua) -> Result<(), mlua::Error> {
         let ud = lua.create_userdata(TileRef { x, y, z })?;
         Ok(Value::UserData(ud))
     })?;
-    lua.globals().set("Tile", tile_new)?;
+    crate::class_registry::register_class(lua, "Tile", Some(tile_new))?;
     Ok(())
 }

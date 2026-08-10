@@ -75,6 +75,7 @@ pub fn register_weapon_metatable(lua: &Lua) -> Result<(), mlua::Error> {
     lua.register_userdata_type::<PendingWeapon>(|_registry| {})?;
 
     // `Weapon(type)` constructor — C++ `luaCreateWeapon` (`luascript.cpp:17474`).
+    // Registered via `register_class` (class table + `__call` ctor). Gap 7a.
     let weapon_new = lua.create_function(|_, weapon_type: i32| {
         // C++ returns `nil` for unsupported types (NONE/SHIELD).
         if matches!(weapon_type, WEAPON_NONE | WEAPON_SHIELD) {
@@ -85,7 +86,7 @@ pub fn register_weapon_metatable(lua: &Lua) -> Result<(), mlua::Error> {
             on_use_fn: Rc::new(RefCell::new(None)),
         }))
     })?;
-    lua.globals().set("Weapon", weapon_new)?;
+    crate::class_registry::register_class(lua, "Weapon", Some(weapon_new))?;
 
     Ok(())
 }

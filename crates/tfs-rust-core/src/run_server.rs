@@ -29,8 +29,8 @@ use crate::lua_scope::register_lua_mutation_hooks;
 use crate::map::Map;
 use crate::spawn::SpawnManager;
 use tfs_rust_lua::{
-    inject_door_tables_from_global, load_action_scripts, load_chat_channel_scripts,
-    load_data_lib, load_talkaction_scripts, LuaRuntime, ScriptLoader,
+    assert_required_data_globals, inject_door_tables_from_global, load_action_scripts,
+    load_chat_channel_scripts, load_data_lib, load_talkaction_scripts, LuaRuntime, ScriptLoader,
 };
 
 /// Resolve PEM: `TFS_RSA_PEM` if set, else workspace-root `key.pem`, else `./key.pem`.
@@ -228,14 +228,26 @@ pub async fn run() -> anyhow::Result<()> {
             let talkactions = crate::talkactions::TalkActionRegistry::from_defs(talkaction_defs);
 
             // Phase 1 doors/actions: inject door ID tables (without full global.lua),
-            // load `data/lib/core/*.lua` + `functions.lua` (defines onUseRope /
-            // onUseShovel / destroyItem / actionIds etc.), then load
-            // `data/scripts/actions/**` self-registering Action scripts.
+            // load `data/lib/core/*.lua` + `functions.lua` + `scarab_tiles.lua`
+            // (defines onUseRope / onUseShovel / destroyItem / checkScarabTile /
+            // actionIds etc.), then load `data/scripts/actions/**` self-registering
+            // Action scripts.
             if let Err(e) = inject_door_tables_from_global(&lua_runtime, &data_path) {
                 tracing::warn!("Door table inject from global.lua failed: {}", e);
             }
             if let Err(e) = load_data_lib(&lua_runtime, &data_path) {
                 tracing::warn!("data lib loading failed: {}", e);
+            }
+            // Gap 5: hard-fail at boot if the data-pack load contract regressed —
+            // a missing global here would otherwise surface as a `nil` inside a
+            // rope/shovel click hours later. `table.contains` comes from
+            // `inject_door_tables_from_global` above; the rest from `load_data_lib`.
+            if let Err(e) = assert_required_data_globals(&lua_runtime) {
+                tracing::error!(
+                    "Required data globals missing after load_data_lib: {e}. \
+                     Aborting startup — fix the data-pack load order before continuing."
+                );
+                anyhow::bail!("required data globals missing: {e}");
             }
             let action_defs = match load_action_scripts(&mut lua_runtime, &data_path) {
                 Ok(defs) => {

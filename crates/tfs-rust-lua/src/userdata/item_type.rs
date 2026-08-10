@@ -143,7 +143,9 @@ pub fn register_item_type_constructor(lua: &mlua::Lua) -> Result<(), mlua::Error
         let ud = lua.create_userdata(ItemTypeRef(id))?;
         Ok(Value::UserData(ud))
     })?;
-    lua.globals().set("ItemType", constructor)?;
+    // `ItemType` is a class table (extensible by `function ItemType.usesSlot(...)`
+    // in `data/lib/core/itemtype.lua`) with a `__call` ctor. Gap 7a.
+    crate::class_registry::register_class(lua, "ItemType", Some(constructor))?;
     Ok(())
 }
 

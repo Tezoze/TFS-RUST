@@ -340,9 +340,11 @@ pub fn register_combat_metatable(lua: &Lua) -> Result<(), mlua::Error> {
     lua.register_userdata_type::<AreaRef>(|_registry| {})?;
 
     // `Combat()` constructor — C++ `luaCombatCreate` (`luascript.cpp:13015`).
+    // `Combat` is a class table (extensible by `function Combat:getPositions(...)`
+    // in `data/lib/core/combat.lua`) with a `__call` ctor. Gap 7a.
     let combat_new =
         lua.create_function(|_, ()| Ok(CombatRef(Rc::new(RefCell::new(CombatDef::new())))))?;
-    lua.globals().set("Combat", combat_new)?;
+    crate::class_registry::register_class(lua, "Combat", Some(combat_new))?;
 
     // `createCombatArea(areaMatrix[, extArea])` — C++ `luaCreateCombatArea`
     // (`luascript.cpp:3545-3575`). Returns an `AreaRef` userdata. Optional

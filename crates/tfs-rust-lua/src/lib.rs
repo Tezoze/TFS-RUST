@@ -4,6 +4,7 @@
 //! for game scripts. It maintains TFS compatibility while using idiomatic Rust.
 
 pub mod chat_channels;
+mod class_registry;
 pub mod combat_enums;
 pub mod combat_scripts;
 pub mod constants;
@@ -22,7 +23,8 @@ pub mod userdata;
 
 // Re-export commonly used types
 pub use actions::{
-    ActionDef, inject_door_tables_from_global, load_action_scripts, load_data_lib,
+    ActionDef, assert_required_data_globals, inject_door_tables_from_global, load_action_scripts,
+    load_data_lib,
 };
 pub use chat_channels::{ChatChannelDef, load_chat_channel_scripts};
 pub use constants::register_constants;

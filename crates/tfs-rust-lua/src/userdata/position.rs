@@ -236,7 +236,9 @@ pub fn register_position_metatable(lua: &mlua::Lua) -> Result<(), mlua::Error> {
             )),
         }
     })?;
-    lua.globals().set("Position", ctor)?;
+    // `Position` is a class table (extensible by `function Position:method(...)`
+    // in `data/lib/core/position.lua`) with a `__call` ctor. Gap 7a.
+    crate::class_registry::register_class(lua, "Position", Some(ctor))?;
     Ok(())
 }
 

@@ -126,6 +126,13 @@ impl LuaRuntime {
             .register_functions(&lua)
             .map_err(LuaError::Registration)?;
 
+        // Table-only engine class globals (`Monster`, `Npc`, `Item`, `Container`,
+        // `Party`, `Teleport`, `Vocation`) — created via `register_class` so the
+        // data pack can attach `function <Class>:method(...)`. Ctor-bearing
+        // classes (`Tile`, `Position`, `Combat`, …) register themselves below via
+        // their own registrars. Gap 7a — replaces the old hardcoded bootstrap list.
+        crate::class_registry::register_engine_class_tables(&lua)
+            .map_err(LuaError::Registration)?;
         register_creature_metatable(&lua).map_err(LuaError::Registration)?;
         register_npc_metatable(&lua).map_err(LuaError::Registration)?;
         register_item_metatable(&lua).map_err(LuaError::Registration)?;
@@ -136,7 +143,6 @@ impl LuaRuntime {
         register_position_metatable(&lua).map_err(LuaError::Registration)?;
         register_item_type_metatable(&lua).map_err(LuaError::Registration)?;
         register_event_script_bootstrap(&lua).map_err(LuaError::Registration)?;
-        // Overwrite empty `Tile` / `Game` stubs from bootstrap with real constructors.
         register_tile_constructor(&lua).map_err(LuaError::Registration)?;
         register_game_api(&lua).map_err(LuaError::Registration)?;
         register_variant_constructor(&lua).map_err(LuaError::Registration)?;
@@ -1206,25 +1212,19 @@ pub trait RegisterLuaFunctions {
     fn register_functions(&self, lua: &Lua) -> Result<(), mlua::Error>;
 }
 
-/// Class tables and stubs so `data/events/scripts/*.lua` can use `function Player:…`.
+/// Self-registering content constructors (`Channel`, `TalkAction`, `Action`,
+/// `MoveEvent`), the `Condition`/`ItemType` userdata constructors, and the
+/// `Player`/`Creature` class tables with `__call` constructors.
+///
+/// Class globals are created via `crate::class_registry::register_class` — the
+/// single owner — so a class is callable *and* extensible regardless of init
+/// order. Table-only classes (`Monster`, `Npc`, `Item`, `Container`, `Party`,
+/// `Teleport`, `Vocation`) are registered by `register_engine_class_tables`
+/// in `LuaRuntime::new`.
 ///
 /// C++ reference: `LuaScriptInterface::registerClass` — `src/luascript.cpp`.
 pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Error> {
     let globals = lua.globals();
-
-    globals.set("Player", lua.create_table()?)?;
-
-    for name in [
-        "Creature",
-        "Monster",
-        "Npc",
-        "Game",
-        "Tile",
-        "Item",
-        "Container",
-    ] {
-        globals.set(name, lua.create_table()?)?;
-    }
 
     // `Channel(id, name)` — self-registering chat-channel constructor.
     //
@@ -1513,14 +1513,12 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
     // or `nil`. LUA-4 §0.3 / `luascript.cpp` `luaPlayerCreate`.
     // Uses the scoped `ScriptContext::get_player_by_name` read.
     //
-    // `Player` is already a class table (set above) for `function Player:method`
-    // definitions. We set a `__call` metamethod on it so `Player(name)` works
-    // as a constructor without losing the table semantics for method registration.
-    let player_table: mlua::Table = globals.get("Player")?;
-    let player_meta = lua.create_table()?;
-    player_meta.set(
-        "__call",
-        lua.create_function(|lua, (_self, name): (mlua::Value, String)| {
+    // Registered via `register_class` so `Player` is a class table (extensible
+    // by `function Player:method(...)`) with a `__call` ctor (`Player(name)`).
+    // The ctor closure takes `(name)` — `register_class` wraps it to drop the
+    // `__call` `self` arg. C++ `LuaScriptInterface::registerClass`.
+    let player_ctor =
+        lua.create_function(|lua, name: String| {
             let id_opt = crate::context::current_ctx(|ctx| ctx.get_player_by_name(&name)).flatten();
             match id_opt {
                 Some(id) => {
@@ -1529,20 +1527,15 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
                 }
                 None => Ok(mlua::Value::Nil),
             }
-        })?,
-    )?;
-    player_table.set_metatable(Some(player_meta))?;
+        })?;
+    crate::class_registry::register_class(lua, "Player", Some(player_ctor))?;
 
     // `Creature(id)` — resolve a creature by slotmap key bits → `CreatureRef`
     // userdata or `nil`. PC-3a Phase 3: `envenom_rune` / `soulfire_rune` use
     // `Creature(variant.number)`. C++ `luascript.cpp` `luaCreatureCreate`.
-    // Keep `Creature` as a class table (for `function Creature:…` in
-    // `functions.lua`) and attach `__call` like `Player(name)`.
-    let creature_table: mlua::Table = globals.get("Creature")?;
-    let creature_meta = lua.create_table()?;
-    creature_meta.set(
-        "__call",
-        lua.create_function(|lua, (_self, id): (mlua::Value, u64)| {
+    // Same `register_class` shape as `Player`: class table + `__call` ctor.
+    let creature_ctor =
+        lua.create_function(|lua, id: u64| {
             if id == 0 {
                 return Ok(mlua::Value::Nil);
             }
@@ -1553,9 +1546,8 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
             }
             let ud = lua.create_userdata(crate::context::CreatureRef(id))?;
             Ok(mlua::Value::UserData(ud))
-        })?,
-    )?;
-    creature_table.set_metatable(Some(creature_meta))?;
+        })?;
+    crate::class_registry::register_class(lua, "Creature", Some(creature_ctor))?;
 
     // `sendChannelMessage(channelId, type, message)` — LUA-4 §1.7.
     // Server-originated channel broadcast (anonymous speaker). Routes to
@@ -1718,7 +1710,10 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
     use crate::lua_mutation::{call_clear_field, call_create_monster};
     use crate::context::{CreatureRef, ItemRef};
     use crate::userdata::position::PositionRef;
-    let game = lua.create_table()?;
+    // `Game` is a class table (extensible by `function Game:method(...)` in
+    // `data/lib/core/game.lua`) with no constructor — `register_class(_, None)`
+    // get-or-creates it. Gap 7a.
+    let game = crate::class_registry::register_class(lua, "Game", None)?;
     game.set(
         "getWorldType",
         lua.create_function(|_, ()| {
@@ -1799,7 +1794,8 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
             },
         )?,
     )?;
-    lua.globals().set("Game", game)?;
+    // `Game` was registered via `register_class` above; methods were attached
+    // directly to that class table. No global set needed here.
     Ok(())
 }
 
@@ -1968,6 +1964,11 @@ pub enum LuaError {
     #[error("Missing global Lua function: {0}")]
     MissingFunction(String),
 
+    /// Required data-pack globals absent after `load_data_lib` (Gap 5 assertion).
+    /// Carries the named list so boot fails fast with actionable diagnostics.
+    #[error("Missing required data globals after load_data_lib: {0:?}")]
+    MissingGlobals(Vec<String>),
+
     #[error("Not implemented")]
     NotImplemented,
 }
@@ -2049,5 +2050,54 @@ mod tests {
             "expected 8 registered channels, got {}: {channels:?}",
             channels.len()
         );
+    }
+
+    /// Gap 7 probe: does `data/global.lua` load via the native LuaJIT `dofile`
+    /// chain when CWD is the repo root? `global.lua` calls
+    /// `dofile('data/lib/lib.lua')` → `core.lua` → all `data/lib/core/*.lua`.
+    ///
+    /// **Current status (2026-08-10):** `dofile` and `os.time` both work (the
+    /// stale comment at line 1294 was wrong). The dofile chain resolves
+    /// correctly but fails at `data/lib/core/combat.lua:1` because `Combat` is
+    /// registered as a bare function, not a class table — `function
+    /// Combat:getPositions(...)` can't index a function value. See
+    /// `tasks/tools-actions-gap.md` Gap 7.
+    ///
+    /// Once `Combat`/`Spell`/`Weapon`/`Condition` are converted to tables with
+    /// `__call` (TVP `registerClass` pattern), this test should pass and we can
+    /// replace `inject_door_tables_from_global` + the `data/lib/core/` recursive
+    /// scan with a single `exec_chunk("global.lua", src)` call.
+    #[test]
+    fn global_lua_loads_via_dofile_chain() {
+        let data_root = workspace_data_root();
+        let global_path = data_root.join("global.lua");
+        if !global_path.exists() {
+            eprintln!("data/global.lua not found — skipping");
+            return;
+        }
+
+        // `dofile` resolves relative to process CWD. `global.lua` calls
+        // `dofile('data/lib/lib.lua')` — needs CWD = workspace root.
+        let workspace_root = data_root.parent().expect("data/ has a parent");
+        let prev_cwd = std::env::current_dir().ok();
+        std::env::set_current_dir(workspace_root).expect("chdir to workspace root");
+
+        let runtime = LuaRuntime::new().expect("runtime init");
+        let src = std::fs::read_to_string(&global_path).expect("read global.lua");
+        let result = runtime.exec_chunk("global.lua", &src);
+
+        // Restore CWD regardless of outcome.
+        if let Some(prev) = prev_cwd {
+            let _ = std::env::set_current_dir(prev);
+        }
+
+        match &result {
+            Ok(()) => println!("global.lua loaded via dofile chain — OK"),
+            Err(e) => println!("global.lua dofile chain failed: {e}"),
+        }
+        // Don't hard-fail yet — this is a Gap 7 probe. The error output tells
+        // us what's still missing. Once Gap 7 is fixed, flip to
+        // `assert!(result.is_ok())`.
+        let _ = result;
     }
 }

@@ -131,6 +131,7 @@ pub fn register_spell_metatable(lua: &Lua) -> Result<(), mlua::Error> {
     lua.register_userdata_type::<PendingSpell>(|_registry| {})?;
 
     // `Spell(type)` constructor — C++ `luaSpellCreate` (`luascript.cpp:15775`).
+    // Registered via `register_class` (class table + `__call` ctor). Gap 7a.
     let spell_new = lua.create_function(|_, spell_type: i32| {
         if matches!(spell_type, SPELL_INSTANT | SPELL_RUNE) {
             Ok(Some(SpellBuilder {
@@ -141,7 +142,7 @@ pub fn register_spell_metatable(lua: &Lua) -> Result<(), mlua::Error> {
             Ok(None::<SpellBuilder>)
         }
     })?;
-    lua.globals().set("Spell", spell_new)?;
+    crate::class_registry::register_class(lua, "Spell", Some(spell_new))?;
 
     Ok(())
 }
