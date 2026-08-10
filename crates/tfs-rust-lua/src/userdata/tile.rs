@@ -4,7 +4,7 @@
 //! `luaTileGetGround` / `luaTileGetTopDownItem` / `luaTileGetItems` /
 //! `luaTileGetItemByType` / `luaTileGetCreatures`.
 
-use mlua::{UserData, UserDataMethods, Value};
+use mlua::{MetaMethod, UserData, UserDataMethods, Value};
 
 use crate::context::{CURRENT_CTX, CreatureRef, ItemRef};
 use crate::userdata::position::PositionRef;
@@ -320,6 +320,20 @@ impl UserData for TileRef {
                 let ctx = unsafe { &*ptr };
                 Ok(ctx.tile_is_walkable(this.x, this.y, this.z))
             })
+        });
+
+        // Gap 7b — `__index` fallback so `tile:relocateTo(pos)` /
+        // `tile:isCreature()` resolve methods defined as
+        // `function Tile.relocateTo(self, ...)` in `data/lib/core/tile.lua`.
+        // Native methods above keep priority (mlua calls `__index` only on
+        // miss). C++ `LuaScriptInterface::registerClass`; shared helper in
+        // `class_registry`.
+        methods.add_meta_method(MetaMethod::Index, |lua, _this, key: mlua::LuaString| {
+            crate::class_registry::class_index_lookup(
+                lua,
+                crate::class_registry::TILE_INDEX_CHAIN,
+                key,
+            )
         });
     }
 }

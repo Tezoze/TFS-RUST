@@ -518,4 +518,154 @@ mod tests {
         assert_eq!(quest_v, "doorquestvalue");
         assert_eq!(level, "doorlevel");
     }
+
+    /// Gap 7b — for each userdata whose class table is extended by the data
+    /// pack, a Lua-defined method on that class table must be **callable
+    /// through a live userdata instance**. This is the check that would have
+    /// caught the 7a-only plan (class table alone fixes *load* but not *call*).
+    ///
+    /// Each row: (class global name, a live userdata value to set as `_probe`,
+    /// the expected return of `_probe:__gap7b_probe()`). The Lua method is
+    /// defined as `function <Class>.__gap7b_probe(self) return "<Class>" end`.
+    #[test]
+    fn gap7b_lua_class_method_callable_via_userdata() {
+        use crate::context::{CreatureRef, ItemRef};
+        use crate::userdata::combat::{CombatDef, CombatRef};
+        use crate::userdata::container::ContainerRef;
+        use crate::userdata::item_type::ItemTypeRef;
+        use crate::userdata::position::PositionRef;
+        use crate::userdata::tile::TileRef;
+        use crate::userdata::vocation::VocationRef;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let runtime = LuaRuntime::new().expect("runtime init");
+        let lua = &runtime.lua;
+        let globals = lua.globals();
+
+        // Build a live userdata of each type and expose it as `_probe`.
+        // (`Tile`/`Position` constructors would also work from Lua, but going
+        // through `create_userdata` avoids any ScriptContext dependency and
+        // uniformly covers table-only classes like `Vocation` that have no
+        // Lua constructor.)
+        let tile = lua.create_userdata(TileRef { x: 1, y: 2, z: 3 }).unwrap();
+        globals.set("_probe", tile).unwrap();
+        let _: String = lua
+            .load("function Tile.__gap7b_probe(self) return 'Tile' end return _probe:__gap7b_probe()")
+            .eval()
+            .expect("Tile __index fallback");
+
+        let pos = lua.create_userdata(PositionRef { x: 1, y: 2, z: 3 }).unwrap();
+        globals.set("_probe", pos).unwrap();
+        let _: String = lua
+            .load("function Position.__gap7b_probe(self) return 'Position' end return _probe:__gap7b_probe()")
+            .eval()
+            .expect("Position __index fallback");
+
+        let item = lua.create_userdata(ItemRef(1)).unwrap();
+        globals.set("_probe", item).unwrap();
+        let _: String = lua
+            .load("function Item.__gap7b_probe(self) return 'Item' end return _probe:__gap7b_probe()")
+            .eval()
+            .expect("Item __index fallback");
+
+        let cont = lua.create_userdata(ContainerRef(1)).unwrap();
+        globals.set("_probe", cont).unwrap();
+        let _: String = lua
+            .load("function Container.__gap7b_probe(self) return 'Container' end return _probe:__gap7b_probe()")
+            .eval()
+            .expect("Container __index fallback");
+
+        let it = lua.create_userdata(ItemTypeRef(42)).unwrap();
+        globals.set("_probe", it).unwrap();
+        let _: String = lua
+            .load("function ItemType.__gap7b_probe(self) return 'ItemType' end return _probe:__gap7b_probe()")
+            .eval()
+            .expect("ItemType __index fallback");
+
+        let combat = lua
+            .create_userdata(CombatRef(Rc::new(RefCell::new(CombatDef::new()))))
+            .unwrap();
+        globals.set("_probe", combat).unwrap();
+        let _: String = lua
+            .load("function Combat.__gap7b_probe(self) return 'Combat' end return _probe:__gap7b_probe()")
+            .eval()
+            .expect("Combat __index fallback");
+
+        let voc = lua.create_userdata(VocationRef(5)).unwrap();
+        globals.set("_probe", voc).unwrap();
+        let _: String = lua
+            .load("function Vocation.__gap7b_probe(self) return 'Vocation' end return _probe:__gap7b_probe()")
+            .eval()
+            .expect("Vocation __index fallback");
+
+        let creature = lua.create_userdata(CreatureRef(1)).unwrap();
+        globals.set("_probe", creature).unwrap();
+        let _: String = lua
+            .load("function Player.__gap7b_probe(self) return 'Player' end return _probe:__gap7b_probe()")
+            .eval()
+            .expect("CreatureRef → Player __index fallback");
+    }
+
+    /// Gap 7b — `CreatureRef` must reach **both** `Player` and `Creature`
+    /// class tables (chain `Player` → `Creature`). The previous hardcoded
+    /// `"Player"` fallback silently missed all 15 methods in
+    /// `data/lib/core/creature.lua` — this is the latent-bug regression guard.
+    #[test]
+    fn gap7b_creature_ref_reaches_creature_table() {
+        use crate::context::CreatureRef;
+
+        let runtime = LuaRuntime::new().expect("runtime init");
+        let lua = &runtime.lua;
+        let globals = lua.globals();
+
+        let creature = lua.create_userdata(CreatureRef(1)).unwrap();
+        globals.set("_probe", creature).unwrap();
+        // Define a method ONLY on `Creature` (not `Player`); the chain must
+        // fall through `Player` (nil) and find it on `Creature`.
+        let got: String = lua
+            .load(
+                "function Creature.__gap7b_creature_only(self) return 'creature' end \
+                 return _probe:__gap7b_creature_only()",
+            )
+            .eval()
+            .expect("CreatureRef → Creature fallback");
+        assert_eq!(got, "creature");
+    }
+
+    /// Gap 7b — a native Rust method must still win over a same-named Lua
+    /// method on the class table. mlua's generated `__index` checks
+    /// registered methods before the user `__index` fallback, so a Lua
+    /// override cannot silently shadow an engine method.
+    #[test]
+    fn gap7b_native_method_wins_over_lua_override() {
+        use crate::userdata::item_type::ItemTypeRef;
+        use crate::userdata::vocation::VocationRef;
+
+        let runtime = LuaRuntime::new().expect("runtime init");
+        let lua = &runtime.lua;
+        let globals = lua.globals();
+
+        // `ItemType:getId()` is a native method returning `this.0` (42).
+        // A Lua override on the `ItemType` class table must NOT take effect.
+        let it = lua.create_userdata(ItemTypeRef(42)).unwrap();
+        globals.set("_probe", it).unwrap();
+        lua.load("function ItemType.getId(self) return 999 end")
+            .exec()
+            .expect("define override");
+        let got: i64 = lua
+            .load("return _probe:getId()")
+            .eval()
+            .expect("getId call");
+        assert_eq!(got, 42, "native ItemType:getId must win over Lua override");
+
+        // Same check with `Vocation:getId()` (native returns `this.0` = 5).
+        let voc = lua.create_userdata(VocationRef(5)).unwrap();
+        globals.set("_probe", voc).unwrap();
+        let got: i64 = lua
+            .load("function Vocation.getId(self) return 999 end return _probe:getId()")
+            .eval()
+            .expect("Vocation getId call");
+        assert_eq!(got, 5, "native Vocation:getId must win over Lua override");
+    }
 }

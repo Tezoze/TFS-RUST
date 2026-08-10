@@ -2,7 +2,7 @@
 //!
 //! C++ reference: `src/luascript.cpp` — `LuaScriptInterface` item userdata (`Item::getID`, `getName`, …).
 
-use mlua::{Lua, UserData, UserDataFields, UserDataMethods, Value};
+use mlua::{Lua, MetaMethod, UserData, UserDataFields, UserDataMethods, Value};
 use std::cell::RefCell;
 
 use crate::context::{CURRENT_CTX, CreatureRef, ItemData, ItemRef, LuaContext};
@@ -372,6 +372,19 @@ impl UserData for ItemRef {
         // `item:decay()` — TFS `luaItemDecay` → `Item::startDecaying` → `Game::startDecay`.
         methods.add_method("decay", |_, this, ()| {
             call_lua_item_decay(this.0).map_err(mlua::Error::runtime)
+        });
+
+        // Gap 7b — `__index` fallback so `item:getType()` / `item:isCreature()`
+        // resolve methods defined as `function Item.getType(self, ...)` in
+        // `data/lib/core/item.lua`. Native methods above keep priority.
+        // C++ `LuaScriptInterface::registerClass`; shared helper in
+        // `class_registry`.
+        methods.add_meta_method(MetaMethod::Index, |lua, _this, key: mlua::LuaString| {
+            crate::class_registry::class_index_lookup(
+                lua,
+                crate::class_registry::ITEM_INDEX_CHAIN,
+                key,
+            )
         });
     }
 }

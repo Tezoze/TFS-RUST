@@ -17,7 +17,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use mlua::{Lua, UserData, UserDataMethods, Value};
+use mlua::{Lua, MetaMethod, UserData, UserDataMethods, Value};
 
 use tfs_rust_common::enums::CombatType;
 
@@ -653,6 +653,18 @@ impl UserData for CombatRef {
                 Ok(table)
             },
         );
+
+        // Gap 7b — `__index` fallback so `combat:getPositions(creature, variant)`
+        // / `combat:getTargets(...)` resolve `function Combat:getPositions(...)`
+        // from `data/lib/core/combat.lua`. Native methods above keep priority.
+        // C++ `LuaScriptInterface::registerClass`.
+        methods.add_meta_method(MetaMethod::Index, |lua, _this, key: mlua::LuaString| {
+            crate::class_registry::class_index_lookup(
+                lua,
+                crate::class_registry::COMBAT_INDEX_CHAIN,
+                key,
+            )
+        });
     }
 }
 

@@ -2,7 +2,7 @@
 //!
 //! C++ reference: `src/luascript.cpp` — `Container` class registration ~2343–2359.
 
-use mlua::{Lua, UserData, UserDataMethods, Value};
+use mlua::{Lua, MetaMethod, UserData, UserDataMethods, Value};
 use std::cell::RefCell;
 
 use crate::context::{CURRENT_CTX, ItemRef, LuaContext};
@@ -149,6 +149,20 @@ impl UserData for ContainerRef {
                     .map(|d| d.name)
                     .ok_or_else(|| mlua::Error::runtime("item not found"))
             })
+        });
+
+        // Gap 7b — `__index` fallback so `container:createLootItem(item)` /
+        // `container:getType()` resolve methods defined as
+        // `function Container.createLootItem(self, ...)` (`data/lib/core/container.lua`)
+        // and `function Item.getType(self, ...)` (`data/lib/core/item.lua`).
+        // Chain `Container` → `Item` mirrors C++ `Container extends Item`.
+        // Native methods above keep priority. C++ `LuaScriptInterface::registerClass`.
+        methods.add_meta_method(MetaMethod::Index, |lua, _this, key: mlua::LuaString| {
+            crate::class_registry::class_index_lookup(
+                lua,
+                crate::class_registry::CONTAINER_INDEX_CHAIN,
+                key,
+            )
         });
     }
 }

@@ -6,7 +6,7 @@
 //! channel scripts touch (`getId`); `getName` / `getPromotion` land later
 //! when a second consumer needs them (see `tasks/lua-api-plan.md` §1.4).
 
-use mlua::{Lua, UserData, UserDataMethods};
+use mlua::{Lua, MetaMethod, UserData, UserDataMethods};
 
 /// Vocation handle — wraps the raw `players.vocation` id (`enums.h:297`
 /// `VOCATION_NONE = 0`). Stored by value inside the userdata; no SlotMap
@@ -23,5 +23,16 @@ impl UserData for VocationRef {
         // `vocation:getId()` — `Vocation::id` (`player.h` / `vocation.h`).
         // Channel scripts compare against `VOCATION_NONE` (0).
         methods.add_method("getId", |_, this, ()| Ok(this.0));
+
+        // Gap 7b — `__index` fallback so `vocation:getBase()` resolves
+        // `function Vocation.getBase(self)` from `data/lib/core/vocation.lua`.
+        // Native methods above keep priority. C++ `LuaScriptInterface::registerClass`.
+        methods.add_meta_method(MetaMethod::Index, |lua, _this, key: mlua::LuaString| {
+            crate::class_registry::class_index_lookup(
+                lua,
+                crate::class_registry::VOCATION_INDEX_CHAIN,
+                key,
+            )
+        });
     }
 }

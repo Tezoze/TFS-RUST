@@ -784,22 +784,27 @@ impl UserData for CreatureRef {
             Ok(())
         });
 
-        // `__index` fallback — bridges `function Player:method(...)` definitions
-        // from `data/scripts/functions.lua` (and event scripts) onto `CreatureRef`
-        // userdata. mlua 0.10 calls this metamethod only when the regular method
-        // lookup (registered above) fails, so native Rust methods take priority.
+        // `__index` fallback — bridges `function Player:method(...)` /
+        // `function Creature:method(...)` definitions from
+        // `data/lib/core/{player,creature}.lua` and `data/scripts/functions.lua`
+        // onto `CreatureRef` userdata. mlua only invokes `__index` after the
+        // registered-method lookup misses, so native Rust methods take priority.
         //
-        // Without this, `creature:conjureItem(...)` / `creature:computeDamage(...)`
-        // would error with "attempt to call nil value" — `functions.lua` defines
-        // them as `function Player:conjureItem(...)` (table fields on the `Player`
-        // global), not as `CreatureRef` userdata methods.
+        // Gap 7b: the chain is `Player` → `Creature` (first hit wins). The
+        // previous hardcoded `"Player"` fallback silently missed all 15 methods
+        // in `data/lib/core/creature.lua` (`getPlayer`, `isPlayer`,
+        // `setMonsterOutfit`, `addSummon`, `addDamageCondition`, `canAccessPz`,
+        // …) plus `functions.lua:530` `Creature:addAttributeCondition` — a
+        // latent bug independent of the tools work.
         //
-        // C++ reference: TFS `LuaScriptInterface::registerClass` sets
-        // `Creature`/`Player` method tables so `self:method()` resolves via the
-        // class hierarchy. We mirror that by chaining `__index` → `Player` table.
+        // C++ reference: `luascript.cpp` `LuaScriptInterface::registerClass`
+        // chains `Player` → `Creature`; shared helper in `class_registry`.
         methods.add_meta_method(MetaMethod::Index, |lua, _this, key: mlua::LuaString| {
-            let player_table: mlua::Table = lua.globals().get("Player")?;
-            player_table.get::<mlua::Value>(key)
+            crate::class_registry::class_index_lookup(
+                lua,
+                crate::class_registry::CREATURE_INDEX_CHAIN,
+                key,
+            )
         });
     }
 }

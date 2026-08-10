@@ -1,6 +1,6 @@
 # Tools Action Scripts — Gap Analysis & Plan
 
-**Status:** Gap 2 done; **Gap 7a done** (`register_class` — 9 core lib files now load); Gap 5 **partial** (scans done, warn-and-continue still hides failures — Gap 5a, now unblocked by 7a); Gaps 1, 3, 4, 6, 7b not started
+**Status:** Gap 2 done; **Gap 7a done** (`register_class` — 9 core lib files now load); **Gap 7b done** (shared `__index` chain helper — `class_index_lookup` + 8 userdata fallbacks; `CreatureRef` latent `Creature`-table bug fixed); Gap 5 **partial** (scans done, warn-and-continue still hides failures — Gap 5a, now unblocked by 7a+7b); Gaps 1, 3, 4, 6 not started
 **Target architecture:** see *Target architecture — Lua API + loading system* for the end state all gaps converge on.
 **Date:** 2026-08-09 (updated 2026-08-10 — Lua/Rust boundary decision, Gaps 5-6, Gap 5 done, TVP load model investigation)
 **Scope:** Make every script in `data/scripts/actions/tools/` load and run end-to-end on the existing `Action()` pipeline.
@@ -312,7 +312,7 @@ Our `Combat` global is a **bare function** (`userdata/combat.rs:345` — `lua.gl
 
 ### Gap 7 — engine class globals registered as bare functions / not at all
 
-**7a done 2026-08-10** (`register_class` + `register_engine_class_tables` in `crates/tfs-rust-lua/src/class_registry.rs`; all 9 core lib files load — `lib_core_files_load_with_zero_errors` test). **7b not started.** Scope corrected 2026-08-10 — the earlier guess ("likely affects `Spell`, `Weapon`, `Condition`") was **wrong in both directions**. Verified by grepping `data/lib/**` and `data/scripts/**` for `function <Class>[:.]` and probing global kinds after bootstrap.
+**7a done 2026-08-10** (`register_class` + `register_engine_class_tables` in `crates/tfs-rust-lua/src/class_registry.rs`; all 9 core lib files load — `lib_core_files_load_with_zero_errors` test). **7b done 2026-08-10** (`class_index_lookup` shared `__index` chain helper in `class_registry.rs`; 8 userdata types wired — `CreatureRef`/`TileRef`/`ItemRef`/`ContainerRef`/`ItemTypeRef`/`PositionRef`/`CombatRef`/`VocationRef`; `CreatureRef` latent `Creature`-table bug fixed via `Player → Creature` chain; tests `gap7b_lua_class_method_callable_via_userdata`, `gap7b_creature_ref_reaches_creature_table`, `gap7b_native_method_wins_over_lua_override`, `class_index_lookup_walks_chain_first_hit_wins`, `class_index_lookup_returns_nil_for_missing_or_non_table_global`). Scope corrected 2026-08-10 — the earlier guess ("likely affects `Spell`, `Weapon`, `Condition`") was **wrong in both directions**. Verified by grepping `data/lib/**` and `data/scripts/**` for `function <Class>[:.]` and probing global kinds after bootstrap.
 
 **Nothing in the data pack extends `Spell`, `Weapon`, or `Condition`** — converting those is speculative work with no consumer. Do not do it. The classes that actually break:
 

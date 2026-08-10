@@ -137,6 +137,18 @@ impl UserData for PositionRef {
             })?;
             Ok(Value::UserData(ud))
         });
+
+        // Gap 7b — `__index` fallback so `pos:isInRange(from, to)` resolves
+        // `function Position:isInRange(...)` from `data/lib/core/position.lua`.
+        // Field getters (x/y/z) and native methods above keep priority — mlua
+        // checks fields → methods → `__index` last. C++ `LuaScriptInterface::registerClass`.
+        methods.add_meta_method(MetaMethod::Index, |lua, _this, key: mlua::LuaString| {
+            crate::class_registry::class_index_lookup(
+                lua,
+                crate::class_registry::POSITION_INDEX_CHAIN,
+                key,
+            )
+        });
     }
 }
 

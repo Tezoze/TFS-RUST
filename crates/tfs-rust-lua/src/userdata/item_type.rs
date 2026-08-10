@@ -4,7 +4,7 @@
 //! (`ItemType::getID`, `isStackable`, `isFluidContainer`, …). Wraps a server
 //! item type id; resolves name→id lookups through `ScriptContext`.
 
-use mlua::{UserData, UserDataMethods, Value};
+use mlua::{MetaMethod, UserData, UserDataMethods, Value};
 use std::cell::RefCell;
 
 use crate::context::{CURRENT_CTX, LuaContext};
@@ -113,6 +113,17 @@ impl UserData for ItemTypeRef {
                 let _ = ctx;
                 Ok(format!("item_{}", this.0))
             })
+        });
+
+        // Gap 7b — `__index` fallback so `itemtype:usesSlot(slot)` resolves
+        // `function ItemType.usesSlot(self, ...)` from `data/lib/core/itemtype.lua`.
+        // Native methods above keep priority. C++ `LuaScriptInterface::registerClass`.
+        methods.add_meta_method(MetaMethod::Index, |lua, _this, key: mlua::LuaString| {
+            crate::class_registry::class_index_lookup(
+                lua,
+                crate::class_registry::ITEM_TYPE_INDEX_CHAIN,
+                key,
+            )
         });
     }
 }
