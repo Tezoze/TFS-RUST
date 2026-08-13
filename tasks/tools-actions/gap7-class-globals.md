@@ -116,11 +116,11 @@ Gap 7a/7b are two small helpers plus ~10 mechanical call-site edits. Gap 7c clos
 - a native Rust method still wins over a same-named Lua method on the class table — `gap7b_native_method_wins_over_lua_override`
 - chain walk + fall-through + best-effort skip of missing/non-table globals — `class_index_lookup_walks_chain_first_hit_wins`, `class_index_lookup_returns_nil_for_missing_or_non_table_global`
 
-**Scope:** was a **prerequisite for Gap 5a and Gap 3**. Nine core lib files were failing to load because of this; they now load (7a) and their methods are callable through userdata (7b), so Gap 3's inventory could be re-audited against a fully-loaded lib ([re-audit-2026-08-13.md](re-audit-2026-08-13.md#gap-3--re-audit-result-supersedes-the-gap-3-correction-table)). Gap 5a is **unblocked** — the `data/scripts/lib` stage loads clean after 7c.
+**Scope:** was a **prerequisite for Gap 5a and Gap 3**. Nine core lib files were failing to load because of this; they now load (7a) and their methods are callable through userdata (7b), so Gap 3's inventory could be re-audited against a fully-loaded lib ([re-audit-2026-08-13.md](re-audit-2026-08-13.md#gap-3--re-audit-result-supersedes-the-gap-3-correction-table)). Gap 5a **landed 2026-08-13**.
 
 ## Gap 7c — revscript constructor globals ✅ done 2026-08-13
 
-Routed the 7 remaining bare-function class globals through `register_class(lua, name, Some(ctor))`, added `CreatureEvent` / `GlobalEvent` (plain tables with `__call`, matching `Action`), ported `createFunctions` into `data/lib/core/create_functions.lua` (not the full compat layer — [resolved decision #3](decisions.md#resolved-decisions) / new decision #11). `data/scripts/lib` loads 5/5. Unblocks Gap 5a. Details and probe output: [re-audit-2026-08-13.md](re-audit-2026-08-13.md#gap-7c--gap-7a-is-not-complete-new).
+Routed the 7 remaining bare-function class globals through `register_class(lua, name, Some(ctor))`, added `CreatureEvent` / `GlobalEvent` (plain tables with `__call`, matching `Action`), ported `createFunctions` into `data/lib/core/create_functions.lua` (not the full compat layer — [resolved decision #3](decisions.md#resolved-decisions) / new decision #11). `data/scripts/lib` loads 5/5. Unblocked Gap 5a (landed 2026-08-13). Details and probe output: [re-audit-2026-08-13.md](re-audit-2026-08-13.md#gap-7c--gap-7a-is-not-complete-new).
 
 **Decisions made:**
 - `MonsterType` is a class table (7a-style) so `register_monster_type.lua:12` (`MonsterType.register = function(self, mask)`) loads. **No** `MonsterTypeRef` `__index` chain (7b-style): the only `mType:register(...)` call is in `data/monster/lua/#example.lua`, which the loader skips (`#` prefix).

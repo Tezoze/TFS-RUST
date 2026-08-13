@@ -156,10 +156,10 @@ impl LuaRuntime {
             .lua
             .globals()
             .set("_pending_weapons", self.lua.create_table().unwrap());
-        let _ = self
-            .lua
-            .globals()
-            .set("_pending_weapon_callbacks", self.lua.create_table().unwrap());
+        let _ = self.lua.globals().set(
+            "_pending_weapon_callbacks",
+            self.lua.create_table().unwrap(),
+        );
 
         Ok(registry)
     }
@@ -213,9 +213,9 @@ impl LuaRuntime {
         // `function Player:method` table fields. The `CreatureRef` `__index`
         // fallback bridges these onto userdata so value-callback spell bodies can
         // call them. Shared helper also used by `run_server.rs` before actions.
-        if let Err(e) = crate::actions::load_data_lib(self, data_dir) {
-            tracing::warn!("data lib loading failed: {}", e);
-        }
+        // Gap 5a: lib-stage failures propagate (fatal); per-spell loads below
+        // stay warn-and-continue.
+        crate::actions::load_data_lib(self, data_dir).map_err(|e| e.to_string())?;
 
         // Recursively collect all .lua files (excluding areas.lua and #example.lua).
         let mut lua_files: Vec<PathBuf> = Vec::new();

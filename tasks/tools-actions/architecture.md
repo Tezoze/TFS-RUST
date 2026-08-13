@@ -63,8 +63,8 @@ The gaps in [gaps-load.md](gaps-load.md), [gaps-lua-api.md](gaps-lua-api.md) and
 |---|---|---|
 | Class globals (`Tile`, `Combat`, …) | `register_class` (Gap 7a+7c) ✅ | 3 competing mechanisms, order-dependent |
 | Userdata → class-table method lookup | shared `__index` chain helper (Gap 7b) ✅ | one hardcoded `"Player"` fallback; every other userdata had none |
-| Lib-stage load + error policy | `load_data_lib`, **fatal** | warn-and-continue, hides 9 failures |
-| Content-stage load + error policy | per-subsystem loaders, **warn** | same as lib — no distinction |
+| Lib-stage load + error policy | `load_data_lib`, **fatal** | ✅ Gap 5a (`LuaError::LibStageFailures`) |
+| Content-stage load + error policy | per-subsystem loaders, **warn** | ✅ unchanged (actions/spells/weapons still warn) |
 | Test VM construction | `LuaRuntime::new_for_test()` | 4 hand-assembled copies |
 
 ### Three phases with distinct error policies

@@ -8,18 +8,18 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Context;
+use tfs_rust_common::GameCommand;
 use tokio::net::TcpListener;
 use tokio::task::LocalSet;
 use tracing::{debug, info};
-use tfs_rust_common::GameCommand;
 
 use tfs_rust_net::{
-    open_game_command_channels, Codec, GameWireConfig, LoginWireConfig, OutRegistry, Server,
+    Codec, GameWireConfig, LoginWireConfig, OutRegistry, Server, open_game_command_channels,
 };
 
 use crate::config::{
-    password_hash_config_from, resolve_protocol_version, ConfigManager, DbConfig, MysqlPoolConfig,
-    NetConfig,
+    ConfigManager, DbConfig, MysqlPoolConfig, NetConfig, password_hash_config_from,
+    resolve_protocol_version,
 };
 use crate::event_dispatcher::NullEventDispatcher;
 use crate::game_loop::{run_game_loop, wait_for_shutdown_signal};
@@ -29,8 +29,8 @@ use crate::lua_scope::register_lua_mutation_hooks;
 use crate::map::Map;
 use crate::spawn::SpawnManager;
 use tfs_rust_lua::{
-    assert_required_data_globals, inject_door_tables_from_global, load_action_scripts,
-    load_chat_channel_scripts, load_data_lib, load_talkaction_scripts, LuaRuntime, ScriptLoader,
+    LuaRuntime, ScriptLoader, assert_required_data_globals, inject_door_tables_from_global,
+    load_action_scripts, load_chat_channel_scripts, load_data_lib, load_talkaction_scripts,
 };
 
 /// Resolve PEM: `TFS_RSA_PEM` if set, else workspace-root `key.pem`, else `./key.pem`.
@@ -208,9 +208,9 @@ pub async fn run() -> anyhow::Result<()> {
                             previous_limit_bytes = prev,
                             "Lua VM memory limit overridden from config.lua"
                         ),
-                        Err(e) => tracing::warn!(
-                            "luaMemoryLimit override failed (keeping default): {e}"
-                        ),
+                        Err(e) => {
+                            tracing::warn!("luaMemoryLimit override failed (keeping default): {e}")
+                        }
                     }
                 }
             }
@@ -255,8 +255,14 @@ pub async fn run() -> anyhow::Result<()> {
             if let Err(e) = inject_door_tables_from_global(&lua_runtime, &data_path) {
                 tracing::warn!("Door table inject from global.lua failed: {}", e);
             }
+            // Gap 5a: lib-stage failures are boot-blocking (aggregated list of
+            // every broken file). Content-stage loaders below stay warn-and-continue.
             if let Err(e) = load_data_lib(&lua_runtime, &data_path) {
-                tracing::warn!("data lib loading failed: {}", e);
+                tracing::error!(
+                    "Lib-stage load failed: {e}. \
+                     Aborting startup — fix the data pack before continuing."
+                );
+                anyhow::bail!("lib-stage load failed: {e}");
             }
             // Gap 5: hard-fail at boot if the data-pack load contract regressed —
             // a missing global here would otherwise surface as a `nil` inside a
@@ -340,16 +346,16 @@ pub async fn run() -> anyhow::Result<()> {
 
             // NPC-3: Load declarative NpcType definitions before dispatcher wrap.
             // Hard-fail: unknown spawn names would otherwise place broken NPCs.
-            let npc_database =
-                match lua_runtime.load_npc_definitions(&data_path, items_db.as_ref()) {
-                    Ok(db) => {
-                        tracing::info!(types = db.len(), "Loaded NPC definitions");
-                        db
-                    }
-                    Err(e) => {
-                        return Err(anyhow::anyhow!("NPC definition loading failed: {e}"));
-                    }
-                };
+            let npc_database = match lua_runtime.load_npc_definitions(&data_path, items_db.as_ref())
+            {
+                Ok(db) => {
+                    tracing::info!(types = db.len(), "Loaded NPC definitions");
+                    db
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("NPC definition loading failed: {e}"));
+                }
+            };
 
             let mut loader = ScriptLoader::new(&mut lua_runtime);
             let creature_events = match loader.load_creaturescripts(&data_path) {
@@ -477,12 +483,11 @@ pub async fn run() -> anyhow::Result<()> {
                     }
                 }
                 for row in &lists {
-                    world.houses.apply_list_row(
-                        row.house_id,
-                        row.listid,
-                        &row.list,
-                        |n| name_cache.get(n).copied().flatten(),
-                    );
+                    world
+                        .houses
+                        .apply_list_row(row.house_id, row.listid, &row.list, |n| {
+                            name_cache.get(n).copied().flatten()
+                        });
                 }
                 info!(count = lists.len(), "loaded house access lists");
             }

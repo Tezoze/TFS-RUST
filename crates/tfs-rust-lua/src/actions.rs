@@ -84,40 +84,38 @@ pub fn inject_door_tables_from_global(
 /// C++ reference: `scriptmanager.cpp` `ScriptingManager::loadScriptSystems`
 /// (lib stage) + `script.cpp` `Scripts::loadScripts` (recursive sorted scan).
 ///
-/// `dofile` is not wired in our Lua VM, so we scan the directories recursively
-/// from Rust instead. No file names are hardcoded — the scan picks up whatever
-/// the data pack contains. `data/lib/compat/` and `data/lib/debugging/` are
-/// skipped (only `data/lib/core/` is scanned; minimal blast radius per
-/// `tasks/tools-actions/decisions.md` resolved decision #3).
+/// No file names are hardcoded — the scan picks up whatever the data pack
+/// contains. `data/lib/compat/` and `data/lib/debugging/` are skipped (only
+/// `data/lib/core/` is scanned; minimal blast radius per
+/// `tasks/tools-actions/decisions.md` resolved decision #3). `core.lua` and
+/// `lib.lua` are skipped as `dofile` dispatchers: they double-load every core
+/// file under a recursive scan, and their CWD-relative `dofile` fails outside
+/// the repo root. (Step 11 may replace this scan with the Lua `dofile` chain.)
 ///
 /// Load order is alphabetical (sorted `PathBuf`), matching TVP's `sort(v.begin(),
 /// v.end())`. No `data/lib/core/*.lua` file references another at load time
 /// (the `storages.lua`-first convention in `core.lua` is for script consumers,
 /// not core-file cross-deps), so alphabetical order is safe. The Gap 5
-/// assertion ([`assert_required_data_globals`]) catches any missing global
-/// regardless of which file defines it.
+/// assertion ([`assert_required_data_globals`]) is a cheap extra guard on the
+/// tools contract; the load itself is the primary defense.
 ///
-/// Each file is warn-and-continue: a missing or erroring lib file logs a warning
-/// but does not abort the load, mirroring `combat_scripts.rs` spell-path behavior.
+/// Lib-stage errors are **fatal and aggregated** (Gap 5a): every IO/exec
+/// failure is collected and returned as [`LuaError::LibStageFailures`]. A
+/// broken lib file is a boot-blocking defect — the data pack ships with this
+/// repo. Content-stage loaders (`load_action_scripts`, spell/weapon scans)
+/// stay warn-and-continue so a broken shard script cannot brick the server.
 pub fn load_data_lib(runtime: &LuaRuntime, data_dir: &Path) -> Result<(), LuaError> {
+    let mut failures: Vec<(String, String)> = Vec::new();
+
     // `data/lib/core/**/*.lua` — replicates `data/lib/lib.lua` → `core.lua`
     // dofile chain. Recursive scan, sorted (matches TVP's `sort`).
     let core_dir = data_dir.join("lib/core");
     if core_dir.exists() {
         let mut files: Vec<PathBuf> = Vec::new();
         collect_lua_files(&core_dir, &mut files);
+        files.retain(|p| !is_dofile_dispatcher(p));
         files.sort();
-        for path in &files {
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("lib_core");
-            let src = std::fs::read_to_string(path)
-                .map_err(|e| LuaError::ScriptIo(path.display().to_string(), e.to_string()))?;
-            if let Err(e) = runtime.exec_chunk(name, &src) {
-                tracing::warn!("Failed to load {}: {}", path.display(), e);
-            }
-        }
+        exec_lib_stage_files(runtime, &files, "lib_core", &mut failures);
     } else {
         tracing::warn!("data/lib/core not found: {}", core_dir.display());
     }
@@ -132,17 +130,7 @@ pub fn load_data_lib(runtime: &LuaRuntime, data_dir: &Path) -> Result<(), LuaErr
         let mut files: Vec<PathBuf> = Vec::new();
         collect_lua_files(&scripts_lib_dir, &mut files);
         files.sort();
-        for path in &files {
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("scripts_lib");
-            let src = std::fs::read_to_string(path)
-                .map_err(|e| LuaError::ScriptIo(path.display().to_string(), e.to_string()))?;
-            if let Err(e) = runtime.exec_chunk(name, &src) {
-                tracing::warn!("Failed to load {}: {}", path.display(), e);
-            }
-        }
+        exec_lib_stage_files(runtime, &files, "scripts_lib", &mut failures);
     } else {
         tracing::warn!("data/scripts/lib not found: {}", scripts_lib_dir.display());
     }
@@ -156,27 +144,64 @@ pub fn load_data_lib(runtime: &LuaRuntime, data_dir: &Path) -> Result<(), LuaErr
     // safe.
     let scripts_dir = data_dir.join("scripts");
     if scripts_dir.exists() {
-        let mut top_level: Vec<PathBuf> = std::fs::read_dir(&scripts_dir)
-            .map_err(|e| LuaError::ScriptIo(scripts_dir.display().to_string(), e.to_string()))?
-            .filter_map(std::result::Result::ok)
-            .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|ext| ext == "lua"))
-            .collect();
-        top_level.sort();
-        for path in &top_level {
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("data_scripts_top");
-            let src = std::fs::read_to_string(path)
-                .map_err(|e| LuaError::ScriptIo(path.display().to_string(), e.to_string()))?;
-            if let Err(e) = runtime.exec_chunk(name, &src) {
-                tracing::warn!("Failed to load {}: {}", path.display(), e);
+        match std::fs::read_dir(&scripts_dir) {
+            Ok(entries) => {
+                let mut top_level: Vec<PathBuf> = entries
+                    .filter_map(std::result::Result::ok)
+                    .map(|e| e.path())
+                    .filter(|p| p.extension().is_some_and(|ext| ext == "lua"))
+                    .collect();
+                top_level.sort();
+                exec_lib_stage_files(runtime, &top_level, "data_scripts_top", &mut failures);
+            }
+            Err(e) => {
+                failures.push((scripts_dir.display().to_string(), e.to_string()));
             }
         }
     }
 
-    Ok(())
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(LuaError::LibStageFailures(failures))
+    }
+}
+
+/// `core.lua` / `lib.lua` are `dofile` dispatchers, redundant under a recursive
+/// scan. Skip by filename so a copy in `data/lib/core` cannot sneak back in.
+fn is_dofile_dispatcher(path: &Path) -> bool {
+    matches!(
+        path.file_name().and_then(|n| n.to_str()),
+        Some("core.lua") | Some("lib.lua")
+    )
+}
+
+/// Execute each lib-stage file, collecting IO and exec errors instead of
+/// aborting at the first. Used by [`load_data_lib`] so boot lists every
+/// broken file (Gap 5a). Content-stage loaders must **not** call this — they
+/// warn-and-continue per file.
+fn exec_lib_stage_files(
+    runtime: &LuaRuntime,
+    files: &[PathBuf],
+    fallback_chunk_name: &str,
+    failures: &mut Vec<(String, String)>,
+) {
+    for path in files {
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(fallback_chunk_name);
+        match std::fs::read_to_string(path) {
+            Ok(src) => {
+                if let Err(e) = runtime.exec_chunk(name, &src) {
+                    failures.push((path.display().to_string(), e.to_string()));
+                }
+            }
+            Err(e) => {
+                failures.push((path.display().to_string(), e.to_string()));
+            }
+        }
+    }
 }
 
 /// Expected kind of a required data-pack global, for [`assert_required_data_globals`].
@@ -210,9 +235,11 @@ const REQUIRED_DATA_GLOBALS: &[(&str, GlobalKind)] = &[
 /// right kind after [`load_data_lib`]. Returns `Err(MissingGlobals)` listing the
 /// missing names so a regressed load contract fails fast at boot.
 ///
-/// Call this immediately after `load_data_lib` (and
-/// `inject_door_tables_from_global`, which supplies `table.contains`) — before
-/// any action/spell script load that depends on these globals.
+/// Cheap extra guard on the tools contract; Gap 5a made the load itself the
+/// primary defense (`LuaError::LibStageFailures`). Call immediately after
+/// `load_data_lib` (and `inject_door_tables_from_global`, which supplies
+/// `table.contains`) — before any action/spell script load that depends on
+/// these globals.
 pub fn assert_required_data_globals(runtime: &LuaRuntime) -> Result<(), LuaError> {
     let globals = runtime.lua.globals();
     let mut missing: Vec<String> = Vec::new();
@@ -226,9 +253,7 @@ pub fn assert_required_data_globals(runtime: &LuaRuntime) -> Result<(), LuaError
                 .and_then(|t| t.get::<mlua::Value>(field).ok())
                 .unwrap_or(mlua::Value::Nil)
         } else {
-            globals
-                .get::<mlua::Value>(name)
-                .unwrap_or(mlua::Value::Nil)
+            globals.get::<mlua::Value>(name).unwrap_or(mlua::Value::Nil)
         };
 
         let ok = matches!(
@@ -291,6 +316,41 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data")
     }
 
+    /// Scratch data pack for Gap 5a policy tests. Removed on drop so a panic
+    /// still cleans up.
+    struct TempDataPack(PathBuf);
+
+    impl TempDataPack {
+        fn new() -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "tfs-gap5a-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0)
+            ));
+            std::fs::create_dir_all(dir.join("lib/core")).expect("temp lib/core");
+            std::fs::create_dir_all(dir.join("scripts/lib")).expect("temp scripts/lib");
+            std::fs::create_dir_all(dir.join("scripts")).expect("temp scripts");
+            Self(dir)
+        }
+
+        fn write(&self, rel: &str, contents: &str) {
+            let path = self.0.join(rel);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).expect("temp parent");
+            }
+            std::fs::write(&path, contents).expect("write temp lua");
+        }
+    }
+
+    impl Drop for TempDataPack {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     /// Gap 5 regression guard: after the full lib load stage
     /// (`inject_door_tables_from_global` + `load_data_lib`), every declared
     /// required global must resolve to the right kind. If this fails, the
@@ -317,9 +377,10 @@ mod tests {
     /// `register_class`. Before Gap 7a, nine core lib files failed (e.g.
     /// `function Tile.relocateTo(...` raised "attempt to index global 'Tile'
     /// (a function value)"; `Party`/`Teleport`/`Vocation` were `nil`).
-    /// `load_data_lib` is warn-and-continue, so this test re-runs the same
-    /// scan and surfaces every error — the assertion `load_data_lib` cannot
-    /// make until Gap 5a makes lib-stage failures fatal.
+    /// Gap 5a makes `load_data_lib` fatal for the whole lib stage (including
+    /// `scripts/lib` and top-level `scripts/*.lua`); this test remains the
+    /// per-file 7a guard for `data/lib/core` itself, including `core.lua`
+    /// under a workspace-root CWD.
     #[test]
     fn lib_core_files_load_with_zero_errors() {
         let data_root = workspace_data_root();
@@ -427,6 +488,73 @@ mod tests {
         );
     }
 
+    /// Gap 5a primary guard: Phase 2 (`load_data_lib`) must return `Ok` against
+    /// the shipped data pack. Replaces the 10-name allowlist as the load-stage
+    /// check; `required_data_globals_present_after_lib_load` stays as a cheap
+    /// extra assertion on the tools contract.
+    #[test]
+    fn lib_stage_loads_with_zero_failures() {
+        let data_root = workspace_data_root();
+        if !data_root.join("lib/core").exists() {
+            eprintln!("data/lib/core not present — skipping");
+            return;
+        }
+
+        let runtime = LuaRuntime::new().expect("runtime init");
+        inject_door_tables_from_global(&runtime, &data_root).expect("door tables");
+        load_data_lib(&runtime, &data_root).expect("Phase 2 lib stage must return Ok (Gap 5a)");
+    }
+
+    /// Gap 5a policy: lib-stage exec errors are collected into one
+    /// `LibStageFailures` (not warn-and-continue, not first-error abort), and
+    /// `core.lua` / `lib.lua` dispatchers are skipped so a CWD-relative dofile
+    /// cannot brick boot under the recursive scan.
+    #[test]
+    fn lib_stage_failures_are_fatal_and_aggregated() {
+        let pack = TempDataPack::new();
+        pack.write("lib/core/core.lua", "error('dispatcher should not run')");
+        pack.write(
+            "lib/core/lib.lua",
+            "error('lib.lua dispatcher should not run')",
+        );
+        pack.write("lib/core/ok.lua", "-- fine");
+        pack.write("lib/core/broken_a.lua", "error('boom-a')");
+        pack.write("lib/core/broken_b.lua", "error('boom-b')");
+        pack.write("scripts/lib/ok.lua", "-- fine");
+        pack.write("scripts/scarab_ok.lua", "-- fine");
+
+        let runtime = LuaRuntime::new().expect("runtime init");
+        let err =
+            load_data_lib(&runtime, &pack.0).expect_err("broken lib files must fail the lib stage");
+        let display = format!("{err}");
+        let LuaError::LibStageFailures(failures) = err else {
+            panic!("expected LibStageFailures, got {err:?}");
+        };
+
+        let names: Vec<&str> = failures
+            .iter()
+            .filter_map(|(p, _)| Path::new(p).file_name()?.to_str())
+            .collect();
+        assert!(
+            names.contains(&"broken_a.lua") && names.contains(&"broken_b.lua"),
+            "aggregated failures must list both broken files, got {failures:?}"
+        );
+        assert_eq!(
+            failures.len(),
+            2,
+            "dispatchers and ok files must not be reported, got {failures:?}"
+        );
+        assert!(
+            !names.iter().any(|n| *n == "core.lua" || *n == "lib.lua"),
+            "dofile dispatchers must be skipped, got {failures:?}"
+        );
+
+        assert!(
+            display.contains("boom-a") && display.contains("boom-b"),
+            "Display must list every error, got {display}"
+        );
+    }
+
     #[test]
     fn food_action_loads_and_registers_meat() {
         let data_root = workspace_data_root();
@@ -503,7 +631,10 @@ mod tests {
         );
 
         // Verify key item ids are registered.
-        let all_ids: Vec<u16> = pending.iter().flat_map(|p| p.item_ids.iter().copied()).collect();
+        let all_ids: Vec<u16> = pending
+            .iter()
+            .flat_map(|p| p.item_ids.iter().copied())
+            .collect();
         for expected in [2416u16, 2342, 2566, 2420, 2442, 2553, 2120, 2550, 2554] {
             assert!(
                 all_ids.contains(&expected),
@@ -560,9 +691,7 @@ mod tests {
     fn remere_key_attr_constants_are_string_aliases() {
         let runtime = LuaRuntime::new().expect("runtime init");
         let globals = runtime.lua.globals();
-        let key: String = globals
-            .get("ITEM_ATTRIBUTE_KEYNUMBER")
-            .expect("KEYNUMBER");
+        let key: String = globals.get("ITEM_ATTRIBUTE_KEYNUMBER").expect("KEYNUMBER");
         let hole: String = globals
             .get("ITEM_ATTRIBUTE_KEYHOLENUMBER")
             .expect("KEYHOLE");
@@ -574,9 +703,7 @@ mod tests {
         let quest_v: String = globals
             .get("ITEM_ATTRIBUTE_DOORQUESTVALUE")
             .expect("DOORQUESTVALUE");
-        let level: String = globals
-            .get("ITEM_ATTRIBUTE_DOORLEVEL")
-            .expect("DOORLEVEL");
+        let level: String = globals.get("ITEM_ATTRIBUTE_DOORLEVEL").expect("DOORLEVEL");
         assert_eq!(quest_n, "doorquestnumber");
         assert_eq!(quest_v, "doorquestvalue");
         assert_eq!(level, "doorlevel");
@@ -614,11 +741,15 @@ mod tests {
         let tile = lua.create_userdata(TileRef { x: 1, y: 2, z: 3 }).unwrap();
         globals.set("_probe", tile).unwrap();
         let _: String = lua
-            .load("function Tile.__gap7b_probe(self) return 'Tile' end return _probe:__gap7b_probe()")
+            .load(
+                "function Tile.__gap7b_probe(self) return 'Tile' end return _probe:__gap7b_probe()",
+            )
             .eval()
             .expect("Tile __index fallback");
 
-        let pos = lua.create_userdata(PositionRef { x: 1, y: 2, z: 3 }).unwrap();
+        let pos = lua
+            .create_userdata(PositionRef { x: 1, y: 2, z: 3 })
+            .unwrap();
         globals.set("_probe", pos).unwrap();
         let _: String = lua
             .load("function Position.__gap7b_probe(self) return 'Position' end return _probe:__gap7b_probe()")
@@ -628,7 +759,9 @@ mod tests {
         let item = lua.create_userdata(ItemRef(1)).unwrap();
         globals.set("_probe", item).unwrap();
         let _: String = lua
-            .load("function Item.__gap7b_probe(self) return 'Item' end return _probe:__gap7b_probe()")
+            .load(
+                "function Item.__gap7b_probe(self) return 'Item' end return _probe:__gap7b_probe()",
+            )
             .eval()
             .expect("Item __index fallback");
 

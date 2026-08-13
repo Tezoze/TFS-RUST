@@ -1,3 +1,15 @@
+# Gap 5a: Lib-stage load is fatal and aggregated — 2026-08-13
+
+Phase 2 (`load_data_lib`) returns one `LuaError` listing every broken lib file; boot aborts. Content-stage loaders stay warn-and-continue. Skip `core.lua`/`lib.lua` dispatchers (double-load + CWD-relative `dofile`).
+
+- [x] `LuaError::LibStageFailures` — aggregated `(path, error)` list
+- [x] `load_data_lib` collects failures instead of `tracing::warn!` + continue
+- [x] Skip `core.lua` / `lib.lua` in the `data/lib/core` scan
+- [x] `run_server.rs` `anyhow::bail!` on lib-stage Err (match Gap 5 globals assertion)
+- [x] `load_spell_scripts` propagates lib-stage Err (do not swallow)
+- [x] Tests: `lib_stage_loads_with_zero_failures` + aggregation/skip-dispatcher guard
+- [x] Docs: README / gaps-load / architecture / lessons
+
 # Gap 7c: Revscript ctor globals through `register_class` — 2026-08-13
 
 Unblock `data/scripts/lib` load (3 of 5 files) so Gap 5a can flip the lib stage to fatal.

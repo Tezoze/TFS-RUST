@@ -22,19 +22,19 @@ pub const DEFAULT_LUA_MEMORY_LIMIT_BYTES: usize = 512 * 1024 * 1024;
 
 use crate::constants::register_constants;
 use crate::context::{CreatureRef, ItemRef};
-use crate::userdata::PositionRef;
-use tfs_rust_common::Position;
 use crate::npc_dialogue::register_npc_dialogue;
 use crate::npc_type::register_npc_type;
 use crate::timer_events::{TimerEvents, execute_timer_event, register_add_event_stop_event};
+use crate::userdata::PositionRef;
 use crate::userdata::{
     register_combat_metatable, register_condition_metatable, register_container_metatable,
     register_creature_metatable, register_group_metatable, register_item_metatable,
-    register_npc_metatable,
     register_item_type_constructor, register_item_type_metatable,
-    register_monster_type_constructor, register_position_metatable, register_spell_metatable,
-    register_tile_constructor, register_vocation_metatable, register_weapon_metatable,
+    register_monster_type_constructor, register_npc_metatable, register_position_metatable,
+    register_spell_metatable, register_tile_constructor, register_vocation_metatable,
+    register_weapon_metatable,
 };
+use tfs_rust_common::Position;
 
 /// Wrapper for mlua::RegistryKey — !Send, must stay on game thread.
 #[derive(Debug)]
@@ -1092,9 +1092,7 @@ fn build_cast_variant_spec(
             table.set("number", n)?;
             attach_variant_methods(lua, table)
         }
-        CastVariantSpec::FixedPosition { x, y, z } => {
-            build_position_variant(lua, x, y, z)
-        }
+        CastVariantSpec::FixedPosition { x, y, z } => build_position_variant(lua, x, y, z),
         CastVariantSpec::Position { need_direction } => {
             use crate::context::CURRENT_CTX;
             let (x, y, z) = CURRENT_CTX.with(|c| {
@@ -1167,10 +1165,8 @@ fn attach_variant_methods(lua: &Lua, table: mlua::Table) -> Result<mlua::Value, 
     index
         .set(
             "getNumber",
-            lua.create_function(|_, t: mlua::Table| {
-                Ok(t.get::<u64>("number").unwrap_or(0))
-            })
-            .map_err(LuaError::Init)?,
+            lua.create_function(|_, t: mlua::Table| Ok(t.get::<u64>("number").unwrap_or(0)))
+                .map_err(LuaError::Init)?,
         )
         .map_err(LuaError::Init)?;
     index
@@ -1635,36 +1631,34 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
     // by `function Player:method(...)`) with a `__call` ctor (`Player(name)`).
     // The ctor closure takes `(name)` — `register_class` wraps it to drop the
     // `__call` `self` arg. C++ `LuaScriptInterface::registerClass`.
-    let player_ctor =
-        lua.create_function(|lua, name: String| {
-            let id_opt = crate::context::current_ctx(|ctx| ctx.get_player_by_name(&name)).flatten();
-            match id_opt {
-                Some(id) => {
-                    let ud = lua.create_userdata(crate::context::CreatureRef(id))?;
-                    Ok(mlua::Value::UserData(ud))
-                }
-                None => Ok(mlua::Value::Nil),
+    let player_ctor = lua.create_function(|lua, name: String| {
+        let id_opt = crate::context::current_ctx(|ctx| ctx.get_player_by_name(&name)).flatten();
+        match id_opt {
+            Some(id) => {
+                let ud = lua.create_userdata(crate::context::CreatureRef(id))?;
+                Ok(mlua::Value::UserData(ud))
             }
-        })?;
+            None => Ok(mlua::Value::Nil),
+        }
+    })?;
     crate::class_registry::register_class(lua, "Player", Some(player_ctor))?;
 
     // `Creature(id)` — resolve a creature by slotmap key bits → `CreatureRef`
     // userdata or `nil`. PC-3a Phase 3: `envenom_rune` / `soulfire_rune` use
     // `Creature(variant.number)`. C++ `luascript.cpp` `luaCreatureCreate`.
     // Same `register_class` shape as `Player`: class table + `__call` ctor.
-    let creature_ctor =
-        lua.create_function(|lua, id: u64| {
-            if id == 0 {
-                return Ok(mlua::Value::Nil);
-            }
-            let exists = crate::context::current_ctx(|ctx| ctx.get_creature(id).is_some())
-                .unwrap_or(true);
-            if !exists {
-                return Ok(mlua::Value::Nil);
-            }
-            let ud = lua.create_userdata(crate::context::CreatureRef(id))?;
-            Ok(mlua::Value::UserData(ud))
-        })?;
+    let creature_ctor = lua.create_function(|lua, id: u64| {
+        if id == 0 {
+            return Ok(mlua::Value::Nil);
+        }
+        let exists =
+            crate::context::current_ctx(|ctx| ctx.get_creature(id).is_some()).unwrap_or(true);
+        if !exists {
+            return Ok(mlua::Value::Nil);
+        }
+        let ud = lua.create_userdata(crate::context::CreatureRef(id))?;
+        Ok(mlua::Value::UserData(ud))
+    })?;
     crate::class_registry::register_class(lua, "Creature", Some(creature_ctor))?;
 
     let globals = lua.globals();
@@ -1827,8 +1821,8 @@ end
 /// `Game` table methods — PC-3a Phase 6 + Gap 5 (`Game.getWorldType` / `createMonster`).
 /// C++ `luascript.cpp` `luaGameGetWorldType` / `luaGameCreateMonster`.
 fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
-    use crate::lua_mutation::{call_clear_field, call_create_monster};
     use crate::context::{CreatureRef, ItemRef};
+    use crate::lua_mutation::{call_clear_field, call_create_monster};
     use crate::userdata::position::PositionRef;
     // `Game` is a class table (extensible by `function Game:method(...)` in
     // `data/lib/core/game.lua`) with no constructor — `register_class(_, None)`
@@ -1888,31 +1882,27 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
     // 772 `ClearField` — shove creatures/items off a door tile before close.
     game.set(
         "clearField",
-        lua.create_function(
-            |_, (item, exclude): (Value, Option<Value>)| {
-                let item_id = match item {
-                    Value::UserData(ud) => ud.borrow::<ItemRef>()?.0,
-                    _ => {
-                        return Err(mlua::Error::runtime(
-                            "Game.clearField: item must be Item userdata",
-                        ));
-                    }
-                };
-                let exclude_cid = match exclude {
-                    None | Some(Value::Nil) => None,
-                    Some(Value::UserData(ud)) => {
-                        Some(ud.borrow::<CreatureRef>()?.0)
-                    }
-                    Some(_) => {
-                        return Err(mlua::Error::runtime(
-                            "Game.clearField: exclude must be Creature or nil",
-                        ));
-                    }
-                };
-                call_clear_field(item_id, exclude_cid).map_err(mlua::Error::runtime)?;
-                Ok(())
-            },
-        )?,
+        lua.create_function(|_, (item, exclude): (Value, Option<Value>)| {
+            let item_id = match item {
+                Value::UserData(ud) => ud.borrow::<ItemRef>()?.0,
+                _ => {
+                    return Err(mlua::Error::runtime(
+                        "Game.clearField: item must be Item userdata",
+                    ));
+                }
+            };
+            let exclude_cid = match exclude {
+                None | Some(Value::Nil) => None,
+                Some(Value::UserData(ud)) => Some(ud.borrow::<CreatureRef>()?.0),
+                Some(_) => {
+                    return Err(mlua::Error::runtime(
+                        "Game.clearField: exclude must be Creature or nil",
+                    ));
+                }
+            };
+            call_clear_field(item_id, exclude_cid).map_err(mlua::Error::runtime)?;
+            Ok(())
+        })?,
     )?;
     // `Game` was registered via `register_class` above; methods were attached
     // directly to that class table. No global set needed here.
@@ -1992,9 +1982,10 @@ impl RegisterLuaFunctions for MinimalGlobalFunctions {
                 let Some(name) = name else {
                     return Ok(Some(false));
                 };
-                Ok(Some(crate::context::current_ctx(|ctx| {
-                    ctx.get_config_bool(&name).unwrap_or(false)
-                }).unwrap_or(false)))
+                Ok(Some(
+                    crate::context::current_ctx(|ctx| ctx.get_config_bool(&name).unwrap_or(false))
+                        .unwrap_or(false),
+                ))
             })?,
         )?;
         globals.set("configManager", config_manager)?;
@@ -2021,7 +2012,8 @@ impl RegisterLuaFunctions for MinimalGlobalFunctions {
         globals.set(
             "setWorldLight",
             lua.create_function(|_, (level, color): (u8, u8)| {
-                let ok = crate::lua_mutation::call_lua_set_world_light(level, color).unwrap_or(false);
+                let ok =
+                    crate::lua_mutation::call_lua_set_world_light(level, color).unwrap_or(false);
                 Ok(ok)
             })?,
         )?;
@@ -2089,8 +2081,27 @@ pub enum LuaError {
     #[error("Missing required data globals after load_data_lib: {0:?}")]
     MissingGlobals(Vec<String>),
 
+    /// Aggregated Phase 2 (lib-stage) load failures. Gap 5a: the data pack ships
+    /// with this repo, so a lib file that does not load is boot-blocking. Lists
+    /// every file rather than stopping at the first so one boot log covers the
+    /// whole stage. Content-stage (revscript) loaders stay warn-and-continue.
+    #[error("{}", format_lib_stage_failures(.0))]
+    LibStageFailures(Vec<(String, String)>),
+
     #[error("Not implemented")]
     NotImplemented,
+}
+
+/// Format [`LuaError::LibStageFailures`] as a multi-line boot diagnostic.
+fn format_lib_stage_failures(failures: &[(String, String)]) -> String {
+    let mut out = format!("lib-stage load failures ({}):", failures.len());
+    for (path, err) in failures {
+        out.push_str("\n  ");
+        out.push_str(path);
+        out.push_str(": ");
+        out.push_str(err);
+    }
+    out
 }
 
 #[cfg(test)]

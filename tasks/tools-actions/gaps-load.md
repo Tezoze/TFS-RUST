@@ -31,7 +31,7 @@ These scripts **load fine** (the calls are inside `onUse`, deferred to use-time)
 
 Unblocks 7 of 9 scripts at runtime with zero new Rust API code.
 
-## Gap 5 — Load contract is implicit and fails silently ⚠️ PARTIAL (2026-08-10)
+## Gap 5 — Load contract is implicit and fails silently ✅ DONE (2026-08-13, 5a closed remaining hole)
 
 The load order was incidental rather than declared, and every dependency failure was a `nil` global discovered at use-time, not at boot:
 
@@ -52,29 +52,12 @@ The load order was incidental rather than declared, and every dependency failure
 
 This gives Rust-style fail-fast at the boundary while keeping the data pack overridable. It is the actual mitigation for the concern that motivates "just put it in Rust."
 
-**Gap 5a — remaining work: warn-and-continue defeats the assertion (verified 2026-08-10)**
+**Gap 5a — lib-stage fatal ✅ DONE (2026-08-13)**
 
-The recursive scan is correct and should stay. But `load_data_lib` logs lib-stage load errors as `tracing::warn!` and continues (`actions.rs:117-119`, `:142-144`, `:173-175`), and the assertion only checks 10 hand-listed names. Probe result — **9 of 17 `data/lib/core/*.lua` files fail to load, and `required_data_globals_present_after_lib_load` still passes:**
+The recursive scan is correct and stays. `load_data_lib` no longer `tracing::warn!`s and continues: every IO/exec failure across `data/lib/core/**` (minus `core.lua`/`lib.lua` dispatchers), `data/scripts/lib/**`, and top-level `data/scripts/*.lua` is collected into `LuaError::LibStageFailures`. `run_server.rs` `anyhow::bail!`s on that error (same pattern as the Gap 5 globals assertion). Content-stage loaders (`load_action_scripts`, spell/weapon scans) stay warn-and-continue.
 
-```
-OK   achievements  actionids  constants  container  creature  game  player  storages
-FAIL combat.lua    :1   attempt to index global 'Combat' (a function value)
-FAIL tile.lua      :1   attempt to index global 'Tile' (a function value)
-FAIL position.lua  :10  attempt to index global 'Position' (a function value)
-FAIL itemtype.lua  :14  attempt to index global 'ItemType' (a function value)
-FAIL item.lua      :111 (same — ItemType.getNameDescription)
-FAIL party.lua     :1   'Party' (a nil value)
-FAIL teleport.lua  :1   'Teleport' (a nil value)
-FAIL vocation.lua  :1   'Vocation' (a nil value)
-FAIL core.lua      cannot open data/lib/... (dofile, CWD-relative)
-```
+`core.lua` / `lib.lua` are skipped so the recursive scan does not double-load every core file and so CWD-relative `dofile` cannot brick boot outside the repo root.
 
-Over half the core lib is missing at runtime and boot is green — exactly the silent-`nil` failure mode Gap 5 was written to eliminate. A curated 10-name allowlist cannot scale to cover the data pack; the load itself must be the guard.
+`assert_required_data_globals` stays as a cheap extra guard on the tools contract; `lib_stage_loads_with_zero_failures` is the primary load-stage test. `lib_stage_failures_are_fatal_and_aggregated` locks the policy (two broken files → one error listing both; dispatchers skipped).
 
-**Fix:**
-- Make lib-stage load errors **fatal**: collect failures across the scan and return an aggregated `LuaError` listing every file + error, instead of `tracing::warn!` + continue. The data pack is a build artifact of this repo — a lib file that does not parse is a boot-blocking defect, not a warning. (Per-script *revscript* loads under `data/scripts/actions/**` may stay warn-and-continue; a broken shard script should not brick the server. The distinction is lib stage vs content stage.)
-- Skip `core.lua` and `lib.lua` in the `data/lib/core` scan — they are `dofile` dispatchers, redundant under a recursive scan, and their CWD-relative `dofile` fails outside the repo root. (Gap 7 has landed, so loading them for real is now possible — see step 11 in the [implementation order](README.md#suggested-implementation-order).)
-- Keep `assert_required_data_globals` as a cheap extra guard on the specific tools contract, but it is no longer the primary defense.
-- **Was blocked on Gap 7a** for the `data/lib/core` stage — those 9 failures are gone (0 of 17 fail as of 2026-08-13). **Was blocked on Gap 7c** for the `data/scripts/lib` stage — those 3 failures are gone (5/5 load as of 2026-08-13). Gap 5a can now flip the lib stage to fatal. See [*Re-audit 2026-08-13*](re-audit-2026-08-13.md).
-
-**Order note:** Gap 7a/7b/7c are done. Order now: **5a → 3**.
+**Order note:** Gap 7a/7b/7c/5a are done. Order now: **`new_for_test()` → 3**.
