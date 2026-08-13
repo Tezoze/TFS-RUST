@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
-    "commit": "c5ad4a97ddce875d1bada0af8211a6d8be625038",
-    "indexed_at": "2026-08-09T06:28:50Z",
+    "commit": "0a5772d0d0cb48835a66710032c4a856d6ac41fe",
+    "indexed_at": "2026-08-13T10:44:19Z",
     "project": "mnt-storage2-TFS_RUST",
-    "nodes": 27955,
-    "edges": 177616,
-    "original_size": 96534528,
-    "compressed_size": 16678236,
+    "nodes": 28084,
+    "edges": 179110,
+    "original_size": 97320960,
+    "compressed_size": 16759931,
     "compression_level": 3
 }
