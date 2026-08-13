@@ -107,7 +107,7 @@ Then:
 
 Native Rust methods keep priority — mlua 0.12's generated `__index` (`mlua-0.12.0/src/userdata/util.rs:311-333`) checks field getters → registered methods → the user `__index` function **last**, so a Lua override cannot silently shadow an engine method by construction. Verified by `gap7b_native_method_wins_over_lua_override` (native `getId` wins over a Lua override on `ItemType`/`Vocation`). This also means adding `MetaMethod::Index` to `PositionRef` (which has `add_fields` for x/y/z) is safe — field getters are checked first.
 
-Gap 7a/7b are two small helpers plus ~10 mechanical call-site edits. **The "bug class cannot recur" claim was premature** (re-audit 2026-08-13): `globals.set(Name, ctor_fn)` still exists for `Action`, `TalkAction`, `MoveEvent`, `Channel`, `Condition`, `Variant`, `MonsterType`, and `CreatureEvent`/`GlobalEvent` are still absent — Gap 7c. The bug class stops recurring only once every one of those routes through `register_class` **and** a table-driven test enumerates them.
+Gap 7a/7b are two small helpers plus ~10 mechanical call-site edits. Gap 7c closed the remaining `globals.set(Name, ctor_fn)` bypasses (`Action`, `TalkAction`, `MoveEvent`, `Channel`, `Condition`, `Variant`, `MonsterType`) and added `CreatureEvent`/`GlobalEvent`. The table-driven `all_class_globals_are_tables` test enumerates every `register_class` name so the bug class cannot recur for those globals. (`NpcType` / `NpcDialogue` are still bare functions — out of 7c scope; add them the same way if a lib file starts indexing them.)
 
 **Tests (all passing):**
 - every class global is a `table`, and still callable where it has a constructor (7a: `register_class_*` tests)
@@ -116,13 +116,17 @@ Gap 7a/7b are two small helpers plus ~10 mechanical call-site edits. **The "bug 
 - a native Rust method still wins over a same-named Lua method on the class table — `gap7b_native_method_wins_over_lua_override`
 - chain walk + fall-through + best-effort skip of missing/non-table globals — `class_index_lookup_walks_chain_first_hit_wins`, `class_index_lookup_returns_nil_for_missing_or_non_table_global`
 
-**Scope:** was a **prerequisite for Gap 5a and Gap 3**. Nine core lib files were failing to load because of this; they now load (7a) and their methods are callable through userdata (7b), so Gap 3's inventory could be re-audited against a fully-loaded lib ([re-audit-2026-08-13.md](re-audit-2026-08-13.md#gap-3--re-audit-result-supersedes-the-gap-3-correction-table)). Gap 5a is **only half unblocked** — the `data/scripts/lib` stage still fails; see 7c below.
+**Scope:** was a **prerequisite for Gap 5a and Gap 3**. Nine core lib files were failing to load because of this; they now load (7a) and their methods are callable through userdata (7b), so Gap 3's inventory could be re-audited against a fully-loaded lib ([re-audit-2026-08-13.md](re-audit-2026-08-13.md#gap-3--re-audit-result-supersedes-the-gap-3-correction-table)). Gap 5a is **unblocked** — the `data/scripts/lib` stage loads clean after 7c.
 
-## Gap 7c — revscript constructor globals still bypass `register_class`
+## Gap 7c — revscript constructor globals ✅ done 2026-08-13
 
-Scope: route the 7 remaining bare-function class globals through `register_class(lua, name, Some(ctor))`, add `CreatureEvent` / `GlobalEvent` (they need a `__call`, not just a table — see the notes below), and decide the `createFunctions` question (load `data/lib/compat/compat.lua`, port it, or exclude `create_functions.lua`). Then add the table-driven `all_class_globals_are_tables` test that does not yet exist. Unblocks the `data/scripts/lib` half of Gap 5a. Details and probe output: [re-audit-2026-08-13.md](re-audit-2026-08-13.md#gap-7c--gap-7a-is-not-complete-new).
+Routed the 7 remaining bare-function class globals through `register_class(lua, name, Some(ctor))`, added `CreatureEvent` / `GlobalEvent` (plain tables with `__call`, matching `Action`), ported `createFunctions` into `data/lib/core/create_functions.lua` (not the full compat layer — [resolved decision #3](decisions.md#resolved-decisions) / new decision #11). `data/scripts/lib` loads 5/5. Unblocks Gap 5a. Details and probe output: [re-audit-2026-08-13.md](re-audit-2026-08-13.md#gap-7c--gap-7a-is-not-complete-new).
 
-**Notes for the implementation:**
-- `MonsterType` needs the **class table** (7a-style) for `register_monster_type.lua:12` (`MonsterType.register = function(self, mask)`) to load. A `MonsterTypeRef` `__index` **chain** (7b-style) is only needed if a loaded script calls `mType:register(...)` through userdata — today the only such call is in `data/monster/lua/#example.lua`, which TVP's loader skips (`#` prefix). Decide explicitly rather than adding a speculative chain.
-- `helper_constructors.lua` wraps `getmetatable(class).__call`, so every one of `{Action, CreatureEvent, Spell, TalkAction, MoveEvent, GlobalEvent, Weapon}` needs a `__call` — a table-only `register_class(_, None)` is **not** enough for that file.
-- The `createFunctions` decision is a policy call, not a bug fix: it conflicts with [resolved decision #3](decisions.md#resolved-decisions) (do not load `compat.lua`). Settle it before Gap 5a flips the stage to fatal.
+**Decisions made:**
+- `MonsterType` is a class table (7a-style) so `register_monster_type.lua:12` (`MonsterType.register = function(self, mask)`) loads. **No** `MonsterTypeRef` `__index` chain (7b-style): the only `mType:register(...)` call is in `data/monster/lua/#example.lua`, which the loader skips (`#` prefix).
+- `{Action, CreatureEvent, Spell, TalkAction, MoveEvent, GlobalEvent, Weapon}` all have `__call` so `helper_constructors.lua` can wrap `getmetatable(class).__call`. `CreatureEvent`/`GlobalEvent` constructors follow the `Action` plain-table pattern (`:type` / `:register` push into `_pending_*`; drained by a future content-stage loader).
+- `createFunctions`: **ported** into `data/lib/core/create_functions.lua` (also dofile'd from `core.lua`). Do not load `compat.lua`.
+
+**Tests:**
+- `all_class_globals_are_tables` — every `register_class` name on a real `LuaRuntime` is a `table`; `__call` present iff a ctor was attached; `REQUIRED_CLASS_GLOBALS` must all be in the registry (catches a `globals.set` bypass); `HELPER_CTOR_CLASSES` must all be callable.
+- `scripts_lib_files_load_with_zero_failures` — `data/scripts/lib/**` loads clean.

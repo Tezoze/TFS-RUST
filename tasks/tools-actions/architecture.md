@@ -61,7 +61,7 @@ The gaps in [gaps-load.md](gaps-load.md), [gaps-lua-api.md](gaps-lua-api.md) and
 
 | Concern | Single owner | Today |
 |---|---|---|
-| Class globals (`Tile`, `Combat`, …) | `register_class` (Gap 7a) ✅ userdata classes; ⚠️ 7 revscript ctor globals still use `globals.set` (Gap 7c) | 3 competing mechanisms, order-dependent |
+| Class globals (`Tile`, `Combat`, …) | `register_class` (Gap 7a+7c) ✅ | 3 competing mechanisms, order-dependent |
 | Userdata → class-table method lookup | shared `__index` chain helper (Gap 7b) ✅ | one hardcoded `"Player"` fallback; every other userdata had none |
 | Lib-stage load + error policy | `load_data_lib`, **fatal** | warn-and-continue, hides 9 failures |
 | Content-stage load + error policy | per-subsystem loaders, **warn** | same as lib — no distinction |

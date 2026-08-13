@@ -203,6 +203,13 @@ impl LuaRuntime {
         lua.globals()
             .set("_pending_move_events", pending_move_events)?;
 
+        // Pending buffers for CreatureEvent:register() / GlobalEvent:register()
+        // (Gap 7c constructors; drained by a future content-stage loader).
+        lua.globals()
+            .set("_pending_creature_events", lua.create_table()?)?;
+        lua.globals()
+            .set("_pending_global_events", lua.create_table()?)?;
+
         // NPC-1 pending buffers (also re-init'd in load_npc_definitions).
         lua.globals().set("_pending_npcs", lua.create_table()?)?;
         lua.globals()
@@ -1234,7 +1241,7 @@ fn register_variant_constructor(lua: &Lua) -> Result<(), mlua::Error> {
             )),
         }
     })?;
-    lua.globals().set("Variant", f)?;
+    crate::class_registry::register_class(lua, "Variant", Some(f))?;
     // `luascript.h` LuaVariantType_t
     let g = lua.globals();
     g.set("VARIANT_NUMBER", VARIANT_NUMBER)?;
@@ -1251,19 +1258,19 @@ pub trait RegisterLuaFunctions {
 }
 
 /// Self-registering content constructors (`Channel`, `TalkAction`, `Action`,
-/// `MoveEvent`), the `Condition`/`ItemType` userdata constructors, and the
-/// `Player`/`Creature` class tables with `__call` constructors.
+/// `MoveEvent`, `CreatureEvent`, `GlobalEvent`), the `Condition`/`ItemType`
+/// userdata constructors, and the `Player`/`Creature` class tables with
+/// `__call` constructors.
 ///
 /// Class globals are created via `crate::class_registry::register_class` — the
 /// single owner — so a class is callable *and* extensible regardless of init
 /// order. Table-only classes (`Monster`, `Npc`, `Item`, `Container`, `Party`,
 /// `Teleport`, `Vocation`) are registered by `register_engine_class_tables`
-/// in `LuaRuntime::new`.
+/// in `LuaRuntime::new`. Gap 7c routes the remaining revscript ctors through
+/// the same primitive (no more `globals.set(Name, ctor_fn)`).
 ///
 /// C++ reference: `LuaScriptInterface::registerClass` — `src/luascript.cpp`.
 pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Error> {
-    let globals = lua.globals();
-
     // `Channel(id, name)` — self-registering chat-channel constructor.
     //
     // Returns a plain Lua **table** (not userdata). Scripts attach hooks as table fields
@@ -1301,7 +1308,7 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
         )?;
         Ok(ch)
     })?;
-    globals.set("Channel", channel_constructor)?;
+    crate::class_registry::register_class(lua, "Channel", Some(channel_constructor))?;
 
     // `Condition(type[, id])` — real `ConditionBuilder` userdata (LUA-4 §1.6).
     // Replaces the no-op soul stub. `player.lua`'s `soulCondition` build
@@ -1318,7 +1325,7 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
         let ud = lua.create_userdata(builder)?;
         Ok(mlua::Value::UserData(ud))
     })?;
-    globals.set("Condition", condition)?;
+    crate::class_registry::register_class(lua, "Condition", Some(condition))?;
 
     // `ItemType(nameOrId)` — real `ItemTypeRef` userdata (CH-6). Resolves a
     // name string to a server item type id via `ScriptContext`, or wraps a
@@ -1392,7 +1399,7 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
         )?;
         Ok(ta)
     })?;
-    globals.set("TalkAction", talkaction_constructor)?;
+    crate::class_registry::register_class(lua, "TalkAction", Some(talkaction_constructor))?;
 
     // `Action()` — self-registering action constructor (doors / food / levers).
     //
@@ -1449,7 +1456,7 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
         )?;
         Ok(action)
     })?;
-    globals.set("Action", action_constructor)?;
+    crate::class_registry::register_class(lua, "Action", Some(action_constructor))?;
 
     // `MoveEvent()` — self-registering move-event constructor (doors auto-close / tiles).
     //
@@ -1541,7 +1548,80 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
         )?;
         Ok(me)
     })?;
-    globals.set("MoveEvent", moveevent_constructor)?;
+    crate::class_registry::register_class(lua, "MoveEvent", Some(moveevent_constructor))?;
+
+    // `CreatureEvent(name)` — self-registering creature-event constructor.
+    //
+    // Plain Lua **table** (not userdata), same pattern as `Action`. Scripts
+    // attach `function creatureevent.onLogin(...)` then `:register()`. Needs
+    // `__call` so `helper_constructors.lua` can wrap `getmetatable(class).__call`.
+    // C++ reference: `luascript.cpp` `luaCreateCreatureEvent` /
+    // `creatureevent.cpp` `CreatureEvents::registerLuaEvent`. Gap 7c.
+    let creatureevent_constructor = lua.create_function(|lua, name: String| {
+        let ev = lua.create_table()?;
+        ev.set("name", name)?;
+        ev.set(
+            "type",
+            lua.create_function(|_, (this, type_name): (mlua::Table, String)| {
+                this.set("_type", type_name)?;
+                Ok(this)
+            })?,
+        )?;
+        ev.set(
+            "register",
+            lua.create_function(|lua, this: mlua::Table| {
+                let pending: mlua::Table = lua.globals().get("_pending_creature_events")?;
+                let len = pending.len()?;
+                pending.set(len + 1, this)?;
+                Ok(())
+            })?,
+        )?;
+        Ok(ev)
+    })?;
+    crate::class_registry::register_class(lua, "CreatureEvent", Some(creatureevent_constructor))?;
+
+    // `GlobalEvent(name)` — self-registering global-event constructor.
+    //
+    // Plain Lua **table**, same pattern as `CreatureEvent` / `Action`. Scripts
+    // attach `function globalevent.onShutdown(...)` then `:register()`.
+    // C++ reference: `luascript.cpp` `luaCreateGlobalEvent` /
+    // `globalevent.cpp` `GlobalEvents::registerLuaEvent`. Gap 7c.
+    let globalevent_constructor = lua.create_function(|lua, name: String| {
+        let ev = lua.create_table()?;
+        ev.set("name", name)?;
+        ev.set(
+            "type",
+            lua.create_function(|_, (this, type_name): (mlua::Table, String)| {
+                this.set("_type", type_name)?;
+                Ok(this)
+            })?,
+        )?;
+        ev.set(
+            "time",
+            lua.create_function(|_, (this, time): (mlua::Table, String)| {
+                this.set("_time", time)?;
+                Ok(this)
+            })?,
+        )?;
+        ev.set(
+            "interval",
+            lua.create_function(|_, (this, interval): (mlua::Table, u32)| {
+                this.set("_interval", interval)?;
+                Ok(this)
+            })?,
+        )?;
+        ev.set(
+            "register",
+            lua.create_function(|lua, this: mlua::Table| {
+                let pending: mlua::Table = lua.globals().get("_pending_global_events")?;
+                let len = pending.len()?;
+                pending.set(len + 1, this)?;
+                Ok(())
+            })?,
+        )?;
+        Ok(ev)
+    })?;
+    crate::class_registry::register_class(lua, "GlobalEvent", Some(globalevent_constructor))?;
 
     // `doRelocate(fromPos, toPos[, force])` — compat relocate leftovers off a tile.
     // C++ domain: used by `closing_doors.lua` / map scripts; body from `compat.lua`.
@@ -1586,6 +1666,8 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
             Ok(mlua::Value::UserData(ud))
         })?;
     crate::class_registry::register_class(lua, "Creature", Some(creature_ctor))?;
+
+    let globals = lua.globals();
 
     // `sendChannelMessage(channelId, type, message)` — LUA-4 §1.7.
     // Server-originated channel broadcast (anonymous speaker). Routes to

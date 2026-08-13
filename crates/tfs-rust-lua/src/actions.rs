@@ -364,6 +364,69 @@ mod tests {
         );
     }
 
+    /// Gap 7c regression guard: every `data/scripts/lib/**/*.lua` file must
+    /// load without error once revscript ctor globals go through
+    /// `register_class` and `createFunctions` is defined in `data/lib/core`.
+    /// Before Gap 7c, 3 of 5 failed (`create_functions.lua`,
+    /// `helper_constructors.lua`, `register_monster_type.lua`).
+    #[test]
+    fn scripts_lib_files_load_with_zero_failures() {
+        let data_root = workspace_data_root();
+        let scripts_lib_dir = data_root.join("scripts/lib");
+        if !scripts_lib_dir.exists() {
+            eprintln!("data/scripts/lib not present — skipping");
+            return;
+        }
+
+        let workspace_root = data_root.parent().expect("data/ has a parent");
+        let prev_cwd = std::env::current_dir().ok();
+        std::env::set_current_dir(workspace_root).expect("chdir to workspace root");
+
+        let runtime = LuaRuntime::new().expect("runtime init");
+        inject_door_tables_from_global(&runtime, &data_root).expect("door tables");
+
+        // `createFunctions` lives in `data/lib/core` (Gap 7c port; not compat.lua).
+        let core_dir = data_root.join("lib/core");
+        if core_dir.exists() {
+            let mut core_files: Vec<PathBuf> = Vec::new();
+            collect_lua_files(&core_dir, &mut core_files);
+            core_files.sort();
+            for path in &core_files {
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("lib_core");
+                let src = std::fs::read_to_string(path).expect("read core lib file");
+                let _ = runtime.exec_chunk(name, &src);
+            }
+        }
+
+        let mut files: Vec<PathBuf> = Vec::new();
+        collect_lua_files(&scripts_lib_dir, &mut files);
+        files.sort();
+
+        let mut errors = Vec::new();
+        for path in &files {
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("scripts_lib");
+            let src = std::fs::read_to_string(path).expect("read scripts/lib file");
+            if let Err(e) = runtime.exec_chunk(name, &src) {
+                errors.push((path.display().to_string(), e.to_string()));
+            }
+        }
+
+        if let Some(prev) = prev_cwd {
+            let _ = std::env::set_current_dir(prev);
+        }
+
+        assert!(
+            errors.is_empty(),
+            "data/scripts/lib load failures (Gap 7c regression): {errors:?}"
+        );
+    }
+
     #[test]
     fn food_action_loads_and_registers_meat() {
         let data_root = workspace_data_root();

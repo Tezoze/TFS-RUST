@@ -7,9 +7,63 @@
 //! Idempotent and order-independent: never replaces an existing table, so the
 //! registration sequence in `LuaRuntime::new` no longer decides whether a class
 //! ends up callable, extensible, both, or `nil`.
-//! See `tasks/tools-actions/gap7-class-globals.md` (Gap 7a).
+//! See `tasks/tools-actions/gap7-class-globals.md` (Gap 7a / 7c).
 
 use mlua::{Function, Lua, MultiValue, Table, Value};
+
+/// Lua-registry key for the name → callable map written by [`register_class`].
+const REGISTERED_CLASSES_KEY: &str = "tfs_registered_classes";
+
+/// Engine class globals that must go through [`register_class`].
+///
+/// `all_class_globals_are_tables` asserts every name here is in the registry
+/// (so a `globals.set(Name, ctor_fn)` bypass cannot hide) **and** enumerates
+/// whatever else `register_class` recorded (so a new class is covered without
+/// a new test row). Gap 7c.
+#[cfg(test)]
+pub(crate) const REQUIRED_CLASS_GLOBALS: &[&str] = &[
+    // 7a — userdata / table-only
+    "Combat",
+    "Container",
+    "Creature",
+    "Game",
+    "Item",
+    "ItemType",
+    "Monster",
+    "Npc",
+    "Party",
+    "Player",
+    "Position",
+    "Spell",
+    "Teleport",
+    "Tile",
+    "Vocation",
+    "Weapon",
+    // 7c — revscript constructors
+    "Action",
+    "Channel",
+    "Condition",
+    "CreatureEvent",
+    "GlobalEvent",
+    "MonsterType",
+    "MoveEvent",
+    "TalkAction",
+    "Variant",
+];
+
+/// Classes `data/scripts/lib/helper_constructors.lua` wraps via
+/// `getmetatable(class).__call`. A table-only `register_class(_, None)` is
+/// not enough — each needs a constructor.
+#[cfg(test)]
+pub(crate) const HELPER_CTOR_CLASSES: &[&str] = &[
+    "Action",
+    "CreatureEvent",
+    "Spell",
+    "TalkAction",
+    "MoveEvent",
+    "GlobalEvent",
+    "Weapon",
+];
 
 /// Userdata `__index` fallback chains (Gap 7b).
 ///
@@ -136,7 +190,41 @@ pub(crate) fn register_class(
             }
         }
     }
+    let callable = table
+        .metatable()
+        .map(|mt| mt.get::<Function>("__call").is_ok())
+        .unwrap_or(false);
+    record_registered_class(lua, name, callable)?;
     Ok(table)
+}
+
+fn record_registered_class(lua: &Lua, name: &str, callable: bool) -> Result<(), mlua::Error> {
+    let table = match lua.named_registry_value::<Table>(REGISTERED_CLASSES_KEY) {
+        Ok(t) => t,
+        Err(_) => {
+            let t = lua.create_table()?;
+            lua.set_named_registry_value(REGISTERED_CLASSES_KEY, t.clone())?;
+            t
+        }
+    };
+    table.set(name, callable)?;
+    Ok(())
+}
+
+/// Names recorded by [`register_class`] on this VM, as `(name, has_call)`.
+/// Sorted by name. Empty when nothing has been registered yet.
+#[cfg(test)]
+pub(crate) fn registered_class_entries(lua: &Lua) -> Result<Vec<(String, bool)>, mlua::Error> {
+    let Ok(table) = lua.named_registry_value::<Table>(REGISTERED_CLASSES_KEY) else {
+        return Ok(Vec::new());
+    };
+    let mut entries = Vec::new();
+    for pair in table.pairs::<String, bool>() {
+        let (name, callable) = pair?;
+        entries.push((name, callable));
+    }
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(entries)
 }
 
 /// Register the table-only engine classes — those the data pack extends via
@@ -145,8 +233,9 @@ pub(crate) fn register_class(
 /// on a hardcoded bootstrap list.
 ///
 /// Ctor-bearing classes (`Tile`, `Position`, `Combat`, `ItemType`, `Spell`,
-/// `Weapon`, `Player`, `Creature`, `Game`) register themselves via their own
-/// registrars and are intentionally NOT created here.
+/// `Weapon`, `Player`, `Creature`, `Game`, plus Gap 7c revscript ctors)
+/// register themselves via their own registrars and are intentionally NOT
+/// created here.
 pub(crate) fn register_engine_class_tables(lua: &Lua) -> Result<(), mlua::Error> {
     // `Monster` / `Npc` — event hooks (`function Monster:onDropLoot`, …). The
     // data pack also calls `Npc()` / `Monster()` as constructors; those are a
@@ -303,5 +392,64 @@ mod tests {
         let key = lua.create_string("anything").expect("key");
         let v = class_index_lookup(&lua, CREATURE_INDEX_CHAIN, key).expect("lookup");
         assert!(matches!(v, Value::Nil), "non-table global → Nil, no error");
+    }
+
+    /// Gap 7c — every name that went through `register_class` on a real
+    /// `LuaRuntime` is a Lua `table`, and `__call` is present exactly where a
+    /// ctor was attached. Table-driven via the registry so a new
+    /// `register_class` call is covered without a new test row. The required
+    /// list catches a `globals.set(Name, ctor_fn)` bypass of a known class.
+    #[test]
+    fn all_class_globals_are_tables() {
+        let runtime = crate::runtime::LuaRuntime::new().expect("runtime init");
+        let lua = &runtime.lua;
+        let entries = registered_class_entries(lua).expect("registry");
+        assert!(
+            !entries.is_empty(),
+            "register_class must record at least the engine classes"
+        );
+
+        let registered: std::collections::HashSet<&str> =
+            entries.iter().map(|(n, _)| n.as_str()).collect();
+        for name in REQUIRED_CLASS_GLOBALS {
+            assert!(
+                registered.contains(name),
+                "{name} must go through register_class (Gap 7c bypass)"
+            );
+        }
+
+        for (name, callable) in &entries {
+            let kind: String = lua
+                .load(&format!("return type({name})"))
+                .eval()
+                .unwrap_or_else(|e| panic!("type({name}): {e}"));
+            assert_eq!(kind, "table", "{name} must be a class table, got {kind}");
+
+            let has_call: bool = lua
+                .load(&format!(
+                    "local mt = getmetatable({name})
+                     return mt ~= nil and type(mt.__call) == 'function'"
+                ))
+                .eval()
+                .unwrap_or_else(|e| panic!("getmetatable({name}).__call: {e}"));
+            assert_eq!(
+                has_call, *callable,
+                "{name}: registry callable={callable} but getmetatable.__call is {has_call}"
+            );
+        }
+
+        for name in HELPER_CTOR_CLASSES {
+            let has_call: bool = lua
+                .load(&format!(
+                    "local mt = getmetatable({name})
+                     return mt ~= nil and type(mt.__call) == 'function'"
+                ))
+                .eval()
+                .unwrap_or_else(|e| panic!("helper ctor {name}: {e}"));
+            assert!(
+                has_call,
+                "{name} must have __call (helper_constructors.lua wraps it)"
+            );
+        }
     }
 }

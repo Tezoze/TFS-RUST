@@ -2,6 +2,8 @@
 //!
 //! C++ reference: `luascript.cpp` `luaMonsterTypeCreate` / `luaMonsterTypeGetOutfit` /
 //! `luaMonsterTypeIsIllusionable` — `monsters.h`.
+//! Gap 7c: constructor is a class table (`register_class`); no `__index` chain
+//! (the only `mType:register` call site is a `#`-prefixed example).
 
 use mlua::{UserData, UserDataMethods, Value};
 
@@ -105,6 +107,11 @@ pub fn register_monster_type_constructor(lua: &mlua::Lua) -> Result<(), mlua::Er
         let ud = lua.create_userdata(MonsterTypeRef { name })?;
         Ok(Value::UserData(ud))
     })?;
-    lua.globals().set("MonsterType", ctor)?;
+    // Class table + `__call` so `data/scripts/lib/register_monster_type.lua`
+    // can assign `MonsterType.register = function(self, mask)`. No userdata
+    // `__index` chain (Gap 7b): the only `mType:register(...)` call site is
+    // `data/monster/lua/#example.lua`, which the loader skips (`#` prefix).
+    // C++ `registerClass("MonsterType")` — `luascript.cpp`. Gap 7c.
+    crate::class_registry::register_class(lua, "MonsterType", Some(ctor))?;
     Ok(())
 }

@@ -1,3 +1,14 @@
+# Gap 7c: Revscript ctor globals through `register_class` — 2026-08-13
+
+Unblock `data/scripts/lib` load (3 of 5 files) so Gap 5a can flip the lib stage to fatal.
+
+- [x] Route `Action`/`TalkAction`/`MoveEvent`/`Channel`/`Condition`/`Variant`/`MonsterType` through `register_class`
+- [x] Add `CreatureEvent`/`GlobalEvent` with `__call` (plain tables, Action pattern)
+- [x] Port `createFunctions` into `data/lib/core/` (do not load `compat.lua`)
+- [x] No `MonsterTypeRef` `__index` chain (`#example.lua` only)
+- [x] `all_class_globals_are_tables` + `scripts_lib_files_load_with_zero_failures`
+- [x] `cargo test -p tfs-rust-lua --lib` (77 passed)
+
 # P2: Player Combat Fidelity Polish — 2026-08-07
 
 From player-combat-audit canvas / docs/772_PLAYER_COMBAT_AUDIT.md §12.
