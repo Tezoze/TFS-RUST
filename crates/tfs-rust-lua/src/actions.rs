@@ -88,7 +88,7 @@ pub fn inject_door_tables_from_global(
 /// from Rust instead. No file names are hardcoded — the scan picks up whatever
 /// the data pack contains. `data/lib/compat/` and `data/lib/debugging/` are
 /// skipped (only `data/lib/core/` is scanned; minimal blast radius per
-/// `tasks/tools-actions-gap.md` resolved decision #3).
+/// `tasks/tools-actions/decisions.md` resolved decision #3).
 ///
 /// Load order is alphabetical (sorted `PathBuf`), matching TVP's `sort(v.begin(),
 /// v.end())`. No `data/lib/core/*.lua` file references another at load time
@@ -191,7 +191,7 @@ enum GlobalKind {
 /// order or a missing data file aborts startup with a named list instead of
 /// surfacing as a `nil` global inside a rope/shovel click hours later.
 ///
-/// See `tasks/tools-actions-gap.md` Gap 5. `table.contains` is dotted — it lives
+/// See `tasks/tools-actions/gaps-load.md` Gap 5. `table.contains` is dotted — it lives
 /// on the standard `table` library, injected by `inject_door_tables_from_global`.
 const REQUIRED_DATA_GLOBALS: &[(&str, GlobalKind)] = &[
     ("onUseRope", GlobalKind::Function),

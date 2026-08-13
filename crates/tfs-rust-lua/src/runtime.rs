@@ -11,8 +11,8 @@ use std::rc::Rc;
 
 /// Default Lua VM memory limit (512 MiB).
 ///
-/// VM hardening pillar 4 — `set_memory_limit` (`tasks/tools-actions-gap.md`
-/// item 13). Game simulation is single-threaded (`TFS-threading`); a runaway
+/// VM hardening pillar 4 — `set_memory_limit`
+/// (`tasks/tools-actions/vm-hardening.md`). Game simulation is single-threaded (`TFS-threading`); a runaway
 /// allocation in any `data/scripts/**` callback would otherwise OOM-kill the
 /// whole process — no ticks, no packets, no saves. This turns a total outage
 /// into one failed script call. Generous enough for large loot loops and
@@ -131,8 +131,8 @@ impl LuaRuntime {
     pub fn new() -> Result<Self, LuaError> {
         let lua = Lua::new();
 
-        // VM hardening pillar 4 — `set_memory_limit` (tasks/tools-actions-gap.md
-        // item 13). Applied before any data-pack allocation so a runaway script
+        // VM hardening pillar 4 — `set_memory_limit`
+        // (tasks/tools-actions/vm-hardening.md). Applied before any data-pack allocation so a runaway script
         // can't OOM-kill the whole game thread. Override from `config.lua` via
         // `luaMemoryLimit` (MB) in `run_server.rs`. No JIT impact.
         lua.set_memory_limit(DEFAULT_LUA_MEMORY_LIMIT_BYTES)
@@ -237,7 +237,7 @@ impl LuaRuntime {
 
     /// Set the Lua VM memory limit (in bytes). Returns the previous limit.
     ///
-    /// VM hardening pillar 4 — `tasks/tools-actions-gap.md` item 13. The
+    /// VM hardening pillar 4 — `tasks/tools-actions/vm-hardening.md`. The
     /// default (`DEFAULT_LUA_MEMORY_LIMIT_BYTES`, 512 MiB) is applied in
     /// [`LuaRuntime::new`]; this lets `run_server.rs` override it from
     /// `config.lua` (`luaMemoryLimit`, in MB). Once an allocation would pass
@@ -2099,7 +2099,7 @@ mod tests {
     /// correctly but fails at `data/lib/core/combat.lua:1` because `Combat` is
     /// registered as a bare function, not a class table — `function
     /// Combat:getPositions(...)` can't index a function value. See
-    /// `tasks/tools-actions-gap.md` Gap 7.
+    /// `tasks/tools-actions/gap7-class-globals.md`.
     ///
     /// Once `Combat`/`Spell`/`Weapon`/`Condition` are converted to tables with
     /// `__call` (TVP `registerClass` pattern), this test should pass and we can
@@ -2139,8 +2139,8 @@ mod tests {
         let _ = result;
     }
 
-    /// VM hardening pillar 4 — `set_memory_limit` (tasks/tools-actions-gap.md
-    /// item 13). Asserts the default is applied in `new()`, that an override
+    /// VM hardening pillar 4 — `set_memory_limit`
+    /// (tasks/tools-actions/vm-hardening.md). Asserts the default is applied in `new()`, that an override
     /// takes effect, and that an over-limit allocation aborts the script
     /// instead of OOM-killing the process.
     #[test]

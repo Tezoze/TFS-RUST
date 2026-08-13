@@ -10,6 +10,8 @@ Lua integration uses trait dispatch to avoid circular dependencies between `tfs-
 
 **Engine choice (mandatory):** mlua with **LuaJIT** (`Cargo.toml`: `features = ["luajit", "vendored"]`). Do **not** swap to Rhai or plain Lua 5.4 — TFS script parity requires LuaJIT + incremental port of `luascript.cpp`.
 
+**Lua-facing contract (mandatory):** keep the TFS surface — global class tables, global constants, global helper functions, self-registering revscripts (`Action():register()`), `data/` layout. Do **not** replace it with a bespoke/namespaced API: the data pack is the **772 parity oracle**, and running reference scripts unmodified is how mechanics outcomes are verified. Improve it *within* the contract — `register_class` (below), fail-fast load phases (below), and generated LuaLS type definitions — never by changing what `data/` sees. Rationale and the revisit condition: `tasks/tools-actions/decisions.md` § *Strategic decision*.
+
 **Threading:** `LuaRuntime` is `!Send` and lives on the **game thread only** (`LocalSet` + `spawn_local`). I/O threads never touch Lua or `GameWorld`.
 
 ## Architecture Constraint
@@ -137,6 +139,65 @@ impl UserData for CreatureRef {
 - Mutations: `call_lua_*` → `LuaMutation` → `apply_lua_mutation` in `lua_scope.rs`
 - Never pass `&mut GameWorld` into mlua closures
 
+## Class Registration (Mandatory)
+
+Every engine class exposed to Lua (`Tile`, `Item`, `Creature`, `Combat`, `Position`, `ItemType`, `Party`, …) goes through the shared `register_class` helper. **Never** `globals().set("Tile", ctor_fn)` — a bare function is callable but not indexable, so `function Tile.relocateTo(…)` in `data/lib/core/*.lua` fails to load.
+
+`registerClass` in `luascript.cpp` does **four** jobs. Partially implementing it is the root cause of a recurring bug class (see `tasks/tools-actions/gap7-class-globals.md`):
+
+| # | Job | Skipping it breaks |
+|---|-----|--------------------|
+| 1 | Class table as the global | `function Tile.method(…)` — load-time error |
+| 2 | `__call` metamethod → constructor | `Tile(pos)` stops working |
+| 3 | Userdata `__index` fallback → class table | `tile:method()` — **call-time** `nil`, loads fine |
+| 4 | Chain to base class | subclass userdata can't see base methods |
+
+Jobs 1 and 3 are **independent**. A class table alone makes the data pack *load* while every Lua-defined method is still unreachable at call time — a green load test over a broken feature.
+
+### Rules
+
+- `register_class(lua, name, ctor)` is the **only** way a class global is created. Idempotent, get-or-create, never replaces an existing table — so registration order in `LuaRuntime::new` is not load-bearing.
+- Each userdata type declares its `__index` chain (first hit wins, checked after native Rust methods):
+
+  | Userdata | Chain |
+  |---|---|
+  | `CreatureRef` | `Player` → `Creature` |
+  | `TileRef` | `Tile` |
+  | `ItemRef` | `Item` |
+  | `ItemTypeRef` | `ItemType` |
+  | `PositionRef` | `Position` |
+  | `CombatRef` | `Combat` |
+
+- Native Rust methods keep priority: mlua invokes `MetaMethod::Index` only when the registered-method lookup misses, so a data-pack method cannot silently shadow an engine method. Assert this, don't assume it.
+- Classes the data pack only extends (no constructor) still need registering: `register_class(lua, "Party", None)`.
+- Do **not** maintain a hardcoded list of class names in a bootstrap function. A class exists because something registered it.
+
+### Verification (non-negotiable)
+
+Test through a **live userdata instance**, never a load test:
+
+```rust
+// Not sufficient: asserting the global is a table, or that the lib file loaded.
+lua.load("function Tile.probe(self) return 'ok' end").exec()?;
+let ud = lua.create_userdata(TileRef { x: 1, y: 2, z: 7 })?;
+// This is the assertion that matters:
+assert_eq!(lua.load("return t:probe()").eval::<String>()?, "ok");
+```
+
+## Script Loading Phases (Mandatory)
+
+Three phases with **different error policies**. Do not collapse them:
+
+| Phase | Scope | On error |
+|-------|-------|----------|
+| 1. Bootstrap | `register_class`, constants, enums (Rust) | **Fatal** — programming error |
+| 2. Lib | `data/lib/**`, `data/scripts/lib/**`, `data/scripts/*.lua` | **Fatal, aggregated** — the data pack ships with this repo; a lib file that does not load is a build defect |
+| 3. Content | `data/scripts/<subsystem>/**` revscripts | **Warn and continue** — a broken shard script must not brick the server |
+
+Phase 2 being lenient hides real breakage: an allowlist of "required globals" does not scale to the data pack, so **the load itself is the guard**. Prefer loading `data/global.lua` and letting its `dofile` chain drive `data/lib/**` over hand-rolled substitutes (substring extraction, inlined Lua chunks, parallel directory scans).
+
+Tests must construct the VM through the real init path (`LuaRuntime::new_for_test()`), not hand-assembled subsets — otherwise tests validate a VM that is never shipped.
+
 ## Startup Wiring
 
 ```rust
@@ -159,11 +220,21 @@ match self.runtime.call_creature_callback(callback, creature_id) {
 }
 ```
 
+## Script Execution Limits
+
+Game simulation is single-threaded (`TFS-threading`), so an unbounded script is an **availability bug, not a script bug**: one `while true do end` in `data/scripts/**` hangs ticks, packets, logins, and saves until `kill -9`. No attacker required.
+
+- `lua.set_memory_limit(bytes)` — turns a runaway allocation into `Error::MemoryError` instead of an OOM-killed process. No JIT cost; safe to enable unconditionally.
+- `lua.set_hook(HookTriggers::new().every_nth_instruction(n), …)` — errors out a runaway script so the server keeps ticking. **Measure first:** LuaJIT does not call count hooks from compiled traces, so an always-on hook may force interpreter fallback and negate the reason for choosing LuaJIT.
+- **Aborting a script does not roll back mutations.** Mutations apply immediately (Mutation Path above), so a killed script leaves partial effects — this is failure isolation, not atomicity. Document the semantic per callback.
+
+Do not add new script entry points that can block the game thread indefinitely (unbounded loops over map/creature sets, blocking I/O in a callback).
+
 ## Full API Port Plan (luascript.cpp)
 
 Port incrementally; community scripts need breadth before depth on hot paths:
 
-1. **`data/lib/*.lua` metatables** — `Game`, `Player`, `Creature`, `Item`, `Tile`, `Position`, `Condition`
+1. **`data/lib/*.lua` metatables** — `Game`, `Player`, `Creature`, `Item`, `Tile`, `Position`, `Condition`. Finish this **uniformly** via `register_class` (see Class Registration) before porting more methods — per-class ad-hoc registration is what produced the Gap 7 bug class.
 2. **Creature events** — think, death, preparedeath, advance (not just login/logout)
 3. **Move events, talk actions, globalevents, actions**
 4. **`addEvent` / `stopEvent`** — wire to `Scheduler` + unbounded `GameCommand` channel
@@ -202,3 +273,7 @@ let mut world = GameWorld {
 6. **New events:** extend `fire_on_*`, not new cookie/hook patterns
 7. **Deferred tick buffer:** only for mutations safe to delay; never for addItem-class APIs
 8. **Profile hot paths** before optimizing Lua at scale
+9. **Class registration:** `register_class` only — class table + `__call` + userdata `__index` chain + base chain. Never `globals().set(Name, ctor_fn)`
+10. **Verify classes through a live userdata instance** — a load test passing proves nothing about `obj:method()`
+11. **Load phases:** bootstrap fatal, lib fatal (aggregated), content warn-and-continue — never one uniform policy
+12. **Execution limits:** memory limit always on; instruction hook measured against LuaJIT cost first. An unbounded script is an availability bug

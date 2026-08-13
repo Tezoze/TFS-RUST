@@ -198,7 +198,7 @@ pub async fn run() -> anyhow::Result<()> {
             // VM hardening pillar 4 — override the default Lua memory limit
             // from `config.lua` (`luaMemoryLimit`, in MB). The default
             // (512 MiB) is already applied in `LuaRuntime::new`; this lets
-            // operators tune it per shard. tasks/tools-actions-gap.md item 13.
+            // operators tune it per shard. tasks/tools-actions/vm-hardening.md pillar 4.
             if let Ok(mb) = config.get_i64("luaMemoryLimit") {
                 if mb > 0 {
                     let bytes = (mb as usize).saturating_mul(1024).saturating_mul(1024);

@@ -6,8 +6,8 @@
 //!
 //! Idempotent and order-independent: never replaces an existing table, so the
 //! registration sequence in `LuaRuntime::new` no longer decides whether a class
-//! ends up callable, extensible, both, or `nil`. See `tasks/tools-actions-gap.md`
-//! Gap 7a.
+//! ends up callable, extensible, both, or `nil`.
+//! See `tasks/tools-actions/gap7-class-globals.md` (Gap 7a).
 
 use mlua::{Function, Lua, MultiValue, Table, Value};
 
