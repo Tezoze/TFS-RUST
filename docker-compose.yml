@@ -1,0 +1,50 @@
+# TFS Rust + MariaDB. From repo root:
+#   docker compose pull && docker compose up      # GHCR image (after a main push)
+#   docker compose up --build                     # compile locally
+#
+# Login 7171 / game 7172. Stop a host `./scripts/run_server.sh` first (same ports).
+# Clients on this machine: TFS_PUBLIC_IP=127.0.0.1 (default). LAN: set your host IP.
+
+services:
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: forgottenserver
+      MARIADB_USER: forgottenserver
+      MARIADB_PASSWORD: ${MYSQL_PASSWORD:-forgottenserver}
+      MARIADB_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-forgottenserver}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - tfs-mariadb:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  tfs:
+    image: ${TFS_IMAGE:-ghcr.io/tezoze/tfs-rust:latest}
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "7171:7171"
+      - "7172:7172"
+    environment:
+      DATABASE_URL: mysql://forgottenserver:${MYSQL_PASSWORD:-forgottenserver}@db:3306/forgottenserver
+      TFS_DB_WAIT_HOST: db
+      TFS_PUBLIC_IP: ${TFS_PUBLIC_IP:-127.0.0.1}
+      RUST_LOG: ${RUST_LOG:-info,tfs_rust_core=info,tfs_rust_net=info,tfs_obs=off}
+    # Optional live datapack / config (uncomment after `cp config.lua.dist config.lua`):
+    # volumes:
+    #   - ./config.lua:/srv/config.lua:ro
+    #   - ./data:/srv/data:ro
+
+volumes:
+  tfs-mariadb:

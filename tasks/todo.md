@@ -1,3 +1,20 @@
+# GHCR image for other users — 2026-08-14
+
+Push `tfs-rust` to `ghcr.io/<owner>/tfs-rust` on `main` so others can `docker compose pull` instead of compiling. PRs only build the image when Docker files change (no push). Package must be set **public** once in the GitHub UI.
+
+- [x] `.github/workflows/docker.yml` — buildx + GHCR (`packages: write`)
+- [x] Compose `image:` + `TFS_IMAGE` so pull works without `--build`
+- [x] Docs: pull path + make-package-public
+
+# Docker for TFS Rust — 2026-08-14
+
+Replace leftover C++ `Dockerfile` with a Rust multi-stage image + Compose (MariaDB + `tfs-rust`). Runtime uses env overrides already in `run_server.rs` (`DATABASE_URL`, `TFS_PUBLIC_IP`, bind defaults to `0.0.0.0`). SQLx migrations create schema on first boot — do not also load `schema.sql` in MariaDB init.
+
+- [x] Multi-stage `Dockerfile` (`SQLX_OFFLINE=true`, vendored LuaJIT, slim runtime)
+- [x] `.dockerignore` (exclude C++ `src/`, `reference/`, `/target`)
+- [x] `docker-compose.yml` + `docker/entrypoint.sh` + `.env.example`
+- [x] Docs: `docs/COMPILING.md`, `README.md`
+
 # Gap 6: era tool numbers in formulas Lua — 2026-08-14
 
 Pick/fishing literals left `pick.lua` / `fishing_rod.lua`. Scripts keep control flow; numbers come from `data/formulas/{772,1098}.lua` via `inject_era_formulas`.

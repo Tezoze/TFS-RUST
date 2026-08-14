@@ -30,8 +30,9 @@ Guide to building and running the server from source on Linux, macOS, and Window
 ### Not required to compile
 
 - The legacy **C++** tree (`src/`, `CMakeLists.txt`) — reference only; Rust does not build it
-- The root **`Dockerfile`** — still targets the old C++ `tfs` binary; use native Rust build for now
 - A live database — if `.sqlx/` is present, set `SQLX_OFFLINE=true` to compile without MariaDB
+
+Docker (optional): `docker compose up --build` — see [§11 Docker](#11-docker).
 
 ### Key dependencies
 
@@ -323,3 +324,45 @@ Release + LuaJIT compile is heavy. Use `cargo build --release -j $(nproc)` and e
 | `config.lua.dist` | All config keys and defaults |
 | `scripts/run_server.sh` | Dev launcher |
 | `README.md` | Project overview |
+| `docker-compose.yml` | Containerized server + MariaDB |
+
+---
+
+## 11. Docker
+
+Multi-stage image builds `tfs-rust` (`SQLX_OFFLINE=true`, vendored LuaJIT). Compose starts MariaDB 11 and the server. Schema comes from SQLx migrations on first boot (`TFS_MIGRATIONS_DIR`), not from injecting `schema.sql`.
+
+### Other people (prebuilt image)
+
+After `main` is pushed, GitHub Actions publishes `ghcr.io/tezoze/tfs-rust:latest` (workflow `.github/workflows/docker.yml`). Others clone the repo for Compose/datapack wiring, then pull instead of compiling:
+
+```bash
+git clone https://github.com/Tezoze/TFS-RUST.git
+cd TFS-RUST
+cp .env.example .env   # optional
+docker compose pull
+docker compose up
+```
+
+**One-time (repo owner, after the first image push):** GitHub → **Packages** → `tfs-rust` → **Package settings** → **Change visibility** → **Public**. Until that is public, other users must `docker login ghcr.io` with a PAT that has `read:packages`.
+
+Forks: set `TFS_IMAGE=ghcr.io/<your-lowercase-user>/tfs-rust:latest` in `.env` after your fork’s `main` workflow has published.
+
+### Compile in Docker (no GHCR)
+
+```bash
+cp .env.example .env   # optional; defaults are local-dev passwords
+docker compose up --build
+```
+
+| Port / env | Role |
+|------------|------|
+| `7171` / `7172` | Login / game (published to the host) |
+| `DATABASE_URL` | Points at Compose service `db` (overrides `config.lua` `mysql*`) |
+| `TFS_PUBLIC_IP` | Address **clients** use after login (default `127.0.0.1` for a client on the same host) |
+
+Stop a host `./scripts/run_server.sh` first — it binds the same ports. MariaDB is **not** published on host `3306` (avoids clashing with a local daemon).
+
+LAN clients: set `TFS_PUBLIC_IP` in `.env` to the host’s LAN IP. The container already binds `0.0.0.0` when `bindOnlyGlobalAddress` is false (`config.lua.dist`).
+
+Rebuild after Rust/datapack changes: `docker compose up --build`. Optional bind-mounts for live `config.lua` / `data/` are commented in `docker-compose.yml`.

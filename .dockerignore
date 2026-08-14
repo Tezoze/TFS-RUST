@@ -1,2 +1,39 @@
-build/**
+# Keep the build context to the Rust workspace + runtime datapack.
+.git
+.github
+.cursor
+.claude
+.agent
+.kiro
+.codebase-memory
+.code-review-graph
+.vscode
+.idea
 
+# Cargo / C++ leftovers (root `/src` is TFS 1.4.2 C++, not rust-src)
+/target
+/src
+/cmake
+/CMakeLists.txt
+/vc17
+/reference
+
+# Optional 1098 datapack and docs (not required to run 772)
+/data1098
+/docs
+/tasks
+/tests
+/lua-defs
+
+data/logs/*
+data/npc/archive
+data/npc/backup
+
+*.md
+!README.md
+
+Dockerfile
+docker-compose.yml
+.dockerignore
+.env
+.env.example

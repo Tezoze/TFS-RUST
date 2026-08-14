@@ -39,6 +39,16 @@ cp config.lua.dist config.lua
 
 Login **7171**, game **7172** by default.
 
+**Docker** — pull the image published from `main` (`ghcr.io/tezoze/tfs-rust`), or build locally:
+
+```bash
+cp .env.example .env   # optional
+docker compose pull && docker compose up
+# or, compile in Docker: docker compose up --build
+```
+
+See [docs/COMPILING.md](docs/COMPILING.md#11-docker).
+
 ---
 
 ## Documentation

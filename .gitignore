@@ -217,6 +217,7 @@ reference/
 /ip-address.txt
 /usr.bak/
 config.lua
+.env
 *.bak
 *.backup
 data/npc/backup/
@@ -228,9 +229,10 @@ data/logs/*
 #############
 .agent/
 .claude/
-.cursor/
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 .kiro/
-.cursorrules
 .windsurfrules
 AGENTS.md
 
