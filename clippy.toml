@@ -1,0 +1,4 @@
+# GitHub Actions: `cargo clippy --workspace -- -D warnings` (stable 1.96+).
+# Domain entry points (cylinder move, combat formulas, NPC react) legitimately exceed the
+# default 7-arg cap; do not split those APIs just to satisfy the lint.
+too-many-arguments-threshold = 12

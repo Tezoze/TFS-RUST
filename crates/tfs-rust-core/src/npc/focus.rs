@@ -431,14 +431,14 @@ impl GameWorld {
             }
             // `Interlocutor == NULL` while still Talking/Leaving on a self-move:
             // C++ `ChangeState(IDLE, true)` yields the idle loop (`crnonpl.cc:1841-1844`).
-            if activity == NpcActivity::Talking || activity == NpcActivity::Leaving {
-                if moved == npc_id {
-                    if let Some(CreatureKind::Npc(npc)) = self.creatures.get_mut(npc_id) {
-                        npc.runtime.activity = NpcActivity::Idle;
-                    }
-                    trace.push(DialogueEvent::State { value: "idle" });
-                    self.creature_todo_yield(npc_id);
+            if (activity == NpcActivity::Talking || activity == NpcActivity::Leaving)
+                && moved == npc_id
+            {
+                if let Some(CreatureKind::Npc(npc)) = self.creatures.get_mut(npc_id) {
+                    npc.runtime.activity = NpcActivity::Idle;
                 }
+                trace.push(DialogueEvent::State { value: "idle" });
+                self.creature_todo_yield(npc_id);
             }
             return;
         }
@@ -611,10 +611,10 @@ impl GameWorld {
                 player: Some(speaker),
                 temporary: false,
             });
-        } else if let Some(CreatureKind::Npc(n)) = self.creatures.get_mut(npc_id) {
-            if let Some(s) = n.runtime.player_sessions.get_mut(&speaker) {
-                s.last_talk_round = self.round_nr;
-            }
+        } else if let Some(CreatureKind::Npc(n)) = self.creatures.get_mut(npc_id)
+            && let Some(s) = n.runtime.player_sessions.get_mut(&speaker)
+        {
+            s.last_talk_round = self.round_nr;
         }
         if let Some(CreatureKind::Npc(n)) = self.creatures.get_mut(npc_id) {
             n.runtime.focus = Some(speaker);
@@ -879,10 +879,10 @@ impl GameWorld {
         let Some(CreatureKind::Npc(n)) = self.creatures.get(npc_id) else {
             return (0, 0, 0, 0, 0);
         };
-        if program.policy == DialoguePolicy::PerPlayer {
-            if let Some(s) = n.runtime.player_sessions.get(&player) {
-                return (s.topic, s.price, s.amount, s.item_type, s.data);
-            }
+        if program.policy == DialoguePolicy::PerPlayer
+            && let Some(s) = n.runtime.player_sessions.get(&player)
+        {
+            return (s.topic, s.price, s.amount, s.item_type, s.data);
         }
         (
             n.runtime.topic,
@@ -949,10 +949,8 @@ impl GameWorld {
             if plan.go_idle {
                 npc.runtime.activity = NpcActivity::Idle;
                 npc.runtime.focus = None;
-                if per_player {
-                    if let Some(s) = npc.runtime.player_sessions.get_mut(&player) {
-                        s.active = false;
-                    }
+                if per_player && let Some(s) = npc.runtime.player_sessions.get_mut(&player) {
+                    s.active = false;
                 }
                 trace.push(DialogueEvent::State { value: "idle" });
                 trace.push(DialogueEvent::Focus {
@@ -1153,12 +1151,10 @@ impl GameWorld {
         }
 
         // NPC-7: lifecycle onMove when the NPC itself walked (not deleted).
-        if !deleted {
-            if let Some(CreatureKind::Npc(n)) = self.creatures.get(moved) {
-                let cb = self.npcs_db.get(n.definition).and_then(|d| d.on_move);
-                if let Some(cb) = cb {
-                    crate::lua_scope::fire_npc_move(self, moved, cb, old_pos, new_pos);
-                }
+        if !deleted && let Some(CreatureKind::Npc(n)) = self.creatures.get(moved) {
+            let cb = self.npcs_db.get(n.definition).and_then(|d| d.on_move);
+            if let Some(cb) = cb {
+                crate::lua_scope::fire_npc_move(self, moved, cb, old_pos, new_pos);
             }
         }
 

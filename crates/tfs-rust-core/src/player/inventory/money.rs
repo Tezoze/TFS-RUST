@@ -87,8 +87,7 @@ impl GameWorld {
         let mut remaining = count;
         while remaining > 0 {
             let chunk = remaining.min(100);
-            self.lua_script_player_add_item_full(ffi, item_id, chunk, data, true, 0)
-                .map_err(|e| e)?
+            self.lua_script_player_add_item_full(ffi, item_id, chunk, data, true, 0)?
                 .ok_or_else(|| format!("failed to add item {item_id} x{chunk}"))?;
             remaining -= chunk;
         }

@@ -52,10 +52,10 @@ pub fn resolve_objects_srv_path() -> Option<PathBuf> {
             }
         }
     }
-    if let Ok(ref_dir) = std::env::var("TFS_REFERENCE_DIR") {
-        if let Some(path) = reference_objects_srv_under(PathBuf::from(ref_dir)) {
-            return Some(path);
-        }
+    if let Ok(ref_dir) = std::env::var("TFS_REFERENCE_DIR")
+        && let Some(path) = reference_objects_srv_under(PathBuf::from(ref_dir))
+    {
+        return Some(path);
     }
     reference_objects_srv_under(PathBuf::from("reference"))
 }

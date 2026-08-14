@@ -449,100 +449,97 @@ impl GameWorld {
                 outcome,
                 PlayerChaseOutcome::NoTarget | PlayerChaseOutcome::TargetLost
             )
+            && let Some(target_id) = self.creatures.get(cid).and_then(|k| k.base().attack_target)
         {
-            if let Some(target_id) = self.creatures.get(cid).and_then(|k| k.base().attack_target) {
-                // Invisible mid-fight — `Attack()` (`crcombat.cc:556-561`).
-                if self.creatures.get(target_id).is_some_and(|k| {
-                    matches!(k, CreatureKind::Monster(_) | CreatureKind::Npc(_))
-                        && k.base().is_invisible()
-                }) {
+            // Invisible mid-fight — `Attack()` (`crcombat.cc:556-561`).
+            if self.creatures.get(target_id).is_some_and(|k| {
+                matches!(k, CreatureKind::Monster(_) | CreatureKind::Npc(_))
+                    && k.base().is_invisible()
+            }) {
+                return self.player_attack_abort_with_result(
+                    cid,
+                    conn_id,
+                    CombatResult::TargetLost,
+                    "player_attack_target_invisible",
+                );
+            }
+
+            // Secure-mode PVP gate — `crcombat.cc:563-568`.
+            if self.player_secure_mode_blocks_attack(cid, target_id) {
+                return self.player_attack_abort_with_result(
+                    cid,
+                    conn_id,
+                    CombatResult::SecureMode,
+                    "player_attack_secure_mode_blocked",
+                );
+            }
+
+            // Profession NONE / `!allowPvp` vs player — `crcombat.cc:580-586`.
+            if self.player_vocation_blocks_pvp_attack(cid, target_id) {
+                return self.player_attack_abort_with_result(
+                    cid,
+                    conn_id,
+                    CombatResult::AttackNotAllowed,
+                    "player_attack_vocation_pvp_blocked",
+                );
+            }
+
+            // `CheckRight(NO_ATTACK)` → `ATTACKNOTALLOWED` (`crcombat.cc:589-593`).
+            if self.player_attack_blocked_by_right(cid) {
+                return self.player_attack_abort_with_result(
+                    cid,
+                    conn_id,
+                    CombatResult::AttackNotAllowed,
+                    "player_attack_right_blocked",
+                );
+            }
+
+            // NON_PVP peaceful×peaceful — `CanToDoAttack` (`crcombat.cc:476-483`).
+            if self.player_nopvp_peaceful_blocks_attack(cid, target_id) {
+                return self.player_attack_abort_with_result(
+                    cid,
+                    conn_id,
+                    CombatResult::AttackNotAllowed,
+                    "player_attack_nopvp_peaceful_blocked",
+                );
+            }
+
+            // PZ on attacker or target — `Attack()` always (`crcombat.cc:595-599`).
+            let (master_pos, target_pos) = match (
+                self.creatures.get(cid).map(|k| k.position()),
+                self.creatures.get(target_id).map(|k| k.position()),
+            ) {
+                (Some(a), Some(b)) => (a, b),
+                _ => {
                     return self.player_attack_abort_with_result(
                         cid,
                         conn_id,
                         CombatResult::TargetLost,
-                        "player_attack_target_invisible",
+                        "player_attack_target_lost",
                     );
                 }
+            };
+            if self.tile_in_protection_zone(master_pos) || self.tile_in_protection_zone(target_pos)
+            {
+                return self.player_attack_abort_with_result(
+                    cid,
+                    conn_id,
+                    CombatResult::ProtectionZone,
+                    "player_attack_protection_zone",
+                );
+            }
 
-                // Secure-mode PVP gate — `crcombat.cc:563-568`.
-                if self.player_secure_mode_blocks_attack(cid, target_id) {
-                    return self.player_attack_abort_with_result(
-                        cid,
-                        conn_id,
-                        CombatResult::SecureMode,
-                        "player_attack_secure_mode_blocked",
-                    );
-                }
-
-                // Profession NONE / `!allowPvp` vs player — `crcombat.cc:580-586`.
-                if self.player_vocation_blocks_pvp_attack(cid, target_id) {
-                    return self.player_attack_abort_with_result(
-                        cid,
-                        conn_id,
-                        CombatResult::AttackNotAllowed,
-                        "player_attack_vocation_pvp_blocked",
-                    );
-                }
-
-                // `CheckRight(NO_ATTACK)` → `ATTACKNOTALLOWED` (`crcombat.cc:589-593`).
-                if self.player_attack_blocked_by_right(cid) {
-                    return self.player_attack_abort_with_result(
-                        cid,
-                        conn_id,
-                        CombatResult::AttackNotAllowed,
-                        "player_attack_right_blocked",
-                    );
-                }
-
-                // NON_PVP peaceful×peaceful — `CanToDoAttack` (`crcombat.cc:476-483`).
-                if self.player_nopvp_peaceful_blocks_attack(cid, target_id) {
-                    return self.player_attack_abort_with_result(
-                        cid,
-                        conn_id,
-                        CombatResult::AttackNotAllowed,
-                        "player_attack_nopvp_peaceful_blocked",
-                    );
-                }
-
-                // PZ on attacker or target — `Attack()` always (`crcombat.cc:595-599`).
-                let (master_pos, target_pos) = match (
-                    self.creatures.get(cid).map(|k| k.position()),
-                    self.creatures.get(target_id).map(|k| k.position()),
-                ) {
-                    (Some(a), Some(b)) => (a, b),
-                    _ => {
-                        return self.player_attack_abort_with_result(
-                            cid,
-                            conn_id,
-                            CombatResult::TargetLost,
-                            "player_attack_target_lost",
-                        );
-                    }
-                };
-                if self.tile_in_protection_zone(master_pos)
-                    || self.tile_in_protection_zone(target_pos)
-                {
-                    return self.player_attack_abort_with_result(
-                        cid,
-                        conn_id,
-                        CombatResult::ProtectionZone,
-                        "player_attack_protection_zone",
-                    );
-                }
-
-                // `BlockLogout(60)` on attacker + target — `crcombat.cc:601-602`.
-                let target_is_player = self
-                    .creatures
-                    .get(target_id)
-                    .is_some_and(|k| matches!(k, CreatureKind::Player(_)));
-                self.player_block_logout_infight(cid, target_is_player);
-                self.player_block_logout_infight(target_id, false);
-                // 772 `RecordAttack` after BlockLogout — `crcombat.cc:605`.
-                if target_is_player
-                    && matches!(self.creatures.get(cid), Some(CreatureKind::Player(_)))
-                {
-                    self.player_record_attack(cid, target_id);
-                }
+            // `BlockLogout(60)` on attacker + target — `crcombat.cc:601-602`.
+            let target_is_player = self
+                .creatures
+                .get(target_id)
+                .is_some_and(|k| matches!(k, CreatureKind::Player(_)));
+            self.player_block_logout_infight(cid, target_is_player);
+            self.player_block_logout_infight(target_id, false);
+            // 772 `RecordAttack` after BlockLogout — `crcombat.cc:605`.
+            if target_is_player && matches!(self.creatures.get(cid), Some(CreatureKind::Player(_)))
+            {
+                self.player_record_attack(cid, target_id);
             }
         }
 

@@ -70,15 +70,15 @@ pub fn validate_pending_definitions(
             validate_dialogue(&file, dialogue, &p, items)?;
         }
 
-        if let Some(ref shop) = p.shop {
-            if let Some(items_db) = items {
-                for (i, line) in shop.items.iter().enumerate() {
-                    if !items_db.items.contains_key(&line.item_id) {
-                        return Err(NpcValidateError::content(
-                            &file,
-                            format!("shop item[{i}]: unknown item id {}", line.item_id),
-                        ));
-                    }
+        if let Some(ref shop) = p.shop
+            && let Some(items_db) = items
+        {
+            for (i, line) in shop.items.iter().enumerate() {
+                if !items_db.items.contains_key(&line.item_id) {
+                    return Err(NpcValidateError::content(
+                        &file,
+                        format!("shop item[{i}]: unknown item id {}", line.item_id),
+                    ));
                 }
             }
         }

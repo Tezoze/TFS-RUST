@@ -314,20 +314,20 @@ pub(crate) fn map_tile_content(
 
     if let Some(tile) = world.map.get_tile(pos) {
         let body = tile.body();
-        if let Some(gid) = body.ground {
-            if gid != 0 {
-                let cid = world.items_db.client_id_for_server(gid);
-                if cid != 0 {
-                    let stackable = world.items_db.stackable_for_server(gid);
-                    let splash_fluid = world.items_db.is_splash_or_fluid_for_server(gid);
-                    content.ground = Some(ItemStack {
-                        client_id: cid,
-                        count: 1,
-                        stackable,
-                        is_splash_or_fluid: splash_fluid && !stackable,
-                        is_animation: world.items_db.is_animation_for_server(gid),
-                    });
-                }
+        if let Some(gid) = body.ground
+            && gid != 0
+        {
+            let cid = world.items_db.client_id_for_server(gid);
+            if cid != 0 {
+                let stackable = world.items_db.stackable_for_server(gid);
+                let splash_fluid = world.items_db.is_splash_or_fluid_for_server(gid);
+                content.ground = Some(ItemStack {
+                    client_id: cid,
+                    count: 1,
+                    stackable,
+                    is_splash_or_fluid: splash_fluid && !stackable,
+                    is_animation: world.items_db.is_animation_for_server(gid),
+                });
             }
         }
         for &item_id in &body.top_items {

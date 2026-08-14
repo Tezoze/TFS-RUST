@@ -70,10 +70,10 @@ fn resolve_npc_definition(
         return Some(Arc::clone(d));
     }
     let lower = name.to_ascii_lowercase();
-    if let Some(stem) = lower.strip_suffix(" npc") {
-        if !stem.is_empty() {
-            return db.get_by_name(stem).map(Arc::clone);
-        }
+    if let Some(stem) = lower.strip_suffix(" npc")
+        && !stem.is_empty()
+    {
+        return db.get_by_name(stem).map(Arc::clone);
     }
     None
 }
@@ -765,9 +765,7 @@ impl GameWorld {
         // `TMonster` ctor reparents summon-of-summon up to the wild/player ancestor
         // (`crnonpl.cc:2012–2028`). CASTING still only *builds* IMPACT_SUMMON when Master==0.
         let effective_master = self.effective_summon_master(master_id)?;
-        let Some(summon_field) = self.search_summon_field(search_origin, 2) else {
-            return None;
-        };
+        let summon_field = self.search_summon_field(search_origin, 2)?;
         // `CreateMonster` ignores `SearchFreeField` failure — keep SearchSummonField coords
         // (`crnonpl.cc:3169`).
         let place_at = self
@@ -970,10 +968,8 @@ impl GameWorld {
                 .get_tile(old)
                 .map(|t| t.body().creatures.clone())
                 .unwrap_or_default();
-            if !teleport {
-                if let Some(k) = self.creatures.get_mut(cid) {
-                    set_direction_from_step_for_kick(old, dest, k);
-                }
+            if !teleport && let Some(k) = self.creatures.get_mut(cid) {
+                set_direction_from_step_for_kick(old, dest, k);
             }
             self.move_creature_on_map(cid, old, dest);
             if !teleport {

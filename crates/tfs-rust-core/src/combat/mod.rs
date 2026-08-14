@@ -198,10 +198,8 @@ fn apply_health_delta(
         }
         base.health = new_hp;
     }
-    if exact_lethal {
-        if let CreatureKind::Player(p) = kind {
-            p.exact_lethal_blow = true;
-        }
+    if exact_lethal && let CreatureKind::Player(p) = kind {
+        p.exact_lethal_blow = true;
     }
     old_hp != new_hp
 }

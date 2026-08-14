@@ -242,14 +242,12 @@ impl GameWorld {
             // ramp drops and re-acquire via the idle lose-target range check
             // (`crnonpl.cc:2422`). The `!target_visible` clear stays (redundant with the idle
             // range check, not flagged).
-            if !target_visible {
-                if let Some(k) = self.creatures.get_mut(monster_id) {
-                    if k.base().follow_target == Some(creature_id) {
-                        k.base_mut().clear_follow_for_target(creature_id);
-                    }
-                    if k.base().attack_target == Some(creature_id) {
-                        k.base_mut().clear_attack_for_target(creature_id);
-                    }
+            if !target_visible && let Some(k) = self.creatures.get_mut(monster_id) {
+                if k.base().follow_target == Some(creature_id) {
+                    k.base_mut().clear_follow_for_target(creature_id);
+                }
+                if k.base().attack_target == Some(creature_id) {
+                    k.base_mut().clear_attack_for_target(creature_id);
                 }
             }
             return;

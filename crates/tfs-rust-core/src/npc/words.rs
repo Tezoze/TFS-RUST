@@ -83,7 +83,7 @@ fn matches_ci_prefix(hay: &[u8], start: usize, needle: &[u8]) -> bool {
         return false;
     }
     for (a, b) in hay[start..start + needle.len()].iter().zip(needle.iter()) {
-        if a.to_ascii_lowercase() != b.to_ascii_lowercase() {
+        if !a.eq_ignore_ascii_case(b) {
             return false;
         }
     }

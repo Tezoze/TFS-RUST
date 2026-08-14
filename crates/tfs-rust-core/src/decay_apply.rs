@@ -171,7 +171,7 @@ impl GameWorld {
         if old_type == new_type {
             return;
         }
-        if self.items_db.items.get(&new_type).is_none() {
+        if !self.items_db.items.contains_key(&new_type) {
             return;
         }
 
@@ -182,24 +182,14 @@ impl GameWorld {
 
         // Reset old-type tile flags before the id swap — TFS `updateThing`
         // (`tile.cpp:963-966`): `resetTileFlags` then `setTileFlags`.
-        if let Some(pos) = tile_pos {
-            if let Some(old_it) = self.items_db.items.get(&old_type).cloned() {
-                if let Some(tile) = self.map.get_tile(pos) {
-                    let rem = crate::map::tile_remaining_props(
-                        tile.body(),
-                        &self.items,
-                        &self.items_db,
-                        item_id,
-                    );
-                    if let Some(tile) = self.map.get_tile_mut(pos) {
-                        crate::map::reset_item_tile_flags(
-                            tile.body_mut(),
-                            &old_it,
-                            &rem,
-                            &self.items_db,
-                        );
-                    }
-                }
+        if let Some(pos) = tile_pos
+            && let Some(old_it) = self.items_db.items.get(&old_type).cloned()
+            && let Some(tile) = self.map.get_tile(pos)
+        {
+            let rem =
+                crate::map::tile_remaining_props(tile.body(), &self.items, &self.items_db, item_id);
+            if let Some(tile) = self.map.get_tile_mut(pos) {
+                crate::map::reset_item_tile_flags(tile.body_mut(), &old_it, &rem, &self.items_db);
             }
         }
 
@@ -247,16 +237,15 @@ impl GameWorld {
             item.set_decaying(DecayState::False);
         }
 
-        if let Some(pos) = tile_pos {
-            if let Some(new_it) = self.items_db.items.get(&new_type).cloned() {
-                if let Some(tile) = self.map.get_tile_mut(pos) {
-                    // Sync cached ground type if the transformed item is this tile's ground.
-                    if tile.body().ground_item == Some(item_id) {
-                        tile.body_mut().ground = Some(new_type);
-                    }
-                    crate::map::apply_item_tile_flags(tile.body_mut(), &new_it, &self.items_db);
-                }
+        if let Some(pos) = tile_pos
+            && let Some(new_it) = self.items_db.items.get(&new_type).cloned()
+            && let Some(tile) = self.map.get_tile_mut(pos)
+        {
+            // Sync cached ground type if the transformed item is this tile's ground.
+            if tile.body().ground_item == Some(item_id) {
+                tile.body_mut().ground = Some(new_type);
             }
+            crate::map::apply_item_tile_flags(tile.body_mut(), &new_it, &self.items_db);
         }
 
         self.notify_item_appearance_changed(item_id);
@@ -298,7 +287,7 @@ impl GameWorld {
         match fire {
             DecayFire::None => {}
             DecayFire::Transform(new_type) => {
-                if self.items_db.items.get(&new_type).is_none() {
+                if !self.items_db.items.contains_key(&new_type) {
                     self.empty_container_for_expire(item_id, 0);
                     self.remove_decayed_item(item_id);
                     return;
@@ -498,10 +487,10 @@ impl GameWorld {
 
     /// Attr `DecayTo` override, else [`ItemType::decay_to`] (default −1).
     fn effective_decay_to(&self, item: &Item) -> i32 {
-        if let Some(attrs) = item.attributes.as_ref() {
-            if attrs.has_decay_to() {
-                return attrs.get_decay_to() as i32;
-            }
+        if let Some(attrs) = item.attributes.as_ref()
+            && attrs.has_decay_to()
+        {
+            return attrs.get_decay_to() as i32;
         }
         self.items_db
             .items

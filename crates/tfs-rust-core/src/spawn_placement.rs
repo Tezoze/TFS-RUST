@@ -255,12 +255,9 @@ impl GameWorld {
     /// ignored there on failure — callers should `unwrap_or(center)`.
     pub(crate) fn search_free_field(&self, center: Position, distance: i32) -> Option<Position> {
         let distance = distance.max(0);
-        for pos in spiral_free_field_positions(center, distance) {
-            if self.free_field_tile_ok(pos) {
-                return Some(pos);
-            }
-        }
-        None
+        spiral_free_field_positions(center, distance)
+            .into_iter()
+            .find(|&pos| self.free_field_tile_ok(pos))
     }
 
     /// `SearchFreeField` MovePossible arm (`info.cc:775–778`) + house gate with `HouseID == 0`.
@@ -334,10 +331,10 @@ impl GameWorld {
         };
 
         // House gate: `HouseID == 0` rejects all houses; else only matching house.
-        if let Tile::House(h) = tile {
-            if home_house_id == 0 || h.house_id != home_house_id {
-                return fail;
-            }
+        if let Tile::House(h) = tile
+            && (home_house_id == 0 || h.house_id != home_house_id)
+        {
+            return fail;
         }
 
         let body = tile.body();

@@ -92,10 +92,8 @@ pub fn flags_for_group(groups: &GroupDatabase, group_id: u16) -> u64 {
     };
     let mut bits = 0u64;
     for (name, &enabled) in &group.flags {
-        if enabled {
-            if let Some(bit) = flag_name_to_bit(name) {
-                bits |= bit;
-            }
+        if enabled && let Some(bit) = flag_name_to_bit(name) {
+            bits |= bit;
         }
     }
     bits

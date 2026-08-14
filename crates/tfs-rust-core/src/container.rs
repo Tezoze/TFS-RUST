@@ -60,10 +60,10 @@ impl<'a> ContainerIterator<'a> {
     /// Start iteration over all items held in `root_container_item_id` (not including the container item itself).
     pub fn new(registry: &'a ContainerRegistry, root_container_item_id: ItemId) -> Self {
         let mut over = VecDeque::new();
-        if let Some(c) = registry.get(root_container_item_id) {
-            if !c.items.is_empty() {
-                over.push_back(root_container_item_id);
-            }
+        if let Some(c) = registry.get(root_container_item_id)
+            && !c.items.is_empty()
+        {
+            over.push_back(root_container_item_id);
         }
         Self {
             registry,
@@ -95,10 +95,10 @@ impl<'a> ContainerIterator<'a> {
         else {
             return;
         };
-        if let Some(cc) = self.registry.get(cur_item) {
-            if !cc.items.is_empty() {
-                self.over.push_back(cur_item);
-            }
+        if let Some(cc) = self.registry.get(cur_item)
+            && !cc.items.is_empty()
+        {
+            self.over.push_back(cur_item);
         }
         self.index += 1;
         while let Some(&fc) = self.over.front() {

@@ -471,10 +471,10 @@ impl GameWorld {
 
     pub(crate) fn unequip_decayed_item(&mut self, cid: CreatureId, slot: u8, item_id: ItemId) {
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-            if let Some(idx) = crate::inventory::slot_to_array_index(slot) {
-                if p.equipment_slots[idx] == Some(item_id) {
-                    p.equipment_slots[idx] = None;
-                }
+            if let Some(idx) = crate::inventory::slot_to_array_index(slot)
+                && p.equipment_slots[idx] == Some(item_id)
+            {
+                p.equipment_slots[idx] = None;
             }
             p.set_item_ability(slot, false);
         }

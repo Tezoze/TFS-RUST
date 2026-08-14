@@ -582,7 +582,7 @@ impl<'a> TShortwaySearch<'a> {
     }
 
     fn pos_of(&self, idx: u16) -> Option<Position> {
-        let side = (2 * self.outer + 1) as i32;
+        let side = 2 * self.outer + 1;
         let i = idx as i32;
         let dx = (i % side) - self.outer;
         let dy = (i / side) - self.outer;
@@ -1028,10 +1028,10 @@ where
                 .saturating_add(occupancy_cost);
 
             // 772 per-edge branch-and-bound (`cract.cc:157` vs origin `Waylength`).
-            if let Some(&AStarNode { g: origin_g, .. }) = nodes.get(&start) {
-                if new_g >= origin_g {
-                    continue;
-                }
+            if let Some(&AStarNode { g: origin_g, .. }) = nodes.get(&start)
+                && new_g >= origin_g
+            {
+                continue;
             }
 
             let prev_g = nodes.get(&next).map(|n| n.g).unwrap_or(u32::MAX);

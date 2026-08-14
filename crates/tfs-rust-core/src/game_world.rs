@@ -478,15 +478,15 @@ impl GameWorld {
 
     /// Re-seed [`Self::parity_rng`] when `TFS_SIM_SEED` is set (headless parity harness).
     pub fn init_sim_rng_from_env(&mut self) {
-        if let Ok(seed_str) = std::env::var("TFS_SIM_SEED") {
-            if let Ok(seed) = seed_str.parse::<u64>() {
-                self.parity_rng = crate::sim_glibc_rand::GlibcRngState::seed(seed as u32);
-                // C++ `srand(TFS_SIM_SEED)` — legacy harness global stream (sim only).
-                #[cfg(any(test, feature = "sim"))]
-                {
-                    unsafe { libc::srand(seed as u32) };
-                    crate::sim_glibc_rand::enable_sim_glibc_rng();
-                }
+        if let Ok(seed_str) = std::env::var("TFS_SIM_SEED")
+            && let Ok(seed) = seed_str.parse::<u64>()
+        {
+            self.parity_rng = crate::sim_glibc_rand::GlibcRngState::seed(seed as u32);
+            // C++ `srand(TFS_SIM_SEED)` — legacy harness global stream (sim only).
+            #[cfg(any(test, feature = "sim"))]
+            {
+                unsafe { libc::srand(seed as u32) };
+                crate::sim_glibc_rand::enable_sim_glibc_rng();
             }
         }
     }

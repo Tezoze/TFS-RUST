@@ -418,10 +418,10 @@ fn load_loot_item(
             Box::new(node.children().filter(|n| n.is_element()))
         };
         for sub in iter {
-            if sub.tag_name().name().eq_ignore_ascii_case("item") {
-                if let Some(child) = load_loot_item(sub, items, file)? {
-                    child_loot.push(child);
-                }
+            if sub.tag_name().name().eq_ignore_ascii_case("item")
+                && let Some(child) = load_loot_item(sub, items, file)?
+            {
+                child_loot.push(child);
             }
         }
     }
@@ -444,10 +444,10 @@ fn parse_loot_section(
 ) -> Result<Vec<LootBlock>> {
     let mut out = Vec::new();
     for child in loot_el.children().filter(|n| n.is_element()) {
-        if child.tag_name().name().eq_ignore_ascii_case("item") {
-            if let Some(block) = load_loot_item(child, items, file)? {
-                out.push(block);
-            }
+        if child.tag_name().name().eq_ignore_ascii_case("item")
+            && let Some(block) = load_loot_item(child, items, file)?
+        {
+            out.push(block);
         }
     }
     Ok(out)
@@ -631,12 +631,11 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
         } else if tag.eq_ignore_ascii_case("voices") {
             // 772 `RaceData.Talk` list — `<voice sentence="…"/>` (`crnonpl.cc:2442`, `crmain.cc:1551`).
             for voice in child.children().filter(|n| n.is_element()) {
-                if voice.tag_name().name().eq_ignore_ascii_case("voice") {
-                    if let Some(sentence) = voice.attribute("sentence") {
-                        if !sentence.is_empty() {
-                            talk_texts.push(sentence.to_string());
-                        }
-                    }
+                if voice.tag_name().name().eq_ignore_ascii_case("voice")
+                    && let Some(sentence) = voice.attribute("sentence")
+                    && !sentence.is_empty()
+                {
+                    talk_texts.push(sentence.to_string());
                 }
             }
         }

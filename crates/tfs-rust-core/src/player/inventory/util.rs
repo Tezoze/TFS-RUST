@@ -328,19 +328,19 @@ impl GameWorld {
         out: &mut Vec<InventoryItemRef>,
     ) {
         for child in ContainerIterator::new(&self.container_registry, container_root) {
-            if let Some(item) = self.items.get(child) {
-                if item.item_type == item_id {
-                    let item_count = self.item_count_for_type(child, item_id, sub_type);
-                    if item_count > 0 {
-                        if let Some(parent) = self.parent_container_of(child) {
-                            out.push(InventoryItemRef {
-                                item_id: child,
-                                cylinder: ItemCylinder::Container {
-                                    parent_container: parent,
-                                },
-                            });
-                        }
-                    }
+            if let Some(item) = self.items.get(child)
+                && item.item_type == item_id
+            {
+                let item_count = self.item_count_for_type(child, item_id, sub_type);
+                if item_count > 0
+                    && let Some(parent) = self.parent_container_of(child)
+                {
+                    out.push(InventoryItemRef {
+                        item_id: child,
+                        cylinder: ItemCylinder::Container {
+                            parent_container: parent,
+                        },
+                    });
                 }
             }
         }

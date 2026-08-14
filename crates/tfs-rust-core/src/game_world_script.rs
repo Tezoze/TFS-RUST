@@ -359,10 +359,11 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         self.creatures.get(cid).and_then(|k| match k {
             CreatureKind::Player(p) => {
                 for cond in &p.base.active_conditions {
-                    if cond.ctype == rust_ctype && cond.sub_id == sub_id {
-                        if let crate::condition::ConditionData::Generic { ticks } = cond.data {
-                            return Some(ticks);
-                        }
+                    if cond.ctype == rust_ctype
+                        && cond.sub_id == sub_id
+                        && let crate::condition::ConditionData::Generic { ticks } = cond.data
+                    {
+                        return Some(ticks);
                     }
                 }
                 None
@@ -843,26 +844,24 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             return false;
         };
         let body = tile.body();
-        if let Some(ground_type) = body.ground {
-            if self
+        if let Some(ground_type) = body.ground
+            && self
                 .items_db
                 .items
                 .get(&ground_type)
                 .is_some_and(|t| t.block_solid())
-            {
-                return true;
-            }
+        {
+            return true;
         }
         for &iid in body.down_items.iter().chain(body.top_items.iter()) {
-            if let Some(item) = self.items.get(iid) {
-                if self
+            if let Some(item) = self.items.get(iid)
+                && self
                     .items_db
                     .items
                     .get(&item.item_type)
                     .is_some_and(|t| t.block_solid())
-                {
-                    return true;
-                }
+            {
+                return true;
             }
         }
         false
@@ -926,27 +925,25 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             matched |= TILESTATE_IMMOVABLEBLOCKSOLID;
         }
         for &iid in body.down_items.iter().chain(body.top_items.iter()) {
-            if let Some(item) = self.items.get(iid) {
-                if self
+            if let Some(item) = self.items.get(iid)
+                && self
                     .items_db
                     .items
                     .get(&item.item_type)
                     .is_some_and(|t| t.is_magic_field())
-                {
-                    matched |= TILESTATE_MAGICFIELD;
-                    break;
-                }
+            {
+                matched |= TILESTATE_MAGICFIELD;
+                break;
             }
         }
-        if let Some(gt) = body.ground {
-            if self
+        if let Some(gt) = body.ground
+            && self
                 .items_db
                 .items
                 .get(&gt)
                 .is_some_and(|t| t.floor_change != 0)
-            {
-                matched |= TILESTATE_FLOORCHANGE;
-            }
+        {
+            matched |= TILESTATE_FLOORCHANGE;
         }
         (matched & flags) != 0
     }

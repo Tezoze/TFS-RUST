@@ -253,10 +253,10 @@ impl GameWorld {
         }
         // Furniture/terrain AVOID — per-item `blockPathFind` (772 `Avoid` + `AvoidDamageTypes=0`).
         // Check ground + down/top items; ground AVOID covers Bank+Avoid trapdoors/stairs.
-        if let Some(ground) = body.ground {
-            if self.items_db.is_avoid(ground) {
-                return true;
-            }
+        if let Some(ground) = body.ground
+            && self.items_db.is_avoid(ground)
+        {
+            return true;
         }
         body.down_items
             .iter()
@@ -564,31 +564,28 @@ impl GameWorld {
         // 772 `CheckMapDestination` HANG hook destination range check (`operate.cc:538-573`).
         // The generic ObjectInRange/ThrowPossible/IsMapBlocked checks now live in
         // `internal_move_item` so Lua and monster moves also pay them.
-        if to_pos.x != 0xFFFF {
-            if let Some(tile) = self.map.get_tile(map_to_pos) {
-                let body = tile.body();
-                if (body.flags & (tilestate::HOOKEAST | tilestate::HOOKSOUTH)) != 0 {
-                    if let Some(it) = self
-                        .items_db
-                        .items
-                        .get(&self.items.get(item_id).map(|i| i.item_type).unwrap_or(0))
-                    {
-                        if it.is_hangable()
-                            && !self.is_hang_hook_accessible(map_to_pos, player_pos, body.flags)
-                        {
-                            return self.hang_hook_walk_to_reach(
-                                cid,
-                                from_cylinder,
-                                from_pos,
-                                to_pos,
-                                item_id,
-                                count,
-                                sprite_id,
-                                now,
-                            );
-                        }
-                    }
-                }
+        if to_pos.x != 0xFFFF
+            && let Some(tile) = self.map.get_tile(map_to_pos)
+        {
+            let body = tile.body();
+            if (body.flags & (tilestate::HOOKEAST | tilestate::HOOKSOUTH)) != 0
+                && let Some(it) = self
+                    .items_db
+                    .items
+                    .get(&self.items.get(item_id).map(|i| i.item_type).unwrap_or(0))
+                && it.is_hangable()
+                && !self.is_hang_hook_accessible(map_to_pos, player_pos, body.flags)
+            {
+                return self.hang_hook_walk_to_reach(
+                    cid,
+                    from_cylinder,
+                    from_pos,
+                    to_pos,
+                    item_id,
+                    count,
+                    sprite_id,
+                    now,
+                );
             }
         }
 

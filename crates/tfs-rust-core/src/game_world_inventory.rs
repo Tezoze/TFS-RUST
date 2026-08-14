@@ -39,10 +39,10 @@ impl GameWorld {
         if !attrs.has_duration() {
             return None;
         }
-        if item.decaying() == crate::item_attributes::DecayState::True {
-            if let Some(rem) = self.item_decay_remaining_ms(item_id) {
-                return Some(rem.min(i32::MAX as u64) as i32);
-            }
+        if item.decaying() == crate::item_attributes::DecayState::True
+            && let Some(rem) = self.item_decay_remaining_ms(item_id)
+        {
+            return Some(rem.min(i32::MAX as u64) as i32);
         }
         Some(attrs.get_duration_raw())
     }
@@ -714,7 +714,7 @@ impl GameWorld {
         if old_type == new_type && (sub_type < 0 || sub_type as u16 == old_count) {
             return Ok(true);
         }
-        if self.items_db.items.get(&new_type).is_none() {
+        if !self.items_db.items.contains_key(&new_type) {
             return Ok(true);
         }
         let stackable = self
@@ -726,7 +726,7 @@ impl GameWorld {
         let new_count = if sub_type < 0 {
             old_count
         } else if stackable {
-            (sub_type as u16).min(100).max(1)
+            (sub_type as u16).clamp(1, 100)
         } else {
             sub_type as u16
         };
@@ -880,16 +880,15 @@ impl GameWorld {
                     .is_ok()
                 {
                     if let Some(slot) = self.equipment_slot_holding_container(cid, parent_container)
+                        && let Some(root_id) = self.get_player_inventory_item(cid, slot)
                     {
-                        if let Some(root_id) = self.get_player_inventory_item(cid, slot) {
-                            self.notify_player_container_tree_changed(
-                                cid,
-                                root_id,
-                                entry.item_id,
-                                false,
-                                NotificationParent::None,
-                            );
-                        }
+                        self.notify_player_container_tree_changed(
+                            cid,
+                            root_id,
+                            entry.item_id,
+                            false,
+                            NotificationParent::None,
+                        );
                     }
                     count
                 } else {
@@ -1184,10 +1183,10 @@ impl GameWorld {
                 return Some(iid);
             }
             let child_type = self.items.get(iid).map(|i| i.item_type)?;
-            if self.items_db.is_container(child_type) {
-                if let Some(found) = self.search_item_in_container_by_type(iid, server_type) {
-                    return Some(found);
-                }
+            if self.items_db.is_container(child_type)
+                && let Some(found) = self.search_item_in_container_by_type(iid, server_type)
+            {
+                return Some(found);
             }
         }
         None

@@ -20,10 +20,10 @@ impl GameWorld {
         let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
             return 2000;
         };
-        if let Some(g) = self.groups.groups.get(&p.group_id) {
-            if g.max_depot_items != 0 {
-                return g.max_depot_items;
-            }
+        if let Some(g) = self.groups.groups.get(&p.group_id)
+            && g.max_depot_items != 0
+        {
+            return g.max_depot_items;
         }
         if self.player_is_premium(cid) {
             self.config.depot_premium_limit().unwrap_or(10_000)
@@ -56,10 +56,10 @@ impl GameWorld {
                     .saturating_add(cy)
                     .clamp(0, u16::MAX as i32) as u16;
                 let check = Position::new(x, y, pos.z);
-                if let Some(tile) = self.map.get_tile(check) {
-                    if tile.body().flags & tilestate::DEPOT != 0 {
-                        return true;
-                    }
+                if let Some(tile) = self.map.get_tile(check)
+                    && tile.body().flags & tilestate::DEPOT != 0
+                {
+                    return true;
                 }
             }
         }
@@ -97,10 +97,10 @@ impl GameWorld {
 
     /// Resolve depot id from a map locker item — `DepotLocker::getDepotId` / `ATTR_DEPOT_ID`.
     pub fn depot_id_from_locker_item(&self, item_id: ItemId, fallback_town_id: i32) -> u32 {
-        if let Some(item) = self.items.get(item_id) {
-            if item.attributes.as_deref().is_some_and(|a| a.has_depot_id()) {
-                return u32::from(item.depot_id());
-            }
+        if let Some(item) = self.items.get(item_id)
+            && item.attributes.as_deref().is_some_and(|a| a.has_depot_id())
+        {
+            return u32::from(item.depot_id());
         }
         if fallback_town_id >= 0 {
             return fallback_town_id as u32;
@@ -110,10 +110,10 @@ impl GameWorld {
 
     /// C++ `Player::getInbox` — `player.h` / constructor `player.cpp` ~37.
     pub fn player_get_inbox(&mut self, cid: CreatureId, auto_create: bool) -> Option<ItemId> {
-        if let Some(CreatureKind::Player(p)) = self.creatures.get(cid) {
-            if let Some(iid) = p.inbox_root {
-                return Some(iid);
-            }
+        if let Some(CreatureKind::Player(p)) = self.creatures.get(cid)
+            && let Some(iid) = p.inbox_root
+        {
+            return Some(iid);
         }
         if !auto_create {
             return None;
@@ -135,10 +135,10 @@ impl GameWorld {
         town_id: u32,
         auto_create: bool,
     ) -> Option<ItemId> {
-        if let Some(CreatureKind::Player(p)) = self.creatures.get(cid) {
-            if let Some(&iid) = p.depot_chests.get(&town_id) {
-                return Some(iid);
-            }
+        if let Some(CreatureKind::Player(p)) = self.creatures.get(cid)
+            && let Some(&iid) = p.depot_chests.get(&town_id)
+        {
+            return Some(iid);
         }
         if !auto_create {
             return None;
@@ -149,10 +149,10 @@ impl GameWorld {
         let mut reg = std::mem::take(&mut self.container_registry);
         reg.register(Container::new_depot(iid, town_id, cap, max_items));
         self.container_registry = reg;
-        if let Some(town) = self.map.towns.get(&town_id) {
-            if let Some(item) = self.items.get_mut(iid) {
-                item.set_description(format!("Depot of {}.", town.name));
-            }
+        if let Some(town) = self.map.towns.get(&town_id)
+            && let Some(item) = self.items.get_mut(iid)
+        {
+            item.set_description(format!("Depot of {}.", town.name));
         }
         self.refresh_container_derived(iid);
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
@@ -337,10 +337,10 @@ impl GameWorld {
         parent_id: ItemId,
         child_id: ItemId,
     ) {
-        if let Some(parent) = reg.get_mut(parent_id) {
-            if !parent.contains(child_id) {
-                let _ = parent.add_item(child_id);
-            }
+        if let Some(parent) = reg.get_mut(parent_id)
+            && !parent.contains(child_id)
+        {
+            let _ = parent.add_item(child_id);
         }
         if let Some(child) = reg.get_mut(child_id) {
             child.parent_container = Some(parent_id);
@@ -360,19 +360,19 @@ impl GameWorld {
         child_id: ItemId,
         slot: usize,
     ) {
-        if let Some(parent) = reg.get(parent_id) {
-            if parent.contains(child_id) {
-                if let Some(child) = reg.get_mut(child_id) {
-                    child.parent_container = Some(parent_id);
-                }
-                if let Some(item) = items.get_mut(child_id) {
-                    item.parent = Some(crate::cylinder::Cylinder::Container {
-                        item_id: parent_id,
-                        index: crate::cylinder::INDEX_WHEREEVER,
-                    });
-                }
-                return;
+        if let Some(parent) = reg.get(parent_id)
+            && parent.contains(child_id)
+        {
+            if let Some(child) = reg.get_mut(child_id) {
+                child.parent_container = Some(parent_id);
             }
+            if let Some(item) = items.get_mut(child_id) {
+                item.parent = Some(crate::cylinder::Cylinder::Container {
+                    item_id: parent_id,
+                    index: crate::cylinder::INDEX_WHEREEVER,
+                });
+            }
+            return;
         }
         if let Some(parent) = reg.get_mut(parent_id) {
             if slot == usize::MAX {

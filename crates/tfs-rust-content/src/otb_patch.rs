@@ -25,10 +25,10 @@ fn srv_identity<'a>(
     row: &ItemType,
     srv: &'a HashMap<u16, ObjectsSrvTypeFlags>,
 ) -> Option<&'a ObjectsSrvTypeFlags> {
-    if row.client_id != 0 {
-        if let Some(t) = srv.get(&row.client_id) {
-            return Some(t);
-        }
+    if row.client_id != 0
+        && let Some(t) = srv.get(&row.client_id)
+    {
+        return Some(t);
     }
     srv.get(&row.server_id)
 }
@@ -41,10 +41,12 @@ pub fn build_speed_patches(objects_srv: &Path, otb_path: &Path) -> Result<HashMa
     let srv = crate::objects_srv::parse_all_types(objects_srv)?;
     let mut patches = HashMap::new();
     for (&server_id, row) in &items {
-        if let Some(t) = srv_identity(row, &srv) {
-            if t.flags.bank && !t.flags.unpass && t.waypoints > 0 {
-                patches.insert(server_id, t.waypoints as u16);
-            }
+        if let Some(t) = srv_identity(row, &srv)
+            && t.flags.bank
+            && !t.flags.unpass
+            && t.waypoints > 0
+        {
+            patches.insert(server_id, t.waypoints as u16);
         }
     }
     Ok(patches)
@@ -277,16 +279,16 @@ fn patch_or_copy_node(
     output.extend_from_slice(&new_flags.to_le_bytes());
     if needs_speed {
         let mut new_attrs = attrs;
-        if let Some(sid) = server_id {
-            if let Some(&new_speed) = speeds.get(&sid) {
-                let new_bytes = new_speed.to_le_bytes().to_vec();
-                if let Some(i) = new_attrs.iter().position(|(t, _)| *t == ITEM_ATTR_SPEED) {
-                    new_attrs[i].1 = new_bytes;
-                } else {
-                    new_attrs.push((ITEM_ATTR_SPEED, new_bytes));
-                }
-                speed_patched = 1;
+        if let Some(sid) = server_id
+            && let Some(&new_speed) = speeds.get(&sid)
+        {
+            let new_bytes = new_speed.to_le_bytes().to_vec();
+            if let Some(i) = new_attrs.iter().position(|(t, _)| *t == ITEM_ATTR_SPEED) {
+                new_attrs[i].1 = new_bytes;
+            } else {
+                new_attrs.push((ITEM_ATTR_SPEED, new_bytes));
             }
+            speed_patched = 1;
         }
         write_escaped_props(output, &new_attrs, path)?;
     } else {

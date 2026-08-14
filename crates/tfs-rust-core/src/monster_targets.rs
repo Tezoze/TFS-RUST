@@ -383,10 +383,10 @@ impl GameWorld {
         if tp.z != monster_pos.z {
             return false;
         }
-        if let Some(tile) = self.map.get_tile(tp) {
-            if tile.body().zone == ZoneType::Protection {
-                return false;
-            }
+        if let Some(tile) = self.map.get_tile(tp)
+            && tile.body().zone == ZoneType::Protection
+        {
+            return false;
         }
         true
     }
@@ -646,10 +646,10 @@ impl GameWorld {
             return false;
         }
         // Ensure challenger is on the opponent list so `selectTarget` can succeed.
-        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(monster_id) {
-            if !m.opponent_ids.contains(&challenger_id) {
-                m.opponent_ids.push(challenger_id);
-            }
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(monster_id)
+            && !m.opponent_ids.contains(&challenger_id)
+        {
+            m.opponent_ids.push(challenger_id);
         }
         if !self.monster_select_target(monster_id, challenger_id) {
             return false;

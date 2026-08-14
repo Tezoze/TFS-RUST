@@ -257,23 +257,23 @@ pub fn handle_creature_death(
             .unwrap_or(1.0)
             .max(0.0);
         let share = ((share as f64) * rate_exp).floor() as u64;
-        if share > 0 {
-            if let Some(CreatureKind::Player(k)) = creatures.get_mut(*killer_id) {
-                let old_level = k.level;
-                if k.add_experience(share, step_speed_model) {
-                    leveled_killers.push(*killer_id);
-                }
-                // 772 soul regen on exp (`crcombat.cc:938-955`): Amount >= AttackerLevel.
-                if share >= old_level as u64 {
-                    k.arm_soul_regen_timer();
-                }
-                xp_grants.push(XpShareGrant {
-                    cid: *killer_id,
-                    amount: share,
-                    old_level,
-                    new_level: k.level,
-                });
+        if share > 0
+            && let Some(CreatureKind::Player(k)) = creatures.get_mut(*killer_id)
+        {
+            let old_level = k.level;
+            if k.add_experience(share, step_speed_model) {
+                leveled_killers.push(*killer_id);
             }
+            // 772 soul regen on exp (`crcombat.cc:938-955`): Amount >= AttackerLevel.
+            if share >= old_level as u64 {
+                k.arm_soul_regen_timer();
+            }
+            xp_grants.push(XpShareGrant {
+                cid: *killer_id,
+                amount: share,
+                old_level,
+                new_level: k.level,
+            });
         }
         events.on_kill(*killer_id, victim);
     }

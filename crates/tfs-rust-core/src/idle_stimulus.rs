@@ -278,20 +278,21 @@ impl GameWorld {
         // invulnerable GM, still refreshes the attacker's infight lock, the victim's black
         // `SendMarkCreature`, and `RecordAttack`. Skip pure heals and condition applications.
         let healing = damage.primary.1 > 0 || damage.secondary.1 > 0;
-        if let Some(attacker_id) = attacker {
-            if !healing && params.apply_condition.is_none() {
-                let target_is_player =
-                    matches!(self.creatures.get(target), Some(CreatureKind::Player(_)));
-                self.player_block_logout_infight(attacker_id, target_is_player);
-                if target_is_player {
-                    self.player_block_logout_infight(target, false);
-                    // 772 `SendMarkCreature(Connection, Attacker->ID, COLOR_BLACK)` — `crmain.cc:494`.
-                    self.send_mark_creature_on_attacker(target, attacker_id);
-                    // 772 Damage `RecordAttack` — player responsible (incl. summon master)
-                    // vs player victim (`crmain.cc` Damage arm).
-                    if let Some(resp) = self.player_responsible_for_attack(attacker_id) {
-                        self.player_record_attack(resp, target);
-                    }
+        if let Some(attacker_id) = attacker
+            && !healing
+            && params.apply_condition.is_none()
+        {
+            let target_is_player =
+                matches!(self.creatures.get(target), Some(CreatureKind::Player(_)));
+            self.player_block_logout_infight(attacker_id, target_is_player);
+            if target_is_player {
+                self.player_block_logout_infight(target, false);
+                // 772 `SendMarkCreature(Connection, Attacker->ID, COLOR_BLACK)` — `crmain.cc:494`.
+                self.send_mark_creature_on_attacker(target, attacker_id);
+                // 772 Damage `RecordAttack` — player responsible (incl. summon master)
+                // vs player victim (`crmain.cc` Damage arm).
+                if let Some(resp) = self.player_responsible_for_attack(attacker_id) {
+                    self.player_record_attack(resp, target);
                 }
             }
         }
@@ -405,25 +406,24 @@ impl GameWorld {
         // shared path so physical spells / burst-arrow AoE also get armor. H2: the RNG draw
         // only fires when damage is still negative (i.e. post-absorb damage exists), matching
         // C++ which returns before `GetArmorStrength()` when `Damage <= 0` (`crmain.cc:577`).
-        if reduced_damage.primary.0 == CombatType::Physical {
-            if let Some(armor) = params.armor {
-                if reduced_damage.primary.1 < 0 {
-                    let profile = self.mechanics.profile;
-                    let armor_roll = crate::combat::math::armor_reduction(
-                        &profile,
-                        &self.mechanics.hooks,
-                        armor,
-                        &self.parity_rng,
-                    );
-                    reduced_damage.primary.1 += armor_roll;
-                    if reduced_damage.primary.1 >= 0 {
-                        if let Some(pos) = self.creatures.get(target).map(|k| k.position()) {
-                            // C++ `EFFECT_BLOCK_HIT` (wire byte 4) — `crmain.cc:627`.
-                            self.broadcast_magic_effect(pos, 4u8);
-                        }
-                        return 0;
-                    }
+        if reduced_damage.primary.0 == CombatType::Physical
+            && let Some(armor) = params.armor
+            && reduced_damage.primary.1 < 0
+        {
+            let profile = self.mechanics.profile;
+            let armor_roll = crate::combat::math::armor_reduction(
+                &profile,
+                &self.mechanics.hooks,
+                armor,
+                &self.parity_rng,
+            );
+            reduced_damage.primary.1 += armor_roll;
+            if reduced_damage.primary.1 >= 0 {
+                if let Some(pos) = self.creatures.get(target).map(|k| k.position()) {
+                    // C++ `EFFECT_BLOCK_HIT` (wire byte 4) — `crmain.cc:627`.
+                    self.broadcast_magic_effect(pos, 4u8);
                 }
+                return 0;
             }
         }
 
@@ -457,11 +457,11 @@ impl GameWorld {
         }
 
         let stimulus_damage = (-(reduced_damage.primary.1 + reduced_damage.secondary.1)).max(0);
-        if let Some(attacker_id) = attacker {
-            if stimulus_damage > 0 {
-                // C++ `DamageStimulus` runs before HP apply — `crmain.cc:631`, `694`.
-                self.monster_damage_stimulus(target, attacker_id, stimulus_damage);
-            }
+        if let Some(attacker_id) = attacker
+            && stimulus_damage > 0
+        {
+            // C++ `DamageStimulus` runs before HP apply — `crmain.cc:631`, `694`.
+            self.monster_damage_stimulus(target, attacker_id, stimulus_damage);
         }
         let applied = {
             let responsible = attacker.and_then(|aid| {
@@ -486,10 +486,10 @@ impl GameWorld {
         if applied {
             // C++ `magic.cc:1512` `CREATURE_SPEED_CHANGED` — announce when a speed-altering
             // condition (haste/paralyze) is applied via spell cast.
-            if let Some(ref cond) = params.apply_condition {
-                if matches!(cond.ctype, ConditionType::Haste | ConditionType::Paralyze) {
-                    self.announce_creature_speed(target);
-                }
+            if let Some(ref cond) = params.apply_condition
+                && matches!(cond.ctype, ConditionType::Haste | ConditionType::Paralyze)
+            {
+                self.announce_creature_speed(target);
             }
             let hp_after = self
                 .creatures
@@ -502,33 +502,31 @@ impl GameWorld {
             // `game.cpp:3999`). Emitted for any damage that landed, including the killing blow
             // (C++ emits the effect before `Kill()`); the full-blood pool is added afterwards by
             // the death path.
-            if stimulus_damage > 0 {
-                if let Some(pos) = self.creatures.get(target).map(|k| k.position()) {
-                    if reduced_damage.primary.0 == CombatType::Physical {
-                        self.apply_physical_hit_blood(target, pos);
+            if stimulus_damage > 0
+                && let Some(pos) = self.creatures.get(target).map(|k| k.position())
+            {
+                if reduced_damage.primary.0 == CombatType::Physical {
+                    self.apply_physical_hit_blood(target, pos);
 
-                        // M4 — Invisibility removal on hit: C++ `Damage` clears non-player
-                        // invisibility (`SKILL_ILLUSION` timer → restore original outfit +
-                        // announce) when damage lands (`crmain.cc:636-641`). Players keep
-                        // invisibility through damage (C++ gates on `this->Type != PLAYER`).
-                        if !matches!(self.creatures.get(target), Some(CreatureKind::Player(_))) {
-                            self.clear_nonplayer_invisibility(target);
-                        }
-                    } else if let Some(effect) =
-                        crate::combat::combat_type_hit_effect(reduced_damage.primary.0)
-                    {
-                        self.broadcast_magic_effect(pos, effect);
+                    // M4 — Invisibility removal on hit: C++ `Damage` clears non-player
+                    // invisibility (`SKILL_ILLUSION` timer → restore original outfit +
+                    // announce) when damage lands (`crmain.cc:636-641`). Players keep
+                    // invisibility through damage (C++ gates on `this->Type != PLAYER`).
+                    if !matches!(self.creatures.get(target), Some(CreatureKind::Player(_))) {
+                        self.clear_nonplayer_invisibility(target);
                     }
+                } else if let Some(effect) =
+                    crate::combat::combat_type_hit_effect(reduced_damage.primary.0)
+                {
+                    self.broadcast_magic_effect(pos, effect);
+                }
 
-                    if reduced_damage.secondary.1 < 0
-                        && reduced_damage.secondary.0 != CombatType::Physical
-                    {
-                        if let Some(effect) =
-                            crate::combat::combat_type_hit_effect(reduced_damage.secondary.0)
-                        {
-                            self.broadcast_magic_effect(pos, effect);
-                        }
-                    }
+                if reduced_damage.secondary.1 < 0
+                    && reduced_damage.secondary.0 != CombatType::Physical
+                    && let Some(effect) =
+                        crate::combat::combat_type_hit_effect(reduced_damage.secondary.0)
+                {
+                    self.broadcast_magic_effect(pos, effect);
                 }
             }
 
@@ -659,15 +657,13 @@ impl GameWorld {
             _ => return 0,
         };
 
-        if set_origin {
-            if let Some(kind) = self.creatures.get_mut(target) {
-                let base = kind.base_mut();
-                match combat {
-                    CombatType::PoisonPeriodic => base.poison_damage_origin = attacker,
-                    CombatType::FirePeriodic => base.fire_damage_origin = attacker,
-                    CombatType::EnergyPeriodic => base.energy_damage_origin = attacker,
-                    _ => {}
-                }
+        if set_origin && let Some(kind) = self.creatures.get_mut(target) {
+            let base = kind.base_mut();
+            match combat {
+                CombatType::PoisonPeriodic => base.poison_damage_origin = attacker,
+                CombatType::FirePeriodic => base.fire_damage_origin = attacker,
+                CombatType::EnergyPeriodic => base.energy_damage_origin = attacker,
+                _ => {}
             }
         }
 
@@ -1435,15 +1431,16 @@ impl GameWorld {
             return true;
         }
 
-        if state == Some(MonsterState::Panic) && still_no_target {
-            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-                m.state = MonsterState::Idle;
-            }
+        if state == Some(MonsterState::Panic)
+            && still_no_target
+            && let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid)
+        {
+            m.state = MonsterState::Idle;
         }
-        if state == Some(MonsterState::UnderAttack) {
-            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-                m.state = MonsterState::Idle;
-            }
+        if state == Some(MonsterState::UnderAttack)
+            && let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid)
+        {
+            m.state = MonsterState::Idle;
         }
         false
     }
@@ -1739,36 +1736,36 @@ impl GameWorld {
         target_id: CreatureId,
         spell: &MonsterSpell,
     ) {
-        if chase_debug::chase_path_debug_enabled() {
-            if let Some(CreatureKind::Monster(m)) = self.creatures.get(caster_id) {
-                let spell_label = match &spell.impact {
-                    SpellImpact::Damage { .. } => "damage".into(),
-                    SpellImpact::Condition { condition, .. } => format!("condition:{condition:?}"),
-                    SpellImpact::Healing { .. } => "healing".into(),
-                    SpellImpact::Speed { .. } => "speed".into(),
-                    SpellImpact::Field { .. } => "field".into(),
-                    SpellImpact::Summon { race, .. } => format!("summon:{race}"),
-                    SpellImpact::Drunk { .. } => "drunk".into(),
-                    SpellImpact::Outfit { .. } => "outfit".into(),
-                    SpellImpact::Invisible { .. } => "invisible".into(),
-                };
-                let shape = match spell.shape {
-                    SpellShape::Victim => "victim",
-                    SpellShape::Actor => "actor",
-                    SpellShape::Origin => "origin",
-                    SpellShape::Destination => "destination",
-                    SpellShape::Angle => "angle",
-                };
-                chase_debug::log_spell_cast(
-                    self.chase_trace_tick(),
-                    caster_id,
-                    m.base.name.as_str(),
-                    &spell_label,
-                    target_id.data().as_ffi(),
-                    shape,
-                    spell.range,
-                );
-            }
+        if chase_debug::chase_path_debug_enabled()
+            && let Some(CreatureKind::Monster(m)) = self.creatures.get(caster_id)
+        {
+            let spell_label = match &spell.impact {
+                SpellImpact::Damage { .. } => "damage".into(),
+                SpellImpact::Condition { condition, .. } => format!("condition:{condition:?}"),
+                SpellImpact::Healing { .. } => "healing".into(),
+                SpellImpact::Speed { .. } => "speed".into(),
+                SpellImpact::Field { .. } => "field".into(),
+                SpellImpact::Summon { race, .. } => format!("summon:{race}"),
+                SpellImpact::Drunk { .. } => "drunk".into(),
+                SpellImpact::Outfit { .. } => "outfit".into(),
+                SpellImpact::Invisible { .. } => "invisible".into(),
+            };
+            let shape = match spell.shape {
+                SpellShape::Victim => "victim",
+                SpellShape::Actor => "actor",
+                SpellShape::Origin => "origin",
+                SpellShape::Destination => "destination",
+                SpellShape::Angle => "angle",
+            };
+            chase_debug::log_spell_cast(
+                self.chase_trace_tick(),
+                caster_id,
+                m.base.name.as_str(),
+                &spell_label,
+                target_id.data().as_ffi(),
+                shape,
+                spell.range,
+            );
         }
         let profile = self.mechanics.profile;
         let hooks = &self.mechanics.hooks;
@@ -1847,13 +1844,14 @@ impl GameWorld {
                 // physical always subtracts GetDefendDamage then armor (`magic.cc:147-151`).
                 // H1 — armor is now passed via `CombatParams` for the shared path.
                 let mut physical_armor: Option<i32> = None;
-                if *element == CombatType::Physical && dmg > 0 {
-                    if let Some(target_pos) = self.creatures.get(target_id).map(|k| k.position()) {
-                        let (post_def, armor) = self
-                            .mitigate_physical_spell_damage(target_id, target_pos, dmg, true, true);
-                        dmg = post_def;
-                        physical_armor = armor;
-                    }
+                if *element == CombatType::Physical
+                    && dmg > 0
+                    && let Some(target_pos) = self.creatures.get(target_id).map(|k| k.position())
+                {
+                    let (post_def, armor) =
+                        self.mitigate_physical_spell_damage(target_id, target_pos, dmg, true, true);
+                    dmg = post_def;
+                    physical_armor = armor;
                 }
                 let params = CombatParams {
                     primary_type: *element,
@@ -2268,10 +2266,10 @@ impl GameWorld {
             return;
         }
         self.obs.record_idle_pass();
-        if chase_debug::chase_path_debug_enabled() {
-            if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
-                chase_debug::log_idle_stimulus(self.chase_trace_tick(), cid, &m.base.name);
-            }
+        if chase_debug::chase_path_debug_enabled()
+            && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
+        {
+            chase_debug::log_idle_stimulus(self.chase_trace_tick(), cid, &m.base.name);
         }
         if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
             m.idle_stimulus_last_ms = Some(self.server_ms);
@@ -2515,10 +2513,11 @@ impl GameWorld {
         let (target_id, melee_skill, state, prev_attack) = snapshot;
 
         // `if (Skills[SKILL_FIST]->Get() > 0 && State != PANIC) State = ATTACKING`
-        if melee_skill > 0 && state != MonsterState::Panic {
-            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-                m.state = MonsterState::Attacking;
-            }
+        if melee_skill > 0
+            && state != MonsterState::Panic
+            && let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid)
+        {
+            m.state = MonsterState::Attacking;
         }
 
         let combat_state = self.creatures.get(cid).and_then(|k| match k {
@@ -2647,17 +2646,17 @@ impl GameWorld {
                 m.base.attack_target.map(|id| id.data().as_ffi()),
             ))
         });
-        if chase_debug::chase_path_debug_enabled() {
-            if let Some((name, state, mode, attack_target)) = combat_log {
-                chase_debug::log_combat_state(
-                    self.chase_trace_tick(),
-                    cid,
-                    name.as_str(),
-                    state,
-                    mode,
-                    attack_target,
-                );
-            }
+        if chase_debug::chase_path_debug_enabled()
+            && let Some((name, state, mode, attack_target)) = combat_log
+        {
+            chase_debug::log_combat_state(
+                self.chase_trace_tick(),
+                cid,
+                name.as_str(),
+                state,
+                mode,
+                attack_target,
+            );
         }
     }
 
@@ -2719,18 +2718,18 @@ impl GameWorld {
             }
         };
         if self.enqueue_creature_attack(cid) {
-            if chase_debug::chase_path_debug_enabled() {
-                if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
-                    let wait_ms = if weapon_distance != 1 { 100 } else { 0 };
-                    chase_debug::log_attack_enqueue(
-                        self.chase_trace_tick(),
-                        cid,
-                        m.base.name.as_str(),
-                        wait_ms,
-                        needs_close_step && !already_has_close_go && !skip_idle_melee_chase,
-                        close_label,
-                    );
-                }
+            if chase_debug::chase_path_debug_enabled()
+                && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
+            {
+                let wait_ms = if weapon_distance != 1 { 100 } else { 0 };
+                chase_debug::log_attack_enqueue(
+                    self.chase_trace_tick(),
+                    cid,
+                    m.base.name.as_str(),
+                    wait_ms,
+                    needs_close_step && !already_has_close_go && !skip_idle_melee_chase,
+                    close_label,
+                );
             }
             // C++ `ToDoStart` always arms `NextWakeup` for the head todo entry when the list is
             // non-empty (`cract.cc:1010-1023`). The walk branch normally schedules the Go via
@@ -2835,16 +2834,16 @@ impl GameWorld {
         } else if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().direction = new_dir;
         }
-        if chase_debug::chase_path_debug_enabled() {
-            if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
-                chase_debug::log_rotate(
-                    self.chase_trace_tick(),
-                    cid,
-                    m.base.name.as_str(),
-                    new_dir as u8,
-                    Some(target_id.data().as_ffi()),
-                );
-            }
+        if chase_debug::chase_path_debug_enabled()
+            && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
+        {
+            chase_debug::log_rotate(
+                self.chase_trace_tick(),
+                cid,
+                m.base.name.as_str(),
+                new_dir as u8,
+                Some(target_id.data().as_ffi()),
+            );
         }
     }
 
@@ -3204,20 +3203,20 @@ impl GameWorld {
                     return MonsterIdleWalkOutcome::Hold;
                 }
                 if monster_master_follow_wait_only_band(dist) {
-                    if chase_debug::chase_path_debug_enabled() {
-                        if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
-                            chase_debug::log_branch(
-                                self.chase_trace_tick(),
-                                cid,
-                                m.base.name.as_str(),
-                                "master_follow_wait",
-                                pos,
-                                target_pos,
-                                false,
-                                0,
-                                None,
-                            );
-                        }
+                    if chase_debug::chase_path_debug_enabled()
+                        && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
+                    {
+                        chase_debug::log_branch(
+                            self.chase_trace_tick(),
+                            cid,
+                            m.base.name.as_str(),
+                            "master_follow_wait",
+                            pos,
+                            target_pos,
+                            false,
+                            0,
+                            None,
+                        );
                     }
                     return MonsterIdleWalkOutcome::QueuedWait;
                 }
@@ -3488,11 +3487,9 @@ impl GameWorld {
                 // While `LockToDo` is set, `ToDoYield` is a no-op (`cract.cc:1026-1031`); the
                 // drain path calls `IdleStimulus` when the queue empties.
                 trace_creature_todo(self, cid, "execute_change_npc_state");
-                if to_idle {
-                    if let Some(CreatureKind::Npc(npc)) = self.creatures.get_mut(cid) {
-                        npc.runtime.activity = crate::creature::NpcActivity::Idle;
-                        npc.runtime.focus = None;
-                    }
+                if to_idle && let Some(CreatureKind::Npc(npc)) = self.creatures.get_mut(cid) {
+                    npc.runtime.activity = crate::creature::NpcActivity::Idle;
+                    npc.runtime.focus = None;
                 }
                 trace_creature_todo(self, cid, "execute_change_npc_state_done");
                 TodoExecuteKind::Wait
@@ -3599,15 +3596,14 @@ impl GameWorld {
                         });
                             trace_creature_todo(self, cid, "execute_attack");
                             self.monster_do_attacking(cid, EVENT_CREATURE_THINK_INTERVAL_MS);
-                            if distance_fighter {
-                                if let Some(wakeup) = self
+                            if distance_fighter
+                                && let Some(wakeup) = self
                                     .creatures
                                     .get(cid)
                                     .map(|k| k.base().earliest_attack_ms)
                                     .filter(|&wakeup| wakeup > self.server_ms)
-                                {
-                                    self.schedule_creature_wakeup(cid, wakeup);
-                                }
+                            {
+                                self.schedule_creature_wakeup(cid, wakeup);
                             }
                             trace_creature_todo(self, cid, "execute_attack_done");
                             if distance_fighter {

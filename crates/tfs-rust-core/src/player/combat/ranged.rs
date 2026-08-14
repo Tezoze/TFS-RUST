@@ -345,10 +345,10 @@ impl GameWorld {
         }
 
         // `ActivateLearning` on `DamageDone > 0` (`crcombat.cc:733`).
-        if damage_done > 0 {
-            if let Some(k) = self.creatures.get_mut(cid) {
-                k.base_mut().activate_learning();
-            }
+        if damage_done > 0
+            && let Some(k) = self.creatures.get_mut(cid)
+        {
+            k.base_mut().activate_learning();
         }
 
         // `DelayAttack(attackspeed)` — `crcombat.cc:641`. M3 — Use
@@ -522,19 +522,18 @@ impl GameWorld {
         let skill_tries = profile.combat_skill_tries(self.config.rate_skill().unwrap_or(1.0));
         let mut skill_trained = false;
         let mut levels_gained = 0u32;
-        if learning_active {
-            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-                if p.base.learning_points > 0 {
-                    levels_gained = p.skill_increase(
-                        crate::player::combat::SkillNr::Distance,
-                        skill_tries,
-                        &profile,
-                        &self.mechanics.hooks,
-                    );
-                    p.base.learning_points -= 1;
-                    skill_trained = skill_tries > 0;
-                }
-            }
+        if learning_active
+            && let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid)
+            && p.base.learning_points > 0
+        {
+            levels_gained = p.skill_increase(
+                crate::player::combat::SkillNr::Distance,
+                skill_tries,
+                &profile,
+                &self.mechanics.hooks,
+            );
+            p.base.learning_points -= 1;
+            skill_trained = skill_tries > 0;
         }
 
         // Target armor snapshot for Physical armor inside `Damage` (`crmain.cc:624`).
@@ -547,17 +546,17 @@ impl GameWorld {
             drop_pos = target_pos;
 
             // `GetAttackDamage` skill side-effect — second Increase while LP still > 0.
-            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-                if p.base.learning_points > 0 {
-                    levels_gained = levels_gained.saturating_add(p.skill_increase(
-                        crate::player::combat::SkillNr::Distance,
-                        skill_tries,
-                        &profile,
-                        &self.mechanics.hooks,
-                    ));
-                    p.base.learning_points -= 1;
-                    skill_trained = skill_trained || skill_tries > 0;
-                }
+            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid)
+                && p.base.learning_points > 0
+            {
+                levels_gained = levels_gained.saturating_add(p.skill_increase(
+                    crate::player::combat::SkillNr::Distance,
+                    skill_tries,
+                    &profile,
+                    &self.mechanics.hooks,
+                ));
+                p.base.learning_points -= 1;
+                skill_trained = skill_trained || skill_tries > 0;
             }
 
             // Skill notify after hooks last used on hit (native arm uses hooks below).
@@ -668,10 +667,10 @@ impl GameWorld {
                     );
                 }
 
-                if damage_done > 0 {
-                    if let Some(k) = self.creatures.get_mut(cid) {
-                        k.base_mut().activate_learning();
-                    }
+                if damage_done > 0
+                    && let Some(k) = self.creatures.get_mut(cid)
+                {
+                    k.base_mut().activate_learning();
                 }
             } else if skill_trained {
                 self.notify_skill_tries_gained(
@@ -847,21 +846,20 @@ impl GameWorld {
             return false;
         }
         // UNLAY on ground or any stacked item.
-        if let Some(gid) = body.ground {
-            if self.items_db.items.get(&gid).is_some_and(|t| t.is_unlay()) {
-                return false;
-            }
+        if let Some(gid) = body.ground
+            && self.items_db.items.get(&gid).is_some_and(|t| t.is_unlay())
+        {
+            return false;
         }
         for &iid in body.top_items.iter().chain(body.down_items.iter()) {
-            if let Some(i) = self.items.get(iid) {
-                if self
+            if let Some(i) = self.items.get(iid)
+                && self
                     .items_db
                     .items
                     .get(&i.item_type)
                     .is_some_and(|t| t.is_unlay())
-                {
-                    return false;
-                }
+            {
+                return false;
             }
         }
         self.map.throw_possible(master_pos, drop, 0)

@@ -280,10 +280,10 @@ impl SparseGrid {
         for (key, chunk) in &self.chunks {
             let (ox, oy, z) = key.chunk_origin();
             for (idx, slot) in chunk.tiles.iter().enumerate() {
-                if let Some(tile) = slot {
-                    if tile.has_item(item_id) {
-                        return Some(position_from_chunk_slot(ox, oy, z, idx));
-                    }
+                if let Some(tile) = slot
+                    && tile.has_item(item_id)
+                {
+                    return Some(position_from_chunk_slot(ox, oy, z, idx));
                 }
             }
         }

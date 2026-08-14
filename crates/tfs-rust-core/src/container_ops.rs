@@ -194,10 +194,10 @@ impl GameWorld {
             if *slot_item == container_root {
                 return true;
             }
-            if let Some(c) = self.container_registry.get(*slot_item) {
-                if c.is_holding_item(&self.container_registry, container_root) {
-                    return true;
-                }
+            if let Some(c) = self.container_registry.get(*slot_item)
+                && c.is_holding_item(&self.container_registry, container_root)
+            {
+                return true;
             }
         }
         false
@@ -261,31 +261,30 @@ impl GameWorld {
 
         if !same_depot && !flags.contains(CylinderFlags::NO_LIMIT) {
             // Depot chest limit (`DepotChest::queryAdd` — `depotchest.cpp`).
-            if cont.container_type == ContainerType::Depot {
-                if let Some((holder_id, max_items)) = self.depot_limit_holder(container_item_id) {
-                    let add_count =
-                        self.depot_add_count_for_item(container_item_id, item_id, count);
-                    let holder_count = self
-                        .container_registry
-                        .get(holder_id)
-                        .map(|c| {
-                            // 772: `CountObjects(locker) - 1` — exclude the chest itself
-                            // from the depot count (`moveuse.cc:640`).
-                            if c.depot_locker_town_id.is_some()
-                                && matches!(
-                                    self.mechanics.profile.depot_locker_structure,
-                                    crate::formulas::DepotLockerStructure::ClassicDepotChest
-                                )
-                            {
-                                c.total_item_count.saturating_sub(1)
-                            } else {
-                                c.total_item_count
-                            }
-                        })
-                        .unwrap_or(0);
-                    if holder_count.saturating_add(add_count) > max_items {
-                        return ReturnValue::DepotIsFull;
-                    }
+            if cont.container_type == ContainerType::Depot
+                && let Some((holder_id, max_items)) = self.depot_limit_holder(container_item_id)
+            {
+                let add_count = self.depot_add_count_for_item(container_item_id, item_id, count);
+                let holder_count = self
+                    .container_registry
+                    .get(holder_id)
+                    .map(|c| {
+                        // 772: `CountObjects(locker) - 1` — exclude the chest itself
+                        // from the depot count (`moveuse.cc:640`).
+                        if c.depot_locker_town_id.is_some()
+                            && matches!(
+                                self.mechanics.profile.depot_locker_structure,
+                                crate::formulas::DepotLockerStructure::ClassicDepotChest
+                            )
+                        {
+                            c.total_item_count.saturating_sub(1)
+                        } else {
+                            c.total_item_count
+                        }
+                    })
+                    .unwrap_or(0);
+                if holder_count.saturating_add(add_count) > max_items {
+                    return ReturnValue::DepotIsFull;
                 }
             }
             // 772 locker direct-add: check depot-wide item count limit
@@ -297,19 +296,17 @@ impl GameWorld {
                     self.mechanics.profile.depot_locker_structure,
                     crate::formulas::DepotLockerStructure::ClassicDepotChest
                 )
+                && let Some(actor_cid) = actor
             {
-                if let Some(actor_cid) = actor {
-                    let max_items = self.player_get_max_depot_items(actor_cid);
-                    let add_count =
-                        self.depot_add_count_for_item(container_item_id, item_id, count);
-                    let holder_count = self
-                        .container_registry
-                        .get(container_item_id)
-                        .map(|c| c.total_item_count.saturating_sub(1))
-                        .unwrap_or(0);
-                    if holder_count.saturating_add(add_count) > max_items {
-                        return ReturnValue::DepotIsFull;
-                    }
+                let max_items = self.player_get_max_depot_items(actor_cid);
+                let add_count = self.depot_add_count_for_item(container_item_id, item_id, count);
+                let holder_count = self
+                    .container_registry
+                    .get(container_item_id)
+                    .map(|c| c.total_item_count.saturating_sub(1))
+                    .unwrap_or(0);
+                if holder_count.saturating_add(add_count) > max_items {
+                    return ReturnValue::DepotIsFull;
                 }
             }
         }
@@ -345,10 +342,10 @@ impl GameWorld {
                 if pid == item_id {
                     return ReturnValue::ThisIsImpossible;
                 }
-                if let Some(pc) = self.container_registry.get(pid) {
-                    if pc.container_type == ContainerType::Inbox {
-                        return ReturnValue::ContainerNotEnoughRoom;
-                    }
+                if let Some(pc) = self.container_registry.get(pid)
+                    && pc.container_type == ContainerType::Inbox
+                {
+                    return ReturnValue::ContainerNotEnoughRoom;
                 }
                 cyl = self
                     .container_registry
@@ -371,20 +368,19 @@ impl GameWorld {
             }
         }
 
-        if let Some(actor) = actor {
-            if let Some(rv) = self.house_invite_blocks_container_add(container_item_id, actor) {
-                return rv;
-            }
+        if let Some(actor) = actor
+            && let Some(rv) = self.house_invite_blocks_container_add(container_item_id, actor)
+        {
+            return rv;
         }
 
         // 772 `CheckWeight(ConOwnerID, Obj, Count)` (`operate.cc:806` / `Move:1367-1369`):
         // the destination container's owner pays the weight, not the actor.
-        if !flags.contains(CylinderFlags::NO_LIMIT) {
-            if let Some(owner) = self.get_container_owner(container_item_id) {
-                if !self.player_has_capacity(owner, item_id, count, flags) {
-                    return ReturnValue::NotEnoughCapacity;
-                }
-            }
+        if !flags.contains(CylinderFlags::NO_LIMIT)
+            && let Some(owner) = self.get_container_owner(container_item_id)
+            && !self.player_has_capacity(owner, item_id, count, flags)
+        {
+            return ReturnValue::NotEnoughCapacity;
         }
 
         ReturnValue::NoError
@@ -474,22 +470,21 @@ impl GameWorld {
                 }
             } else if index >= 0 {
                 let idx = index as usize;
-                if let Some(dest_id) = container_items.get(idx).copied() {
-                    if self.items_stack_mergeable(item_id, dest_id)
-                        && self.items.get(dest_id).is_some_and(|d| d.count < 100)
-                        && self.container_query_add(
-                            container_item_id,
-                            index,
-                            item_id,
-                            count,
-                            flags,
-                            None,
-                        ) == ReturnValue::NoError
-                    {
-                        n = 100u32.saturating_sub(
-                            self.items.get(dest_id).map(|i| i.count).unwrap_or(0) as u32,
-                        );
-                    }
+                if let Some(dest_id) = container_items.get(idx).copied()
+                    && self.items_stack_mergeable(item_id, dest_id)
+                    && self.items.get(dest_id).is_some_and(|d| d.count < 100)
+                    && self.container_query_add(
+                        container_item_id,
+                        index,
+                        item_id,
+                        count,
+                        flags,
+                        None,
+                    ) == ReturnValue::NoError
+                {
+                    n = 100u32.saturating_sub(
+                        self.items.get(dest_id).map(|i| i.count).unwrap_or(0) as u32,
+                    );
                 }
             }
             let max_query = free_slots.saturating_mul(100).saturating_add(n);
@@ -568,18 +563,17 @@ impl GameWorld {
             .unwrap_or(false);
 
         // C++ sets `*destItem` from `getItemByIndex(index)` before the `getParent() != this` autostack guard.
-        if auto_stack && stackable {
-            if let Some(dest_id) = dest_from_index {
-                if dest_id != item_id
-                    && self.items_stack_mergeable(item_id, dest_id)
-                    && self.items.get(dest_id).is_some_and(|d| d.count < 100)
-                {
-                    return Ok(ContainerDestResolution::StayHere {
-                        index: *index,
-                        dest_stack_item: Some(dest_id),
-                    });
-                }
-            }
+        if auto_stack
+            && stackable
+            && let Some(dest_id) = dest_from_index
+            && dest_id != item_id
+            && self.items_stack_mergeable(item_id, dest_id)
+            && self.items.get(dest_id).is_some_and(|d| d.count < 100)
+        {
+            return Ok(ContainerDestResolution::StayHere {
+                index: *index,
+                dest_stack_item: Some(dest_id),
+            });
         }
 
         // 772 only merges into the targeted slot; TFS 1.x may scan the whole container.

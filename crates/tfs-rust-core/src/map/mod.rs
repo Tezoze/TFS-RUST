@@ -308,19 +308,19 @@ pub(crate) fn tile_remaining_props(
         }
     };
 
-    if let Some(ground_type) = body.ground {
-        if let Some(it) = items_db.items.get(&ground_type) {
-            consider(it);
-        }
+    if let Some(ground_type) = body.ground
+        && let Some(it) = items_db.items.get(&ground_type)
+    {
+        consider(it);
     }
     for &iid in body.down_items.iter().chain(body.top_items.iter()) {
         if iid == exclude {
             continue;
         }
-        if let Some(item) = items.get(iid) {
-            if let Some(it) = items_db.items.get(&item.item_type) {
-                consider(it);
-            }
+        if let Some(item) = items.get(iid)
+            && let Some(it) = items_db.items.get(&item.item_type)
+        {
+            consider(it);
         }
     }
     out

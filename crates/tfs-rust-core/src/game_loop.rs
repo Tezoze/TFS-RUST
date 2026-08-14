@@ -122,10 +122,10 @@ fn register_output_sink(
     let Some(reg) = out_registry.as_ref() else {
         return;
     };
-    if let Ok(g) = reg.lock() {
-        if let Some(tx) = g.get(&conn_id) {
-            output_sinks.insert(conn_id, tx.clone());
-        }
+    if let Ok(g) = reg.lock()
+        && let Some(tx) = g.get(&conn_id)
+    {
+        output_sinks.insert(conn_id, tx.clone());
     }
 }
 
@@ -139,14 +139,12 @@ fn ensure_output_sink<'a>(
     output_sinks: &'a mut OutputSinkMap,
     out_registry: &Option<OutRegistry>,
 ) -> Option<&'a OutboundTx> {
-    if !output_sinks.contains_key(&conn) {
-        if let Some(reg) = out_registry {
-            if let Ok(g) = reg.lock() {
-                if let Some(tx) = g.get(&conn) {
-                    output_sinks.insert(conn, tx.clone());
-                }
-            }
-        }
+    if !output_sinks.contains_key(&conn)
+        && let Some(reg) = out_registry
+        && let Ok(g) = reg.lock()
+        && let Some(tx) = g.get(&conn)
+    {
+        output_sinks.insert(conn, tx.clone());
     }
     output_sinks.get(&conn)
 }
@@ -282,10 +280,10 @@ fn close_output_connection(
     out_registry: &Option<OutRegistry>,
 ) {
     output_sinks.remove(&conn_id);
-    if let Some(reg) = out_registry {
-        if let Ok(mut g) = reg.lock() {
-            g.remove(&conn_id);
-        }
+    if let Some(reg) = out_registry
+        && let Ok(mut g) = reg.lock()
+    {
+        g.remove(&conn_id);
     }
 }
 
@@ -1240,10 +1238,7 @@ fn try_recv_next_command(
     if let Ok(c) = ctrl_rx.try_recv() {
         return Some(c);
     }
-    match game_rx.try_recv() {
-        Ok(c) => Some(c),
-        Err(TryRecvError::Empty | TryRecvError::Disconnected) => None,
-    }
+    game_rx.try_recv().ok()
 }
 
 /// Count how many beat ticks are already ready without awaiting (may be zero).

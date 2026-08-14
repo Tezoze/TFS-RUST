@@ -672,10 +672,10 @@ impl ItemAttributes {
 
     pub fn remove_custom_attribute(&mut self, key: &str) -> Option<CustomAttrValue> {
         let removed = self.custom.as_mut()?.remove(key);
-        if let Some(ref custom) = self.custom {
-            if custom.is_empty() {
-                self.attribute_bits.remove(ItemAttrFlags::CUSTOM);
-            }
+        if let Some(ref custom) = self.custom
+            && custom.is_empty()
+        {
+            self.attribute_bits.remove(ItemAttrFlags::CUSTOM);
         }
         removed
     }

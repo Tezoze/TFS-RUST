@@ -65,13 +65,13 @@ impl GameWorld {
             if ignore == Some(iid) {
                 continue;
             }
-            if let Some(i) = self.items.get(iid) {
-                if let Some(t) = self.items_db.items.get(&i.item_type) {
-                    // TOP / CLIP / BOTTOM render categories are always-on-top.
-                    // `CheckTopMoveObject` only accepts the first *moveable* object (T4).
-                    if !t.always_on_top() && t.moveable() {
-                        return Some(iid);
-                    }
+            if let Some(i) = self.items.get(iid)
+                && let Some(t) = self.items_db.items.get(&i.item_type)
+            {
+                // TOP / CLIP / BOTTOM render categories are always-on-top.
+                // `CheckTopMoveObject` only accepts the first *moveable* object (T4).
+                if !t.always_on_top() && t.moveable() {
+                    return Some(iid);
                 }
             }
         }
@@ -80,13 +80,13 @@ impl GameWorld {
             if ignore == Some(iid) {
                 continue;
             }
-            if let Some(i) = self.items.get(iid) {
-                if let Some(t) = self.items_db.items.get(&i.item_type) {
-                    // Cip BOTTOM (pools) sit below creatures; LOW (incl. magic fields) after.
-                    // Skip BOTTOM / always-on-top / immovable when picking the top move object.
-                    if !t.is_cip_priority_bottom() && !t.always_on_top() && t.moveable() {
-                        return Some(iid);
-                    }
+            if let Some(i) = self.items.get(iid)
+                && let Some(t) = self.items_db.items.get(&i.item_type)
+            {
+                // Cip BOTTOM (pools) sit below creatures; LOW (incl. magic fields) after.
+                // Skip BOTTOM / always-on-top / immovable when picking the top move object.
+                if !t.is_cip_priority_bottom() && !t.always_on_top() && t.moveable() {
+                    return Some(iid);
                 }
             }
         }
@@ -107,10 +107,10 @@ impl GameWorld {
             // 772 `CMoveObject` sets `RNum = 1` and `GetObject` walks the tile list for the
             // client `TypeID` (`info.cc:398-432`), allowing a buried item to be moved by sprite.
             // The top moveable candidate is `GetTopObject(true)` (`info.cc:366-388`).
-            if let Some(top_item_id) = self.get_top_object_for_move(pos, None) {
-                if self.validate_item_sprite(top_item_id, sprite_id) {
-                    return Some(Thing::Item(top_item_id));
-                }
+            if let Some(top_item_id) = self.get_top_object_for_move(pos, None)
+                && self.validate_item_sprite(top_item_id, sprite_id)
+            {
+                return Some(Thing::Item(top_item_id));
             }
             if let Some(item_id) = self.find_tile_item_by_client_sprite(pos, sprite_id) {
                 return Some(Thing::Item(item_id));
@@ -158,10 +158,10 @@ impl GameWorld {
                 continue;
             };
             // Skip invisible creatures and ghost-mode players (772 `tile.cpp:306-311`).
-            if let CreatureKind::Player(p) = c {
-                if p.ghost_mode {
-                    continue;
-                }
+            if let CreatureKind::Player(p) = c
+                && p.ghost_mode
+            {
+                continue;
             }
             return Some(Thing::Creature(creature_id));
         }
@@ -318,8 +318,24 @@ impl GameWorld {
         let mut has_hang = false;
 
         // Ground contributes to the coordinate flags as well.
-        if let Some(ground_id) = body.ground {
-            if let Some(t) = self.items_db.items.get(&ground_id) {
+        if let Some(ground_id) = body.ground
+            && let Some(t) = self.items_db.items.get(&ground_id)
+        {
+            if t.block_solid() {
+                has_unpass = true;
+            }
+            if t.is_unlay() {
+                has_unlay = true;
+            }
+            if t.is_hangable() {
+                has_hang = true;
+            }
+        }
+
+        for &iid in body.top_items.iter().chain(body.down_items.iter()) {
+            if let Some(i) = self.items.get(iid)
+                && let Some(t) = self.items_db.items.get(&i.item_type)
+            {
                 if t.block_solid() {
                     has_unpass = true;
                 }
@@ -328,22 +344,6 @@ impl GameWorld {
                 }
                 if t.is_hangable() {
                     has_hang = true;
-                }
-            }
-        }
-
-        for &iid in body.top_items.iter().chain(body.down_items.iter()) {
-            if let Some(i) = self.items.get(iid) {
-                if let Some(t) = self.items_db.items.get(&i.item_type) {
-                    if t.block_solid() {
-                        has_unpass = true;
-                    }
-                    if t.is_unlay() {
-                        has_unlay = true;
-                    }
-                    if t.is_hangable() {
-                        has_hang = true;
-                    }
                 }
             }
         }
@@ -409,12 +409,11 @@ impl GameWorld {
                 continue;
             }
             // For same-type stackable destinations, ensure there is room to merge.
-            if let Some(dest_id) = self.get_player_inventory_item(cid, slot) {
-                if self.items_stack_mergeable(item_id, dest_id)
-                    && self.items.get(dest_id).is_some_and(|d| d.count >= 100)
-                {
-                    continue;
-                }
+            if let Some(dest_id) = self.get_player_inventory_item(cid, slot)
+                && self.items_stack_mergeable(item_id, dest_id)
+                && self.items.get(dest_id).is_some_and(|d| d.count >= 100)
+            {
+                continue;
             }
             return Ok(Cylinder::Inventory {
                 player_id: cid,
@@ -577,23 +576,22 @@ impl GameWorld {
         if is_stackable
             && !flags.contains(CylinderFlags::IGNORE_AUTO_STACK)
             && !flags.contains(CylinderFlags::NO_MERGE)
+            && let Some(target_id) = self.tile_merge_target(item_id, pos, item_count)
         {
-            if let Some(target_id) = self.tile_merge_target(item_id, pos, item_count) {
-                if let Some(target) = self.items.get_mut(target_id) {
-                    target.count = target.count.saturating_add(item_count);
-                }
-                // Get stack pos for update packet
-                let (tvp_stack, cip_stack) = self.item_stack_pos_pair(pos, target_id);
-                self.broadcast_tile_item_update(pos, target_id, tvp_stack, cip_stack);
-
-                // Fully merged — remove the source item from SlotMap
-                let _ = self.events.on_step_in(None, target_id, item_type, pos, pos);
-
-                self.cancel_item_decay(item_id);
-                self.items.remove(item_id);
-                self.start_decay(target_id);
-                return Ok(target_id);
+            if let Some(target) = self.items.get_mut(target_id) {
+                target.count = target.count.saturating_add(item_count);
             }
+            // Get stack pos for update packet
+            let (tvp_stack, cip_stack) = self.item_stack_pos_pair(pos, target_id);
+            self.broadcast_tile_item_update(pos, target_id, tvp_stack, cip_stack);
+
+            // Fully merged — remove the source item from SlotMap
+            let _ = self.events.on_step_in(None, target_id, item_type, pos, pos);
+
+            self.cancel_item_decay(item_id);
+            self.items.remove(item_id);
+            self.start_decay(target_id);
+            return Ok(target_id);
         }
 
         // Add item to tile. Always-on-top items (splashes/pools, ladders, signs, borders) live in
@@ -684,22 +682,13 @@ impl GameWorld {
             .map(|i| i.item_type)
             .ok_or(ReturnValue::NotPossible)?;
         let (tvp_stack, cip_stack) = self.item_stack_pos_pair(pos, item_id);
-        if let Some(old_it) = self.items_db.items.get(&item_type).cloned() {
-            if let Some(tile) = self.map.get_tile(pos) {
-                let rem = crate::map::tile_remaining_props(
-                    tile.body(),
-                    &self.items,
-                    &self.items_db,
-                    item_id,
-                );
-                if let Some(tile) = self.map.get_tile_mut(pos) {
-                    crate::map::reset_item_tile_flags(
-                        tile.body_mut(),
-                        &old_it,
-                        &rem,
-                        &self.items_db,
-                    );
-                }
+        if let Some(old_it) = self.items_db.items.get(&item_type).cloned()
+            && let Some(tile) = self.map.get_tile(pos)
+        {
+            let rem =
+                crate::map::tile_remaining_props(tile.body(), &self.items, &self.items_db, item_id);
+            if let Some(tile) = self.map.get_tile_mut(pos) {
+                crate::map::reset_item_tile_flags(tile.body_mut(), &old_it, &rem, &self.items_db);
             }
         }
         let tile = self.map.get_tile_mut(pos).ok_or(ReturnValue::NotPossible)?;

@@ -249,6 +249,7 @@ impl PartialCond {
 }
 
 /// Deserialize — TFS `IOLoginData::loadPlayer` conditions PropStream loop.
+#[allow(clippy::while_let_loop)] // PropStream: `break` on header/payload errors, not only `read_u8` EOF.
 pub fn deserialize_conditions(blob: &[u8]) -> Vec<ActiveCondition> {
     if blob.is_empty() {
         return Vec::new();

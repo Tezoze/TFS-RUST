@@ -94,10 +94,10 @@ impl GameWorld {
             if *root == container_root {
                 return Some((idx + 1) as u8);
             }
-            if let Some(c) = self.container_registry.get(*root) {
-                if c.is_holding_item(&self.container_registry, container_root) {
-                    return Some((idx + 1) as u8);
-                }
+            if let Some(c) = self.container_registry.get(*root)
+                && c.is_holding_item(&self.container_registry, container_root)
+            {
+                return Some((idx + 1) as u8);
             }
         }
         None

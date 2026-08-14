@@ -460,47 +460,43 @@ impl ItemDatabase {
                             Ok(Event::Start(inner)) if inner.name().as_ref() == b"attribute" => {
                                 depth += 1;
                                 let child = extract_attribute_key_value(&inner);
-                                if depth == 2 {
-                                    if let (Some(parent_key), Some((child_key, child_value))) =
+                                if depth == 2
+                                    && let (Some(parent_key), Some((child_key, child_value))) =
                                         (&parent_key, child)
-                                    {
-                                        for id in &current_ids {
-                                            let entry =
-                                                items.entry(*id).or_insert_with(|| ItemType {
-                                                    id: *id,
-                                                    server_id: *id,
-                                                    ..ItemType::default()
-                                                });
-                                            apply_nested_xml_attribute(
-                                                entry,
-                                                parent_key,
-                                                &child_key,
-                                                &child_value,
-                                            );
-                                        }
+                                {
+                                    for id in &current_ids {
+                                        let entry = items.entry(*id).or_insert_with(|| ItemType {
+                                            id: *id,
+                                            server_id: *id,
+                                            ..ItemType::default()
+                                        });
+                                        apply_nested_xml_attribute(
+                                            entry,
+                                            parent_key,
+                                            &child_key,
+                                            &child_value,
+                                        );
                                     }
                                 }
                             }
                             Ok(Event::Empty(inner)) if inner.name().as_ref() == b"attribute" => {
                                 let child = extract_attribute_key_value(&inner);
-                                if depth == 1 {
-                                    if let (Some(parent_key), Some((child_key, child_value))) =
+                                if depth == 1
+                                    && let (Some(parent_key), Some((child_key, child_value))) =
                                         (&parent_key, child)
-                                    {
-                                        for id in &current_ids {
-                                            let entry =
-                                                items.entry(*id).or_insert_with(|| ItemType {
-                                                    id: *id,
-                                                    server_id: *id,
-                                                    ..ItemType::default()
-                                                });
-                                            apply_nested_xml_attribute(
-                                                entry,
-                                                parent_key,
-                                                &child_key,
-                                                &child_value,
-                                            );
-                                        }
+                                {
+                                    for id in &current_ids {
+                                        let entry = items.entry(*id).or_insert_with(|| ItemType {
+                                            id: *id,
+                                            server_id: *id,
+                                            ..ItemType::default()
+                                        });
+                                        apply_nested_xml_attribute(
+                                            entry,
+                                            parent_key,
+                                            &child_key,
+                                            &child_value,
+                                        );
                                     }
                                 }
                             }

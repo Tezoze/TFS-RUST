@@ -492,10 +492,10 @@ impl GameWorld {
                 continue;
             }
             // C++ `!CoordinateFlag(Dest, AVOID)` — don't shove a creature onto a hazard field.
-            if let Some(tile) = self.map.get_tile(try_pos) {
-                if (tile.body().flags & tilestate::MAGICFIELD) != 0 {
-                    continue;
-                }
+            if let Some(tile) = self.map.get_tile(try_pos)
+                && (tile.body().flags & tilestate::MAGICFIELD) != 0
+            {
+                continue;
             }
             // F2: C++ `Creature->MovePossible(Dest, Execute=true)` (`crnonpl.cc:3066`) — the
             // blocker's own `MovePossible` in execute mode, which recursively kicks pushable

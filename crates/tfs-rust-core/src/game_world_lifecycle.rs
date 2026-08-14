@@ -428,23 +428,23 @@ impl GameWorld {
             self.drop_monster_corpse(pos, corpse_id, blood, &inventory);
         }
 
-        if crate::chase_debug::chase_path_debug_enabled() {
-            if let Some(CreatureKind::Monster(m)) = self.creatures.get(victim) {
-                let killer_id = m
-                    .base
-                    .damage_map
-                    .most_dangerous(self.round_nr, self.mechanics.profile.exp_attribution_rounds)
-                    .map(|id| id.data().as_ffi())
-                    .unwrap_or(0);
-                crate::chase_debug::log_creature_death(
-                    self.chase_trace_tick(),
-                    victim,
-                    &m.base.name,
-                    killer_id,
-                    m.experience,
-                    m.corpse_id,
-                );
-            }
+        if crate::chase_debug::chase_path_debug_enabled()
+            && let Some(CreatureKind::Monster(m)) = self.creatures.get(victim)
+        {
+            let killer_id = m
+                .base
+                .damage_map
+                .most_dangerous(self.round_nr, self.mechanics.profile.exp_attribution_rounds)
+                .map(|id| id.data().as_ffi())
+                .unwrap_or(0);
+            crate::chase_debug::log_creature_death(
+                self.chase_trace_tick(),
+                victim,
+                &m.base.name,
+                killer_id,
+                m.experience,
+                m.corpse_id,
+            );
         }
 
         let decay_now = self.now_ms();
@@ -477,10 +477,10 @@ impl GameWorld {
         // Victim is always in `xp_grants` (even at zero exp loss) so blessing clear reaches the client.
         for grant in xp_grants {
             self.send_player_stats(grant.cid);
-            if grant.amount > 0 {
-                if let Some(pos) = self.creatures.get(grant.cid).map(|k| k.position()) {
-                    self.broadcast_experience_popup(pos, grant.amount);
-                }
+            if grant.amount > 0
+                && let Some(pos) = self.creatures.get(grant.cid).map(|k| k.position())
+            {
+                self.broadcast_experience_popup(pos, grant.amount);
             }
             if grant.new_level > grant.old_level {
                 // 772 `Player::addExperience` — `player.cpp:1548`.

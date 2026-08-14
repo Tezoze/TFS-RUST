@@ -235,7 +235,7 @@ impl ConfigManager {
     /// (`tries = tries * rateSkill` / `rateMagic`). Uses `floor(base * rate)`.
     #[inline]
     pub fn scale_tries(base: u64, rate: f64) -> u64 {
-        if base == 0 || !(rate > 0.0) {
+        if base == 0 || rate.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
             return 0;
         }
         let scaled = (base as f64) * rate;

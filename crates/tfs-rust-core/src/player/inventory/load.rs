@@ -233,10 +233,10 @@ impl GameWorld {
             };
             let pid = rec.pid;
             if (1..=10).contains(&pid) {
-                if let Some(CreatureKind::Player(player)) = self.creatures.get_mut(cid) {
-                    if let Some(idx) = slot_to_array_index(pid as u8) {
-                        player.equipment_slots[idx] = Some(item_id);
-                    }
+                if let Some(CreatureKind::Player(player)) = self.creatures.get_mut(cid)
+                    && let Some(idx) = slot_to_array_index(pid as u8)
+                {
+                    player.equipment_slots[idx] = Some(item_id);
                 }
                 if let Some(item) = self.items.get_mut(item_id) {
                     item.parent = Some(crate::cylinder::Cylinder::Inventory {
@@ -316,12 +316,11 @@ impl GameWorld {
             sid_map.insert(rec.sid, iid);
         }
 
-        if let Some(rec) = anchor_rec {
-            if let Some(&iid) = sid_map.get(&rec.sid) {
-                if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-                    p.equipment_slots[10] = Some(iid);
-                }
-            }
+        if let Some(rec) = anchor_rec
+            && let Some(&iid) = sid_map.get(&rec.sid)
+            && let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid)
+        {
+            p.equipment_slots[10] = Some(iid);
         }
 
         let mut registry = std::mem::take(&mut self.container_registry);

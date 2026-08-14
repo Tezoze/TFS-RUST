@@ -200,18 +200,18 @@ pub async fn run() -> anyhow::Result<()> {
             // from `config.lua` (`luaMemoryLimit`, in MB). The default
             // (512 MiB) is already applied in `LuaRuntime::new`; this lets
             // operators tune it per shard. tasks/tools-actions/vm-hardening.md pillar 4.
-            if let Ok(mb) = config.get_i64("luaMemoryLimit") {
-                if mb > 0 {
-                    let bytes = (mb as usize).saturating_mul(1024).saturating_mul(1024);
-                    match lua_runtime.set_memory_limit(bytes) {
-                        Ok(prev) => tracing::info!(
-                            lua_memory_limit_mb = mb,
-                            previous_limit_bytes = prev,
-                            "Lua VM memory limit overridden from config.lua"
-                        ),
-                        Err(e) => {
-                            tracing::warn!("luaMemoryLimit override failed (keeping default): {e}")
-                        }
+            if let Ok(mb) = config.get_i64("luaMemoryLimit")
+                && mb > 0
+            {
+                let bytes = (mb as usize).saturating_mul(1024).saturating_mul(1024);
+                match lua_runtime.set_memory_limit(bytes) {
+                    Ok(prev) => tracing::info!(
+                        lua_memory_limit_mb = mb,
+                        previous_limit_bytes = prev,
+                        "Lua VM memory limit overridden from config.lua"
+                    ),
+                    Err(e) => {
+                        tracing::warn!("luaMemoryLimit override failed (keeping default): {e}")
                     }
                 }
             }

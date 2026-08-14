@@ -209,21 +209,21 @@ impl GameWorld {
         // reject when summon currently **not** adjacent (manhattan > 1) and dest **would be**
         // adjacent (≤ 1). This is the inverse of a leash — stops a summon from snapping onto
         // the master's tile. Do NOT implement a distance cap.
-        if master.is_some() && state != MonsterState::Attacking && state != MonsterState::Panic {
-            if let Some(master_cid) = master {
-                if let Some(master_k) = self.creatures.get(master_cid) {
-                    let master_pos = master_k.position();
-                    if master_pos.z == cur_pos.z {
-                        let cur_dist = (master_pos.x as i32 - cur_pos.x as i32).unsigned_abs()
-                            as i32
-                            + (master_pos.y as i32 - cur_pos.y as i32).unsigned_abs() as i32;
-                        let dest_dist = (master_pos.x as i32 - dest.x as i32).unsigned_abs() as i32
-                            + (master_pos.y as i32 - dest.y as i32).unsigned_abs() as i32;
-                        // Anti-crowd: currently not adjacent (> 1) and dest would be adjacent (≤ 1).
-                        if cur_dist > 1 && dest_dist <= 1 {
-                            return Ok(false);
-                        }
-                    }
+        if master.is_some()
+            && state != MonsterState::Attacking
+            && state != MonsterState::Panic
+            && let Some(master_cid) = master
+            && let Some(master_k) = self.creatures.get(master_cid)
+        {
+            let master_pos = master_k.position();
+            if master_pos.z == cur_pos.z {
+                let cur_dist = (master_pos.x as i32 - cur_pos.x as i32).unsigned_abs() as i32
+                    + (master_pos.y as i32 - cur_pos.y as i32).unsigned_abs() as i32;
+                let dest_dist = (master_pos.x as i32 - dest.x as i32).unsigned_abs() as i32
+                    + (master_pos.y as i32 - dest.y as i32).unsigned_abs() as i32;
+                // Anti-crowd: currently not adjacent (> 1) and dest would be adjacent (≤ 1).
+                if cur_dist > 1 && dest_dist <= 1 {
+                    return Ok(false);
                 }
             }
         }

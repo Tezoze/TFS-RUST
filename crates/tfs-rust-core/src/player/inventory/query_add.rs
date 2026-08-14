@@ -519,16 +519,16 @@ impl GameWorld {
                         for nested in nested_containers {
                             let nested_type =
                                 self.items.get(nested).map(|i| i.item_type).unwrap_or(0);
-                            if self.items_db.is_container(nested_type) {
-                                if let Ok(q) = self.container_query_max_count(
+                            if self.items_db.is_container(nested_type)
+                                && let Ok(q) = self.container_query_max_count(
                                     nested,
                                     INDEX_WHEREEVER,
                                     item_id,
                                     item_count,
                                     flags,
-                                ) {
-                                    n = n.saturating_add(q);
-                                }
+                                )
+                            {
+                                n = n.saturating_add(q);
                             }
                         }
                     } else if stackable

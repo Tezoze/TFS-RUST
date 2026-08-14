@@ -64,10 +64,10 @@ impl GameWorld {
             Cylinder::Container { item_id: cid, .. } => self.get_container_owner(*cid),
             Cylinder::Tile { .. } => None,
         };
-        if let Some(owner_id) = owner {
-            if actor != owner_id {
-                return Err(ReturnValue::NotPossible);
-            }
+        if let Some(owner_id) = owner
+            && actor != owner_id
+        {
+            return Err(ReturnValue::NotPossible);
         }
 
         // 772 `ObjectInRange(1)` for ownerless (tile) sources.
@@ -82,19 +82,18 @@ impl GameWorld {
         }
 
         // HANG hook source range (only for ownerless items on a hook tile).
-        if let Cylinder::Tile { pos } = from {
-            if it.is_hangable() {
-                if let Some(tile) = self.map.get_tile(*pos) {
-                    let body = tile.body();
-                    if (body.flags & (tilestate::HOOKEAST | tilestate::HOOKSOUTH)) != 0 {
-                        if let Some(actor_pos) = self.creatures.get(actor).map(|k| k.position()) {
-                            if !self.is_hang_hook_accessible(*pos, actor_pos, body.flags) {
-                                return Err(ReturnValue::NotPossible);
-                            }
-                        } else {
-                            return Err(ReturnValue::NotPossible);
-                        }
+        if let Cylinder::Tile { pos } = from
+            && it.is_hangable()
+            && let Some(tile) = self.map.get_tile(*pos)
+        {
+            let body = tile.body();
+            if (body.flags & (tilestate::HOOKEAST | tilestate::HOOKSOUTH)) != 0 {
+                if let Some(actor_pos) = self.creatures.get(actor).map(|k| k.position()) {
+                    if !self.is_hang_hook_accessible(*pos, actor_pos, body.flags) {
+                        return Err(ReturnValue::NotPossible);
                     }
+                } else {
+                    return Err(ReturnValue::NotPossible);
                 }
             }
         }
@@ -156,10 +155,11 @@ impl GameWorld {
             return Err(ReturnValue::NotPossible);
         };
         let body = tile.body();
-        if (body.flags & (tilestate::HOOKEAST | tilestate::HOOKSOUTH)) != 0 && it.is_hangable() {
-            if !self.is_hang_hook_accessible(*to_pos, actor_pos, body.flags) {
-                return Err(ReturnValue::CannotThrow);
-            }
+        if (body.flags & (tilestate::HOOKEAST | tilestate::HOOKSOUTH)) != 0
+            && it.is_hangable()
+            && !self.is_hang_hook_accessible(*to_pos, actor_pos, body.flags)
+        {
+            return Err(ReturnValue::CannotThrow);
         }
         Ok(())
     }
@@ -183,13 +183,12 @@ impl GameWorld {
         // 772 `CheckTopMoveObject` (T4) — only players are subject to the top-object rule.
         // `ignore` lets the 772 catch-and-swap (T8) re-check the source after the swapped
         // dest item has been placed on top of the source tile.
-        if let Cylinder::Tile { pos } = from_cylinder {
-            if acting_player
+        if let Cylinder::Tile { pos } = from_cylinder
+            && acting_player
                 .is_some_and(|a| matches!(self.creatures.get(a), Some(CreatureKind::Player(_))))
-                && self.get_top_object_for_move(pos, ignore) != Some(item_id)
-            {
-                return Err(ReturnValue::NotPossible);
-            }
+            && self.get_top_object_for_move(pos, ignore) != Some(item_id)
+        {
+            return Err(ReturnValue::NotPossible);
         }
 
         self.check_move_object(acting_player, &from_cylinder, &to_cylinder, item_id)?;
@@ -345,13 +344,12 @@ impl GameWorld {
                 {
                     return Err(ReturnValue::NotPossible);
                 }
-                if let Cylinder::Tile { pos } = &from_cylinder {
-                    if !self
+                if let Cylinder::Tile { pos } = &from_cylinder
+                    && !self
                         .events
                         .on_step_out(acting_player, item_id, item_type, *pos, from_pos)
-                    {
-                        return Err(ReturnValue::NotPossible);
-                    }
+                {
+                    return Err(ReturnValue::NotPossible);
                 }
                 if !self
                     .events

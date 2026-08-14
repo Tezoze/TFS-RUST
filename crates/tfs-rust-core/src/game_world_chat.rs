@@ -403,14 +403,16 @@ impl GameWorld {
         // Exhaustion set — 772 `CheckMana` Delay + TFS groupCooldown knob.
         let cooldown_ms = self.spell_exhaust_delay_ms(spell.cooldown);
         self.player_apply_spell_exhaust_ms(cid, cooldown_ms);
-        if spell.group != 0 && spell.group_cooldown > 0 && !no_exhaustion {
-            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-                let end = server_ms.saturating_add(u64::from(spell.group_cooldown));
-                p.spell_group_cooldown_end
-                    .entry(spell.group)
-                    .and_modify(|t| *t = (*t).max(end))
-                    .or_insert(end);
-            }
+        if spell.group != 0
+            && spell.group_cooldown > 0
+            && !no_exhaustion
+            && let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid)
+        {
+            let end = server_ms.saturating_add(u64::from(spell.group_cooldown));
+            p.spell_group_cooldown_end
+                .entry(spell.group)
+                .and_modify(|t| *t = (*t).max(end))
+                .or_insert(end);
         }
 
         // Aggressive spoken spells — 772 `CastSpell` end `BlockLogout(60, false)`
@@ -1145,12 +1147,11 @@ impl GameWorld {
         use tfs_rust_common::enums::ConditionType;
         let mut max_ticks = 0i32;
         for cond in &p.base.active_conditions {
-            if cond.ctype == ConditionType::Muted {
-                if let ConditionData::Generic { ticks } = cond.data {
-                    if ticks > max_ticks {
-                        max_ticks = ticks;
-                    }
-                }
+            if cond.ctype == ConditionType::Muted
+                && let ConditionData::Generic { ticks } = cond.data
+                && ticks > max_ticks
+            {
+                max_ticks = ticks;
             }
         }
         (max_ticks / 1000) as u32
@@ -1445,10 +1446,10 @@ impl GameWorld {
         };
         let mut best = crate::creature::LightInfo::default();
         for cond in &p.base.active_conditions {
-            if let ConditionData::Light { level, color } = cond.data {
-                if level > best.level {
-                    best = crate::creature::LightInfo { level, color };
-                }
+            if let ConditionData::Light { level, color } = cond.data
+                && level > best.level
+            {
+                best = crate::creature::LightInfo { level, color };
             }
         }
         p.internal_light = best;

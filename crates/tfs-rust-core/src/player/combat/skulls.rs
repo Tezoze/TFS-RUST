@@ -84,13 +84,13 @@ impl Player {
 
     /// 772 `TPlayer::InPartyWith` — `crplayer.cc:1686–1694`.
     pub(crate) fn in_party_with(&self, other: &Player, check_former: bool, round_nr: u32) -> bool {
-        match (
-            self.party_key(check_former, round_nr),
-            other.party_key(check_former, round_nr),
-        ) {
-            (Some(a), Some(b)) if a == b => true,
-            _ => false,
-        }
+        matches!(
+            (
+                self.party_key(check_former, round_nr),
+                other.party_key(check_former, round_nr),
+            ),
+            (Some(a), Some(b)) if a == b
+        )
     }
 
     /// Mark party leave for CheckFormer window — `crplayer.cc:1701–1703`.
@@ -271,24 +271,22 @@ impl GameWorld {
         };
 
         let mut send_yellow_to_victim = false;
-        if !skip_yellow {
-            if let Some(CreatureKind::Player(atk)) = self.creatures.get_mut(attacker) {
-                if !atk.attacked_players.contains(&victim) {
-                    atk.attacked_players.push(victim);
-                    send_yellow_to_victim = true;
-                }
-            }
+        if !skip_yellow
+            && let Some(CreatureKind::Player(atk)) = self.creatures.get_mut(attacker)
+            && !atk.attacked_players.contains(&victim)
+        {
+            atk.attacked_players.push(victim);
+            send_yellow_to_victim = true;
         }
 
         let unjustified = !self.player_is_attack_justified(attacker, victim);
         let mut became_aggressor = false;
-        if unjustified {
-            if let Some(CreatureKind::Player(atk)) = self.creatures.get_mut(attacker) {
-                if !atk.aggressor {
-                    atk.aggressor = true;
-                    became_aggressor = true;
-                }
-            }
+        if unjustified
+            && let Some(CreatureKind::Player(atk)) = self.creatures.get_mut(attacker)
+            && !atk.aggressor
+        {
+            atk.aggressor = true;
+            became_aggressor = true;
         }
 
         if send_yellow_to_victim {
@@ -456,10 +454,10 @@ impl GameWorld {
 
         if let Some(atk) = attacker {
             self.player_block_logout_white_skull(atk);
-            if let Some(resp) = responsible {
-                if resp != atk {
-                    self.player_block_logout_white_skull(resp);
-                }
+            if let Some(resp) = responsible
+                && resp != atk
+            {
+                self.player_block_logout_white_skull(resp);
             }
         }
 
@@ -489,10 +487,10 @@ impl GameWorld {
                 )
                 .map(|(id, _)| id)
         };
-        if let Some(md) = most_dangerous {
-            if Some(md) != murderer {
-                self.player_record_murder(md, victim);
-            }
+        if let Some(md) = most_dangerous
+            && Some(md) != murderer
+        {
+            self.player_record_murder(md, victim);
         }
     }
 

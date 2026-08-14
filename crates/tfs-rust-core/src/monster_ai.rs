@@ -430,15 +430,15 @@ impl GameWorld {
         let dmg = (attack_roll - defense_roll).max(0);
 
         // Poff / spark — C++ `TCreature::Damage` (`crmain.cc:577-579, 624-628`).
-        if dmg <= 0 {
-            if let Some(pos) = self.creatures.get(target_id).map(|k| k.base().position) {
-                let effect = if attack_roll <= defense_roll {
-                    3u8
-                } else {
-                    4u8
-                };
-                self.broadcast_magic_effect(pos, effect);
-            }
+        if dmg <= 0
+            && let Some(pos) = self.creatures.get(target_id).map(|k| k.base().position)
+        {
+            let effect = if attack_roll <= defense_roll {
+                3u8
+            } else {
+                4u8
+            };
+            self.broadcast_magic_effect(pos, effect);
         }
 
         let notify_snap = self.combat_notify_snapshot(target_id);
@@ -478,44 +478,44 @@ impl GameWorld {
         // player strike path; monsters rarely live long enough to level, but the C++ `CloseAttack`
         // fires `ActivateLearning` for all attacker types. The `LearningPoints = 30` window gates
         // the (PC-5) per-skill `Increase(1)` accumulation in `ProbeValue`.
-        if damage_done > 0 {
-            if let Some(k) = self.creatures.get_mut(cid) {
-                k.base_mut().activate_learning();
-            }
+        if damage_done > 0
+            && let Some(k) = self.creatures.get_mut(cid)
+        {
+            k.base_mut().activate_learning();
         }
 
-        if !target_immune_poison {
-            if let Some(cond) = melee_poison_on_hit(
+        if !target_immune_poison
+            && let Some(cond) = melee_poison_on_hit(
                 poison_cycles,
                 attack_roll,
                 defense_roll,
                 damage_done,
                 &self.parity_rng,
-            ) {
-                // 772 CloseAttack poison → `Damage(…, DAMAGE_POISON_PERIODIC)` (`crcombat.cc:660`).
-                let strength = match cond.data {
-                    crate::condition::ConditionData::Damage { total_rank, .. } => total_rank,
-                    _ => 0,
-                };
-                if strength > 0 {
-                    let _ = self.combat_execute_with_stimulus(
-                        Some(cid),
-                        target_id,
-                        &crate::combat::CombatDamage {
-                            primary: (
-                                tfs_rust_common::enums::CombatType::PoisonPeriodic,
-                                -strength,
-                            ),
-                            secondary: (CombatType::Undefined, 0),
-                        },
-                        &CombatParams::default(),
-                    );
-                }
-                // M10 — `SendMessage(Target->Connection, TALK_STATUS_MESSAGE, "You are poisoned.")`
-                // (`crcombat.cc:674-676`). Sent to a player target after the poison condition lands.
-                if let Some(CreatureKind::Player(_)) = self.creatures.get(target_id) {
-                    self.send_player_status_message(target_id, "You are poisoned.");
-                }
+            )
+        {
+            // 772 CloseAttack poison → `Damage(…, DAMAGE_POISON_PERIODIC)` (`crcombat.cc:660`).
+            let strength = match cond.data {
+                crate::condition::ConditionData::Damage { total_rank, .. } => total_rank,
+                _ => 0,
+            };
+            if strength > 0 {
+                let _ = self.combat_execute_with_stimulus(
+                    Some(cid),
+                    target_id,
+                    &crate::combat::CombatDamage {
+                        primary: (
+                            tfs_rust_common::enums::CombatType::PoisonPeriodic,
+                            -strength,
+                        ),
+                        secondary: (CombatType::Undefined, 0),
+                    },
+                    &CombatParams::default(),
+                );
+            }
+            // M10 — `SendMessage(Target->Connection, TALK_STATUS_MESSAGE, "You are poisoned.")`
+            // (`crcombat.cc:674-676`). Sent to a player target after the poison condition lands.
+            if let Some(CreatureKind::Player(_)) = self.creatures.get(target_id) {
+                self.send_player_status_message(target_id, "You are poisoned.");
             }
         }
 
@@ -529,40 +529,38 @@ impl GameWorld {
         // the target (HP ≤ 0 → `apply_creature_death` removes it from `world.creatures`). Without
         // this, a monster keeps swinging at a removed target id until the next `target_alive` gate.
         let target_dead = !self.creatures.contains_key(target_id);
-        if target_dead {
-            if let Some(k) = self.creatures.get_mut(cid) {
-                let base = k.base_mut();
-                base.attack_target = None;
-                base.follow_target = None;
-            }
+        if target_dead && let Some(k) = self.creatures.get_mut(cid) {
+            let base = k.base_mut();
+            base.attack_target = None;
+            base.follow_target = None;
         }
 
         // C++ panic melee at band 1 — observable `combat_state` logs `attacking` after first hit.
-        if cheb == 1 {
-            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-                if m.state == MonsterState::Panic && m.melee_skill > 0 {
-                    m.state = MonsterState::Attacking;
-                }
-            }
+        if cheb == 1
+            && let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid)
+            && m.state == MonsterState::Panic
+            && m.melee_skill > 0
+        {
+            m.state = MonsterState::Attacking;
         }
 
-        if chase_debug::chase_path_debug_enabled() {
-            if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
-                let earliest = m.base.earliest_attack_ms;
-                chase_debug::log_melee_hit(
-                    self.chase_trace_tick(),
-                    cid,
-                    m.base.name.as_str(),
-                    target_id.data().as_ffi(),
-                    attack_roll,
-                    defense_roll,
-                    armor_value,
-                    dmg,
-                    hp_before,
-                    _hp_after,
-                    earliest,
-                );
-            }
+        if chase_debug::chase_path_debug_enabled()
+            && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
+        {
+            let earliest = m.base.earliest_attack_ms;
+            chase_debug::log_melee_hit(
+                self.chase_trace_tick(),
+                cid,
+                m.base.name.as_str(),
+                target_id.data().as_ffi(),
+                attack_roll,
+                defense_roll,
+                armor_value,
+                dmg,
+                hp_before,
+                _hp_after,
+                earliest,
+            );
         }
     }
 
@@ -700,20 +698,20 @@ impl GameWorld {
                 base.has_follow_path = false;
                 base.force_update_follow_path = false;
             }
-            if chase_debug::chase_path_debug_enabled() {
-                if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
-                    chase_debug::log_branch(
-                        self.chase_trace_tick(),
-                        cid,
-                        m.base.name.as_str(),
-                        "roam",
-                        pos,
-                        dest,
-                        true,
-                        i32::MAX,
-                        None,
-                    );
-                }
+            if chase_debug::chase_path_debug_enabled()
+                && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
+            {
+                chase_debug::log_branch(
+                    self.chase_trace_tick(),
+                    cid,
+                    m.base.name.as_str(),
+                    "roam",
+                    pos,
+                    dest,
+                    true,
+                    i32::MAX,
+                    None,
+                );
             }
             return true;
         }
@@ -758,21 +756,21 @@ impl GameWorld {
             base.has_follow_path = true;
             base.force_update_follow_path = false;
         }
-        if chase_debug::chase_path_debug_enabled() {
-            if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
-                let branch = if m.is_fleeing() { "flee" } else { "dist_flee" };
-                chase_debug::log_branch(
-                    self.chase_trace_tick(),
-                    cid,
-                    m.base.name.as_str(),
-                    branch,
-                    pos,
-                    dest,
-                    true,
-                    i32::MAX,
-                    None,
-                );
-            }
+        if chase_debug::chase_path_debug_enabled()
+            && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
+        {
+            let branch = if m.is_fleeing() { "flee" } else { "dist_flee" };
+            chase_debug::log_branch(
+                self.chase_trace_tick(),
+                cid,
+                m.base.name.as_str(),
+                branch,
+                pos,
+                dest,
+                true,
+                i32::MAX,
+                None,
+            );
         }
         true
     }
@@ -902,19 +900,19 @@ impl GameWorld {
             }
             return MonsterCombatCloseChaseEnqueue::Skipped;
         }
-        if chase_debug::chase_path_debug_enabled() {
-            if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
-                chase_debug::log_todo_go_aligned(
-                    self.chase_trace_tick(),
-                    cid,
-                    m.base.name.as_str(),
-                    pos,
-                    target_pos,
-                    false,
-                    CHASE_PATH_MAX_STEPS as i32,
-                    Some("attack_close_chase"),
-                );
-            }
+        if chase_debug::chase_path_debug_enabled()
+            && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
+        {
+            chase_debug::log_todo_go_aligned(
+                self.chase_trace_tick(),
+                cid,
+                m.base.name.as_str(),
+                pos,
+                target_pos,
+                false,
+                CHASE_PATH_MAX_STEPS as i32,
+                Some("attack_close_chase"),
+            );
         }
         MonsterCombatCloseChaseEnqueue::Queued
     }
@@ -1107,32 +1105,31 @@ impl GameWorld {
             base.force_update_follow_path = false;
         }
         // C++ `crnonpl.cc:2830` — successful melee dance promotes PANIC → ATTACKING.
-        if band == 1 {
-            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-                if m.state == MonsterState::Panic {
-                    m.state = MonsterState::Attacking;
-                }
-            }
+        if band == 1
+            && let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid)
+            && m.state == MonsterState::Panic
+        {
+            m.state = MonsterState::Attacking;
         }
-        if chase_debug::chase_path_debug_enabled() {
-            if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
-                let branch = if target_distance > 1 {
-                    "dist_dance"
-                } else {
-                    "melee_dance"
-                };
-                chase_debug::log_branch(
-                    self.chase_trace_tick(),
-                    cid,
-                    m.base.name.as_str(),
-                    branch,
-                    pos,
-                    dest,
-                    true,
-                    i32::MAX,
-                    None,
-                );
-            }
+        if chase_debug::chase_path_debug_enabled()
+            && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
+        {
+            let branch = if target_distance > 1 {
+                "dist_dance"
+            } else {
+                "melee_dance"
+            };
+            chase_debug::log_branch(
+                self.chase_trace_tick(),
+                cid,
+                m.base.name.as_str(),
+                branch,
+                pos,
+                dest,
+                true,
+                i32::MAX,
+                None,
+            );
         }
         true
     }
@@ -1163,20 +1160,20 @@ impl GameWorld {
             dist >= 3,
             "monster_idle_master_follow is for Manhattan ≥ 3 only (got {dist})"
         );
-        if chase_debug::chase_path_debug_enabled() {
-            if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
-                chase_debug::log_branch(
-                    self.chase_trace_tick(),
-                    cid,
-                    m.base.name.as_str(),
-                    "master_follow",
-                    pos,
-                    target_pos,
-                    false,
-                    CHASE_PATH_MAX_STEPS as i32,
-                    repath_reason,
-                );
-            }
+        if chase_debug::chase_path_debug_enabled()
+            && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
+        {
+            chase_debug::log_branch(
+                self.chase_trace_tick(),
+                cid,
+                m.base.name.as_str(),
+                "master_follow",
+                pos,
+                target_pos,
+                false,
+                CHASE_PATH_MAX_STEPS as i32,
+                repath_reason,
+            );
         }
         self.monster_idle_chase_repath(cid, repath_reason, CHASE_PATH_MAX_STEPS, false)
     }
@@ -1217,37 +1214,37 @@ impl GameWorld {
             steps = crate::pathfinding::truncate_tshortway_go_queue(
                 pos, target_pos, steps, max_steps, must_reach,
             );
-            if chase_debug::chase_path_debug_enabled() {
-                if let Some(k) = self.creatures.get(cid) {
-                    let name = k.base().name.clone();
-                    let mut path_positions = Vec::with_capacity(steps.len());
-                    let mut cursor = pos;
-                    for &dir in &steps {
-                        cursor = cursor.offset(dir);
-                        path_positions.push(cursor);
-                    }
-                    let min_wp =
-                        scan_min_terrain_waypoints(&self.map, pos, REVERSE_PATH_VIEW_RADIUS, |p| {
-                            self.map
-                                .get_tile(p)
-                                .filter(|_| self.map.is_walkable(p))
-                                .map(|t| self.tile_ground_speed(t.body()))
-                                .unwrap_or(0)
-                        });
-                    chase_debug::log_shortway(
-                        self.chase_trace_tick(),
-                        cid,
-                        name.as_str(),
-                        pos,
-                        target_pos,
-                        10,
-                        min_wp,
-                        must_reach,
-                        max_steps as i32,
-                        true,
-                        &path_positions,
-                    );
+            if chase_debug::chase_path_debug_enabled()
+                && let Some(k) = self.creatures.get(cid)
+            {
+                let name = k.base().name.clone();
+                let mut path_positions = Vec::with_capacity(steps.len());
+                let mut cursor = pos;
+                for &dir in &steps {
+                    cursor = cursor.offset(dir);
+                    path_positions.push(cursor);
                 }
+                let min_wp =
+                    scan_min_terrain_waypoints(&self.map, pos, REVERSE_PATH_VIEW_RADIUS, |p| {
+                        self.map
+                            .get_tile(p)
+                            .filter(|_| self.map.is_walkable(p))
+                            .map(|t| self.tile_ground_speed(t.body()))
+                            .unwrap_or(0)
+                    });
+                chase_debug::log_shortway(
+                    self.chase_trace_tick(),
+                    cid,
+                    name.as_str(),
+                    pos,
+                    target_pos,
+                    10,
+                    min_wp,
+                    must_reach,
+                    max_steps as i32,
+                    true,
+                    &path_positions,
+                );
             }
             // Path reachable but MaxSteps/adjacent trim yielded no Go — C++ still returns true.
             if steps.is_empty() {
@@ -1280,29 +1277,29 @@ impl GameWorld {
             // 772 idle executor owns `Go` enqueue via `monster_idle_prepare_and_enqueue_go`.
             return true;
         }
-        if chase_debug::chase_path_debug_enabled() {
-            if let Some(k) = self.creatures.get(cid) {
-                let name = k.base().name.clone();
-                chase_debug::log_shortway(
-                    self.chase_trace_tick(),
-                    cid,
-                    name.as_str(),
-                    pos,
-                    target_pos,
-                    10,
-                    scan_min_terrain_waypoints(&self.map, pos, REVERSE_PATH_VIEW_RADIUS, |p| {
-                        self.map
-                            .get_tile(p)
-                            .filter(|_| self.map.is_walkable(p))
-                            .map(|t| self.tile_ground_speed(t.body()))
-                            .unwrap_or(0)
-                    }),
-                    false,
-                    CHASE_PATH_MAX_STEPS as i32,
-                    false,
-                    &[],
-                );
-            }
+        if chase_debug::chase_path_debug_enabled()
+            && let Some(k) = self.creatures.get(cid)
+        {
+            let name = k.base().name.clone();
+            chase_debug::log_shortway(
+                self.chase_trace_tick(),
+                cid,
+                name.as_str(),
+                pos,
+                target_pos,
+                10,
+                scan_min_terrain_waypoints(&self.map, pos, REVERSE_PATH_VIEW_RADIUS, |p| {
+                    self.map
+                        .get_tile(p)
+                        .filter(|_| self.map.is_walkable(p))
+                        .map(|t| self.tile_ground_speed(t.body()))
+                        .unwrap_or(0)
+                }),
+                false,
+                CHASE_PATH_MAX_STEPS as i32,
+                false,
+                &[],
+            );
         }
         false
     }
@@ -1497,16 +1494,16 @@ impl GameWorld {
         let new_dir = compute_look_toward_target(pos, target_pos, current);
         if new_dir != current {
             creature_turn_with_broadcast(self, cid, new_dir);
-            if chase_debug::chase_path_debug_enabled() {
-                if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
-                    chase_debug::log_rotate(
-                        self.chase_trace_tick(),
-                        cid,
-                        m.base.name.as_str(),
-                        new_dir as u8,
-                        Some(target_id.data().as_ffi()),
-                    );
-                }
+            if chase_debug::chase_path_debug_enabled()
+                && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
+            {
+                chase_debug::log_rotate(
+                    self.chase_trace_tick(),
+                    cid,
+                    m.base.name.as_str(),
+                    new_dir as u8,
+                    Some(target_id.data().as_ffi()),
+                );
             }
         }
     }
@@ -1583,11 +1580,9 @@ impl GameWorld {
             return;
         }
 
-        if queue_empty {
-            if let Some(target_id) = follow {
-                self.monster_on_follow_creature_complete(cid, target_id);
-                // 772: band reconcile + look runs from idle.
-            }
+        if queue_empty && let Some(target_id) = follow {
+            self.monster_on_follow_creature_complete(cid, target_id);
+            // 772: band reconcile + look runs from idle.
         }
     }
 
@@ -1645,10 +1640,10 @@ impl GameWorld {
         });
 
         if (is_summon && master_in_range) || follow.is_some() || walking_to_spawn {
-            if let Some(k) = self.creatures.get_mut(cid) {
-                if let Some(dir) = k.base_mut().walk_queue.pop_back() {
-                    return Some(dir);
-                }
+            if let Some(k) = self.creatures.get_mut(cid)
+                && let Some(dir) = k.base_mut().walk_queue.pop_back()
+            {
+                return Some(dir);
             }
 
             // C++ `Creature::getNextStep` returns false when the queue is empty (`creature.cpp` ~251–260);

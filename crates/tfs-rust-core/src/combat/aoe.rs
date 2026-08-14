@@ -68,7 +68,6 @@ impl GameWorld {
         let server_ms = self.server_ms;
         let mut defense_snap = self.melee_defense_snapshot_for(target_id);
         if block_shield {
-            let defense_roll;
             let defense_gate_passed = self
                 .creatures
                 .get(target_id)
@@ -77,7 +76,7 @@ impl GameWorld {
                 self.player_shield_skill_learning(target_id, true);
                 defense_snap = self.melee_defense_snapshot_for(target_id);
             }
-            defense_roll = match self.creatures.get_mut(target_id) {
+            let defense_roll = match self.creatures.get_mut(target_id) {
                 Some(kind) => roll_target_defense(
                     kind.base_mut(),
                     server_ms,
@@ -296,20 +295,17 @@ impl GameWorld {
         // from a PZ tile are rejected (unless the caster has ATTACK_EVERYWHERE).
         // We skip the right check here (GM flags wired separately); the tile-level
         // PZ skip below still applies per-tile for aggressive combat.
-        if request.aggressive {
-            if let Some(caster) = caster_id {
-                if let Some(cpos) = self.creatures.get(caster).map(|k| k.position()) {
-                    if self
-                        .map
-                        .get_tile(cpos)
-                        .is_some_and(|t| t.body().zone == ZoneType::Protection)
-                    {
-                        // C++ throws PROTECTIONZONE — we silently skip (the Lua
-                        // spell script handles the cancel message).
-                        return Ok(());
-                    }
-                }
-            }
+        if request.aggressive
+            && let Some(caster) = caster_id
+            && let Some(cpos) = self.creatures.get(caster).map(|k| k.position())
+            && self
+                .map
+                .get_tile(cpos)
+                .is_some_and(|t| t.body().zone == ZoneType::Protection)
+        {
+            // C++ throws PROTECTIONZONE — we silently skip (the Lua
+            // spell script handles the cancel message).
+            return Ok(());
         }
 
         // Shared tile iteration — 772 `ExecuteCircleSpell` `magic.cc:468-500`.
@@ -364,44 +360,44 @@ impl GameWorld {
         };
 
         // 772 `CheckAffectedPlayers` — deny whole cast under secure + unmarked player on any tile.
-        if request.aggressive {
-            if let Some(caster) = caster_id {
-                let mut checked = std::collections::HashSet::new();
-                for (_, tile_pos) in &targets {
-                    if !checked.insert(*tile_pos) {
-                        continue;
-                    }
-                    if !self.check_affected_players(caster, *tile_pos) {
-                        return Err(
-                            "Turn secure mode off if you really want to attack unmarked players."
-                                .into(),
-                        );
-                    }
+        if request.aggressive
+            && let Some(caster) = caster_id
+        {
+            let mut checked = std::collections::HashSet::new();
+            for (_, tile_pos) in &targets {
+                if !checked.insert(*tile_pos) {
+                    continue;
                 }
-                for (tile_pos, _) in &create_tiles {
-                    if !checked.insert(*tile_pos) {
-                        continue;
-                    }
-                    if !self.check_affected_players(caster, *tile_pos) {
-                        return Err(
-                            "Turn secure mode off if you really want to attack unmarked players."
-                                .into(),
-                        );
-                    }
+                if !self.check_affected_players(caster, *tile_pos) {
+                    return Err(
+                        "Turn secure mode off if you really want to attack unmarked players."
+                            .into(),
+                    );
+                }
+            }
+            for (tile_pos, _) in &create_tiles {
+                if !checked.insert(*tile_pos) {
+                    continue;
+                }
+                if !self.check_affected_players(caster, *tile_pos) {
+                    return Err(
+                        "Turn secure mode off if you really want to attack unmarked players."
+                            .into(),
+                    );
                 }
             }
         }
 
         // Distance shoot — once from caster → center (`postCombatEffects`).
-        if request.distance_effect > 0 {
-            if let Some(cid) = caster_id {
-                let from = self
-                    .creatures
-                    .get(cid)
-                    .map(|k| k.position())
-                    .unwrap_or(caster_pos);
-                self.broadcast_distance_shoot(from, center, request.distance_effect as u8);
-            }
+        if request.distance_effect > 0
+            && let Some(cid) = caster_id
+        {
+            let from = self
+                .creatures
+                .get(cid)
+                .map(|k| k.position())
+                .unwrap_or(caster_pos);
+            self.broadcast_distance_shoot(from, center, request.distance_effect as u8);
         }
 
         // Broadcast magic effects at all passing tiles — deferred until after
@@ -582,25 +578,23 @@ impl GameWorld {
             // TextualEffect but still `SendPlayerData` + health announce
             // (`TSkillHitpoints::Set` `crskill.cc:682-683`). Using damage_done
             // alone would skip heals (`hp_after > hp_before` → delta 0).
-            if !no_damage {
-                if let Some(snap) = notify_snap {
-                    if combat_type == CombatType::Healing {
-                        self.notify_creature_healed(target_id, snap);
-                    } else {
-                        let hp_after = self
-                            .creatures
-                            .get(target_id)
-                            .map(|k| k.base().health)
-                            .unwrap_or(0);
-                        let damage_done = (hp_before - hp_after).max(0);
-                        self.notify_player_combat_damage(
-                            caster_id,
-                            target_id,
-                            damage_done,
-                            combat_type,
-                            snap,
-                        );
-                    }
+            if !no_damage && let Some(snap) = notify_snap {
+                if combat_type == CombatType::Healing {
+                    self.notify_creature_healed(target_id, snap);
+                } else {
+                    let hp_after = self
+                        .creatures
+                        .get(target_id)
+                        .map(|k| k.base().health)
+                        .unwrap_or(0);
+                    let damage_done = (hp_before - hp_after).max(0);
+                    self.notify_player_combat_damage(
+                        caster_id,
+                        target_id,
+                        damage_done,
+                        combat_type,
+                        snap,
+                    );
                 }
             }
         }

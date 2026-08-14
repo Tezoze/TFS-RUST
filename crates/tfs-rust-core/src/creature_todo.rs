@@ -350,15 +350,13 @@ impl GameWorld {
             .is_some_and(|k| k.base().todo.locked);
         if locked {
             let had_go = self.creature_todo_clear(cid);
-            if had_go {
-                if let Some(conn) = self.conn_for_creature(cid) {
-                    let dir_byte = self
-                        .creatures
-                        .get(cid)
-                        .map(|k| k.base().direction as u8)
-                        .unwrap_or(0);
-                    self.enqueue_encoded(conn, self.codec.encode_cancel_walk(dir_byte));
-                }
+            if had_go && let Some(conn) = self.conn_for_creature(cid) {
+                let dir_byte = self
+                    .creatures
+                    .get(cid)
+                    .map(|k| k.base().direction as u8)
+                    .unwrap_or(0);
+                self.enqueue_encoded(conn, self.codec.encode_cancel_walk(dir_byte));
             }
         }
         let Some(k) = self.creatures.get_mut(cid) else {
@@ -521,10 +519,8 @@ impl GameWorld {
                 .creatures
                 .get(cid)
                 .is_some_and(|k| !k.base().walk_queue.is_empty());
-            if has_steps {
-                if let Some(k) = self.creatures.get_mut(cid) {
-                    k.base_mut().todo.queue.push_back(CreatureAction::Go);
-                }
+            if has_steps && let Some(k) = self.creatures.get_mut(cid) {
+                k.base_mut().todo.queue.push_back(CreatureAction::Go);
             }
         }
         // `ToDoWait(100)` then `ToDoUse(...)` — `receiving.cc:384/430`.
@@ -582,10 +578,8 @@ impl GameWorld {
                 .creatures
                 .get(cid)
                 .is_some_and(|k| !k.base().walk_queue.is_empty());
-            if has_steps {
-                if let Some(k) = self.creatures.get_mut(cid) {
-                    k.base_mut().todo.queue.push_back(CreatureAction::Go);
-                }
+            if has_steps && let Some(k) = self.creatures.get_mut(cid) {
+                k.base_mut().todo.queue.push_back(CreatureAction::Go);
             }
         }
         // P-B (P1) — `cract.cc:1144-1163`: creature-container branch sets
@@ -654,10 +648,8 @@ impl GameWorld {
                 .creatures
                 .get(cid)
                 .is_some_and(|k| !k.base().walk_queue.is_empty());
-            if has_steps {
-                if let Some(k) = self.creatures.get_mut(cid) {
-                    k.base_mut().todo.queue.push_back(CreatureAction::Go);
-                }
+            if has_steps && let Some(k) = self.creatures.get_mut(cid) {
+                k.base_mut().todo.queue.push_back(CreatureAction::Go);
             }
         }
         // `ToDoWait(100)` then `ToDoTurn(...)` — `receiving.cc:549`.
@@ -682,10 +674,10 @@ impl GameWorld {
         // at least `server_ms + 1` — strictly future, so it cannot be re-drained in the same beat.
         // This is the engine's anti-re-entrancy guarantee (audit Finding 17 / Phase 2).
         let delay = delay_ms.max(1);
-        if let Some(k) = self.creatures.get_mut(cid) {
-            if !k.base().todo.is_empty() {
-                k.base_mut().todo.locked = true;
-            }
+        if let Some(k) = self.creatures.get_mut(cid)
+            && !k.base().todo.is_empty()
+        {
+            k.base_mut().todo.locked = true;
         }
         self.schedule_creature_wakeup(cid, self.server_ms.saturating_add(delay));
     }
@@ -772,23 +764,21 @@ impl GameWorld {
         {
             return;
         }
-        if chase_debug::chase_path_debug_enabled() {
-            if let Some((from, dest, must_reach, max_steps)) =
+        if chase_debug::chase_path_debug_enabled()
+            && let Some((from, dest, must_reach, max_steps)) =
                 self.idle_todo_go_trace_contract(cid, todo_via)
-            {
-                if let Some(k) = self.creatures.get(cid) {
-                    chase_debug::log_todo_go_aligned(
-                        self.chase_trace_tick(),
-                        cid,
-                        k.base().name.as_str(),
-                        from,
-                        dest,
-                        must_reach,
-                        max_steps,
-                        todo_via.filter(|v| *v != "roam"),
-                    );
-                }
-            }
+            && let Some(k) = self.creatures.get(cid)
+        {
+            chase_debug::log_todo_go_aligned(
+                self.chase_trace_tick(),
+                cid,
+                k.base().name.as_str(),
+                from,
+                dest,
+                must_reach,
+                max_steps,
+                todo_via.filter(|v| *v != "roam"),
+            );
         }
         let _ = self.todo_start_go_delay(cid, true);
     }
@@ -861,40 +851,40 @@ impl GameWorld {
         if let Some(ms) = wait_after_ms {
             self.enqueue_creature_wait(cid, ms);
         }
-        if chase_debug::chase_path_debug_enabled() {
-            if let Some(k) = self.creatures.get(cid) {
-                let follow_id = k.base().follow_target;
-                let is_dance = todo_via == Some("idle_dance");
-                let is_flee = todo_via == Some("idle_flee");
+        if chase_debug::chase_path_debug_enabled()
+            && let Some(k) = self.creatures.get(cid)
+        {
+            let follow_id = k.base().follow_target;
+            let is_dance = todo_via == Some("idle_dance");
+            let is_flee = todo_via == Some("idle_flee");
 
-                if let Some((from, dest, must_reach, max_steps)) =
-                    self.idle_todo_go_trace_contract(cid, todo_via)
-                {
-                    let arm = todo_via.filter(|v| *v != "roam");
-                    if is_dance || is_flee || follow_id.is_some() {
-                        chase_debug::log_todo_go_aligned(
-                            self.chase_trace_tick(),
-                            cid,
-                            k.base().name.as_str(),
-                            from,
-                            dest,
-                            must_reach,
-                            max_steps,
-                            arm,
-                        );
-                    } else if todo_via == Some("roam") {
-                        chase_debug::log_todo_go(
-                            self.chase_trace_tick(),
-                            cid,
-                            k.base().name.as_str(),
-                            "enter",
-                            from,
-                            from,
-                            false,
-                            1,
-                            Some("roam"),
-                        );
-                    }
+            if let Some((from, dest, must_reach, max_steps)) =
+                self.idle_todo_go_trace_contract(cid, todo_via)
+            {
+                let arm = todo_via.filter(|v| *v != "roam");
+                if is_dance || is_flee || follow_id.is_some() {
+                    chase_debug::log_todo_go_aligned(
+                        self.chase_trace_tick(),
+                        cid,
+                        k.base().name.as_str(),
+                        from,
+                        dest,
+                        must_reach,
+                        max_steps,
+                        arm,
+                    );
+                } else if todo_via == Some("roam") {
+                    chase_debug::log_todo_go(
+                        self.chase_trace_tick(),
+                        cid,
+                        k.base().name.as_str(),
+                        "enter",
+                        from,
+                        from,
+                        false,
+                        1,
+                        Some("roam"),
+                    );
                 }
             }
         }

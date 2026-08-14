@@ -66,10 +66,10 @@ impl ActionRegistry {
     /// C++ `Actions::getAction` — `uniqueItemMap` → `actionItemMap` → `useItemMap`
     /// (uniqueid deferred to a later phase).
     pub fn get(&self, item_type: u16, action_id: u16) -> Option<&ActionEntry> {
-        if action_id != 0 {
-            if let Some(entry) = self.by_action_id.get(&action_id) {
-                return Some(entry);
-            }
+        if action_id != 0
+            && let Some(entry) = self.by_action_id.get(&action_id)
+        {
+            return Some(entry);
         }
         self.by_item_id.get(&item_type)
     }

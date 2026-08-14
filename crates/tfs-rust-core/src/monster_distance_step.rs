@@ -101,10 +101,10 @@ where
 
     // Evaluate in order
     for &opt_dir in &dirs {
-        if let Some(dir) = opt_dir {
-            if can_walk(dir) {
-                return Some(dir);
-            }
+        if let Some(dir) = opt_dir
+            && can_walk(dir)
+        {
+            return Some(dir);
         }
     }
     None

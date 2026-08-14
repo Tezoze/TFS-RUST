@@ -67,10 +67,10 @@ fn append_save_item_tree(
         running_id += 1;
         let sid = running_id;
         out.push(item_to_record(world, pid, sid, item_id)?);
-        if let Some(cont) = world.container_registry.get(item_id) {
-            if !cont.items.is_empty() {
-                queue.push_back((item_id, sid));
-            }
+        if let Some(cont) = world.container_registry.get(item_id)
+            && !cont.items.is_empty()
+        {
+            queue.push_back((item_id, sid));
         }
     }
 
@@ -82,10 +82,10 @@ fn append_save_item_tree(
             running_id += 1;
             let sid = running_id;
             out.push(item_to_record(world, parent_sid, sid, child_id)?);
-            if let Some(sub) = world.container_registry.get(child_id) {
-                if !sub.items.is_empty() {
-                    queue.push_back((child_id, sid));
-                }
+            if let Some(sub) = world.container_registry.get(child_id)
+                && !sub.items.is_empty()
+            {
+                queue.push_back((child_id, sid));
             }
         }
     }
@@ -197,10 +197,10 @@ impl GameWorld {
 
         let mut roots: Vec<(i32, ItemId)> = Vec::new();
         for slot in 1u8..=10u8 {
-            if let Some(idx) = slot_to_array_index(slot) {
-                if let Some(iid) = player.equipment_slots[idx] {
-                    roots.push((i32::from(slot), iid));
-                }
+            if let Some(idx) = slot_to_array_index(slot)
+                && let Some(iid) = player.equipment_slots[idx]
+            {
+                roots.push((i32::from(slot), iid));
             }
         }
 
@@ -208,13 +208,12 @@ impl GameWorld {
         append_save_item_tree(self, &roots, &mut inventory)?;
 
         let mut store_roots: Vec<(i32, ItemId)> = Vec::new();
-        if let Some(idx) = slot_to_array_index(11) {
-            if let Some(root_iid) = player.equipment_slots[idx] {
-                if let Some(cont) = self.container_registry.get(root_iid) {
-                    for &child in &cont.items {
-                        store_roots.push((0, child));
-                    }
-                }
+        if let Some(idx) = slot_to_array_index(11)
+            && let Some(root_iid) = player.equipment_slots[idx]
+            && let Some(cont) = self.container_registry.get(root_iid)
+        {
+            for &child in &cont.items {
+                store_roots.push((0, child));
             }
         }
         let mut store_inbox = Vec::new();
@@ -258,11 +257,11 @@ impl GameWorld {
         }
 
         let mut inbox_roots: Vec<(i32, ItemId)> = Vec::new();
-        if let Some(inbox_id) = player.inbox_root {
-            if let Some(cont) = self.container_registry.get(inbox_id) {
-                for &child in &cont.items {
-                    inbox_roots.push((0, child));
-                }
+        if let Some(inbox_id) = player.inbox_root
+            && let Some(cont) = self.container_registry.get(inbox_id)
+        {
+            for &child in &cont.items {
+                inbox_roots.push((0, child));
             }
         }
         let mut inbox = Vec::new();

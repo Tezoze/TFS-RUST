@@ -307,10 +307,8 @@ pub(crate) fn internal_teleport_player(
     let has_ground = to_tile.body().ground.is_some();
     let teleport = !push_movement || !has_ground || !are_in_range_1_1_0(old_pos, new_pos);
 
-    if !teleport {
-        if let Some(k) = world.creatures.get_mut(cid) {
-            set_direction_from_step(old_pos, new_pos, k);
-        }
+    if !teleport && let Some(k) = world.creatures.get_mut(cid) {
+        set_direction_from_step(old_pos, new_pos, k);
     }
 
     world.move_creature_on_map(cid, old_pos, new_pos);
@@ -565,17 +563,16 @@ impl GameWorld {
                     let front_is_go = self.creatures.get(cid).is_some_and(|k| {
                         matches!(k.base().todo.queue.front(), Some(CreatureAction::Go))
                     });
-                    if front_is_go {
-                        if self
+                    if front_is_go
+                        && self
                             .creatures
                             .get(cid)
                             .and_then(|k| k.base().next_wakeup)
                             .is_none()
-                        {
-                            // C++ `IdleStimulus` queues `ToDoGo` then `TDAttack`; `ToDoStart` arms
-                            // `NextWakeup` — no synchronous `Go` on the idle drain tick (`cract.cc:1461`).
-                            let _ = self.todo_start_go_delay(cid, true);
-                        }
+                    {
+                        // C++ `IdleStimulus` queues `ToDoGo` then `TDAttack`; `ToDoStart` arms
+                        // `NextWakeup` — no synchronous `Go` on the idle drain tick (`cract.cc:1461`).
+                        let _ = self.todo_start_go_delay(cid, true);
                     }
                     // C++ `Execute` breaks after `IdleStimulus` — fresh batch runs at `ToDoStart`
                     // wakeup (`cract.cc:789-793`), not only when front is `Go`.
@@ -730,11 +727,9 @@ impl GameWorld {
             base.next_wakeup = None;
             base.has_follow_path = false;
         }
-        if pending_idle {
-            if let Some(CreatureKind::Npc(npc)) = self.creatures.get_mut(cid) {
-                npc.runtime.activity = NpcActivity::Idle;
-                npc.runtime.focus = None;
-            }
+        if pending_idle && let Some(CreatureKind::Npc(npc)) = self.creatures.get_mut(cid) {
+            npc.runtime.activity = NpcActivity::Idle;
+            npc.runtime.focus = None;
         }
         had_pending_go
     }
@@ -1155,10 +1150,8 @@ impl GameWorld {
         apply_notify_turn: bool,
     ) {
         // `NotifyTurn` — state only; C++ does not broadcast `0x6B` here (`cract.cc:1566–1581`).
-        if apply_notify_turn {
-            if let Some(k) = self.creatures.get_mut(cid) {
-                set_direction_from_step(old_pos, new_pos, k);
-            }
+        if apply_notify_turn && let Some(k) = self.creatures.get_mut(cid) {
+            set_direction_from_step(old_pos, new_pos, k);
         }
 
         let gs_dest = self
@@ -1694,47 +1687,47 @@ impl GameWorld {
                 // stored dest is no longer adjacent → `Execute` catch (`cract.cc:870-889`):
                 // `SendResult("Sorry, not possible.")` + `SendSnapback` + `ToDoClear` + `ToDoYield`
                 // (audit #4). The check runs before drunk stagger, matching C++ order.
-                if let Some(dest) = pop_dest {
-                    if let Some(cur_pos) = self.creatures.get(cid).map(|k| k.position()) {
-                        let dx = (cur_pos.x as i32 - dest.x as i32).unsigned_abs();
-                        let dy = (cur_pos.y as i32 - dest.y as i32).unsigned_abs();
-                        if dx > 1 || dy > 1 || cur_pos.z != dest.z {
-                            self.on_walk_step_rejected(cid, ReturnValue::NotPossible);
-                            return;
-                        }
-                        // 772 `Go(DestX, DestY, DestZ)` moves to the EXACT destination
-                        // coordinates from the TDGo entry, not the queued Direction
-                        // (`cract.cc:443-446`: `Object Dest = GetMapContainer(DestX, DestY,
-                        // DestZ); ::Move(this->ID, this->CrObject, Dest, -1, false, NONE)`).
-                        // If the creature was pushed mid-walk, the queued Direction no longer
-                        // matches the absolute destination — recompute the step direction from
-                        // the current position to the stored destination. Without this, the
-                        // 0x6D `new_pos` is wrong: the creature slides in the old direction
-                        // from its new (kicked) position, landing on a different tile than the
-                        // decompile's `Go` → `::Move` to the exact dest.
-                        if cur_pos == dest {
-                            // Creature was pushed to exactly its intended destination — the
-                            // step is already complete. The decompile's `Go` with Distance==0
-                            // calls `::Move` to the same position (a map no-op; the 0x6D from
-                            // X to X is visually inert). Skip the move/packets/timing and let
-                            // the walk reschedule for the next step.
-                            if !self.creature_uses_todo_execute(cid) && reschedule_after {
-                                self.add_event_walk(cid, false);
-                            }
-                            return;
-                        }
-                        dir = direction_from_positions(cur_pos, dest);
+                if let Some(dest) = pop_dest
+                    && let Some(cur_pos) = self.creatures.get(cid).map(|k| k.position())
+                {
+                    let dx = (cur_pos.x as i32 - dest.x as i32).unsigned_abs();
+                    let dy = (cur_pos.y as i32 - dest.y as i32).unsigned_abs();
+                    if dx > 1 || dy > 1 || cur_pos.z != dest.z {
+                        self.on_walk_step_rejected(cid, ReturnValue::NotPossible);
+                        return;
                     }
+                    // 772 `Go(DestX, DestY, DestZ)` moves to the EXACT destination
+                    // coordinates from the TDGo entry, not the queued Direction
+                    // (`cract.cc:443-446`: `Object Dest = GetMapContainer(DestX, DestY,
+                    // DestZ); ::Move(this->ID, this->CrObject, Dest, -1, false, NONE)`).
+                    // If the creature was pushed mid-walk, the queued Direction no longer
+                    // matches the absolute destination — recompute the step direction from
+                    // the current position to the stored destination. Without this, the
+                    // 0x6D `new_pos` is wrong: the creature slides in the old direction
+                    // from its new (kicked) position, landing on a different tile than the
+                    // decompile's `Go` → `::Move` to the exact dest.
+                    if cur_pos == dest {
+                        // Creature was pushed to exactly its intended destination — the
+                        // step is already complete. The decompile's `Go` with Distance==0
+                        // calls `::Move` to the same position (a map no-op; the 0x6D from
+                        // X to X is visually inert). Skip the move/packets/timing and let
+                        // the walk reschedule for the next step.
+                        if !self.creature_uses_todo_execute(cid) && reschedule_after {
+                            self.add_event_walk(cid, false);
+                        }
+                        return;
+                    }
+                    dir = direction_from_positions(cur_pos, dest);
                 }
                 // 772 drunk stagger — `cract.cc:392-413`: on stagger, replace the step direction
                 // with a random cardinal, `ToDoClear` + `SendSnapback` (player) + `ToDoTalk("Hicks!")`
                 // + `ToDoStart`, then continue with the staggered step.
                 let mut drunk_staggered = false;
-                if let Some(CreatureKind::Player(p)) = self.creatures.get(cid) {
-                    if let Some(new_dir) = try_drunk_walk_direction(&p.base) {
-                        dir = new_dir;
-                        drunk_staggered = true;
-                    }
+                if let Some(CreatureKind::Player(p)) = self.creatures.get(cid)
+                    && let Some(new_dir) = try_drunk_walk_direction(&p.base)
+                {
+                    dir = new_dir;
+                    drunk_staggered = true;
                 }
                 if drunk_staggered {
                     // `ToDoClear` + `SendSnapback` (player) — `cract.cc:405-407`.
@@ -2201,16 +2194,15 @@ impl GameWorld {
                 .creatures
                 .get(cid)
                 .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
+            && let Some(k) = self.creatures.get(cid)
         {
-            if let Some(k) = self.creatures.get(cid) {
-                chase_debug::log_go_exec(
-                    self.chase_trace_tick(),
-                    cid,
-                    k.base().name.as_str(),
-                    old_pos,
-                    final_pos,
-                );
-            }
+            chase_debug::log_go_exec(
+                self.chase_trace_tick(),
+                cid,
+                k.base().name.as_str(),
+                old_pos,
+                final_pos,
+            );
         }
 
         // Step 3: post-queryDestination chain turn — set direction NOW (matching C++
@@ -2221,16 +2213,17 @@ impl GameWorld {
         // returns, so the `0x6B` must be deferred to the caller to avoid sending it
         // before the client knows the creature moved to the new position.
         let mut pending_turn: Option<PendingChainTurn> = None;
-        if let Some(fp) = from_pos {
-            if fp.z != final_pos.z && (fp.x != final_pos.x || fp.y != final_pos.y) {
-                let dir = direction_from_positions(fp, final_pos);
-                if !is_diagonal(dir) {
-                    // Set direction immediately (state mutation only).
-                    if let Some(k) = self.creatures.get_mut(cid) {
-                        k.base_mut().direction = dir;
-                    }
-                    pending_turn = Some(PendingChainTurn { cid, dir });
+        if let Some(fp) = from_pos
+            && fp.z != final_pos.z
+            && (fp.x != final_pos.x || fp.y != final_pos.y)
+        {
+            let dir = direction_from_positions(fp, final_pos);
+            if !is_diagonal(dir) {
+                // Set direction immediately (state mutation only).
+                if let Some(k) = self.creatures.get_mut(cid) {
+                    k.base_mut().direction = dir;
                 }
+                pending_turn = Some(PendingChainTurn { cid, dir });
             }
         }
 

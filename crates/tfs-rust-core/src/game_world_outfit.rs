@@ -41,10 +41,10 @@ impl GameWorld {
         let current = {
             let o = &p.base.outfit;
             let mut look_type = o.look_type.max(0) as u16;
-            if look_type == 0 {
-                if let Some(first) = self.outfits_db.outfits_for_sex(sex_byte).first() {
-                    look_type = first.looktype;
-                }
+            if look_type == 0
+                && let Some(first) = self.outfits_db.outfits_for_sex(sex_byte).first()
+            {
+                look_type = first.looktype;
             }
             OutfitWire {
                 look_type,

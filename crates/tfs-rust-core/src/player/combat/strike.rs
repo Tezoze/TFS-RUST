@@ -83,15 +83,13 @@ impl GameWorld {
         let mut levels_gained = 0u32;
         let attack_roll = {
             let hooks = &self.mechanics.hooks;
-            if learning_active {
-                if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-                    if p.base.learning_points > 0 {
-                        levels_gained =
-                            p.skill_increase(atk_skill_nr, skill_tries, &profile, hooks);
-                        p.base.learning_points -= 1;
-                        skill_trained = skill_tries > 0;
-                    }
-                }
+            if learning_active
+                && let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid)
+                && p.base.learning_points > 0
+            {
+                levels_gained = p.skill_increase(atk_skill_nr, skill_tries, &profile, hooks);
+                p.base.learning_points -= 1;
+                skill_trained = skill_tries > 0;
             }
             let skill = match self.creatures.get(cid) {
                 Some(CreatureKind::Player(p)) => p.skill_level_profile(atk_skill_nr, &profile),
@@ -215,10 +213,10 @@ impl GameWorld {
         }
 
         // `if (DamageDone > 0) ActivateLearning()` (`crcombat.cc:655`).
-        if damage_done > 0 {
-            if let Some(k) = self.creatures.get_mut(cid) {
-                k.base_mut().activate_learning();
-            }
+        if damage_done > 0
+            && let Some(k) = self.creatures.get_mut(cid)
+        {
+            k.base_mut().activate_learning();
         }
 
         // Weapon wearout (`REMAININGUSES`) — `crcombat.cc:662`. Decrement the equipped weapon's
@@ -324,17 +322,17 @@ impl GameWorld {
         let hooks = &self.mechanics.hooks;
         let mut skill_trained = false;
         let mut levels_gained = 0u32;
-        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-            if p.base.learning_points > 0 {
-                levels_gained = p.skill_increase(
-                    crate::player::combat::SkillNr::Shielding,
-                    skill_tries,
-                    &profile,
-                    hooks,
-                );
-                p.base.learning_points -= 1;
-                skill_trained = skill_tries > 0;
-            }
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid)
+            && p.base.learning_points > 0
+        {
+            levels_gained = p.skill_increase(
+                crate::player::combat::SkillNr::Shielding,
+                skill_tries,
+                &profile,
+                hooks,
+            );
+            p.base.learning_points -= 1;
+            skill_trained = skill_tries > 0;
         }
         if skill_trained {
             self.notify_skill_tries_gained(

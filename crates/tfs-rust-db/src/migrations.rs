@@ -42,13 +42,11 @@ pub fn resolve_migrations_dir() -> Result<PathBuf> {
         return Ok(from_cwd);
     }
 
-    if let Ok(cwd) = std::env::current_dir() {
-        let from_parent = cwd.join("../crates/tfs-rust-db/migrations");
-        if let Ok(canonical) = from_parent.canonicalize() {
-            if canonical.is_dir() {
-                return Ok(canonical);
-            }
-        }
+    if let Ok(cwd) = std::env::current_dir()
+        && let Ok(canonical) = cwd.join("../crates/tfs-rust-db/migrations").canonicalize()
+        && canonical.is_dir()
+    {
+        return Ok(canonical);
     }
 
     Err(TfsRustError::Database(format!(

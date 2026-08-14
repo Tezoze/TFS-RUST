@@ -206,7 +206,7 @@ impl GameWorld {
             if self
                 .container_registry
                 .get(parent_id)
-                .is_some_and(|c| c.items.iter().any(|&id| id == item_id))
+                .is_some_and(|c| c.items.contains(&item_id))
             {
                 return Some(Cylinder::Container {
                     item_id: parent_id,

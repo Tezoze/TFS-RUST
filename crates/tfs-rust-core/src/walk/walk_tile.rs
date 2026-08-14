@@ -127,27 +127,25 @@ pub(crate) fn tile_elevation_sum(
     items: &slotmap::SlotMap<crate::ids::ItemId, crate::item::Item>,
 ) -> i32 {
     let mut sum = 0i32;
-    if let Some(gid) = body.ground {
-        if items_db.items.get(&gid).is_some_and(|t| t.has_height()) {
-            sum += items_db.items.get(&gid).map(|t| t.elevation()).unwrap_or(0);
-        }
+    if let Some(gid) = body.ground
+        && items_db.items.get(&gid).is_some_and(|t| t.has_height())
+    {
+        sum += items_db.items.get(&gid).map(|t| t.elevation()).unwrap_or(0);
     }
     for &item_id in &body.down_items {
-        if let Some(item) = items.get(item_id) {
-            if let Some(it) = items_db.items.get(&item.item_type) {
-                if it.has_height() {
-                    sum += it.elevation();
-                }
-            }
+        if let Some(item) = items.get(item_id)
+            && let Some(it) = items_db.items.get(&item.item_type)
+            && it.has_height()
+        {
+            sum += it.elevation();
         }
     }
     for &item_id in &body.top_items {
-        if let Some(item) = items.get(item_id) {
-            if let Some(it) = items_db.items.get(&item.item_type) {
-                if it.has_height() {
-                    sum += it.elevation();
-                }
-            }
+        if let Some(item) = items.get(item_id)
+            && let Some(it) = items_db.items.get(&item.item_type)
+            && it.has_height()
+        {
+            sum += it.elevation();
         }
     }
     sum
@@ -175,30 +173,30 @@ pub(crate) fn resolve_player_move_destination(
     }
 
     // C++ ref: src/game.cpp:807-820 — try to go up
-    if current_pos.z != 8 {
-        if let Some(cur_tile) = map.get_tile(current_pos) {
-            let has_h3 = tile_has_height_n(current_pos, cur_tile.body(), items_db, items, 3);
-            if has_h3 {
-                let z_above = current_pos.z.wrapping_sub(1);
-                let tmp = map.get_tile(Position {
-                    x: current_pos.x,
-                    y: current_pos.y,
+    if current_pos.z != 8
+        && let Some(cur_tile) = map.get_tile(current_pos)
+    {
+        let has_h3 = tile_has_height_n(current_pos, cur_tile.body(), items_db, items, 3);
+        if has_h3 {
+            let z_above = current_pos.z.wrapping_sub(1);
+            let tmp = map.get_tile(Position {
+                x: current_pos.x,
+                y: current_pos.y,
+                z: z_above,
+            });
+            let open = tmp.map(|t| tile_is_hole_like(t.body())).unwrap_or(true);
+            if open {
+                let tmp2 = map.get_tile(Position {
+                    x: dest_pos.x,
+                    y: dest_pos.y,
                     z: z_above,
                 });
-                let open = tmp.map(|t| tile_is_hole_like(t.body())).unwrap_or(true);
-                if open {
-                    let tmp2 = map.get_tile(Position {
-                        x: dest_pos.x,
-                        y: dest_pos.y,
-                        z: z_above,
-                    });
-                    if let Some(tt) = tmp2 {
-                        let tb = tt.body();
-                        if tb.ground.is_some() && (tb.flags & tilestate::IMMOVABLEBLOCKSOLID) == 0 {
-                            flags |= FLAG_IGNOREBLOCKITEM | FLAG_IGNOREBLOCKCREATURE;
-                            if (tb.flags & tilestate::FLOORCHANGE) == 0 {
-                                dest_pos.z = z_above;
-                            }
+                if let Some(tt) = tmp2 {
+                    let tb = tt.body();
+                    if tb.ground.is_some() && (tb.flags & tilestate::IMMOVABLEBLOCKSOLID) == 0 {
+                        flags |= FLAG_IGNOREBLOCKITEM | FLAG_IGNOREBLOCKCREATURE;
+                        if (tb.flags & tilestate::FLOORCHANGE) == 0 {
+                            dest_pos.z = z_above;
                         }
                     }
                 }
@@ -259,25 +257,24 @@ pub(crate) fn query_destination(
             x: dx,
             y: dy.wrapping_sub(1),
             z: dz,
-        }) {
-            if south_down.body().flags & tilestate::FLOORCHANGE_SOUTH_ALT != 0 {
-                dy = dy.wrapping_sub(2);
-                let dest = map.get_tile(Position {
-                    x: dx,
-                    y: dy,
-                    z: dz,
-                });
-                return dest.map(|_| {
-                    (
-                        Position {
-                            x: dx,
-                            y: dy,
-                            z: dz,
-                        },
-                        FLAG_NOLIMIT,
-                    )
-                });
-            }
+        }) && south_down.body().flags & tilestate::FLOORCHANGE_SOUTH_ALT != 0
+        {
+            dy = dy.wrapping_sub(2);
+            let dest = map.get_tile(Position {
+                x: dx,
+                y: dy,
+                z: dz,
+            });
+            return dest.map(|_| {
+                (
+                    Position {
+                        x: dx,
+                        y: dy,
+                        z: dz,
+                    },
+                    FLAG_NOLIMIT,
+                )
+            });
         }
 
         // Check east-alt
@@ -285,25 +282,24 @@ pub(crate) fn query_destination(
             x: dx.wrapping_sub(1),
             y: dy,
             z: dz,
-        }) {
-            if east_down.body().flags & tilestate::FLOORCHANGE_EAST_ALT != 0 {
-                dx = dx.wrapping_sub(2);
-                let dest = map.get_tile(Position {
-                    x: dx,
-                    y: dy,
-                    z: dz,
-                });
-                return dest.map(|_| {
-                    (
-                        Position {
-                            x: dx,
-                            y: dy,
-                            z: dz,
-                        },
-                        FLAG_NOLIMIT,
-                    )
-                });
-            }
+        }) && east_down.body().flags & tilestate::FLOORCHANGE_EAST_ALT != 0
+        {
+            dx = dx.wrapping_sub(2);
+            let dest = map.get_tile(Position {
+                x: dx,
+                y: dy,
+                z: dz,
+            });
+            return dest.map(|_| {
+                (
+                    Position {
+                        x: dx,
+                        y: dy,
+                        z: dz,
+                    },
+                    FLAG_NOLIMIT,
+                )
+            });
         }
 
         // Normal directional check on the tile below
@@ -605,18 +601,19 @@ pub(crate) fn tile_query_add_npc(
             return ReturnValue::NotPossible;
         }
     } else if let Some(ground_id) = body.ground {
-        if let Some(gt) = world.items_db.items.get(&ground_id) {
-            if gt.block_solid() && !gt.moveable() {
-                return ReturnValue::NotPossible;
-            }
+        if let Some(gt) = world.items_db.items.get(&ground_id)
+            && gt.block_solid()
+            && !gt.moveable()
+        {
+            return ReturnValue::NotPossible;
         }
         for &item_id in body.top_items.iter().chain(body.down_items.iter()) {
-            if let Some(item) = world.items.get(item_id) {
-                if let Some(it) = world.items_db.items.get(&item.item_type) {
-                    if it.block_solid() && !it.moveable() {
-                        return ReturnValue::NotPossible;
-                    }
-                }
+            if let Some(item) = world.items.get(item_id)
+                && let Some(it) = world.items_db.items.get(&item.item_type)
+                && it.block_solid()
+                && !it.moveable()
+            {
+                return ReturnValue::NotPossible;
             }
         }
     }
@@ -666,15 +663,15 @@ pub(crate) fn tile_query_add_player(
             }
             _ => None,
         };
-        if let Some(cur_pos) = pz_lock_from {
-            if !world.player_has_flag(mover, PLAYER_FLAG_IGNORE_PROTECTION_ZONE) {
-                let currently_in_pz = world
-                    .map
-                    .get_tile(cur_pos)
-                    .is_some_and(|t| t.body().zone == ZoneType::Protection);
-                if !currently_in_pz {
-                    return ReturnValue::PlayerIsPzLocked;
-                }
+        if let Some(cur_pos) = pz_lock_from
+            && !world.player_has_flag(mover, PLAYER_FLAG_IGNORE_PROTECTION_ZONE)
+        {
+            let currently_in_pz = world
+                .map
+                .get_tile(cur_pos)
+                .is_some_and(|t| t.body().zone == ZoneType::Protection);
+            if !currently_in_pz {
+                return ReturnValue::PlayerIsPzLocked;
             }
         }
     }
@@ -707,20 +704,20 @@ pub(crate) fn tile_query_add_player(
     } else {
         // FLAG_IGNOREBLOCKITEM is set — only block on *immovable* blocksolid items.
         // C++ ref: src/tile.cpp:613-627
-        if let Some(ground_id) = body.ground {
-            if let Some(gt) = world.items_db.items.get(&ground_id) {
-                if gt.block_solid() && !gt.moveable() {
-                    return ReturnValue::NotPossible;
-                }
-            }
+        if let Some(ground_id) = body.ground
+            && let Some(gt) = world.items_db.items.get(&ground_id)
+            && gt.block_solid()
+            && !gt.moveable()
+        {
+            return ReturnValue::NotPossible;
         }
         for &item_id in body.top_items.iter().chain(body.down_items.iter()) {
-            if let Some(item) = world.items.get(item_id) {
-                if let Some(it) = world.items_db.items.get(&item.item_type) {
-                    if it.block_solid() && !it.moveable() {
-                        return ReturnValue::NotPossible;
-                    }
-                }
+            if let Some(item) = world.items.get(item_id)
+                && let Some(it) = world.items_db.items.get(&item.item_type)
+                && it.block_solid()
+                && !it.moveable()
+            {
+                return ReturnValue::NotPossible;
             }
         }
     }

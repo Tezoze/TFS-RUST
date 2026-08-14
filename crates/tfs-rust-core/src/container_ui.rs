@@ -712,9 +712,7 @@ impl GameWorld {
         preferred_cid: Option<u8>,
     ) -> Result<(), ReturnValue> {
         // Native house door gate before Lua (`actions.cpp` `internalUseItem` → `Door::canUse`).
-        if let Err(ret) = self.house_door_can_use_or_deny(cid, item_id) {
-            return Err(ret);
-        }
+        self.house_door_can_use_or_deny(cid, item_id)?;
 
         // Action `onUse` before native teleport / container (`actions.cpp` `internalUseItem`).
         let from = if is_map_tile {

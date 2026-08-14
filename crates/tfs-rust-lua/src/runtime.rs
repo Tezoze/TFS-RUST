@@ -2096,7 +2096,7 @@ impl RegisterLuaFunctions for MinimalGlobalFunctions {
                     return Ok(Some(false));
                 };
                 Ok(Some(
-                    crate::context::current_ctx(|ctx| ctx.get_config_bool(&name).unwrap_or(false))
+                    crate::context::current_ctx(|ctx| ctx.get_config_bool(name).unwrap_or(false))
                         .unwrap_or(false),
                 ))
             })?,

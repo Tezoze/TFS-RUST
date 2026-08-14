@@ -45,6 +45,7 @@ pub struct ReactMeta<'a> {
 /// C++ action loop — `crnonpl.cc:1085-1291`. Mutating world actions apply immediately
 /// via [`NpcActionHost`] (NPC-5). Custom actions invoke Lua via
 /// [`NpcActionHost::invoke_custom_action`] (NPC-7).
+#[allow(clippy::while_let_loop)] // `rule_index` jumps mid-loop; not a single `while let` fetch.
 pub fn apply_dialogue_plan(
     program: &DialogueProgram,
     matched: RuleMatch,

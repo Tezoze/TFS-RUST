@@ -272,10 +272,10 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
 
     // 1098 echoes the `0x1F` challenge in the first game packet; 772 sends none, so only verify the
     // echo when we actually issued a challenge (`caps.prelogin_challenge`).
-    if let Some(challenge) = challenge {
-        if game.challenge_ts != challenge.timestamp || game.challenge_rand != challenge.random {
-            return Err(anyhow::anyhow!("game login challenge mismatch"));
-        }
+    if let Some(challenge) = challenge
+        && (game.challenge_ts != challenge.timestamp || game.challenge_rand != challenge.random)
+    {
+        return Err(anyhow::anyhow!("game login challenge mismatch"));
     }
 
     let acc = match &game.identity {

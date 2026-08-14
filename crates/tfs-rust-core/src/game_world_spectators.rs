@@ -597,42 +597,40 @@ impl GameWorld {
         }
 
         // Player-only: private status message ("You lose X hitpoints due to an attack by Y").
-        if is_player {
-            if let Some(conn) = self.conn_for_creature(target_id) {
-                let dmg = damage_done as u32;
-                // K10: damage text format — 772 attributes attacker, 1098 uses simple loss text.
-                let text = match self.mechanics.profile.damage_text_format {
-                    crate::formulas::DamageTextFormat::AttackerAttribution => {
-                        let damage_string = if dmg == 1 {
-                            "1 hitpoint".to_string()
-                        } else {
-                            format!("{dmg} hitpoints")
-                        };
-                        if let Some(attacker) = attacker_desc {
-                            format!("You lose {damage_string} due to an attack by {attacker}.")
-                        } else {
-                            format!("You lose {damage_string}.")
-                        }
+        if is_player && let Some(conn) = self.conn_for_creature(target_id) {
+            let dmg = damage_done as u32;
+            // K10: damage text format — 772 attributes attacker, 1098 uses simple loss text.
+            let text = match self.mechanics.profile.damage_text_format {
+                crate::formulas::DamageTextFormat::AttackerAttribution => {
+                    let damage_string = if dmg == 1 {
+                        "1 hitpoint".to_string()
+                    } else {
+                        format!("{dmg} hitpoints")
+                    };
+                    if let Some(attacker) = attacker_desc {
+                        format!("You lose {damage_string} due to an attack by {attacker}.")
+                    } else {
+                        format!("You lose {damage_string}.")
                     }
-                    crate::formulas::DamageTextFormat::SimpleLoss => {
-                        if dmg == 1 {
-                            "You lose 1 hitpoint.".to_string()
-                        } else {
-                            format!("You lose {dmg} hitpoints.")
-                        }
+                }
+                crate::formulas::DamageTextFormat::SimpleLoss => {
+                    if dmg == 1 {
+                        "You lose 1 hitpoint.".to_string()
+                    } else {
+                        format!("You lose {dmg} hitpoints.")
                     }
-                };
-                self.enqueue_encoded(
-                    conn,
-                    self.codec
-                        .encode_combat_damage_text_message(&CombatDamageNotifyWire {
-                            pos,
-                            damage: dmg,
-                            damage_color: text_color,
-                            text,
-                        }),
-                );
-            }
+                }
+            };
+            self.enqueue_encoded(
+                conn,
+                self.codec
+                    .encode_combat_damage_text_message(&CombatDamageNotifyWire {
+                        pos,
+                        damage: dmg,
+                        damage_color: text_color,
+                        text,
+                    }),
+            );
         }
 
         // Health bar fan-out — broadcast to all spectators (C++ `sendCreatureHealth`).
@@ -759,19 +757,19 @@ impl GameWorld {
         let Some(target_kind) = self.creatures.get(target) else {
             return false;
         };
-        if let CreatureKind::Player(tp) = target_kind {
-            if tp.ghost_mode {
-                let viewer_has_access = self
-                    .creatures
-                    .get(viewer)
-                    .and_then(|k| match k {
-                        CreatureKind::Player(p) => Some(p.ghost_mode),
-                        _ => None,
-                    })
-                    .unwrap_or(false);
-                if !viewer_has_access {
-                    return false;
-                }
+        if let CreatureKind::Player(tp) = target_kind
+            && tp.ghost_mode
+        {
+            let viewer_has_access = self
+                .creatures
+                .get(viewer)
+                .and_then(|k| match k {
+                    CreatureKind::Player(p) => Some(p.ghost_mode),
+                    _ => None,
+                })
+                .unwrap_or(false);
+            if !viewer_has_access {
+                return false;
             }
         }
         if !Self::has_invisible(&target_kind.base().active_conditions) {

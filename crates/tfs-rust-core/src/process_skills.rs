@@ -205,11 +205,11 @@ impl GameWorld {
                         }
                     }
                     ConditionType::Haste | ConditionType::Paralyze => {
-                        if let Some(left) = cond.timer_rounds_left {
-                            if left <= 1 {
-                                remove_indices.push(idx);
-                                ended_ctypes.push(cond.ctype);
-                            }
+                        if let Some(left) = cond.timer_rounds_left
+                            && left <= 1
+                        {
+                            remove_indices.push(idx);
+                            ended_ctypes.push(cond.ctype);
                         }
                     }
                     ConditionType::Light
@@ -260,37 +260,32 @@ impl GameWorld {
             // `Cycle` maps to different Rust fields per condition type:
             // - Poison: `ConditionData::Damage::total_rank` (the damage pool — `crskill.cc:983`)
             // - Fire/Energy: `ActiveCondition::timer_rounds_left` (tick countdown — `crskill.cc:187`)
-            if let Some(idx) = cond_idx {
-                if self.creatures.get(cid).is_some() {
-                    let field_kind = match combat {
-                        CombatType::Fire => Some(tfs_rust_content::items::FieldDamageType::Fire),
-                        CombatType::Energy => {
-                            Some(tfs_rust_content::items::FieldDamageType::Energy)
-                        }
-                        CombatType::Earth => Some(tfs_rust_content::items::FieldDamageType::Poison),
-                        _ => None,
-                    };
-                    if let Some(kind) = field_kind {
-                        if self.creature_standing_on_field(cid, kind) {
-                            if let Some(kind) = self.creatures.get_mut(cid) {
-                                let base = kind.base_mut();
-                                if let Some(cond) = base.active_conditions.get_mut(idx) {
-                                    match cond.ctype {
-                                        ConditionType::Poison => {
-                                            // Poison `Cycle` = damage pool (`total_rank`).
-                                            if let ConditionData::Damage { total_rank, .. } =
-                                                &mut cond.data
-                                            {
-                                                *total_rank += 1;
-                                            }
-                                        }
-                                        _ => {
-                                            // Fire/Energy `Cycle` = tick countdown.
-                                            if let Some(left) = cond.timer_rounds_left.as_mut() {
-                                                *left += 1;
-                                            }
-                                        }
-                                    }
+            if let Some(idx) = cond_idx
+                && self.creatures.get(cid).is_some()
+            {
+                let field_kind = match combat {
+                    CombatType::Fire => Some(tfs_rust_content::items::FieldDamageType::Fire),
+                    CombatType::Energy => Some(tfs_rust_content::items::FieldDamageType::Energy),
+                    CombatType::Earth => Some(tfs_rust_content::items::FieldDamageType::Poison),
+                    _ => None,
+                };
+                if let Some(kind) = field_kind
+                    && self.creature_standing_on_field(cid, kind)
+                    && let Some(kind) = self.creatures.get_mut(cid)
+                {
+                    let base = kind.base_mut();
+                    if let Some(cond) = base.active_conditions.get_mut(idx) {
+                        match cond.ctype {
+                            ConditionType::Poison => {
+                                // Poison `Cycle` = damage pool (`total_rank`).
+                                if let ConditionData::Damage { total_rank, .. } = &mut cond.data {
+                                    *total_rank += 1;
+                                }
+                            }
+                            _ => {
+                                // Fire/Energy `Cycle` = tick countdown.
+                                if let Some(left) = cond.timer_rounds_left.as_mut() {
+                                    *left += 1;
                                 }
                             }
                         }
