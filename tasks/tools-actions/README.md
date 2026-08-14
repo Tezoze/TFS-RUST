@@ -2,7 +2,7 @@
 
 **Scope:** Make every script in `data/scripts/actions/tools/` load and run end-to-end on the existing `Action()` pipeline.
 **Companion doc:** `tasks/doors-actions-plan.md` (the `Action()` pipeline itself)
-**Date:** 2026-08-09 · updated 2026-08-10 (Gaps 5-6, TVP load model, Gap 7a+7b) · **re-audited 2026-08-13** · Gap 7c done 2026-08-13 · Gap 5a done 2026-08-13 · **Gap 1 done 2026-08-14** · **Gap 4 done 2026-08-14** · **Gap 3 done 2026-08-14**
+**Date:** 2026-08-09 · updated 2026-08-10 (Gaps 5-6, TVP load model, Gap 7a+7b) · **re-audited 2026-08-13** · Gap 7c done 2026-08-13 · Gap 5a done 2026-08-13 · **Gap 1 done 2026-08-14** · **Gap 4 done 2026-08-14** · **Gap 3 done 2026-08-14** · **Gap 6 done 2026-08-14**
 **Split into this folder 2026-08-13** — was a single 700-line `tasks/tools-actions-gap.md`.
 
 ## Status
@@ -15,7 +15,7 @@
 | Gap 4 — missing constants (`SKILL_*`, `actionIds.destroyableStone`) | ✅ done 2026-08-14 — [gaps-lua-api.md](gaps-lua-api.md) |
 | Gap 5 — implicit load contract | ✅ done 2026-08-13 (5a closed the warn-and-continue hole) — [gaps-load.md](gaps-load.md) |
 | Gap 5a — lib stage fatal | ✅ done 2026-08-13 — [gaps-load.md](gaps-load.md) |
-| Gap 6 — 772 parity numbers in scripts | not started — [gaps-lua-api.md](gaps-lua-api.md) |
+| Gap 6 — 772 parity numbers in scripts | ✅ done 2026-08-14 — [gaps-lua-api.md](gaps-lua-api.md) |
 | Gap 7a — `register_class` | ✅ done 2026-08-10 (userdata classes; 17/17 `lib/core` files load) — [gap7-class-globals.md](gap7-class-globals.md) |
 | Gap 7b — userdata `__index` chains | ✅ done 2026-08-10 (8 userdata types) — [gap7-class-globals.md](gap7-class-globals.md) |
 | **Gap 7c — revscript ctor globals** | ✅ done 2026-08-13 — [gap7-class-globals.md](gap7-class-globals.md) |
@@ -101,18 +101,19 @@ All 9 scripts register at load (Gap 1 closed `fishing_rod.lua`). All 9 still mis
 7. **Gap 1** ✅ done 2026-08-14 — `Action:allowFarUse` + plumbing. `fishing_rod.lua` loads; ToDo Obj2 honors the flag (`canUseFar` `areInRange<7,5>`).
 8. **Gap 4** ✅ done 2026-08-14 — `SKILL_*` in `combat_enums.rs`; TVP `actionIds` in `data/global.lua` (4000–4005, `destroyableStone=4004`); inject + merge-only `actionids.lua`.
 9. **Gap 3** ✅ done 2026-08-14 — nine engine verbs + `Tile:getGround` returning Item userdata. See [gaps-lua-api.md](gaps-lua-api.md).
-10. **Gap 6** — ⬅ **next for tools** — relocate the pick / fishing parity numbers into the profile once the scripts actually run and can be observed.
+10. **Gap 6** ✅ done 2026-08-14 — pick / fishing numbers in `data/formulas/{772,1098}.lua` + `MechanicsProfile`; scripts read `formulas.*`. 772 fishing is Probe(80,50), not TFS 0.597.
 11. **`global.lua` via dofile** — optional cleanup once 3-5 land: delete `inject_door_tables_from_global`, the inline `string.trim` chunk, and the `data/lib/core` scan. Pure deletion, no behavior change.
 12. **LuaLS type definitions from the class registry** ✅ done 2026-08-14 — `emit-lua-defs` writes committed `lua-defs/*.d.lua`; `.luarc.json` + CI `lua-language-server --check=.`. See [*VM hardening*](vm-hardening.md) pillar 5.
 13. **[VM hardening](vm-hardening.md)** — `set_memory_limit` ✅ **DONE (2026-08-10)** — `DEFAULT_LUA_MEMORY_LIMIT_BYTES` (512 MiB) applied in `LuaRuntime::new` (`runtime.rs`), overridable from `config.lua` via `luaMemoryLimit` (MB) in `run_server.rs`; test `memory_limit_default_applied_and_enforced` asserts the default + an over-limit allocation errors instead of OOM-killing the process. Instruction-budget hook and stdlib allowlist still gated on Gaps 1-6 + JIT-cost measurement / `tfs.appendLog` capability. See [*VM hardening*](vm-hardening.md) for gates and caveats.
 
-Dependency summary (updated 2026-08-14): 7a+7b+**7c**+**5a**+**Gap 1**+**Gap 4**+**Gap 3**+**pillar 5 (LuaLS)** ✅ done → **Gap 6** (tools numbers) / `new_for_test()`; 11 is last and optional — and note 11 must **replace** the `data/lib/core` scan, not coexist with it, since `core.lua` currently double-loads 15 core files (5a skips `core.lua` in the scan, so the double-load is already gone until step 11 switches to the dofile chain).
+Dependency summary (updated 2026-08-14): 7a+7b+**7c**+**5a**+**Gap 1**+**Gap 4**+**Gap 3**+**Gap 6**+**pillar 5 (LuaLS)** ✅ done → `new_for_test()`; 11 is last and optional — and note 11 must **replace** the `data/lib/core` scan, not coexist with it, since `core.lua` currently double-loads 15 core files (5a skips `core.lua` in the scan, so the double-load is already gone until step 11 switches to the dofile chain).
 
 ## Verification
 
 ```sh
 rtk cargo check
 rtk cargo test -p tfs-rust-lua actions::tests
+rtk cargo test -p tfs-rust-core --test mechanics_formulas
 rtk cargo test -p tfs-rust-lua --lib lua_defs
 rtk cargo run -p tfs-rust-lua --bin emit-lua-defs -- --check
 ```
@@ -121,7 +122,8 @@ Existing guards in `crates/tfs-rust-lua/src/actions.rs::tests`:
 
 - `tools_scripts_load_and_register` — the 9 tools files register their item ids, including fishing rod 2580 with `allowFarUse`. `action_allow_far_use_drains_onto_pending` locks the setter → `PendingAction` / `ActionDef` drain.
 - `gap3_tool_lua_verbs_are_registered` — `Game.createItem`, `doTargetCombat`/`doTargetCombatHealth`, `Player:addSkillTries`, `Tile:addItem` / `getBottomCreature` exist on live userdata.
-- `required_data_globals_present_after_lib_load` — the Gap 5 allowlist assertion (10 names). Necessary, not sufficient: it passed while 9 lib files failed to load. Kept as a cheap extra guard on the tools contract.
+- `required_data_globals_present_after_lib_load` — the Gap 5 allowlist assertion (now includes `formulas` / `formulas.fishingSuccess`). Necessary, not sufficient. Kept as a cheap extra guard on the tools contract.
+- `gap6_era_formulas_supply_pick_and_fishing_numbers` — 772 Probe(80,50) + TVP pick 40/−50; 1098 linear 0.597.
 - `lib_core_files_load_with_zero_errors` — the Gap 7a guard; `data/lib/core` must load clean.
 - `scripts_lib_files_load_with_zero_failures` — the Gap 7c guard; `data/scripts/lib` must load clean.
 - `lib_stage_loads_with_zero_failures` — Gap 5a primary guard; `load_data_lib` returns `Ok`.
@@ -137,4 +139,5 @@ Target-architecture tests (add as the corresponding step lands):
 | `lib_stage_loads_with_zero_failures` | Phase 2 returns `Ok` — replaces the 10-name allowlist as the primary guard | 4 ✅ |
 | `lua_defs_snapshot_covers_engine_surface` | live-VM stubs include every `register_class` name plus `SKILL_FISHING` / `Tile:getGround` / `Game.createItem` / `Action.allowFarUse` / `doTargetCombatHealth` | 12 ✅ |
 | `lua_defs_committed_files_are_current` | committed `lua-defs/` matches `emit-lua-defs` | 12 ✅ |
+| `gap6_era_formulas_supply_pick_and_fishing_numbers` | 772 Probe(80,50) + TVP pick 40/−50; 1098 linear 0.597 | 10 ✅ |
 | tests use `LuaRuntime::new_for_test()` | tests exercise the shipped init path, not a hand-assembled subset | 5 |

@@ -21,7 +21,7 @@ Nine engine verbs plus `Tile:getGround` returning Item userdata (TFS `luaTileGet
 | `Item.actionid` field (get) | `functions.lua` | `compat.lua` `__index` | ✅ next to `itemid` |
 | `Tile:getGround()` Item userdata | `onUsePick` (`ground.actionid` / `:transform`) | `luaTileGetGround` | ✅ `body.ground_item` (was `ItemTypeRef` from type id) |
 
-`Container:addItemEx` is still missing (loot after createItem-without-pos). Gap 6 still owns pick/fishing numbers.
+`Container:addItemEx` is still missing (loot after createItem-without-pos).
 
 Supplied by the data pack — **do not port to Rust**: `Tile:relocateTo` (`lib/core/tile.lua:17`), `Game.sendMagicEffect` (`game.lua:64`), `Game.transformItemInPosition` (`game.lua:69`), `Item.getType` (`item.lua:1`), `ItemType:isMovable`.
 
@@ -73,11 +73,13 @@ Already registered and OK: `CONST_ME_LOSEENERGY`, `CONST_ME_POFF`, `COMBAT_PHYSI
 
 ## Gap 6 — 772 parity numbers hardcoded in tool scripts
 
-Per the `TFS-Core` conflict rule, era-tuned **numbers** belong in `MechanicsProfile` / `data/formulas/772.lua`, not in data-pack scripts. Two literals are currently in the wrong layer:
+✅ **done 2026-08-14.**
 
-| Literal | Location | Move to |
-|---|---|---|
-| 40% destroy chance, `-50` physical self-damage | `pick.lua:9,13` | profile / `772.lua` (e.g. `destroyableStoneChance`, `destroyableStoneSelfDamage`) |
-| Fishing success curve `min(max(10 + (skill - 10) * 0.597, 10), 50)` | `fishing_rod.lua:66` | profile / `772.lua` fishing formula |
+Era-tuned numbers live in `MechanicsProfile` / `data/formulas/{772,1098}.lua`. Scripts keep the control flow and read `formulas.*`. The game VM execs the same era file via `inject_era_formulas` (after lib load, before `assert_required_data_globals`).
 
-Keep the **control flow** in Lua; have the scripts read the numbers from the formulas layer. Verify both against `tibia-game-master` before fixing the values — the 0.597 coefficient and the 10/50 clamp need a decompile citation.
+| Literal | Was | Now | Citation |
+|---|---|---|---|
+| 40% destroy chance, `-50` physical self-damage | `pick.lua` | `formulas.destroyableStone` | **TVP/TFS data pack** — not in 772 `moveuse.dat` `BEGIN "Picking"` (that section is `372→394` pick-hole + two position-locked quest rocks with `Damage(Null,User,1,40\|50)`). Frozen as TVP knobs. `MOVEUSE_CONDITION_RANDOM` is `random(1,100) <= n`. |
+| Fishing success | TFS `min(max(10 + (skill-10)*0.597, 10), 50)` | 772: `formulas.fishingSuccess` → `TSkillProbe::Probe(80, 50)`; 1098: TFS linear clamp | **772:** `moveuse.dat` `TestSkill (User,Fishing,80,50)` + `crskill.cc:546` `TSkillProbe::Probe`. The 0.597 coefficient is **TFS-only** (hits 50% at skill 77); it is not in the decompile. |
+
+`Container:addItemEx` is still missing (loot after createItem-without-pos).

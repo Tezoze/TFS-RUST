@@ -6,11 +6,12 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 	end
 	
 	if target:getActionId() == actionIds.destroyableStone then
-		if math.random(1, 100) <= 40 then
+		local stone = formulas.destroyableStone
+		if math.random(1, 100) <= stone.chance then
 			target:remove()
 			toPosition:sendMagicEffect(3)
 		else
-			doTargetCombatHealth(0, player, COMBAT_PHYSICALDAMAGE, -50, -50)
+			doTargetCombatHealth(0, player, COMBAT_PHYSICALDAMAGE, stone.selfDamage, stone.selfDamage)
 			toPosition:sendMagicEffect(3)
 		end
 		return true

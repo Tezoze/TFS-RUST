@@ -141,9 +141,10 @@ pub use cylinder::{
 };
 pub use event_dispatcher::{EventDispatcher, NullEventDispatcher, TalkActionResult};
 pub use formulas::{
-    load_mechanics, ArmorReduction, ConditionTicks, DamageFormula, DistanceKeep, FightModes,
-    FormulaHooks, LevelExpModel, Mechanics, MechanicsProfile, NpcTuning, PathCostModel,
-    PathSearchModel, SpawnNearPlayer, SpellCoeff, TickSpec, WeakestTargetMetric,
+    load_mechanics, ArmorReduction, ConditionTicks, DamageFormula, DestroyableStoneTuning,
+    DistanceKeep, FightModes, FishingSuccessModel, FishingTuning, FormulaHooks, LevelExpModel,
+    Mechanics, MechanicsProfile, NpcTuning, PathCostModel, PathSearchModel, SpawnNearPlayer,
+    SpellCoeff, TickSpec, WeakestTargetMetric,
 };
 pub use game_loop::{graceful_shutdown, run_game_loop, wait_for_shutdown_signal};
 pub use game_world::GameWorld;

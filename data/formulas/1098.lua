@@ -51,7 +51,27 @@ formulas = {
   playerSpeed = "retail",        -- "retail" | "772" | "balanced" (loaded once at startup)
 
   -- npc dialogue ranges/timing live in MechanicsProfile::npc (NpcTuning::classic_772).
+
+  -- Tools (Gap 6). TFS `fishing_rod.lua` linear clamp; TVP pick.lua 40% / -50.
+  fishing = {
+    model = "linear",
+    minChance = 10,
+    maxChance = 50,
+    skillBase = 10,
+    skillCoeff = 0.597,
+  },
+  destroyableStone = { chance = 40, selfDamage = -50 },
 }
+
+--- TFS linear fishing catch: `min(max(min + (skill - base) * coeff, min), max)`.
+function formulas.fishingSuccess(skill)
+  local f = formulas.fishing
+  local chance = math.min(
+    math.max(f.minChance + (skill - f.skillBase) * f.skillCoeff, f.minChance),
+    f.maxChance
+  )
+  return math.random(1, 100) <= chance
+end
 
 -- Player speed model selector ------------------------------------------------------------
 --

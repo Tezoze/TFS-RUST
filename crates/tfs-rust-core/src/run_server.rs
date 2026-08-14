@@ -30,7 +30,8 @@ use crate::map::Map;
 use crate::spawn::SpawnManager;
 use tfs_rust_lua::{
     LuaRuntime, ScriptLoader, assert_required_data_globals, inject_door_tables_from_global,
-    load_action_scripts, load_chat_channel_scripts, load_data_lib, load_talkaction_scripts,
+    inject_era_formulas, load_action_scripts, load_chat_channel_scripts, load_data_lib,
+    load_talkaction_scripts,
 };
 
 /// Resolve PEM: `TFS_RSA_PEM` if set, else workspace-root `key.pem`, else `./key.pem`.
@@ -263,6 +264,19 @@ pub async fn run() -> anyhow::Result<()> {
                      Aborting startup — fix the data pack before continuing."
                 );
                 anyhow::bail!("lib-stage load failed: {e}");
+            }
+            // Gap 6: era tool knobs (`formulas.fishing` / destroyableStone) from
+            // `data/formulas/<clientVersion>.lua` — same file `load_mechanics` parses.
+            if let Err(e) = inject_era_formulas(
+                &lua_runtime,
+                &data_path,
+                protocol_version.raw(),
+            ) {
+                tracing::error!(
+                    "Era formulas inject failed: {e}. \
+                     Aborting startup — tools scripts read formulas.* at use-time."
+                );
+                anyhow::bail!("era formulas inject failed: {e}");
             }
             // Gap 5: hard-fail at boot if the data-pack load contract regressed —
             // a missing global here would otherwise surface as a `nil` inside a

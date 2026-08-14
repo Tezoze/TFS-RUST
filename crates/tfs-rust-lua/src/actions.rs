@@ -84,6 +84,25 @@ pub fn inject_door_tables_from_global(
     runtime.exec_chunk("door_tables_from_global", &chunk)
 }
 
+/// Load `data/formulas/<clientVersion>.lua` into the **game** Lua VM so action
+/// scripts can read era knobs (`formulas.fishing`, `formulas.destroyableStone`).
+///
+/// Same source file the core `load_mechanics` parser uses (separate VM for
+/// Tier-1/Tier-2 hooks). Missing file is an error — tools scripts must not
+/// fall back to hardcoded parity numbers.
+pub fn inject_era_formulas(
+    runtime: &LuaRuntime,
+    data_dir: &Path,
+    client_version: u16,
+) -> Result<(), LuaError> {
+    let path = data_dir
+        .join("formulas")
+        .join(format!("{client_version}.lua"));
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| LuaError::ScriptIo(path.display().to_string(), e.to_string()))?;
+    runtime.exec_chunk(&path.display().to_string(), &text)
+}
+
 /// Load the data-pack lib stage into the runtime: `data/lib/core/**/*.lua`
 /// (replicating TVP's `data/global.lua` → `dofile('data/lib/lib.lua')` →
 /// `core.lua` dofile chain), then `data/scripts/lib/**/*.lua` (matching TVP's
@@ -239,6 +258,9 @@ const REQUIRED_DATA_GLOBALS: &[(&str, GlobalKind)] = &[
     ("checkScarabTile", GlobalKind::Function),
     ("table.contains", GlobalKind::Function),
     ("actionIds", GlobalKind::Table),
+    ("formulas", GlobalKind::Table),
+    ("formulas.fishingSuccess", GlobalKind::Function),
+    ("formulas.destroyableStone", GlobalKind::Table),
 ];
 
 /// Assert that every global in [`REQUIRED_DATA_GLOBALS`] is present and of the
@@ -377,6 +399,7 @@ mod tests {
         let runtime = LuaRuntime::new().expect("runtime init");
         inject_door_tables_from_global(&runtime, &data_root).expect("door tables");
         load_data_lib(&runtime, &data_root).expect("data lib");
+        inject_era_formulas(&runtime, &data_root, 772).expect("era formulas");
 
         assert_required_data_globals(&runtime)
             .expect("required data globals present after lib load");
@@ -395,6 +418,7 @@ mod tests {
         let runtime = LuaRuntime::new().expect("runtime init");
         inject_door_tables_from_global(&runtime, &data_root).expect("door tables");
         load_data_lib(&runtime, &data_root).expect("data lib");
+        inject_era_formulas(&runtime, &data_root, 772).expect("era formulas");
 
         let globals = runtime.lua.globals();
         let fishing: i32 = globals.get("SKILL_FISHING").expect("SKILL_FISHING");
@@ -418,6 +442,47 @@ mod tests {
             action_ids.get::<i32>("levelDoor").expect("levelDoor"),
             1000,
             "TFS extras merged by actionids.lua must survive"
+        );
+    }
+
+    /// Gap 6: era tool numbers come from `data/formulas/<v>.lua`, not the scripts.
+    #[test]
+    fn gap6_era_formulas_supply_pick_and_fishing_numbers() {
+        let data_root = workspace_data_root();
+        if !data_root.join("formulas/772.lua").exists() {
+            eprintln!("formulas not present — skipping");
+            return;
+        }
+
+        let runtime = LuaRuntime::new().expect("runtime init");
+        inject_era_formulas(&runtime, &data_root, 772).expect("772 formulas");
+        let globals = runtime.lua.globals();
+        let formulas: mlua::Table = globals.get("formulas").expect("formulas");
+        let fishing: mlua::Table = formulas.get("fishing").expect("formulas.fishing");
+        let model: String = fishing.get("model").expect("fishing.model");
+        assert_eq!(model, "probe", "772 moveuse.dat TestSkill Probe");
+        let diff: i32 = fishing.get("diff").expect("fishing.diff");
+        let prob: i32 = fishing.get("prob").expect("fishing.prob");
+        assert_eq!((diff, prob), (80, 50), "TestSkill (User,Fishing,80,50)");
+        let stone: mlua::Table = formulas
+            .get("destroyableStone")
+            .expect("formulas.destroyableStone");
+        assert_eq!(stone.get::<i32>("chance").expect("chance"), 40);
+        assert_eq!(stone.get::<i32>("selfDamage").expect("selfDamage"), -50);
+        let success: mlua::Function = formulas
+            .get("fishingSuccess")
+            .expect("formulas.fishingSuccess");
+        let _: bool = success.call(10).expect("fishingSuccess(10)");
+
+        inject_era_formulas(&runtime, &data_root, 1098).expect("1098 formulas");
+        let formulas: mlua::Table = runtime.lua.globals().get("formulas").expect("formulas");
+        let fishing: mlua::Table = formulas.get("fishing").expect("formulas.fishing");
+        let model: String = fishing.get("model").expect("fishing.model");
+        assert_eq!(model, "linear");
+        let coeff: f64 = fishing.get("skillCoeff").expect("skillCoeff");
+        assert!(
+            (coeff - 0.597).abs() < 1e-9,
+            "TFS fishing skillCoeff, got {coeff}"
         );
     }
 

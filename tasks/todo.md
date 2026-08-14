@@ -1,3 +1,13 @@
+# Gap 6: era tool numbers in formulas Lua — 2026-08-14
+
+Pick/fishing literals left `pick.lua` / `fishing_rod.lua`. Scripts keep control flow; numbers come from `data/formulas/{772,1098}.lua` via `inject_era_formulas`.
+
+- [x] 772 fishing = `TestSkill(Fishing,80,50)` Probe (`moveuse.dat` / `crskill.cc:546`) — TFS 0.597 is 1098-only
+- [x] Pick 40% / −50 frozen as TVP knobs (not in 772 `BEGIN "Picking"`)
+- [x] `MechanicsProfile` parse + `formulas.fishingSuccess` in era files
+- [x] Tests: overlay + `gap6_era_formulas_supply_pick_and_fishing_numbers` + required-globals
+- [x] Docs + lessons
+
 # Pillar 5: LuaLS typed contracts — 2026-08-14
 
 Generated engine stubs from the live `LuaRuntime` so they cannot rot the way the Gap 3 inventory did. TFS Lua-facing contract unchanged.

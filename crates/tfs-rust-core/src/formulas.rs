@@ -441,6 +441,88 @@ pub struct MechanicsProfile {
     pub death_penalty: DeathPenalty,
     /// Depot locker child layout — 772: single depot chest; 1098: market + inbox + unified.
     pub depot_locker_structure: DepotLockerStructure,
+    /// Fishing catch roll — 772 `TestSkill` Probe vs TFS linear clamp.
+    pub fishing: FishingTuning,
+    /// TVP `pick.lua` destroyable-stone aid (not a generic 772 `moveuse.dat` rule).
+    pub destroyable_stone: DestroyableStoneTuning,
+}
+
+/// Fishing catch-success model (`data/scripts/actions/tools/fishing_rod.lua`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FishingSuccessModel {
+    /// 772 `TSkillProbe::Probe(diff, prob)` (`crskill.cc:546`).
+    /// `moveuse.dat` `TestSkill (User,Fishing,80,50)`.
+    Probe,
+    /// TFS linear: `min(max(minChance + (skill - skillBase) * skillCoeff, minChance), maxChance)`.
+    LinearClamp,
+}
+
+/// Era fishing catch knobs (`formulas.fishing` in `data/formulas/<era>.lua`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FishingTuning {
+    pub model: FishingSuccessModel,
+    /// Probe difficulty (`rand() % diff`); 772 fishing = 80.
+    pub probe_diff: i32,
+    /// Probe probability (`rand() % 100 <= prob`); 772 fishing = 50.
+    pub probe_prob: i32,
+    /// TFS linear floor percent.
+    pub min_chance: f64,
+    /// TFS linear cap percent.
+    pub max_chance: f64,
+    /// TFS linear skill offset (minimum fishing skill).
+    pub skill_base: i32,
+    /// TFS linear slope (`0.597` ≈ `(50-10)/(77-10)`).
+    pub skill_coeff: f64,
+}
+
+impl FishingTuning {
+    /// 772 `moveuse.dat` `BEGIN "Fishing"` / `TestSkill (User,Fishing,80,50)`.
+    pub const fn classic_772() -> Self {
+        Self {
+            model: FishingSuccessModel::Probe,
+            probe_diff: 80,
+            probe_prob: 50,
+            min_chance: 10.0,
+            max_chance: 50.0,
+            skill_base: 10,
+            skill_coeff: 0.597,
+        }
+    }
+
+    /// TFS `fishing_rod.lua` clamp curve (1098 data-pack numbers).
+    pub const fn tfs_linear() -> Self {
+        Self {
+            model: FishingSuccessModel::LinearClamp,
+            probe_diff: 80,
+            probe_prob: 50,
+            min_chance: 10.0,
+            max_chance: 50.0,
+            skill_base: 10,
+            skill_coeff: 0.597,
+        }
+    }
+}
+
+/// TVP `pick.lua` destroyable-stone roll (`actionIds.destroyableStone`).
+///
+/// Not in 772 `moveuse.dat` `BEGIN "Picking"` (that file is pick-hole transform +
+/// two position-locked quest rocks). Frozen as TVP/TFS data-pack knobs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DestroyableStoneTuning {
+    /// `random(1, 100) <= chance` (`moveuse.cc` `MOVEUSE_CONDITION_RANDOM`).
+    pub chance_percent: i32,
+    /// Environment physical self-hit on fail (`doTargetCombatHealth` min=max).
+    pub self_damage: i32,
+}
+
+impl DestroyableStoneTuning {
+    /// TVP `data/scripts/actions/tools/pick.lua` (40% / −50).
+    pub const fn tvp_pick() -> Self {
+        Self {
+            chance_percent: 40,
+            self_damage: -50,
+        }
+    }
 }
 
 /// Depot locker child container layout — era domain shape.
@@ -542,6 +624,8 @@ impl MechanicsProfile {
                     per_blessing: 1,
                 },
                 depot_locker_structure: DepotLockerStructure::ClassicDepotChest,
+                fishing: FishingTuning::classic_772(),
+                destroyable_stone: DestroyableStoneTuning::tvp_pick(),
             },
             1098 => Self {
                 beat_ms: 50,
@@ -608,6 +692,8 @@ impl MechanicsProfile {
                     per_blessing: 0,
                 },
                 depot_locker_structure: DepotLockerStructure::TfsMarketInbox,
+                fishing: FishingTuning::tfs_linear(),
+                destroyable_stone: DestroyableStoneTuning::tvp_pick(),
             },
             other => unreachable!("unsupported protocol version {other}"),
         }
@@ -1128,6 +1214,39 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         };
     }
 
+    if let Ok(Value::Table(fish)) = formulas.get::<Value>("fishing") {
+        p.fishing.model = match str_or(&fish, "model", "").as_str() {
+            "probe" => FishingSuccessModel::Probe,
+            "linear" | "linearClamp" => FishingSuccessModel::LinearClamp,
+            _ => p.fishing.model,
+        };
+        p.fishing.probe_diff =
+            num_or(lua, &fish, "diff", p.fishing.probe_diff as i64).max(0) as i32;
+        p.fishing.probe_prob =
+            num_or(lua, &fish, "prob", p.fishing.probe_prob as i64) as i32;
+        p.fishing.min_chance = float_or(&fish, "minChance", p.fishing.min_chance);
+        p.fishing.max_chance = float_or(&fish, "maxChance", p.fishing.max_chance);
+        p.fishing.skill_base =
+            num_or(lua, &fish, "skillBase", p.fishing.skill_base as i64) as i32;
+        p.fishing.skill_coeff = float_or(&fish, "skillCoeff", p.fishing.skill_coeff);
+    }
+
+    if let Ok(Value::Table(stone)) = formulas.get::<Value>("destroyableStone") {
+        p.destroyable_stone.chance_percent = num_or(
+            lua,
+            &stone,
+            "chance",
+            p.destroyable_stone.chance_percent as i64,
+        )
+        .clamp(0, 100) as i32;
+        p.destroyable_stone.self_damage = num_or(
+            lua,
+            &stone,
+            "selfDamage",
+            p.destroyable_stone.self_damage as i64,
+        ) as i32;
+    }
+
     p
 }
 
@@ -1183,12 +1302,19 @@ mod tests {
         assert_eq!(p.conditions.fire, TickSpec { dmg: 10, ticks: 8 });
         assert_eq!(p.conditions.energy, TickSpec { dmg: 25, ticks: 10 });
         assert_eq!(p.fight_modes.defensive_def, 1.80);
+        assert_eq!(p.fishing, FishingTuning::classic_772());
+        assert_eq!(p.destroyable_stone, DestroyableStoneTuning::tvp_pick());
         assert!(p.follow_repath_without_path);
         assert!(!p.path_forward_fallback);
         assert_eq!(p.corpse_decay_offset_ms, 30_000);
         assert!(p.underground_sees_surface);
         assert_eq!(p.damage_text_format, DamageTextFormat::AttackerAttribution);
         assert!(p.classic_equipment_slots);
+        assert_eq!(p.fishing.model, FishingSuccessModel::Probe);
+        assert_eq!(p.fishing.probe_diff, 80);
+        assert_eq!(p.fishing.probe_prob, 50);
+        assert_eq!(p.destroyable_stone.chance_percent, 40);
+        assert_eq!(p.destroyable_stone.self_damage, -50);
     }
 
     #[test]
@@ -1214,6 +1340,28 @@ mod tests {
         // Untouched fields keep their 1098 default.
         assert_eq!(p.path_cost, PathCostModel::Fixed);
         assert_eq!(p.distance_keep, DistanceKeep::PerType);
+    }
+
+    #[test]
+    fn fishing_overlay_switches_to_linear_clamp() {
+        let lua = Lua::new();
+        lua.load(
+            r#"
+            formulas = {
+              fishing = { model = "linear", minChance = 12, maxChance = 40, skillBase = 10, skillCoeff = 0.5 },
+              destroyableStone = { chance = 25, selfDamage = -30 },
+            }
+            "#,
+        )
+        .exec()
+        .unwrap();
+        let p = parse_profile(&lua, MechanicsProfile::for_version(ProtocolVersion::V772));
+        assert_eq!(p.fishing.model, FishingSuccessModel::LinearClamp);
+        assert_eq!(p.fishing.min_chance, 12.0);
+        assert_eq!(p.fishing.max_chance, 40.0);
+        assert_eq!(p.fishing.skill_coeff, 0.5);
+        assert_eq!(p.destroyable_stone.chance_percent, 25);
+        assert_eq!(p.destroyable_stone.self_damage, -30);
     }
 
     #[test]

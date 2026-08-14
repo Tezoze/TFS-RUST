@@ -52,7 +52,25 @@ formulas = {
   -- 772 flat death penalty: LossPercent = (promoted ? 7 : 10) - blessingCount.
   -- Applied as DecreasePercent to exp + all 8 skills (crplayer.cc:344-360, crskill.cc:73-77).
   deathLossPercent = { base = 10, promoted = 7, perBlessing = 1 },
+
+  -- Tools (Gap 6). Control flow stays in `data/scripts/actions/tools/*.lua`.
+  -- Fishing: `moveuse.dat` BEGIN "Fishing" `TestSkill (User,Fishing,80,50)`
+  -- + `TSkillProbe::Probe` (`crskill.cc:546`). Not the TFS 0.597 linear clamp.
+  fishing = { model = "probe", diff = 80, prob = 50 },
+  -- TVP `pick.lua` aid `destroyableStone` (4004). 772 `BEGIN "Picking"` is
+  -- pick-hole transform + two position-locked quest rocks, not this roll.
+  destroyableStone = { chance = 40, selfDamage = -50 },
 }
+
+--- 772 `TSkillProbe::Probe(diff, prob)` (`crskill.cc:546`).
+--- `rand() % diff` is `[0, diff)` and `rand() % 100 <= prob` is `[0, 99]`.
+function formulas.fishingSuccess(skill)
+  local f = formulas.fishing
+  if f.diff == 0 then
+    return math.random(0, 99) <= f.prob
+  end
+  return skill >= math.random(0, f.diff - 1) and math.random(0, 99) <= f.prob
+end
 
 -- Player speed model selector ------------------------------------------------------------
 --
