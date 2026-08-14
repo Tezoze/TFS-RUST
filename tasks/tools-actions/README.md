@@ -2,7 +2,7 @@
 
 **Scope:** Make every script in `data/scripts/actions/tools/` load and run end-to-end on the existing `Action()` pipeline.
 **Companion doc:** `tasks/doors-actions-plan.md` (the `Action()` pipeline itself)
-**Date:** 2026-08-09 · updated 2026-08-10 (Gaps 5-6, TVP load model, Gap 7a+7b) · **re-audited 2026-08-13** · Gap 7c done 2026-08-13 · Gap 5a done 2026-08-13 · **Gap 1 done 2026-08-14**
+**Date:** 2026-08-09 · updated 2026-08-10 (Gaps 5-6, TVP load model, Gap 7a+7b) · **re-audited 2026-08-13** · Gap 7c done 2026-08-13 · Gap 5a done 2026-08-13 · **Gap 1 done 2026-08-14** · **Gap 4 done 2026-08-14**
 **Split into this folder 2026-08-13** — was a single 700-line `tasks/tools-actions-gap.md`.
 
 ## Status
@@ -12,7 +12,7 @@
 | Gap 1 — `Action:allowFarUse` | ✅ done 2026-08-14 — [gaps-load.md](gaps-load.md) |
 | Gap 2 — lib load before actions | ✅ done 2026-08-09 — [gaps-load.md](gaps-load.md) |
 | Gap 3 — missing Lua API methods | inventory re-audited (9 items); implementation not started — [gaps-lua-api.md](gaps-lua-api.md) |
-| Gap 4 — missing constants (`SKILL_*`, `actionIds.destroyableStone`) | not started — [gaps-lua-api.md](gaps-lua-api.md) |
+| Gap 4 — missing constants (`SKILL_*`, `actionIds.destroyableStone`) | ✅ done 2026-08-14 — [gaps-lua-api.md](gaps-lua-api.md) |
 | Gap 5 — implicit load contract | ✅ done 2026-08-13 (5a closed the warn-and-continue hole) — [gaps-load.md](gaps-load.md) |
 | Gap 5a — lib stage fatal | ✅ done 2026-08-13 — [gaps-load.md](gaps-load.md) |
 | Gap 6 — 772 parity numbers in scripts | not started — [gaps-lua-api.md](gaps-lua-api.md) |
@@ -98,14 +98,14 @@ All 9 scripts register at load (Gap 1 closed `fishing_rod.lua`). All 9 still mis
 5. **`new_for_test()`** — ⬅ **next** — route the **8** hand-assembled test VMs in `userdata/combat.rs` (`Lua::new()` at 1082/1122/1198/1226/1316/1446/1565/1650) through the real init path, so tests stop validating a VM that isn't shipped.
 6. ~~**Gap 3 re-audit**~~ ✅ **done 2026-08-13** — see [re-audit-2026-08-13.md](re-audit-2026-08-13.md#gap-3--re-audit-result-supersedes-the-gap-3-correction-table). Nine genuinely-missing entries, not fourteen.
 7. **Gap 1** ✅ done 2026-08-14 — `Action:allowFarUse` + plumbing. `fishing_rod.lua` loads; ToDo Obj2 honors the flag (`canUseFar` `areInRange<7,5>`).
-8. **Gap 4** — `SKILL_*` constants block in `combat_enums.rs`, plus `actionIds.destroyableStone`. Needed for fishing and pick.
+8. **Gap 4** ✅ done 2026-08-14 — `SKILL_*` in `combat_enums.rs`; TVP `actionIds` in `data/global.lua` (4000–4005, `destroyableStone=4004`); inject + merge-only `actionids.lua`.
 9. **Gap 3** — the remaining genuinely-missing methods. Each maps 1:1 to a `luascript.cpp` reference per the C++-reference rule.
 10. **Gap 6** — relocate the pick / fishing parity numbers into the profile once the scripts actually run and can be observed.
 11. **`global.lua` via dofile** — optional cleanup once 3-5 land: delete `inject_door_tables_from_global`, the inline `string.trim` chunk, and the `data/lib/core` scan. Pure deletion, no behavior change.
 12. **LuaLS type definitions from the class registry** — emit `.d.lua` for every registered class, method, and constant. Enabled by 3 (`register_class` as single owner); gives the data pack autocomplete + static missing-global detection. Highest-value item after the tools scripts run. See [*VM hardening*](vm-hardening.md) pillar 5.
 13. **[VM hardening](vm-hardening.md)** — `set_memory_limit` ✅ **DONE (2026-08-10)** — `DEFAULT_LUA_MEMORY_LIMIT_BYTES` (512 MiB) applied in `LuaRuntime::new` (`runtime.rs`), overridable from `config.lua` via `luaMemoryLimit` (MB) in `run_server.rs`; test `memory_limit_default_applied_and_enforced` asserts the default + an over-limit allocation errors instead of OOM-killing the process. Instruction-budget hook and stdlib allowlist still gated on Gaps 1-6 + JIT-cost measurement / `tfs.appendLog` capability. See [*VM hardening*](vm-hardening.md) for gates and caveats.
 
-Dependency summary (updated 2026-08-14): 7a+7b+**7c**+**5a**+**Gap 1** ✅ done → **`new_for_test()` (next)** → Gap 4 → Gap 3; 3 depends on 4 for the fishing path; 6 is easiest after 3 makes the paths reachable; 11 is last and optional — and note 11 must **replace** the `data/lib/core` scan, not coexist with it, since `core.lua` currently double-loads 15 core files (5a skips `core.lua` in the scan, so the double-load is already gone until step 11 switches to the dofile chain).
+Dependency summary (updated 2026-08-14): 7a+7b+**7c**+**5a**+**Gap 1**+**Gap 4** ✅ done → **`new_for_test()` (next)** → Gap 3; 3 depends on 4 for the fishing path; 6 is easiest after 3 makes the paths reachable; 11 is last and optional — and note 11 must **replace** the `data/lib/core` scan, not coexist with it, since `core.lua` currently double-loads 15 core files (5a skips `core.lua` in the scan, so the double-load is already gone until step 11 switches to the dofile chain).
 
 ## Verification
 

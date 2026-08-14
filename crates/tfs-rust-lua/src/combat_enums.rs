@@ -37,7 +37,25 @@ pub fn register_combat_enums(lua: &Lua) -> Result<(), mlua::Error> {
     register_world_types(&globals)?;
     register_cylinder_flags(&globals)?;
     register_item_types(&globals)?;
+    register_skills(&globals)?;
 
+    Ok(())
+}
+
+// --- SKILL_* (enums.h skills_t, sequential 0..=8) ---
+
+fn register_skills(globals: &mlua::Table) -> Result<(), mlua::Error> {
+    // `enums.h` `skills_t` + `luascript.cpp` `registerEnum(SKILL_FIST)` … `SKILL_LEVEL`.
+    // TFS Lua skill ids — not 772 timer-skill indices (`SKILL_FED`, `SKILL_GO`, …).
+    globals.set("SKILL_FIST", 0i32)?; // enums.h:286
+    globals.set("SKILL_CLUB", 1i32)?; // enums.h:287
+    globals.set("SKILL_SWORD", 2i32)?; // enums.h:288
+    globals.set("SKILL_AXE", 3i32)?; // enums.h:289
+    globals.set("SKILL_DISTANCE", 4i32)?; // enums.h:290
+    globals.set("SKILL_SHIELD", 5i32)?; // enums.h:291
+    globals.set("SKILL_FISHING", 6i32)?; // enums.h:292
+    globals.set("SKILL_MAGLEVEL", 7i32)?; // enums.h:294
+    globals.set("SKILL_LEVEL", 8i32)?; // enums.h:295
     Ok(())
 }
 
@@ -489,5 +507,10 @@ mod tests {
         assert_eq!(globals.get::<i32>("TILESTATE_MAGICFIELD").unwrap(), 1 << 12);
         assert_eq!(globals.get::<i32>("TILESTATE_TELEPORT").unwrap(), 1 << 11);
         assert_eq!(globals.get::<i32>("TILESTATE_DEPOT").unwrap(), 1 << 16);
+        // Gap 4 — `skills_t` (`enums.h` / `luascript.cpp` `registerEnum`).
+        assert_eq!(globals.get::<i32>("SKILL_FIST").unwrap(), 0);
+        assert_eq!(globals.get::<i32>("SKILL_FISHING").unwrap(), 6);
+        assert_eq!(globals.get::<i32>("SKILL_MAGLEVEL").unwrap(), 7);
+        assert_eq!(globals.get::<i32>("SKILL_LEVEL").unwrap(), 8);
     }
 }

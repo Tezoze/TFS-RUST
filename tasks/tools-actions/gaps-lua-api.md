@@ -57,14 +57,14 @@ Already registered and OK (no work needed):
 
 ## Gap 4 — Missing constants / globals
 
+✅ **done 2026-08-14.**
+
 | Symbol | Used by | Status |
 |---|---|---|
-| `SKILL_FISHING` (=6) + the `SKILL_*` enum family | fishing_rod | **Not registered** — only `CONDITION_PARAM_SKILL_*` exists in `crates/tfs-rust-lua/src/combat_enums.rs`. Add the `SKILL_*` block (enums.h `skills_t`). |
-| `actionIds` table (`pickHole`, `sandHole`, `destroyableStone`, …) | pick, `functions.lua` | Defined in `data/lib/core/actionids.lua` — loads once Gap 2's lib load is in place. |
+| `SKILL_FISHING` (=6) + the `SKILL_*` enum family | fishing_rod | ✅ `register_skills` in `crates/tfs-rust-lua/src/combat_enums.rs` — `enums.h` `skills_t` / `luascript.cpp` `registerEnum(SKILL_FIST)`…`SKILL_LEVEL`. Not 772 timer-skill ids. |
+| `actionIds` table (`pickHole`, `sandHole`, `destroyableStone`, …) | pick, `functions.lua`, puzzle/sandstone/blocking scripts | ✅ TVP placement: `data/global.lua` 4000–4005 (`destroyableStone=4004`). Injected by `inject_door_tables_from_global` (starts at `actionIds = {`). `actionids.lua` only merges TFS extras (`levelDoor`/`citizenship`) so the core scan does not replace the table. |
 
 Already registered and OK: `CONST_ME_LOSEENERGY`, `CONST_ME_POFF`, `COMBAT_PHYSICALDAMAGE`, `TILESTATE_PROTECTIONZONE`, `RETURNVALUE_PLAYERISPZLOCKED`.
-
-**Data-pack caveat:** `pick.lua:8` reads `actionIds.destroyableStone`, but `data/lib/core/actionids.lua` does **not** define `destroyableStone`. The branch is currently dead (never matches). **Decision:** add it to `actionids.lua` rather than leave an inert branch (see [open questions](decisions.md#open-questions)).
 
 ## Gap 6 — 772 parity numbers hardcoded in tool scripts
 

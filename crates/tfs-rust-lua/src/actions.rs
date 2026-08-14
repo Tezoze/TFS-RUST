@@ -32,10 +32,12 @@ impl From<PendingAction> for ActionDef {
     }
 }
 
-/// Inject door ID tables + `table.contains` from `data/global.lua` without loading
-/// `lib.lua` / compat (bootstrap deliberately skips full `global.lua`).
+/// Inject `actionIds` + door ID tables + `table.contains` from `data/global.lua`
+/// without loading `lib.lua` / compat (bootstrap deliberately skips full
+/// `global.lua`). TVP defines `actionIds` in `global.lua`, not `actionids.lua`.
 ///
-/// Enables [`doors.lua`](data/scripts/actions/other/doors.lua) to register at load time.
+/// Enables [`doors.lua`](data/scripts/actions/other/doors.lua) and tools scripts
+/// that read `actionIds.*` to register at load time.
 pub fn inject_door_tables_from_global(
     runtime: &LuaRuntime,
     data_dir: &Path,
@@ -44,12 +46,17 @@ pub fn inject_door_tables_from_global(
     let text = std::fs::read_to_string(&path)
         .map_err(|e| LuaError::ScriptIo(path.display().to_string(), e.to_string()))?;
 
-    let start = text.find("keys = {").ok_or_else(|| {
-        LuaError::ScriptIo(
-            path.display().to_string(),
-            "missing keys = { in global.lua".into(),
-        )
-    })?;
+    // Prefer `actionIds` (TVP `global.lua`); fall back to `keys` for packs that
+    // still start their table block later.
+    let start = text
+        .find("actionIds = {")
+        .or_else(|| text.find("keys = {"))
+        .ok_or_else(|| {
+            LuaError::ScriptIo(
+                path.display().to_string(),
+                "missing actionIds = { or keys = { in global.lua".into(),
+            )
+        })?;
     let end = text.find("function getDistanceBetween").ok_or_else(|| {
         LuaError::ScriptIo(
             path.display().to_string(),
@@ -373,6 +380,45 @@ mod tests {
 
         assert_required_data_globals(&runtime)
             .expect("required data globals present after lib load");
+    }
+
+    /// Gap 4: `SKILL_*` engine constants survive lib load, and TVP
+    /// `actionIds` from `global.lua` is not replaced by `actionids.lua`.
+    #[test]
+    fn gap4_skill_and_destroyable_stone_present_after_lib_load() {
+        let data_root = workspace_data_root();
+        if !data_root.join("scripts/functions.lua").exists() {
+            eprintln!("data pack not present — skipping");
+            return;
+        }
+
+        let runtime = LuaRuntime::new().expect("runtime init");
+        inject_door_tables_from_global(&runtime, &data_root).expect("door tables");
+        load_data_lib(&runtime, &data_root).expect("data lib");
+
+        let globals = runtime.lua.globals();
+        let fishing: i32 = globals.get("SKILL_FISHING").expect("SKILL_FISHING");
+        assert_eq!(fishing, 6, "enums.h skills_t SKILL_FISHING");
+
+        let action_ids: mlua::Table = globals.get("actionIds").expect("actionIds table");
+        // TVP `data/global.lua` `actionIds` — 4000–4005.
+        let stone: i32 = action_ids
+            .get("destroyableStone")
+            .expect("actionIds.destroyableStone");
+        assert_eq!(stone, 4004, "TVP destroyableStone");
+        assert_eq!(
+            action_ids.get::<i32>("sandHole").expect("sandHole"),
+            4002
+        );
+        assert_eq!(
+            action_ids.get::<i32>("pickHole").expect("pickHole"),
+            4003
+        );
+        assert_eq!(
+            action_ids.get::<i32>("levelDoor").expect("levelDoor"),
+            1000,
+            "TFS extras merged by actionids.lua must survive"
+        );
     }
 
     /// Gap 7a regression guard: every `data/lib/core/*.lua` file must load

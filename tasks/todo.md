@@ -1,3 +1,14 @@
+# Gap 4: `SKILL_*` + `actionIds.destroyableStone` — 2026-08-14
+
+Runtime: `fishing_rod.lua` reads `SKILL_FISHING`; `pick.lua` reads `actionIds.destroyableStone`. Both are currently `nil` (load already succeeds).
+
+TFS domain `skills_t` (`enums.h`) + `luascript.cpp` `registerEnum(SKILL_FIST)`…`SKILL_LEVEL`. Not 772 timer-skill ids.
+
+- [x] `SKILL_FIST`..`SKILL_LEVEL` in `combat_enums.rs` (`register_skills`)
+- [x] `actionIds` in `data/global.lua` (TVP 4000–4005); `actionids.lua` merge-only TFS extras
+- [x] Tests: enum unit asserts + lib-load `SKILL_FISHING==6` / TVP aids survive scan
+- [x] Docs + lessons
+
 # Gap 1: `Action:allowFarUse` — 2026-08-14
 
 Load-time: `fishing_rod.lua` calls `action:allowFarUse(true)` and fails (`nil` method).
