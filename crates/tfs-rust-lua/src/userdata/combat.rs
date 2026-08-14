@@ -390,6 +390,10 @@ fn parse_area_matrix(value: &mlua::Value) -> Result<Vec<Vec<u8>>, mlua::Error> {
 }
 
 impl UserData for CombatRef {
+    fn register(registry: &mut mlua::UserDataRegistry<Self>) {
+        crate::class_registry::register_with_recording(registry, "Combat");
+    }
+
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // `combat:setParameter(key, value)` — `luascript.cpp:13032-13052`.
         // Accepts boolean or integer value (C++ coerces `true` → 1, `false` → 0).

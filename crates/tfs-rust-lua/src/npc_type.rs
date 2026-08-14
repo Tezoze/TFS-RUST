@@ -85,6 +85,10 @@ fn current_file(lua: &Lua) -> String {
 }
 
 impl UserData for NpcTypeBuilder {
+    fn register(registry: &mut mlua::UserDataRegistry<Self>) {
+        crate::class_registry::register_with_recording(registry, "NpcType");
+    }
+
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method_mut("appearance", |_, this, table: mlua::Table| {
             let mut def = this.pending.borrow_mut();

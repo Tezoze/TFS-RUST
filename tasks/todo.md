@@ -1,3 +1,13 @@
+# Pillar 5: LuaLS typed contracts — 2026-08-14
+
+Generated engine stubs from the live `LuaRuntime` so they cannot rot the way the Gap 3 inventory did. TFS Lua-facing contract unchanged.
+
+- [x] `RecordingRegistry` + `UserData::register` overrides; public `registered_class_entries` / `registered_method_entries`
+- [x] `lua_defs.rs` snapshot + `emit-lua-defs` bin (write / `--check`) → committed `lua-defs/*.d.lua`
+- [x] `.luarc.json` + CI `lua-language-server --check=.` (workspace root so `./lua-defs` loads)
+- [x] Tests: `lua_defs_snapshot_covers_engine_surface` (`SKILL_FISHING`, `Tile:getGround`, `Game.createItem`, `Action.allowFarUse`) + `lua_defs_committed_files_are_current`
+- [x] Docs: vm-hardening / README / lessons
+
 # Gap 3: missing Lua API methods — 2026-08-14
 
 Runtime verbs for tools scripts (`addSkillTries`, `getEffectiveSkillLevel`, `isPzLocked`, `getBottomCreature`, `Tile:addItem`, `getFluidType`, `Game.createItem`, `doTargetCombatHealth`, `Item.actionid`) plus `Tile:getGround` as Item userdata.

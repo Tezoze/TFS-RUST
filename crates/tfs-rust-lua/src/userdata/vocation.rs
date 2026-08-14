@@ -19,6 +19,10 @@ pub fn register_vocation_metatable(lua: &Lua) -> Result<(), mlua::Error> {
 }
 
 impl UserData for VocationRef {
+    fn register(registry: &mut mlua::UserDataRegistry<Self>) {
+        crate::class_registry::register_with_recording(registry, "Vocation");
+    }
+
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // `vocation:getId()` — `Vocation::id` (`player.h` / `vocation.h`).
         // Channel scripts compare against `VOCATION_NONE` (0).

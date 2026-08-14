@@ -13,6 +13,10 @@ use crate::context::{CURRENT_CTX, LuaContext};
 pub struct GroupRef(pub u16);
 
 impl UserData for GroupRef {
+    fn register(registry: &mut mlua::UserDataRegistry<Self>) {
+        crate::class_registry::register_with_recording(registry, "Group");
+    }
+
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // `group:getAccess()` — `Group::getAccess` (`src/groups.cpp`). CH-6
         // talkaction access gating; reads the `access` flag from the group

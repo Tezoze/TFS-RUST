@@ -33,9 +33,9 @@ Choose the budget by measuring the heaviest legitimate callback (large loot loop
 
 ### Pillar 5 — typed contracts (LuaLS)
 
-Emit `.d.lua` definitions for every registered class, method, and constant; `lua-language-server` gives editor autocomplete and a headless CI check over `data/`.
+✅ **done 2026-08-14.** `cargo run -p tfs-rust-lua --bin emit-lua-defs` boots a live `LuaRuntime`, records native userdata methods via `RecordingRegistry`, walks class tables / ctor instances / constants / free functions, and writes `lua-defs/{engine,constants,globals}.d.lua`. Lua-defined methods (`Tile.relocateTo` in `lib/core/tile.lua`) stay in the data pack — LuaLS infers them from the workspace. `.luarc.json` points the editor at `lua-defs/`. `lua_defs_snapshot_covers_engine_surface` + `lua_defs_committed_files_are_current` keep the stubs honest.
 
-**Why it matters here:** every Gap 3 / Gap 4 defect is a "name doesn't exist" error that is **statically detectable** — `SKILL_FISHING` undefined, `actionIds.destroyableStone` nil, `Tile:relocateTo` missing. Note that the Gap 3 table in this document is a hand-maintained inventory of which methods exist, and it was **wrong** (over-counted by five). Generated definitions are correct by construction; hand-maintained inventories rot.
+CI runs `lua-language-server --check=. --configpath=.luarc.json --checklevel=Warning` from the **repo root**. `--check=data/lib` would make the workspace `data/lib`, so `./lua-defs` would not load and every engine global would look undefined. `.luarc.json` `ignoreDir` keeps `data/npc`, `data/monster`, `data/lib/compat`, and the unused legacy `data/{actions,talkactions,weapons,…}` trees out of the baseline. `diagnostics.globals` lists TFS names the live VM does not register yet (`db`, `ITEM_GOLD_COIN`, …) so existing scripts stay green; a new missing global (the `SKILL_FISHING` class of bug) still fails CI. Two scripts with undeclared locals (`Obj2`, `creature`) are ignored until those files are fixed.
 
 Generate the **union** of two sources: methods registered from Rust (enabled by `register_class` being the single owner — Gap 7a ✅), plus methods the data pack defines in Lua (`Tile.relocateTo` lives in `lib/core/tile.lua`), which LuaLS infers from the workspace. The `__index` chains (Gap 7b ✅) make the Lua-defined methods faithfully reachable at runtime, so the generated types match actual call resolution.
 
@@ -68,7 +68,7 @@ So: **two runtime call sites** become a `tfs.appendLog(kind, text)` capability c
 | Pillar | When | Gate |
 |---|---|---|
 | 4 — `set_memory_limit` | ✅ done (2026-08-10) — independent of everything else | none; no JIT impact |
-| 5 — LuaLS generation | Immediately after **Gap 7a+7b** (both done) | needs `register_class` as single owner + `__index` chains so method resolution is faithful |
+| 5 — LuaLS generation | ✅ done (2026-08-14) — `emit-lua-defs` + committed `lua-defs/` + CI `--check` | needs `register_class` as single owner + `__index` chains so method resolution is faithful |
 | 4 — instruction hook | After Gaps 1-6 (tools running end-to-end); **before any production or third-party exposure** | needs a JIT-cost measurement + a chosen budget |
 | 1 — stdlib allowlist | After Gaps 1-6, alongside or after the instruction hook | needs the `tfs.appendLog` capability first |
 

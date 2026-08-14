@@ -20,6 +20,7 @@
 | Gap 7b — userdata `__index` chains | ✅ done 2026-08-10 (8 userdata types) — [gap7-class-globals.md](gap7-class-globals.md) |
 | **Gap 7c — revscript ctor globals** | ✅ done 2026-08-13 — [gap7-class-globals.md](gap7-class-globals.md) |
 | VM hardening pillar 4 (memory limit) | ✅ done 2026-08-10 — [vm-hardening.md](vm-hardening.md) |
+| VM hardening pillar 5 (LuaLS) | ✅ done 2026-08-14 — [vm-hardening.md](vm-hardening.md) |
 
 ## This folder
 
@@ -102,16 +103,18 @@ All 9 scripts register at load (Gap 1 closed `fishing_rod.lua`). All 9 still mis
 9. **Gap 3** ✅ done 2026-08-14 — nine engine verbs + `Tile:getGround` returning Item userdata. See [gaps-lua-api.md](gaps-lua-api.md).
 10. **Gap 6** — ⬅ **next for tools** — relocate the pick / fishing parity numbers into the profile once the scripts actually run and can be observed.
 11. **`global.lua` via dofile** — optional cleanup once 3-5 land: delete `inject_door_tables_from_global`, the inline `string.trim` chunk, and the `data/lib/core` scan. Pure deletion, no behavior change.
-12. **LuaLS type definitions from the class registry** — emit `.d.lua` for every registered class, method, and constant. Enabled by 3 (`register_class` as single owner); gives the data pack autocomplete + static missing-global detection. Highest-value item after the tools scripts run. See [*VM hardening*](vm-hardening.md) pillar 5.
+12. **LuaLS type definitions from the class registry** ✅ done 2026-08-14 — `emit-lua-defs` writes committed `lua-defs/*.d.lua`; `.luarc.json` + CI `lua-language-server --check=.`. See [*VM hardening*](vm-hardening.md) pillar 5.
 13. **[VM hardening](vm-hardening.md)** — `set_memory_limit` ✅ **DONE (2026-08-10)** — `DEFAULT_LUA_MEMORY_LIMIT_BYTES` (512 MiB) applied in `LuaRuntime::new` (`runtime.rs`), overridable from `config.lua` via `luaMemoryLimit` (MB) in `run_server.rs`; test `memory_limit_default_applied_and_enforced` asserts the default + an over-limit allocation errors instead of OOM-killing the process. Instruction-budget hook and stdlib allowlist still gated on Gaps 1-6 + JIT-cost measurement / `tfs.appendLog` capability. See [*VM hardening*](vm-hardening.md) for gates and caveats.
 
-Dependency summary (updated 2026-08-14): 7a+7b+**7c**+**5a**+**Gap 1**+**Gap 4**+**Gap 3** ✅ done → **Gap 6** (tools numbers) / `new_for_test()`; 11 is last and optional — and note 11 must **replace** the `data/lib/core` scan, not coexist with it, since `core.lua` currently double-loads 15 core files (5a skips `core.lua` in the scan, so the double-load is already gone until step 11 switches to the dofile chain).
+Dependency summary (updated 2026-08-14): 7a+7b+**7c**+**5a**+**Gap 1**+**Gap 4**+**Gap 3**+**pillar 5 (LuaLS)** ✅ done → **Gap 6** (tools numbers) / `new_for_test()`; 11 is last and optional — and note 11 must **replace** the `data/lib/core` scan, not coexist with it, since `core.lua` currently double-loads 15 core files (5a skips `core.lua` in the scan, so the double-load is already gone until step 11 switches to the dofile chain).
 
 ## Verification
 
 ```sh
 rtk cargo check
 rtk cargo test -p tfs-rust-lua actions::tests
+rtk cargo test -p tfs-rust-lua --lib lua_defs
+rtk cargo run -p tfs-rust-lua --bin emit-lua-defs -- --check
 ```
 
 Existing guards in `crates/tfs-rust-lua/src/actions.rs::tests`:
@@ -132,4 +135,6 @@ Target-architecture tests (add as the corresponding step lands):
 | `scripts_lib_files_load_with_zero_failures` | the `data/scripts/lib/**` stage loads clean | 3c ✅ |
 | `lua_methods_callable_through_userdata` | a Lua-defined method on each class table resolves through a live userdata instance; native Rust methods still take priority | 3b ✅ (`gap7b_lua_class_method_callable_via_userdata` + `gap7b_native_method_wins_over_lua_override`) |
 | `lib_stage_loads_with_zero_failures` | Phase 2 returns `Ok` — replaces the 10-name allowlist as the primary guard | 4 ✅ |
+| `lua_defs_snapshot_covers_engine_surface` | live-VM stubs include every `register_class` name plus `SKILL_FISHING` / `Tile:getGround` / `Game.createItem` / `Action.allowFarUse` / `doTargetCombatHealth` | 12 ✅ |
+| `lua_defs_committed_files_are_current` | committed `lua-defs/` matches `emit-lua-defs` | 12 ✅ |
 | tests use `LuaRuntime::new_for_test()` | tests exercise the shipped init path, not a hand-assembled subset | 5 |

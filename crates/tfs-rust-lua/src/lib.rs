@@ -16,6 +16,7 @@ pub mod npc_loader;
 pub mod npc_type;
 pub mod runtime;
 pub mod script_loader;
+pub mod lua_defs;
 pub mod actions;
 pub mod talkactions;
 pub mod timer_events;

@@ -148,6 +148,10 @@ pub fn register_spell_metatable(lua: &Lua) -> Result<(), mlua::Error> {
 }
 
 impl UserData for SpellBuilder {
+    fn register(registry: &mut mlua::UserDataRegistry<Self>) {
+        crate::class_registry::register_with_recording(registry, "Spell");
+    }
+
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // `spell:name(name)` — sets the spell name.
         methods.add_method_mut("name", |_, this, name: String| {

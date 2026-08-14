@@ -21,7 +21,7 @@ Use a **7.72-compatible client** (or a custom OTClient aligned with this serverâ
 | Scripting | `tfs-rust-lua` | LuaJIT (`mlua`) bridge to TFS-style APIs |
 | Shared | `tfs-rust-common` | IDs, positions, opcodes, `ProtocolVersion` / `ProtocolCaps` |
 
-I/O threads parse packets and run DB queries; the game thread owns all world state and communicates over `mpsc` channels (`GameCommand` in, encoded packets out). Wire format and mechanics are separated by `ProtocolVersion`/`ProtocolCodec` and `MechanicsProfile`; see `.devin/rules/TFS-protocol-versioning.md` for the full split.
+I/O threads parse packets and run DB queries; the game thread owns all world state and communicates over `mpsc` channels (`GameCommand` in, encoded packets out). Wire format and mechanics are separated by `ProtocolVersion`/`ProtocolCodec` and `MechanicsProfile`; see `.cursor/rules/TFS-protocol-versioning.mdc` for the full split.
 
 ---
 
@@ -62,6 +62,7 @@ Local C++ reference trees for 7.72 live under **`reference/`** (gitignored). See
 crates/tfs-rust-{common,content,db,net,lua,core}/   # Rust server
 rust-src/main.rs                                    # `tfs-rust` binary entry
 data/                                               # 7.72 Lua scripts, XML, map assets
+lua-defs/                                           # Generated LuaLS stubs (`emit-lua-defs`; not executed)
 data1098/                                           # 10.98 data (future target)
 src/                                                # Optional TFS 1.4.2 C++ (1098 reference, not built by Cargo)
 reference/                                          # Local 7.72 C++ reference trees (gitignored; see reference/README.md)

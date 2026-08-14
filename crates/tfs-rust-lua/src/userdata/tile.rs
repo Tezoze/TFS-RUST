@@ -20,6 +20,10 @@ pub struct TileRef {
 }
 
 impl UserData for TileRef {
+    fn register(registry: &mut mlua::UserDataRegistry<Self>) {
+        crate::class_registry::register_with_recording(registry, "Tile");
+    }
+
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("hasProperty", |_, this, prop: i32| {
             CURRENT_CTX.with(|c| {

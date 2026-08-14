@@ -31,6 +31,10 @@ where
 }
 
 impl UserData for ContainerRef {
+    fn register(registry: &mut mlua::UserDataRegistry<Self>) {
+        crate::class_registry::register_with_recording(registry, "Container");
+    }
+
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("getSize", |_, this, ()| {
             with_ctx(|ctx| Ok(ctx.get_container_data(this.0).map(|d| d.size).unwrap_or(0)))

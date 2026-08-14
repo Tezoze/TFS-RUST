@@ -16,6 +16,10 @@ pub struct MonsterTypeRef {
 }
 
 impl UserData for MonsterTypeRef {
+    fn register(registry: &mut mlua::UserDataRegistry<Self>) {
+        crate::class_registry::register_with_recording(registry, "MonsterType");
+    }
+
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // `monsterType:getOutfit()` — returns a table with `lookType` (and extras).
         // C++ `luaMonsterTypeGetOutfit` — used by `condition:setOutfit(monsterType:getOutfit())`.

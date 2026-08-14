@@ -17,6 +17,10 @@ pub struct PositionRef {
 }
 
 impl UserData for PositionRef {
+    fn register(registry: &mut mlua::UserDataRegistry<Self>) {
+        crate::class_registry::register_with_recording(registry, "Position");
+    }
+
     fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
         // Scripts read/write `pos.x` / `pos.y` / `pos.z` (find_person, levitate).
         fields.add_field_method_get("x", |_, this| Ok(this.x));

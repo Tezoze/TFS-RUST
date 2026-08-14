@@ -15,3 +15,7 @@ serde = { version = "1.0", features = ["derive"] }
 [[bin]]
 name = "import-npcs"
 path = "src/bin/import_npcs.rs"
+
+[[bin]]
+name = "emit-lua-defs"
+path = "src/bin/emit_lua_defs.rs"

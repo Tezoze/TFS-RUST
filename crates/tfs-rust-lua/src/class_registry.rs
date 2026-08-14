@@ -9,10 +9,27 @@
 //! ends up callable, extensible, both, or `nil`.
 //! See `tasks/tools-actions/gap7-class-globals.md` (Gap 7a / 7c).
 
-use mlua::{Function, Lua, MultiValue, Table, Value};
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet};
+
+use mlua::{
+    AnyUserData, FromLua, FromLuaMulti, Function, IntoLua, IntoLuaMulti, Lua, MaybeSend, MultiValue,
+    Table, UserData, UserDataFields, UserDataMethods, UserDataRegistry, Value,
+};
 
 /// Lua-registry key for the name → callable map written by [`register_class`].
 const REGISTERED_CLASSES_KEY: &str = "tfs_registered_classes";
+/// Lua-registry key for class → `{ method = true }` written by [`RecordingRegistry`].
+const REGISTERED_METHODS_KEY: &str = "tfs_registered_methods";
+/// Lua-registry key for class → `{ field = true }` written by [`RecordingRegistry`].
+const REGISTERED_FIELDS_KEY: &str = "tfs_registered_fields";
+
+thread_local! {
+    static RECORDED_METHODS: RefCell<BTreeMap<String, BTreeSet<String>>> =
+        const { RefCell::new(BTreeMap::new()) };
+    static RECORDED_FIELDS: RefCell<BTreeMap<String, BTreeSet<String>>> =
+        const { RefCell::new(BTreeMap::new()) };
+}
 
 /// Engine class globals that must go through [`register_class`].
 ///
@@ -213,7 +230,6 @@ fn record_registered_class(lua: &Lua, name: &str, callable: bool) -> Result<(), 
 
 /// Names recorded by [`register_class`] on this VM, as `(name, has_call)`.
 /// Sorted by name. Empty when nothing has been registered yet.
-#[cfg(test)]
 pub(crate) fn registered_class_entries(lua: &Lua) -> Result<Vec<(String, bool)>, mlua::Error> {
     let Ok(table) = lua.named_registry_value::<Table>(REGISTERED_CLASSES_KEY) else {
         return Ok(Vec::new());
@@ -225,6 +241,307 @@ pub(crate) fn registered_class_entries(lua: &Lua) -> Result<Vec<(String, bool)>,
     }
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(entries)
+}
+
+/// LuaLS class base for `name`, from the userdata `__index` chains (Gap 7b).
+///
+/// `Player` → `Creature`, `Container` → `Item`. Other registered classes have
+/// no engine inheritance.
+pub(crate) fn class_lua_base(name: &str) -> Option<&'static str> {
+    match name {
+        "Player" => Some("Creature"),
+        "Container" => Some("Item"),
+        _ => None,
+    }
+}
+
+/// Native userdata methods recorded by [`RecordingRegistry`], as `(class, methods)`.
+/// Sorted by class name; method names sorted. Flushes the thread-local recorder
+/// into the Lua registry first so a dummy `create_userdata` is enough to populate.
+pub(crate) fn registered_method_entries(
+    lua: &Lua,
+) -> Result<Vec<(String, Vec<String>)>, mlua::Error> {
+    flush_recorded_members(lua)?;
+    read_name_set_registry(lua, REGISTERED_METHODS_KEY)
+}
+
+/// Native userdata fields recorded by [`RecordingRegistry`], as `(class, fields)`.
+pub(crate) fn registered_field_entries(lua: &Lua) -> Result<Vec<(String, Vec<String>)>, mlua::Error> {
+    flush_recorded_members(lua)?;
+    read_name_set_registry(lua, REGISTERED_FIELDS_KEY)
+}
+
+fn read_name_set_registry(
+    lua: &Lua,
+    key: &str,
+) -> Result<Vec<(String, Vec<String>)>, mlua::Error> {
+    let Ok(table) = lua.named_registry_value::<Table>(key) else {
+        return Ok(Vec::new());
+    };
+    let mut entries = Vec::new();
+    for pair in table.pairs::<String, Table>() {
+        let (class, names_table) = pair?;
+        let mut names = Vec::new();
+        for name_pair in names_table.pairs::<String, bool>() {
+            let (name, present) = name_pair?;
+            if present {
+                names.push(name);
+            }
+        }
+        names.sort();
+        entries.push((class, names));
+    }
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(entries)
+}
+
+fn flush_recorded_members(lua: &Lua) -> Result<(), mlua::Error> {
+    let methods_root = registry_table(lua, REGISTERED_METHODS_KEY)?;
+    RECORDED_METHODS.with(|cell| merge_name_sets(&methods_root, lua, &cell.borrow()))?;
+    let fields_root = registry_table(lua, REGISTERED_FIELDS_KEY)?;
+    RECORDED_FIELDS.with(|cell| merge_name_sets(&fields_root, lua, &cell.borrow()))?;
+    Ok(())
+}
+
+fn registry_table(lua: &Lua, key: &str) -> Result<Table, mlua::Error> {
+    match lua.named_registry_value::<Table>(key) {
+        Ok(t) => Ok(t),
+        Err(_) => {
+            let t = lua.create_table()?;
+            lua.set_named_registry_value(key, t.clone())?;
+            Ok(t)
+        }
+    }
+}
+
+fn merge_name_sets(
+    root: &Table,
+    lua: &Lua,
+    recorded: &BTreeMap<String, BTreeSet<String>>,
+) -> Result<(), mlua::Error> {
+    for (class, names) in recorded {
+        let class_table = match root.get::<Table>(class.as_str()) {
+            Ok(t) => t,
+            Err(_) => {
+                let t = lua.create_table()?;
+                root.set(class.as_str(), t.clone())?;
+                t
+            }
+        };
+        for name in names {
+            class_table.set(name.as_str(), true)?;
+        }
+    }
+    Ok(())
+}
+
+/// Run `UserData::add_fields` / `add_methods` through [`RecordingRegistry`] so
+/// native method/field names are enumerable for LuaLS generation (pillar 5).
+///
+/// Call from an overridden `UserData::register` — do not also call the default
+/// `register` body, or methods would be added twice.
+pub(crate) fn register_with_recording<T: UserData>(
+    registry: &mut UserDataRegistry<T>,
+    class: &'static str,
+) {
+    let mut rec = RecordingRegistry {
+        inner: registry,
+        class,
+    };
+    T::add_fields(&mut rec);
+    T::add_methods(&mut rec);
+}
+
+/// Forwards to [`UserDataRegistry`] while recording method/field names for LuaLS.
+///
+/// Metamethods (`__index`, …) are not recorded — they are not Lua-callable
+/// method names.
+struct RecordingRegistry<'a, T> {
+    inner: &'a mut UserDataRegistry<T>,
+    class: &'static str,
+}
+
+impl<T> RecordingRegistry<'_, T> {
+    fn record_method(&self, name: &str) {
+        if name.starts_with("__") {
+            return;
+        }
+        RECORDED_METHODS.with(|cell| {
+            cell.borrow_mut()
+                .entry(self.class.to_string())
+                .or_default()
+                .insert(name.to_string());
+        });
+    }
+
+    fn record_field(&self, name: &str) {
+        if name.starts_with("__") {
+            return;
+        }
+        RECORDED_FIELDS.with(|cell| {
+            cell.borrow_mut()
+                .entry(self.class.to_string())
+                .or_default()
+                .insert(name.to_string());
+        });
+    }
+}
+
+impl<T> UserDataMethods<T> for RecordingRegistry<'_, T> {
+    fn add_method<M, A, R>(&mut self, name: impl Into<String>, method: M)
+    where
+        M: Fn(&Lua, &T, A) -> mlua::Result<R> + MaybeSend + 'static,
+        A: FromLuaMulti,
+        R: IntoLuaMulti,
+    {
+        let name = name.into();
+        self.record_method(&name);
+        self.inner.add_method(name, method);
+    }
+
+    fn add_method_mut<M, A, R>(&mut self, name: impl Into<String>, method: M)
+    where
+        M: FnMut(&Lua, &mut T, A) -> mlua::Result<R> + MaybeSend + 'static,
+        A: FromLuaMulti,
+        R: IntoLuaMulti,
+    {
+        let name = name.into();
+        self.record_method(&name);
+        self.inner.add_method_mut(name, method);
+    }
+
+    fn add_function<F, A, R>(&mut self, name: impl Into<String>, function: F)
+    where
+        F: Fn(&Lua, A) -> mlua::Result<R> + MaybeSend + 'static,
+        A: FromLuaMulti,
+        R: IntoLuaMulti,
+    {
+        let name = name.into();
+        self.record_method(&name);
+        self.inner.add_function(name, function);
+    }
+
+    fn add_function_mut<F, A, R>(&mut self, name: impl Into<String>, function: F)
+    where
+        F: FnMut(&Lua, A) -> mlua::Result<R> + MaybeSend + 'static,
+        A: FromLuaMulti,
+        R: IntoLuaMulti,
+    {
+        let name = name.into();
+        self.record_method(&name);
+        self.inner.add_function_mut(name, function);
+    }
+
+    fn add_meta_method<M, A, R>(&mut self, name: impl Into<String>, method: M)
+    where
+        M: Fn(&Lua, &T, A) -> mlua::Result<R> + MaybeSend + 'static,
+        A: FromLuaMulti,
+        R: IntoLuaMulti,
+    {
+        let name = name.into();
+        self.record_method(&name);
+        self.inner.add_meta_method(name, method);
+    }
+
+    fn add_meta_method_mut<M, A, R>(&mut self, name: impl Into<String>, method: M)
+    where
+        M: FnMut(&Lua, &mut T, A) -> mlua::Result<R> + MaybeSend + 'static,
+        A: FromLuaMulti,
+        R: IntoLuaMulti,
+    {
+        let name = name.into();
+        self.record_method(&name);
+        self.inner.add_meta_method_mut(name, method);
+    }
+
+    fn add_meta_function<F, A, R>(&mut self, name: impl Into<String>, function: F)
+    where
+        F: Fn(&Lua, A) -> mlua::Result<R> + MaybeSend + 'static,
+        A: FromLuaMulti,
+        R: IntoLuaMulti,
+    {
+        let name = name.into();
+        self.record_method(&name);
+        self.inner.add_meta_function(name, function);
+    }
+
+    fn add_meta_function_mut<F, A, R>(&mut self, name: impl Into<String>, function: F)
+    where
+        F: FnMut(&Lua, A) -> mlua::Result<R> + MaybeSend + 'static,
+        A: FromLuaMulti,
+        R: IntoLuaMulti,
+    {
+        let name = name.into();
+        self.record_method(&name);
+        self.inner.add_meta_function_mut(name, function);
+    }
+}
+
+impl<T> UserDataFields<T> for RecordingRegistry<'_, T> {
+    fn add_field<V>(&mut self, name: impl Into<String>, value: V)
+    where
+        V: IntoLua + 'static,
+    {
+        let name = name.into();
+        self.record_field(&name);
+        self.inner.add_field(name, value);
+    }
+
+    fn add_field_method_get<M, R>(&mut self, name: impl Into<String>, method: M)
+    where
+        M: Fn(&Lua, &T) -> mlua::Result<R> + MaybeSend + 'static,
+        R: IntoLua,
+    {
+        let name = name.into();
+        self.record_field(&name);
+        self.inner.add_field_method_get(name, method);
+    }
+
+    fn add_field_method_set<M, A>(&mut self, name: impl Into<String>, method: M)
+    where
+        M: FnMut(&Lua, &mut T, A) -> mlua::Result<()> + MaybeSend + 'static,
+        A: FromLua,
+    {
+        let name = name.into();
+        self.record_field(&name);
+        self.inner.add_field_method_set(name, method);
+    }
+
+    fn add_field_function_get<F, R>(&mut self, name: impl Into<String>, function: F)
+    where
+        F: Fn(&Lua, AnyUserData) -> mlua::Result<R> + MaybeSend + 'static,
+        R: IntoLua,
+    {
+        let name = name.into();
+        self.record_field(&name);
+        self.inner.add_field_function_get(name, function);
+    }
+
+    fn add_field_function_set<F, A>(&mut self, name: impl Into<String>, function: F)
+    where
+        F: FnMut(&Lua, AnyUserData, A) -> mlua::Result<()> + MaybeSend + 'static,
+        A: FromLua,
+    {
+        let name = name.into();
+        self.record_field(&name);
+        self.inner.add_field_function_set(name, function);
+    }
+
+    fn add_meta_field<V>(&mut self, name: impl Into<String>, value: V)
+    where
+        V: IntoLua + 'static,
+    {
+        // Metatable fields (`__tostring`, …) are not LuaLS instance fields.
+        self.inner.add_meta_field(name, value);
+    }
+
+    fn add_meta_field_with<F, R>(&mut self, name: impl Into<String>, f: F)
+    where
+        F: FnOnce(&Lua) -> mlua::Result<R> + 'static,
+        R: IntoLua,
+    {
+        self.inner.add_meta_field_with(name, f);
+    }
 }
 
 /// Register the table-only engine classes — those the data pack extends via

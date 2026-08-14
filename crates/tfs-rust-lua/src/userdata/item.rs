@@ -92,6 +92,10 @@ fn parse_move_destination(_lua: &Lua, value: Value) -> Result<LuaMoveDestination
 }
 
 impl UserData for ItemRef {
+    fn register(registry: &mut mlua::UserDataRegistry<Self>) {
+        crate::class_registry::register_with_recording(registry, "Item");
+    }
+
     fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
         // TFS compat `item.itemid` → `Item:getId()` (`data/lib/compat/compat.lua`).
         // Required by `food.lua` / door key branches without loading full compat.

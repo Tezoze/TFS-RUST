@@ -92,6 +92,10 @@ pub fn register_weapon_metatable(lua: &Lua) -> Result<(), mlua::Error> {
 }
 
 impl UserData for WeaponBuilder {
+    fn register(registry: &mut mlua::UserDataRegistry<Self>) {
+        crate::class_registry::register_with_recording(registry, "Weapon");
+    }
+
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // `weapon:id(id)` — `luascript.cpp:17829`.
         methods.add_method_mut("id", |_, this, id: u16| {

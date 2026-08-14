@@ -157,6 +157,10 @@ pub fn register_condition_metatable(lua: &Lua) -> Result<(), mlua::Error> {
 }
 
 impl UserData for ConditionBuilder {
+    fn register(registry: &mut mlua::UserDataRegistry<Self>) {
+        crate::class_registry::register_with_recording(registry, "Condition");
+    }
+
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // `condition:setTicks(ticks)` — `Condition::setTicks` (`condition.h`).
         // Used by `player.lua`'s `soulCondition` build.

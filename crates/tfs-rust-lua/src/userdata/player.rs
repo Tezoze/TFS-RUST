@@ -37,6 +37,10 @@ where
 }
 
 impl UserData for CreatureRef {
+    fn register(registry: &mut mlua::UserDataRegistry<Self>) {
+        crate::class_registry::register_with_recording(registry, "Creature");
+    }
+
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("getId", |_, this, ()| Ok(this.0));
 

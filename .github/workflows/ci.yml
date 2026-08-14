@@ -31,3 +31,14 @@ jobs:
     - name: Run Tests
       # Note: We run the workspace tests
       run: cargo test --workspace
+
+    - name: LuaLS check
+      env:
+        LUALS_VERSION: "3.18.2"
+      run: |
+        set -euo pipefail
+        curl -fsSL "https://github.com/LuaLS/lua-language-server/releases/download/${LUALS_VERSION}/lua-language-server-${LUALS_VERSION}-linux-x64.tar.gz" \
+          | tar -xz -C "${RUNNER_TEMP}"
+        # Workspace must be repo root so `.luarc.json` `library: ["./lua-defs"]` resolves.
+        # `--check=data/lib` makes the workspace `data/lib` and every engine global looks undefined.
+        "${RUNNER_TEMP}/bin/lua-language-server" --check=. --configpath=.luarc.json --checklevel=Warning

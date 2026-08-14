@@ -15,6 +15,10 @@ use crate::context::{CURRENT_CTX, LuaContext};
 pub struct ItemTypeRef(pub u16);
 
 impl UserData for ItemTypeRef {
+    fn register(registry: &mut mlua::UserDataRegistry<Self>) {
+        crate::class_registry::register_with_recording(registry, "ItemType");
+    }
+
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // `ItemType:getId()` — `ItemType::getID` (`src/items.h`). Returns the
         // server item type id, or `0` if the item was not found.
