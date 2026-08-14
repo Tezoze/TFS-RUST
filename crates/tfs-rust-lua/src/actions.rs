@@ -11,12 +11,14 @@ use crate::runtime::{LuaError, LuaRuntime, PendingAction};
 
 /// Action definition loaded from a revscript (`Action():id(…):register()`).
 ///
-/// C++ reference: `actions.h` `Action` — item id / action id maps + `onUse` callback.
+/// C++ reference: `actions.h` `Action` — item id / action id maps + `onUse` + `allowFarUse`.
 #[derive(Debug)]
 pub struct ActionDef {
     pub item_ids: Vec<u16>,
     pub action_ids: Vec<u16>,
     pub on_use: Option<Arc<mlua::RegistryKey>>,
+    /// C++ `Action::allowFarUse` — `actions.h`. Default `false`.
+    pub allow_far_use: bool,
 }
 
 impl From<PendingAction> for ActionDef {
@@ -25,6 +27,7 @@ impl From<PendingAction> for ActionDef {
             item_ids: pending.item_ids,
             action_ids: pending.action_ids,
             on_use: pending.on_use.map(Arc::new),
+            allow_far_use: pending.allow_far_use,
         }
     }
 }
@@ -581,8 +584,7 @@ mod tests {
     }
 
     /// All 9 `data/scripts/actions/tools/*.lua` must load and register their
-    /// item ids. `fishing_rod.lua` currently fails (Gap 1: missing
-    /// `Action:allowFarUse`) — it's excluded until that gap is closed.
+    /// item ids, including `fishing_rod.lua` (`Action:allowFarUse`).
     #[test]
     fn tools_scripts_load_and_register() {
         let data_root = workspace_data_root();
@@ -600,13 +602,6 @@ mod tests {
         collect_lua_files(&tools_dir, &mut lua_files);
         lua_files.sort();
 
-        // fishing_rod.lua requires Action:allowFarUse (Gap 1 — not yet implemented).
-        lua_files.retain(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n != "fishing_rod.lua")
-        });
-
         let mut errors = Vec::new();
         for path in &lua_files {
             let path_string = path.display().to_string();
@@ -616,31 +611,99 @@ mod tests {
         }
 
         let pending = runtime.drain_pending_actions();
-        assert!(
-            errors.is_empty(),
-            "tool script load errors (excluding fishing_rod): {errors:?}"
-        );
+        assert!(errors.is_empty(), "tool script load errors: {errors:?}");
 
-        // 8 scripts (all except fishing_rod) should each register at least one id.
         assert_eq!(
             pending.len(),
-            8,
-            "expected 8 tool actions (excluding fishing_rod), got {}: {:?}",
+            9,
+            "expected 9 tool actions, got {}: {:?}",
             pending.len(),
             pending.iter().map(|p| &p.item_ids).collect::<Vec<_>>()
         );
 
-        // Verify key item ids are registered.
+        // Verify key item ids are registered (machete registers two: 2420, 2442).
         let all_ids: Vec<u16> = pending
             .iter()
             .flat_map(|p| p.item_ids.iter().copied())
             .collect();
-        for expected in [2416u16, 2342, 2566, 2420, 2442, 2553, 2120, 2550, 2554] {
+        for expected in [
+            2416u16, 2580, 2342, 2566, 2420, 2442, 2553, 2120, 2550, 2554,
+        ] {
             assert!(
                 all_ids.contains(&expected),
                 "expected item id {expected} in tool action registrations, got {all_ids:?}"
             );
         }
+
+        let fishing = pending.iter().find(|p| p.item_ids.contains(&2580));
+        assert!(
+            fishing.is_some_and(|p| p.allow_far_use),
+            "fishing rod (2580) must register with allowFarUse"
+        );
+    }
+
+    /// Gap 1: `Action:allowFarUse(bool)` stores `_allow_far_use` and drains onto
+    /// `PendingAction` / `ActionDef`. Default is `false` (C++ `Action` ctor).
+    #[test]
+    fn action_allow_far_use_drains_onto_pending() {
+        let dir = std::env::temp_dir().join(format!(
+            "tfs-gap1-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(dir.clone());
+        let path = dir.join("allow_far_use.lua");
+        std::fs::write(
+            &path,
+            r#"
+            local far = Action()
+            function far.onUse() return true end
+            far:id(2580)
+            far:allowFarUse(true)
+            far:register()
+
+            local near = Action()
+            function near.onUse() return true end
+            near:id(2553)
+            near:register()
+            "#,
+        )
+        .expect("write probe");
+
+        let mut runtime = LuaRuntime::new().expect("runtime init");
+        runtime
+            .load_action_script(&path.display().to_string())
+            .expect("probe load");
+
+        let pending = runtime.drain_pending_actions();
+        assert_eq!(pending.len(), 2, "both actions must register");
+
+        let far = pending.iter().find(|p| p.item_ids.contains(&2580)).unwrap();
+        let near = pending.iter().find(|p| p.item_ids.contains(&2553)).unwrap();
+        assert!(far.allow_far_use, "allowFarUse(true) must drain");
+        assert!(!near.allow_far_use, "default allowFarUse is false");
+
+        let defs: Vec<ActionDef> = pending.into_iter().map(Into::into).collect();
+        assert!(
+            defs.iter()
+                .find(|d| d.item_ids.contains(&2580))
+                .is_some_and(|d| d.allow_far_use)
+        );
+        assert!(
+            defs.iter()
+                .find(|d| d.item_ids.contains(&2553))
+                .is_some_and(|d| !d.allow_far_use)
+        );
     }
 
     #[test]

@@ -508,6 +508,12 @@ impl EventDispatcher for LuaEventDispatcher {
         }
     }
 
+    fn action_allows_far_use(&self, item_type: u16, action_id: u16) -> bool {
+        self.actions
+            .get(item_type, action_id)
+            .is_some_and(|e| e.allow_far_use)
+    }
+
     fn dispatch_on_use_weapon(
         &self,
         item_id: u16,

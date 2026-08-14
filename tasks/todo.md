@@ -1,3 +1,16 @@
+# Gap 1: `Action:allowFarUse` — 2026-08-14
+
+Load-time: `fishing_rod.lua` calls `action:allowFarUse(true)` and fails (`nil` method).
+Runtime: far-use range must honor the flag (`Actions::canExecuteAction` → `canUseFar`).
+
+772 fishing rod (`objects.srv` TypeID 3483) has **no** `DistUse` — only `Take`. Without this flag the ToDo Use arm walks to water.
+
+- [x] Lua `Action:allowFarUse(bool)` stores `_allow_far_use` (C++ `luaActionAllowFarUse`)
+- [x] Drain `PendingAction` → `ActionDef` → `ActionEntry`
+- [x] `EventDispatcher::action_allows_far_use` + ToDo Obj2 arm (`areInRange<7,5>`, same as rune `allowFarUse`)
+- [x] `tools_scripts_load_and_register` asserts 9 files / id 2580; focused drain test
+- [x] Docs + lessons
+
 # Gap 5a: Lib-stage load is fatal and aggregated — 2026-08-13
 
 Phase 2 (`load_data_lib`) returns one `LuaError` listing every broken lib file; boot aborts. Content-stage loaders stay warn-and-continue. Skip `core.lua`/`lib.lua` dispatchers (double-load + CWD-relative `dofile`).

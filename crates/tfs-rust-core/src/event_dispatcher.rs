@@ -236,6 +236,12 @@ pub trait EventDispatcher {
         false
     }
 
+    /// TFS `Action::getAllowFarUse` — `actions.h`. ToDo Use Obj2 arm
+    /// (`Actions::canExecuteAction` → `canUseFar`).
+    fn action_allows_far_use(&self, _item_type: u16, _action_id: u16) -> bool {
+        false
+    }
+
     /// TFS `Weapon::executeUseWeapon` — `weapons.cpp:485`.
     /// Hit → `VARIANT_NUMBER`; miss → `VARIANT_POSITION` at drop tile.
     fn dispatch_on_use_weapon(

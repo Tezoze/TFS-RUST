@@ -101,12 +101,14 @@ pub struct PendingTalkAction {
 
 /// Pending action definition from Lua Action:register().
 ///
-/// C++ reference: `actions.h` `Action` — item/action id lists + `onUse` callback.
+/// C++ reference: `actions.h` `Action` — item/action id lists + `onUse` + `allowFarUse`.
 #[derive(Debug)]
 pub struct PendingAction {
     pub item_ids: Vec<u16>,
     pub action_ids: Vec<u16>,
     pub on_use: Option<mlua::RegistryKey>,
+    /// C++ `Action::allowFarUse` — `actions.h`. Default `false`.
+    pub allow_far_use: bool,
 }
 
 /// Pending move-event definition from Lua MoveEvent:register().
@@ -464,10 +466,15 @@ impl LuaRuntime {
                     .transpose()
                     .map_err(LuaError::Init)?;
 
+                let allow_far_use = action_table
+                    .get::<Option<bool>>("_allow_far_use")?
+                    .unwrap_or(false);
+
                 self.pending_actions.push(PendingAction {
                     item_ids,
                     action_ids,
                     on_use,
+                    allow_far_use,
                 });
             }
         }
@@ -1400,13 +1407,14 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
     // `Action()` — self-registering action constructor (doors / food / levers).
     //
     // Plain Lua **table** (not userdata), same pattern as `TalkAction` / `Channel`.
-    // Scripts set `function action.onUse(...)` then `:id` / `:aid` / `:register()`.
+    // Scripts set `function action.onUse(...)` then `:id` / `:aid` / `:allowFarUse` / `:register()`.
     //
     // C++ reference: `actions.h` `Action` / `actions.cpp` `Actions::registerLuaEvent`.
     let action_constructor = lua.create_function(|lua, ()| {
         let action = lua.create_table()?;
         action.set("_ids", lua.create_table()?)?;
         action.set("_aids", lua.create_table()?)?;
+        action.set("_allow_far_use", false)?;
         // `action:id(...)` — append one or more item type ids.
         action.set(
             "id",
@@ -1439,6 +1447,14 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
                     aids.set(len + 1, id)?;
                 }
                 Ok(this)
+            })?,
+        )?;
+        // `action:allowFarUse(bool)` — C++ `luaActionAllowFarUse` (`luascript.cpp`).
+        action.set(
+            "allowFarUse",
+            lua.create_function(|_lua, (this, val): (mlua::Table, bool)| {
+                this.set("_allow_far_use", val)?;
+                Ok(true)
             })?,
         )?;
         action.set(

@@ -3727,10 +3727,11 @@ impl GameWorld {
                                     dx > 1 || dy > 1
                                 });
                             if obj2_far {
-                                // Resolve Obj1 item_id for DISTUSE / rune allowFarUse.
-                                // Runes set `allowFarUse` via Spell Lua (`RuneSpell`), not only
-                                // the OTB DistUse flag — without this, inventory SD/GFB walked
-                                // to Obj2 (C++ `Actions::canExecuteAction` → `canUseFar`).
+                                // Resolve Obj1 item_id for DISTUSE / Lua allowFarUse.
+                                // Runes set `allowFarUse` via Spell Lua (`RuneSpell`);
+                                // actions via `Action:allowFarUse` (`fishing_rod.lua`).
+                                // Neither is the OTB DistUse flag — without this, inventory
+                                // SD/GFB / fishing walked to Obj2 (`canExecuteAction` → `canUseFar`).
                                 let item_id = self.resolve_use_object(
                                     cid,
                                     obj1.pos,
@@ -3739,19 +3740,24 @@ impl GameWorld {
                                 );
                                 let item_type = item_id
                                     .and_then(|id| self.items.get(id).map(|i| i.item_type));
+                                let action_id = item_id
+                                    .and_then(|id| self.items.get(id).map(|i| i.action_id()))
+                                    .unwrap_or(0);
                                 let distuse =
                                     item_type.is_some_and(|t| self.items_db.is_distuse(t));
                                 let rune_far = item_type
                                     .and_then(|t| self.spells.runes_by_id.get(&t))
                                     .is_some_and(|r| r.allow_far_use);
-                                if distuse || rune_far {
+                                let action_far = item_type
+                                    .is_some_and(|t| self.events.action_allows_far_use(t, action_id));
+                                if distuse || rune_far || action_far {
                                     // DistUse: Chebyshev ≤ 7 (`cract.cc:761`).
-                                    // Rune allowFarUse: TFS `canUseFar` `areInRange<7,5>`
+                                    // Rune / Action allowFarUse: TFS `canUseFar` `areInRange<7,5>`
                                     // (`actions.cpp:255-274`) — fire from standing tile.
                                     let (too_far, floor_rv) =
                                         self.creatures.get(cid).map_or((true, None), |k| {
                                             let pp = k.position();
-                                            if rune_far {
+                                            if rune_far || action_far {
                                                 let rune = item_type
                                                     .and_then(|t| self.spells.runes_by_id.get(&t));
                                                 let check_floor = rune

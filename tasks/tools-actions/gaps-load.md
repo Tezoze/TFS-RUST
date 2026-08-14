@@ -2,14 +2,17 @@
 
 Index: [README.md](README.md) · missing API surface: [gaps-lua-api.md](gaps-lua-api.md) · class globals: [gap7-class-globals.md](gap7-class-globals.md)
 
-## Gap 1 — Load-time: `Action:allowFarUse` not registered
+## Gap 1 — Load-time: `Action:allowFarUse` not registered ✅ DONE (2026-08-14)
 
-`fishing_rod.lua:83` calls `action:allowFarUse(true)`. The `Action` table constructor only registers `id` / `aid` / `register` (`runtime.rs:1403-1452`).
+`fishing_rod.lua:83` calls `action:allowFarUse(true)`. The `Action` table constructor only registered `id` / `aid` / `register`.
 
-**Fix:**
-- Add `allowFarUse(bool)` setter on the `Action` constructor that stores `_allow_far_use` on the table.
-- Plumb through `PendingAction` → `ActionDef` → `ActionRegistry` so far-use range checks honor it.
-- C++ reference: `actions.h` `Action::allowFarUse` / `actions.cpp` `Actions::canUseFar`.
+**Fix (applied):**
+- `Action:allowFarUse(bool)` stores `_allow_far_use` on the instance table (`runtime.rs`; C++ `luaActionAllowFarUse`).
+- Drain `PendingAction` → `ActionDef` → `ActionEntry.allow_far_use`.
+- `EventDispatcher::action_allows_far_use` → ToDo Use Obj2 arm treats it like rune `allowFarUse`: TFS `canUseFar` `areInRange<7,5>` + default `checkFloor`, no walk (`idle_stimulus.rs`). 772 fishing rod (`objects.srv` TypeID 3483) has no `DistUse`.
+- C++ reference: `actions.h` `Action::allowFarUse` / `actions.cpp` `Actions::canUseFar` / `Action::canExecuteAction`.
+
+Tests: `tools_scripts_load_and_register` (9 files, id 2580, flag set) + `action_allow_far_use_drains_onto_pending`.
 
 ## Gap 2 — `functions.lua` not loaded before action scripts ✅ DONE (2026-08-09)
 
@@ -60,4 +63,4 @@ The recursive scan is correct and stays. `load_data_lib` no longer `tracing::war
 
 `assert_required_data_globals` stays as a cheap extra guard on the tools contract; `lib_stage_loads_with_zero_failures` is the primary load-stage test. `lib_stage_failures_are_fatal_and_aggregated` locks the policy (two broken files → one error listing both; dispatchers skipped).
 
-**Order note:** Gap 7a/7b/7c/5a are done. Order now: **`new_for_test()` → 3**.
+**Order note:** Gap 7a/7b/7c/5a/1 are done. Order now: **`new_for_test()` → Gap 4 → Gap 3**.

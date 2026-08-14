@@ -2,14 +2,14 @@
 
 **Scope:** Make every script in `data/scripts/actions/tools/` load and run end-to-end on the existing `Action()` pipeline.
 **Companion doc:** `tasks/doors-actions-plan.md` (the `Action()` pipeline itself)
-**Date:** 2026-08-09 · updated 2026-08-10 (Gaps 5-6, TVP load model, Gap 7a+7b) · **re-audited 2026-08-13** · Gap 7c done 2026-08-13 · Gap 5a done 2026-08-13
+**Date:** 2026-08-09 · updated 2026-08-10 (Gaps 5-6, TVP load model, Gap 7a+7b) · **re-audited 2026-08-13** · Gap 7c done 2026-08-13 · Gap 5a done 2026-08-13 · **Gap 1 done 2026-08-14**
 **Split into this folder 2026-08-13** — was a single 700-line `tasks/tools-actions-gap.md`.
 
 ## Status
 
 | Gap | State |
 |---|---|
-| Gap 1 — `Action:allowFarUse` | not started — [gaps-load.md](gaps-load.md) |
+| Gap 1 — `Action:allowFarUse` | ✅ done 2026-08-14 — [gaps-load.md](gaps-load.md) |
 | Gap 2 — lib load before actions | ✅ done 2026-08-09 — [gaps-load.md](gaps-load.md) |
 | Gap 3 — missing Lua API methods | inventory re-audited (9 items); implementation not started — [gaps-lua-api.md](gaps-lua-api.md) |
 | Gap 4 — missing constants (`SKILL_*`, `actionIds.destroyableStone`) | not started — [gaps-lua-api.md](gaps-lua-api.md) |
@@ -68,11 +68,11 @@ Pipeline that already works for these scripts:
 - Dispatch `fire_on_use_action` (`lua_scope.rs:446-462`) → `dispatch_on_use_action` (`lua_event_dispatcher.rs:475`) → `LuaRuntime::call_action_on_use` (`runtime.rs:560`, called at `lua_event_dispatcher.rs:489`)
 - Wired into `run_server.rs:255-272` after `inject_door_tables_from_global` + `load_data_lib` + `assert_required_data_globals`
 
-Load test result (all 9 files run through `LuaRuntime::load_action_script`):
+Load test result (all 9 files run through `LuaRuntime::load_action_script`; Gap 1 closed the fishing_rod load failure):
 
 ```
 OK   crowbar.lua
-FAIL fishing_rod.lua:83: attempt to call method 'allowFarUse' (a nil value)
+OK   fishing_rod.lua
 OK   helmet_of_the_ancients.lua
 OK   knife.lua
 OK   machete.lua
@@ -80,10 +80,10 @@ OK   pick.lua
 OK   rope.lua
 OK   scythe.lua
 OK   shovel.lua
-tools: 9 files, 1 errors, 8 actions registered
+tools: 9 files, 0 errors, 9 actions registered
 ```
 
-8 of 9 scripts register. The 9th (`fishing_rod.lua`) fails at **load** time. All 9 would misbehave at **runtime** because of missing Lua API surface (see [Gap 3](gaps-lua-api.md#gap-3--missing-lua-api-methods-runtime-failures-even-after-gap-2)).
+All 9 scripts register at load (Gap 1 closed `fishing_rod.lua`). All 9 still misbehave at **runtime** because of missing Lua API surface (see [Gap 3](gaps-lua-api.md#gap-3--missing-lua-api-methods-runtime-failures-even-after-gap-2) and [Gap 4](gaps-lua-api.md)).
 
 ## Suggested implementation order
 
@@ -97,7 +97,7 @@ tools: 9 files, 1 errors, 8 actions registered
 4. **Gap 5a — Phase 2 fatal** ✅ done 2026-08-13 — `load_data_lib` aggregates lib-stage failures into `LuaError::LibStageFailures` and `run_server.rs` bails; skips `core.lua`/`lib.lua` dispatchers; content-stage stays warn-and-continue. `lib_stage_loads_with_zero_failures` + `lib_stage_failures_are_fatal_and_aggregated`.
 5. **`new_for_test()`** — ⬅ **next** — route the **8** hand-assembled test VMs in `userdata/combat.rs` (`Lua::new()` at 1082/1122/1198/1226/1316/1446/1565/1650) through the real init path, so tests stop validating a VM that isn't shipped.
 6. ~~**Gap 3 re-audit**~~ ✅ **done 2026-08-13** — see [re-audit-2026-08-13.md](re-audit-2026-08-13.md#gap-3--re-audit-result-supersedes-the-gap-3-correction-table). Nine genuinely-missing entries, not fourteen.
-7. **Gap 1** — `Action:allowFarUse` + plumbing. Fixes the one load failure.
+7. **Gap 1** ✅ done 2026-08-14 — `Action:allowFarUse` + plumbing. `fishing_rod.lua` loads; ToDo Obj2 honors the flag (`canUseFar` `areInRange<7,5>`).
 8. **Gap 4** — `SKILL_*` constants block in `combat_enums.rs`, plus `actionIds.destroyableStone`. Needed for fishing and pick.
 9. **Gap 3** — the remaining genuinely-missing methods. Each maps 1:1 to a `luascript.cpp` reference per the C++-reference rule.
 10. **Gap 6** — relocate the pick / fishing parity numbers into the profile once the scripts actually run and can be observed.
@@ -105,7 +105,7 @@ tools: 9 files, 1 errors, 8 actions registered
 12. **LuaLS type definitions from the class registry** — emit `.d.lua` for every registered class, method, and constant. Enabled by 3 (`register_class` as single owner); gives the data pack autocomplete + static missing-global detection. Highest-value item after the tools scripts run. See [*VM hardening*](vm-hardening.md) pillar 5.
 13. **[VM hardening](vm-hardening.md)** — `set_memory_limit` ✅ **DONE (2026-08-10)** — `DEFAULT_LUA_MEMORY_LIMIT_BYTES` (512 MiB) applied in `LuaRuntime::new` (`runtime.rs`), overridable from `config.lua` via `luaMemoryLimit` (MB) in `run_server.rs`; test `memory_limit_default_applied_and_enforced` asserts the default + an over-limit allocation errors instead of OOM-killing the process. Instruction-budget hook and stdlib allowlist still gated on Gaps 1-6 + JIT-cost measurement / `tfs.appendLog` capability. See [*VM hardening*](vm-hardening.md) for gates and caveats.
 
-Dependency summary (updated 2026-08-13): 7a+7b+**7c**+**5a** ✅ done → **`new_for_test()` (next)** → 3 (re-audit ✅ done, implement pending); 3 depends on 4 for the fishing path; 6 is easiest after 3 makes the paths reachable; 1 is independent; 11 is last and optional — and note 11 must **replace** the `data/lib/core` scan, not coexist with it, since `core.lua` currently double-loads 15 core files (5a skips `core.lua` in the scan, so the double-load is already gone until step 11 switches to the dofile chain).
+Dependency summary (updated 2026-08-14): 7a+7b+**7c**+**5a**+**Gap 1** ✅ done → **`new_for_test()` (next)** → Gap 4 → Gap 3; 3 depends on 4 for the fishing path; 6 is easiest after 3 makes the paths reachable; 11 is last and optional — and note 11 must **replace** the `data/lib/core` scan, not coexist with it, since `core.lua` currently double-loads 15 core files (5a skips `core.lua` in the scan, so the double-load is already gone until step 11 switches to the dofile chain).
 
 ## Verification
 
@@ -116,7 +116,7 @@ rtk cargo test -p tfs-rust-lua actions::tests
 
 Existing guards in `crates/tfs-rust-lua/src/actions.rs::tests`:
 
-- `tools_scripts_load_and_register` — the 9 tools files register their item ids. **Currently excludes `fishing_rod.lua`** and asserts 8; once Gap 1 is closed, drop the exclusion and assert 9 with zero load errors.
+- `tools_scripts_load_and_register` — the 9 tools files register their item ids, including fishing rod 2580 with `allowFarUse`. `action_allow_far_use_drains_onto_pending` locks the setter → `PendingAction` / `ActionDef` drain.
 - `required_data_globals_present_after_lib_load` — the Gap 5 allowlist assertion (10 names). Necessary, not sufficient: it passed while 9 lib files failed to load. Kept as a cheap extra guard on the tools contract.
 - `lib_core_files_load_with_zero_errors` — the Gap 7a guard; `data/lib/core` must load clean.
 - `scripts_lib_files_load_with_zero_failures` — the Gap 7c guard; `data/scripts/lib` must load clean.

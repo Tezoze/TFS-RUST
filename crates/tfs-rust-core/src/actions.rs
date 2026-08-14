@@ -1,6 +1,6 @@
 //! Action registry — `data/scripts/actions/**` self-registering `onUse` scripts.
 //!
-//! C++ reference: `actions.h` / `actions.cpp` `Actions::{registerLuaEvent,getAction,useItem}`.
+//! C++ reference: `actions.h` / `actions.cpp` `Actions::{registerLuaEvent,getAction,useItem,canUseFar}`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -11,6 +11,8 @@ use tfs_rust_lua::ActionDef;
 #[derive(Debug, Clone)]
 pub struct ActionEntry {
     pub on_use: Arc<mlua::RegistryKey>,
+    /// C++ `Action::allowFarUse` — `actions.h`. ToDo Use Obj2 uses `canUseFar`.
+    pub allow_far_use: bool,
 }
 
 /// Indexed action registry — materialized at startup on the game thread.
@@ -40,6 +42,7 @@ impl ActionRegistry {
             };
             let entry = ActionEntry {
                 on_use: Arc::clone(&on_use),
+                allow_far_use: def.allow_far_use,
             };
             for id in def.item_ids {
                 if by_item_id.insert(id, entry.clone()).is_some() {
