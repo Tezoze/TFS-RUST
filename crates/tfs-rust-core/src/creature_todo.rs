@@ -424,7 +424,7 @@ impl GameWorld {
     ///
     /// TFS `Game::playerUseItemEx` validates the from-item only; `RuneSpell` uses
     /// `toPosition` (`spells.cpp` `executeUse` / `playerRuneSpellCheck`). Empty
-    /// ground has no SlotMap `ItemId` in Rust (`tile.rs` `item_id_for_use`), so
+    /// ground-only tiles used to lack a SlotMap `ItemId` (`tile.rs` `item_id_for_use`);
     /// requiring an item or creature rejected floor aims (SD never poffed; GFB
     /// never cast). Accept any loaded map tile by position — rune miss vs AoE
     /// stays in `player_cast_rune`.

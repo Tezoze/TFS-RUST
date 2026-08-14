@@ -395,6 +395,30 @@ pub(crate) fn query_destination(
     None
 }
 
+/// TFS `internalMoveItem` / `internalAddItem` queryDestination while-loop
+/// (`game.cpp` ~1102–1108, `tile.cpp` ~735–830). Chains floor-change tiles up to
+/// `MAP_MAX_LAYERS` (16). `FLAG_NOLIMIT` is set when the item leaves the aimed tile.
+pub(crate) fn query_destination_chain(map: &Map, start: Position) -> (Position, u32) {
+    const MAP_MAX_LAYERS: usize = 16;
+    let mut pos = start;
+    let mut extra_flags = 0u32;
+    for _ in 0..MAP_MAX_LAYERS {
+        let tile_flags = match map.get_tile(pos) {
+            Some(t) => t.body().flags,
+            None => break,
+        };
+        let Some((new_pos, extra)) = query_destination(map, pos, tile_flags) else {
+            break;
+        };
+        if new_pos == pos {
+            break;
+        }
+        pos = new_pos;
+        extra_flags |= extra;
+    }
+    (pos, extra_flags)
+}
+
 /// TFS `Tile::queryAdd` monster branch (`tile.cpp` ~499–563).
 pub(crate) fn tile_query_add_monster(
     world: &GameWorld,

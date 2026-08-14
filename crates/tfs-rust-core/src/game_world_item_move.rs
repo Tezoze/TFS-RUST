@@ -203,7 +203,13 @@ impl GameWorld {
 
         let source_parent = from_cylinder.as_container();
 
-        let (to_work, mut to_merge_item) =
+        // 772 `CheckMapDestination` against the **aimed** tile (`operate.cc:489-573`).
+        // TFS remaps holes/stairs in `queryDestination` *after* throw LOS (`game.cpp` ~1058, ~1102).
+        if let (Some(actor), Cylinder::Tile { .. }) = (acting_player, &to_cylinder) {
+            self.check_map_destination(actor, item_id, &from_cylinder, &to_cylinder)?;
+        }
+
+        let (to_work, mut to_merge_item, flags) =
             self.resolve_move_destination(to_cylinder, item_id, source_parent, flags)?;
 
         // The 772 `Move`/`Merge` `Ignore` parameter must not merge with the ignored item.
@@ -220,11 +226,6 @@ impl GameWorld {
         } else {
             flags
         };
-
-        // 772 `CheckMapDestination` — actor-driven tile throws only (`operate.cc:489-573`).
-        if let (Some(actor), Cylinder::Tile { .. }) = (acting_player, &to_work) {
-            self.check_map_destination(actor, item_id, &from_cylinder, &to_work)?;
-        }
 
         // For tile destinations, check queryAdd
         if let Cylinder::Tile { pos } = to_work {
@@ -966,5 +967,138 @@ impl GameWorld {
                 Ok(item_id)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::item::Item;
+    use crate::sim_harness::{ensure_walkable_tile, minimal_world};
+    use crate::tile::{flags as tilestate, Tile, TileBody};
+    use tfs_rust_common::enums::ZoneType;
+
+    fn tile_has(world: &GameWorld, pos: Position, item_id: ItemId) -> bool {
+        world
+            .map
+            .get_tile(pos)
+            .is_some_and(|t| t.has_item(item_id))
+    }
+
+    /// TFS `Tile::queryDestination` (`tile.cpp` ~740–784): throw onto a hole
+    /// (`FLOORCHANGE_DOWN`) lands on the floor below, not on the hole.
+    #[test]
+    fn throw_onto_hole_drops_item_downstairs() {
+        let mut world = minimal_world();
+        let from = Position::new(99, 100, 7);
+        let hole = Position::new(100, 100, 7);
+        let below = Position::new(100, 100, 8);
+        ensure_walkable_tile(&mut world.map, from, 100);
+        world.map.insert_tile(
+            hole,
+            Tile::Normal(TileBody {
+                ground: Some(100),
+                ground_item: None,
+                down_items: Vec::new(),
+                top_items: Vec::new(),
+                creatures: Vec::new(),
+                flags: tilestate::FLOORCHANGE_DOWN,
+                zone: ZoneType::Normal,
+            }),
+        );
+        ensure_walkable_tile(&mut world.map, below, 100);
+
+        let gold = world.items.insert(Item::new(2148, 1));
+        world
+            .internal_add_item_to_tile(from, gold, CylinderFlags::NONE)
+            .expect("place gold");
+        world
+            .internal_move_item(
+                None,
+                Cylinder::Tile { pos: from },
+                Cylinder::Tile { pos: hole },
+                gold,
+                1,
+                CylinderFlags::NONE,
+                None,
+            )
+            .expect("throw onto hole");
+        assert!(
+            !tile_has(&world, hole, gold),
+            "item must not rest on the hole"
+        );
+        assert!(
+            tile_has(&world, below, gold),
+            "item must land on the floor below"
+        );
+    }
+
+    /// TFS `Tile::queryDestination` (`tile.cpp` ~785–814): throw onto south stairs
+    /// relocates one floor up, one tile south.
+    #[test]
+    fn throw_onto_south_stairs_moves_item_upstairs() {
+        let mut world = minimal_world();
+        let from = Position::new(100, 99, 8);
+        let stairs = Position::new(100, 100, 8);
+        let dest = Position::new(100, 101, 7);
+        ensure_walkable_tile(&mut world.map, from, 100);
+        world.map.insert_tile(
+            stairs,
+            Tile::Normal(TileBody {
+                ground: Some(100),
+                ground_item: None,
+                down_items: Vec::new(),
+                top_items: Vec::new(),
+                creatures: Vec::new(),
+                flags: tilestate::FLOORCHANGE_SOUTH,
+                zone: ZoneType::Normal,
+            }),
+        );
+        ensure_walkable_tile(&mut world.map, dest, 100);
+
+        let gold = world.items.insert(Item::new(2148, 1));
+        world
+            .internal_add_item_to_tile(from, gold, CylinderFlags::NONE)
+            .expect("place gold");
+        world
+            .internal_move_item(
+                None,
+                Cylinder::Tile { pos: from },
+                Cylinder::Tile { pos: stairs },
+                gold,
+                1,
+                CylinderFlags::NONE,
+                None,
+            )
+            .expect("throw onto stairs");
+        assert!(!tile_has(&world, stairs, gold));
+        assert!(tile_has(&world, dest, gold));
+    }
+
+    #[test]
+    fn add_item_directly_on_hole_also_falls_through() {
+        let mut world = minimal_world();
+        let hole = Position::new(100, 100, 7);
+        let below = Position::new(100, 100, 8);
+        world.map.insert_tile(
+            hole,
+            Tile::Normal(TileBody {
+                ground: Some(100),
+                ground_item: None,
+                down_items: Vec::new(),
+                top_items: Vec::new(),
+                creatures: Vec::new(),
+                flags: tilestate::FLOORCHANGE_DOWN,
+                zone: ZoneType::Normal,
+            }),
+        );
+        ensure_walkable_tile(&mut world.map, below, 100);
+
+        let gold = world.items.insert(Item::new(2148, 1));
+        world
+            .internal_add_item_to_tile(hole, gold, CylinderFlags::NONE)
+            .expect("add onto hole");
+        assert!(!tile_has(&world, hole, gold));
+        assert!(tile_has(&world, below, gold));
     }
 }

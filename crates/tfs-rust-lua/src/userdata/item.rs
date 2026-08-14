@@ -12,6 +12,7 @@ use crate::lua_mutation::{
     call_lua_set_store_item, call_lua_set_unique_id,
 };
 use crate::userdata::container::ContainerRef;
+use crate::userdata::position::PositionRef;
 
 /// Register the Item metatable in the Lua runtime.
 pub fn register_item_metatable(lua: &mlua::Lua) -> Result<(), mlua::Error> {
@@ -68,6 +69,14 @@ fn push_cylinder(lua: &Lua, cyl: tfs_rust_common::ScriptCylinder) -> Result<Valu
 fn parse_move_destination(_lua: &Lua, value: Value) -> Result<LuaMoveDestination, mlua::Error> {
     match value {
         Value::UserData(ud) => {
+            // TFS `luaItemMoveTo`: Position userdata uses `getPosition` (`luascript.cpp`).
+            if let Ok(pos) = ud.borrow::<PositionRef>() {
+                return Ok(LuaMoveDestination::Tile {
+                    x: pos.x,
+                    y: pos.y,
+                    z: pos.z,
+                });
+            }
             if let Ok(cref) = ud.borrow::<CreatureRef>() {
                 return Ok(LuaMoveDestination::Player {
                     creature_id: cref.0,
@@ -247,7 +256,7 @@ impl UserData for ItemRef {
                 ctx.get_item_position(this.0)
                     .ok_or_else(|| mlua::Error::runtime("item not found"))
             })?;
-            let ud = lua.create_userdata(crate::userdata::position::PositionRef {
+            let ud = lua.create_userdata(PositionRef {
                 x: pos.x,
                 y: pos.y,
                 z: pos.z,
@@ -535,5 +544,26 @@ mod tests {
                 .unwrap();
             assert!(top_is_item);
         });
+    }
+
+    /// Rope `thing:moveTo(toPosition:moveUpstairs())` — TFS `luaItemMoveTo` accepts
+    /// Position userdata via `getPosition` (`luascript.cpp`).
+    #[test]
+    fn move_to_parses_position_userdata() {
+        let lua = Lua::new();
+        crate::userdata::register_position_metatable(&lua).expect("Position");
+        let dest: Value = lua
+            .load("return Position(32316, 32226, 6)")
+            .eval()
+            .expect("Position()");
+        let parsed = parse_move_destination(&lua, dest).expect("parse");
+        assert_eq!(
+            parsed,
+            LuaMoveDestination::Tile {
+                x: 32316,
+                y: 32226,
+                z: 6
+            }
+        );
     }
 }

@@ -215,6 +215,7 @@ impl GameWorld {
     }
 
     /// Lua `Player:removeItem` — `luascript.cpp` `luaPlayerRemoveItem` → `removeItemOfType`.
+    /// Returns `Ok(false)` when the player lacks `count` (TFS `pushBoolean`, not a Lua error).
     pub fn lua_script_remove_item(
         &mut self,
         creature_u64: u64,
@@ -222,14 +223,11 @@ impl GameWorld {
         count: u32,
         sub_type: i32,
         ignore_equipped: bool,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         let cid = self
             .resolve_creature_u64(creature_u64)
             .ok_or_else(|| "creature not found".to_string())?;
-        if !self.player_remove_item_of_type(cid, item_type, count, sub_type, ignore_equipped) {
-            return Err("not enough items".into());
-        }
-        Ok(())
+        Ok(self.player_remove_item_of_type(cid, item_type, count, sub_type, ignore_equipped))
     }
 
     /// Default Lua `item:moveTo` flags — `luascript.cpp` `luaItemMoveTo`.
@@ -1725,5 +1723,20 @@ mod look_tests {
         assert!(ok);
         assert_eq!(world.items.get(meat).map(|i| i.count), Some(4));
         assert!(world.items.get(meat).unwrap().parent.is_some());
+    }
+
+    /// TFS `luaPlayerRemoveItem` (`luascript.cpp`) pushes a boolean.
+    /// Fishing `not player:removeItem(3976, 1)` must get `false`, not a Lua error.
+    #[test]
+    fn lua_player_remove_item_returns_false_when_short() {
+        use slotmap::Key;
+
+        let mut world = minimal_world();
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("Fisher", pos));
+        let ok = world
+            .lua_script_remove_item(cid.data().as_ffi(), 3976, 1, -1, false)
+            .expect("player exists");
+        assert!(!ok, "missing worms must be false, not an error");
     }
 }

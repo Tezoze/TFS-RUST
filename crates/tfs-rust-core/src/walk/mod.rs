@@ -182,6 +182,7 @@ use walk_tile::{
     query_destination, resolve_player_move_destination, tile_query_add_monster, tile_query_add_npc,
     tile_query_add_player,
 };
+pub(crate) use walk_tile::query_destination_chain;
 use walk_timing::{
     get_event_step_ticks, last_step_cost_for_move, peek_next_walk_direction,
     walk_timing_speed_kind,

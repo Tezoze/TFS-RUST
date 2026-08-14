@@ -275,6 +275,12 @@ impl Container {
         Ok(())
     }
 
+    /// TFS `Container::internalAddThing` — `container.cpp` ~727–741 (`itemlist.push_front`).
+    /// Login / depot hydrate only: no capacity or lock checks (C++ skips those on load).
+    pub fn internal_add_item_front(&mut self, item_id: ItemId) {
+        self.items.insert(0, item_id);
+    }
+
     /// Insert an item at a specific position
     pub fn insert_item(&mut self, index: usize, item_id: ItemId) -> Result<(), ContainerError> {
         if !self.unlocked {

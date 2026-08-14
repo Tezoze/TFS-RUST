@@ -553,7 +553,15 @@ impl GameWorld {
             .iter()
             .copied()
             .filter(|&id| !self.item_is_cip_priority_bottom(id));
-        Some(bottoms.chain(body.top_items.iter().copied()).chain(lows))
+        // 772 `GetFirstObject` walk starts at ground/bank (`info.cc:412-419`).
+        // Water fishing is a ground-only tile; skipping `ground_item` left Lua `target` nil.
+        Some(
+            body.ground_item
+                .into_iter()
+                .chain(bottoms)
+                .chain(body.top_items.iter().copied())
+                .chain(lows),
+        )
     }
 
     /// 772 `GetObject` map branch (`info.cc:412-419`): the client's `RNum` is never an index
@@ -630,8 +638,8 @@ impl GameWorld {
 
     /// Resolve bare **ground** for single-object Use (`CUseObject`).
     ///
-    /// Rust stores ground as `Option<u16>` only ([`crate::tile::Tile::item_id_for_use`]),
-    /// so Use must accept it without an `ItemId`. Match is **TypeID-only** like 772
+    /// Ground type lives in `body.ground`; SlotMap id is `body.ground_item` when hydrated.
+    /// Match is **TypeID-only** like 772
     /// `GetObject` (`info.cc:412–419`): walk would find the bank by `getDisguise() == Type`;
     /// `RNum` / stackpos is not an index. Wrong TypeID → `None` → enqueue `NotPossible`
     /// (no walk).

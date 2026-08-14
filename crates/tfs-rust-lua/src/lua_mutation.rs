@@ -481,14 +481,15 @@ pub fn call_lua_remove_item(
     count: u32,
     sub_type: i32,
     ignore_equipped: bool,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     apply_mutation(LuaMutation::PlayerRemoveItem {
         creature_id,
         item_type,
         count,
         sub_type,
         ignore_equipped,
-    })
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
 }
 
 pub fn call_lua_get_depot_chest(

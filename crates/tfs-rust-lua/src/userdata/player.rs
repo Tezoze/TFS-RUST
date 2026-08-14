@@ -472,6 +472,7 @@ impl UserData for CreatureRef {
                 Option<i32>,
                 Option<bool>,
             )| {
+                // TFS `luaPlayerRemoveItem` — `pushBoolean(removeItemOfType(...))`.
                 let sub_type = sub_type.unwrap_or(-1);
                 let ignore_equipped = ignore_equipped.unwrap_or(false);
                 call_lua_remove_item(this.0, item_type, count, sub_type, ignore_equipped)

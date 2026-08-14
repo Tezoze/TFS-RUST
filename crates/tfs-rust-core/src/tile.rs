@@ -384,8 +384,14 @@ impl Tile {
     {
         let body = self.body();
         if body.down_items.is_empty() && body.top_items.is_empty() {
-            // C++ returns `ground` when the item list is empty; ground has no `ItemId` in Rust.
-            return None;
+            // TFS `Tile::getThing` returns ground at stackpos 0 when the item list is empty.
+            // OTBM `setGround` now stores a SlotMap `ground_item` (`map/mod.rs`).
+            // Non-zero stackpos is a creature (or miss) — do not steal those aims.
+            return if stack_pos == 0 {
+                body.ground_item
+            } else {
+                None
+            };
         }
 
         let container_item = body
@@ -791,6 +797,30 @@ mod look_tests {
             tile2.item_id_at_stack_pos_ordered(0, true, |_| false),
             None,
             "stackpos 0 with no ground_item must return None"
+        );
+    }
+
+    /// Fishing / use-with on water: tile has only ground. `item_id_for_use` used to
+    /// return `None` ("ground has no ItemId") even after OTBM hydrated `ground_item`.
+    #[test]
+    fn item_id_for_use_returns_ground_item_on_empty_item_lists() {
+        let mut items: SlotMap<ItemId, _> = SlotMap::with_key();
+        let ground_item = items.insert(());
+        let mut body = tile_body(Some(4608), vec![], vec![], vec![]);
+        body.ground_item = Some(ground_item);
+        let tile = Tile::Normal(body);
+        assert_eq!(
+            tile.item_id_for_use(0, false, |_| false, |_| false),
+            Some(ground_item)
+        );
+        assert_eq!(
+            tile.item_id_for_use(0, true, |_| false, |_| false),
+            Some(ground_item)
+        );
+        assert_eq!(
+            tile.item_id_for_use(1, true, |_| false, |_| false),
+            None,
+            "stackpos 1 on a ground-only tile is a creature / miss, not the bank"
         );
     }
 

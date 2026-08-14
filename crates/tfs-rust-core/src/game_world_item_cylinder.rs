@@ -553,6 +553,12 @@ impl GameWorld {
         item_id: ItemId,
         flags: CylinderFlags,
     ) -> Result<ItemId, ReturnValue> {
+        let (pos, extra) = crate::walk::query_destination_chain(&self.map, pos);
+        let flags = if extra & crate::walk::FLAG_NOLIMIT != 0 {
+            flags.union(CylinderFlags::NO_LIMIT)
+        } else {
+            flags
+        };
         let is_stackable;
         let item_type;
         let item_count;

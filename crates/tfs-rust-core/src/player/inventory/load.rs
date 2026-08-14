@@ -255,7 +255,7 @@ impl GameWorld {
                         None,
                     );
                     if let Some(cont) = registry.get_mut(parent_id) {
-                        let _ = cont.add_item(item_id);
+                        cont.internal_add_item_front(item_id);
                     }
                     if let Some(item) = self.items.get_mut(item_id) {
                         item.parent = Some(crate::cylinder::Cylinder::Container {
@@ -353,7 +353,7 @@ impl GameWorld {
                             None,
                         );
                         if let Some(cont) = registry.get_mut(root) {
-                            let _ = cont.add_item(item_id);
+                            cont.internal_add_item_front(item_id);
                         }
                         if self
                             .items_db
@@ -383,7 +383,7 @@ impl GameWorld {
                         None,
                     );
                     if let Some(cont) = registry.get_mut(parent_id) {
-                        let _ = cont.add_item(item_id);
+                        cont.internal_add_item_front(item_id);
                     }
                     if self
                         .items_db
@@ -454,7 +454,7 @@ impl GameWorld {
                 };
                 registry = std::mem::take(&mut self.container_registry);
                 if let Some(cont) = registry.get_mut(locker_id) {
-                    let _ = cont.add_item(item_id);
+                    cont.internal_add_item_front(item_id);
                 }
                 if self
                     .items_db
@@ -486,7 +486,7 @@ impl GameWorld {
                     continue;
                 }
                 if let Some(cont) = registry.get_mut(chest_id) {
-                    let _ = cont.add_item(item_id);
+                    cont.internal_add_item_front(item_id);
                 }
                 if self
                     .items_db
@@ -514,7 +514,7 @@ impl GameWorld {
                         None,
                     );
                     if let Some(cont) = registry.get_mut(parent_id) {
-                        let _ = cont.add_item(item_id);
+                        cont.internal_add_item_front(item_id);
                     }
                     if self
                         .items_db
@@ -581,7 +581,7 @@ impl GameWorld {
                     continue;
                 }
                 if let Some(cont) = registry.get_mut(inbox_root) {
-                    let _ = cont.add_item(item_id);
+                    cont.internal_add_item_front(item_id);
                 }
                 if self
                     .items_db
@@ -609,7 +609,7 @@ impl GameWorld {
                         None,
                     );
                     if let Some(cont) = registry.get_mut(parent_id) {
-                        let _ = cont.add_item(item_id);
+                        cont.internal_add_item_front(item_id);
                     }
                     if self
                         .items_db
@@ -910,5 +910,110 @@ mod tests {
             }),
             "loose locker coin should NOT be in the chest"
         );
+    }
+
+    /// TFS `internalAddThing` is `push_front` while walking `sid` DESC (`iologindata.cpp`).
+    /// `Container::add_item` (push_back) reversed backpack slots on every login.
+    #[test]
+    fn hydrate_backpack_keeps_saved_sibling_order() {
+        let mut world = minimal_world();
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("bp_order", pos));
+        let rows = vec![
+            ItemRecord {
+                pid: 3, // CONST_SLOT_BACKPACK
+                sid: 101,
+                itemtype: 1987,
+                count: 1,
+                attributes: Vec::new(),
+            },
+            ItemRecord {
+                pid: 101,
+                sid: 102,
+                itemtype: 2148,
+                count: 10,
+                attributes: Vec::new(),
+            },
+            ItemRecord {
+                pid: 101,
+                sid: 103,
+                itemtype: 2148,
+                count: 20,
+                attributes: Vec::new(),
+            },
+        ];
+        world.hydrate_player_inventory_from_db(cid, &rows, &[], &[], &[]);
+        let bag_id = world
+            .creatures
+            .get(cid)
+            .and_then(|k| match k {
+                CreatureKind::Player(p) => p.equipment_slots[2],
+                _ => None,
+            })
+            .expect("backpack equipped");
+        let bag = world.container_registry.get(bag_id).expect("bag");
+        let counts: Vec<u16> = bag
+            .items
+            .iter()
+            .filter_map(|&id| world.items.get(id).map(|i| i.count))
+            .collect();
+        assert_eq!(
+            counts,
+            vec![10, 20],
+            "sid 102 must occupy slot 0 after DESC + push_front"
+        );
+    }
+
+    #[test]
+    fn backpack_order_survives_save_then_hydrate() {
+        let mut world = minimal_world();
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("bp_roundtrip", pos));
+        let bag = world.items.insert(Item::new_single(1987));
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            p.equipment_slots[2] = Some(bag);
+        }
+        let mut reg = std::mem::take(&mut world.container_registry);
+        world.ensure_container_registered_simple(&mut reg, bag, cid);
+        world.container_registry = reg;
+
+        let older = world.items.insert(Item::new(2148, 1));
+        let newer = world.items.insert(Item::new(2148, 2));
+        world
+            .container_add_thing(bag, 0, older)
+            .expect("add older");
+        world
+            .container_add_thing(bag, 0, newer)
+            .expect("add newer");
+        let live: Vec<u16> = world
+            .container_registry
+            .get(bag)
+            .expect("bag")
+            .items
+            .iter()
+            .filter_map(|&id| world.items.get(id).map(|i| i.count))
+            .collect();
+        assert_eq!(live, vec![2, 1], "runtime push_front: newest first");
+
+        let save = world.build_player_save_data(cid).expect("save");
+        let cid2 = insert_player(&mut world, test_player("bp_loaded", pos));
+        world.hydrate_player_inventory_from_db(cid2, &save.items.inventory, &[], &[], &[]);
+        let bag2 = world
+            .creatures
+            .get(cid2)
+            .and_then(|k| match k {
+                CreatureKind::Player(p) => p.equipment_slots[2],
+                _ => None,
+            })
+            .expect("loaded backpack");
+        let loaded: Vec<u16> = world
+            .container_registry
+            .get(bag2)
+            .expect("loaded bag")
+            .items
+            .iter()
+            .filter_map(|&id| world.items.get(id).map(|i| i.count))
+            .collect();
+        assert_eq!(loaded, live);
     }
 }

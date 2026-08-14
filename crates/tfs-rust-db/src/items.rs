@@ -64,8 +64,8 @@ impl<'a> ItemStore<'a> {
         Self { pool }
     }
 
-    /// C++ loads with `ORDER BY sid DESC` for tree reconstruction; order is irrelevant when
-    /// rebuilding sid-keyed maps.
+    /// TFS SQL is `ORDER BY sid DESC` (`iologindata.cpp`). Sibling order is restored in
+    /// `hydrate_player_inventory_from_db` (sort DESC + `internalAddThing` push_front).
     pub async fn load_items(&self, player_id: i32, table: ItemTable) -> Result<Vec<ItemRecord>> {
         const Q_INV: &str = "SELECT pid, sid, itemtype, count, attributes FROM player_items WHERE player_id = ? ORDER BY sid ASC";
         const Q_DEPOT: &str = "SELECT pid, sid, itemtype, count, attributes FROM player_depotitems WHERE player_id = ? ORDER BY sid ASC";

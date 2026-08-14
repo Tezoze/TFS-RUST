@@ -605,14 +605,18 @@ impl GameWorld {
         })
     }
 
-    /// TFS cylinder chain — `Game::internalMoveItem` + `Player::queryDestination` / `Container::queryDestination`.
+    /// TFS cylinder chain — `Game::internalMoveItem` + `Player::queryDestination` /
+    /// `Container::queryDestination` / `Tile::queryDestination`.
+    ///
+    /// Returns the resolved cylinder, optional stack-merge target, and flags (floor-change
+    /// remaps set `FLAG_NOLIMIT` — `tile.cpp` ~819–820).
     pub(crate) fn resolve_move_destination(
         &mut self,
         mut to: Cylinder,
         item_id: ItemId,
         source_parent: Option<ItemId>,
-        flags: CylinderFlags,
-    ) -> Result<(Cylinder, Option<ItemId>), ReturnValue> {
+        mut flags: CylinderFlags,
+    ) -> Result<(Cylinder, Option<ItemId>, CylinderFlags), ReturnValue> {
         let mut to_merge_item: Option<ItemId> = None;
         let mut floor_n = 0u32;
         loop {
@@ -679,10 +683,22 @@ impl GameWorld {
                         }
                     }
                 }
-                _ => break,
+                Cylinder::Tile { pos } => {
+                    // TFS `Tile::queryDestination` (`tile.cpp` ~735–830) — holes/stairs/ladders.
+                    let (dest, extra) = crate::walk::query_destination_chain(&self.map, pos);
+                    if extra & crate::walk::FLAG_NOLIMIT != 0 {
+                        flags = flags.union(CylinderFlags::NO_LIMIT);
+                    }
+                    to_merge_item = self
+                        .map
+                        .get_tile(dest)
+                        .and_then(|t| t.get_top_down_item());
+                    to = Cylinder::Tile { pos: dest };
+                    break;
+                }
             }
         }
-        Ok((to, to_merge_item))
+        Ok((to, to_merge_item, flags))
     }
 
     pub(crate) fn get_thing_index_in_container(

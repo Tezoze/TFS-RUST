@@ -51,13 +51,17 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             count,
             sub_type,
             ignore_equipped,
-        } => unsafe { &mut *world }.lua_script_remove_item(
-            creature_id,
-            item_type,
-            count,
-            sub_type,
-            ignore_equipped,
-        ),
+        } => {
+            let ok = unsafe { &mut *world }.lua_script_remove_item(
+                creature_id,
+                item_type,
+                count,
+                sub_type,
+                ignore_equipped,
+            )?;
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
         LuaMutation::PlayerGetDepotChest {
             creature_id,
             depot_id,
