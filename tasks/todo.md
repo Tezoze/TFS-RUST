@@ -1,3 +1,13 @@
+# Gap 3: missing Lua API methods — 2026-08-14
+
+Runtime verbs for tools scripts (`addSkillTries`, `getEffectiveSkillLevel`, `isPzLocked`, `getBottomCreature`, `Tile:addItem`, `getFluidType`, `Game.createItem`, `doTargetCombatHealth`, `Item.actionid`) plus `Tile:getGround` as Item userdata.
+
+- [x] ScriptContext reads + userdata methods
+- [x] `LuaMutation` + `game_world_lua_tools.rs` appliers (immediate)
+- [x] `doTargetCombat` + `doTargetCombatHealth` globals (no full compat)
+- [x] Tests: lua bindings + core `lua_script_*`
+- [x] Docs + lessons
+
 # Gap 4: `SKILL_*` + `actionIds.destroyableStone` — 2026-08-14
 
 Runtime: `fishing_rod.lua` reads `SKILL_FISHING`; `pick.lua` reads `actionIds.destroyableStone`. Both are currently `nil` (load already succeeds).

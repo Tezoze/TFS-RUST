@@ -46,6 +46,21 @@ pub enum SkillNr {
 }
 
 impl SkillNr {
+    /// TFS `skills_t` id (`enums.h` `SKILL_FIST`…`SKILL_FISHING`) → [`SkillNr`].
+    /// `SKILL_MAGLEVEL` / `SKILL_LEVEL` are not combat-skill indices (`None`).
+    pub fn from_tfs_skill_id(id: i32) -> Option<Self> {
+        match id {
+            0 => Some(Self::Fist),
+            1 => Some(Self::Club),
+            2 => Some(Self::Sword),
+            3 => Some(Self::Axe),
+            4 => Some(Self::Distance),
+            5 => Some(Self::Shielding),
+            6 => Some(Self::Fishing),
+            _ => None,
+        }
+    }
+
     /// C++ `WeaponTypeToSkill` — `crcombat.cc:150-162`.
     pub fn from_weapon_type(weapon_type: u8) -> Self {
         match weapon_type {
@@ -616,6 +631,8 @@ mod tests {
         );
         assert_eq!(SkillNr::from_weapon_type(WEAPON_AMMO), SkillNr::Distance);
         assert_eq!(SkillNr::from_weapon_type(WEAPON_NONE), SkillNr::Fist);
+        assert_eq!(SkillNr::from_tfs_skill_id(6), Some(SkillNr::Fishing));
+        assert_eq!(SkillNr::from_tfs_skill_id(7), None);
     }
 
     #[test]

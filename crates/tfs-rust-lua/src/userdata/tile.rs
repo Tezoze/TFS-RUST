@@ -7,6 +7,8 @@
 use mlua::{MetaMethod, UserData, UserDataMethods, Value};
 
 use crate::context::{CURRENT_CTX, CreatureRef, ItemRef};
+use crate::lua_mutation::call_lua_tile_add_item;
+use crate::userdata::item::parse_lua_item_type_id;
 use crate::userdata::position::PositionRef;
 
 /// Position-backed tile handle for Lua.
@@ -54,24 +56,21 @@ impl UserData for TileRef {
         });
 
         methods.add_method("getGround", |lua, this, ()| {
-            use crate::userdata::item_type::ItemTypeRef;
-            let typ = CURRENT_CTX.with(|c| {
+            let id = CURRENT_CTX.with(|c| {
                 let ptr =
                     (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
                 if ptr.is_null() {
                     return Err(mlua::Error::runtime("LuaContext not set"));
                 }
                 let ctx = unsafe { &*ptr };
-                Ok(ctx.tile_get_ground_type(this.x, this.y, this.z))
+                Ok(ctx.tile_get_ground_item(this.x, this.y, this.z))
             })?;
-            match typ {
-                Some(t) if t != 0 => {
-                    // Ground is stored as server type id (not SlotMap ItemId).
-                    // ItemTypeRef exposes `:getId()` used by magic_rope / levitate.
-                    let ud = lua.create_userdata(ItemTypeRef(t))?;
+            match id {
+                Some(iid) => {
+                    let ud = lua.create_userdata(ItemRef(iid))?;
                     Ok(Value::UserData(ud))
                 }
-                _ => Ok(Value::Nil),
+                None => Ok(Value::Nil),
             }
         });
 
@@ -150,6 +149,27 @@ impl UserData for TileRef {
                 t.set(i + 1, ud)?;
             }
             Ok(Value::Table(t))
+        });
+
+        // `tile:getBottomCreature()` — `luascript.cpp` `luaTileGetBottomCreature`.
+        // TFS `creatures->rbegin()` (oldest). Rust `push`s newest last → first entry.
+        methods.add_method("getBottomCreature", |lua, this, ()| {
+            let id = CURRENT_CTX.with(|c| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.tile_get_bottom_creature(this.x, this.y, this.z))
+            })?;
+            match id {
+                Some(cid) => {
+                    let ud = lua.create_userdata(CreatureRef(cid))?;
+                    Ok(Value::UserData(ud))
+                }
+                None => Ok(Value::Nil),
+            }
         });
 
         // `tile:getTopVisibleThing([creature])` — `luascript.cpp` `luaTileGetTopVisibleThing`.
@@ -322,6 +342,26 @@ impl UserData for TileRef {
             })
         });
 
+        // `tile:addItem(itemId[, count/subType = 1[, flags = 0]])` — `luaTileAddItem`.
+        methods.add_method(
+            "addItem",
+            |lua, this, (item_id, count, flags): (Value, Option<u32>, Option<u32>)| {
+                let Some(item_type) = parse_lua_item_type_id(item_id)? else {
+                    return Ok(Value::Nil);
+                };
+                let count = count.unwrap_or(1).min(u32::from(u16::MAX)) as u16;
+                let flags = flags.unwrap_or(0);
+                match call_lua_tile_add_item(this.x, this.y, this.z, item_type, count, flags) {
+                    Ok(Some(id)) => {
+                        let ud = lua.create_userdata(ItemRef(id))?;
+                        Ok(Value::UserData(ud))
+                    }
+                    Ok(None) => Ok(Value::Nil),
+                    Err(e) => Err(mlua::Error::runtime(e)),
+                }
+            },
+        );
+
         // Gap 7b — `__index` fallback so `tile:relocateTo(pos)` /
         // `tile:isCreature()` resolve methods defined as
         // `function Tile.relocateTo(self, ...)` in `data/lib/core/tile.lua`.
@@ -428,4 +468,77 @@ pub fn register_tile_constructor(lua: &mlua::Lua) -> Result<(), mlua::Error> {
     })?;
     crate::class_registry::register_class(lua, "Tile", Some(tile_new))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::with_lua_context;
+    use mlua::Lua;
+    use tfs_rust_common::{
+        ScriptContext, ScriptCreatureData, ScriptCreatureId, ScriptItemData, ScriptItemId,
+        ScriptItemRef,
+    };
+
+    struct TileCtx;
+
+    impl ScriptContext for TileCtx {
+        fn get_creature(&self, id: ScriptCreatureId) -> Option<ScriptCreatureData> {
+            (id == 7).then_some(ScriptCreatureData {
+                name: "Bottom".into(),
+                guid: 1,
+            })
+        }
+        fn get_item(&self, id: ScriptItemId) -> Option<ScriptItemRef> {
+            Some(ScriptItemRef(id))
+        }
+        fn get_config_string(&self, _: &str) -> Option<String> {
+            None
+        }
+        fn get_item_data(&self, _id: ScriptItemId) -> Option<ScriptItemData> {
+            Some(ScriptItemData {
+                item_type: 100,
+                count: 1,
+                weight: 0,
+                name: "grass".into(),
+                action_id: 4000,
+                unique_id: 0,
+                is_store_item: false,
+                fluid_type: 0,
+            })
+        }
+        fn tile_exists(&self, _: u16, _: u16, _: u8) -> bool {
+            true
+        }
+        fn tile_get_ground_item(&self, _: u16, _: u16, _: u8) -> Option<ScriptItemId> {
+            Some(11)
+        }
+        fn tile_get_creatures(&self, _: u16, _: u16, _: u8) -> Vec<ScriptCreatureId> {
+            vec![7, 8]
+        }
+    }
+
+    #[test]
+    fn get_ground_is_item_userdata_and_get_bottom_creature() {
+        let lua = Lua::new();
+        register_tile_constructor(&lua).expect("tile");
+        crate::userdata::register_item_metatable(&lua).expect("item");
+        crate::userdata::register_creature_metatable(&lua).expect("creature");
+
+        with_lua_context(&TileCtx, || {
+            let tile = lua
+                .create_userdata(TileRef { x: 1, y: 1, z: 7 })
+                .expect("tile ud");
+            lua.globals().set("t", tile).unwrap();
+
+            let aid: u16 = lua.load("return t:getGround():getActionId()").eval().unwrap();
+            assert_eq!(aid, 4000);
+
+            let name: String = lua
+                .load("return t:getBottomCreature():getName()")
+                .eval()
+                .unwrap();
+            assert_eq!(name, "Bottom");
+        });
+    }
 }

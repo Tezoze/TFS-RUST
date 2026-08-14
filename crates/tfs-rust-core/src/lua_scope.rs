@@ -325,6 +325,69 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             w.clear_field(item, exclude_cid);
             Ok(())
         }
+        LuaMutation::PlayerAddSkillTries {
+            creature_id,
+            skill,
+            tries,
+        } => {
+            let ok = unsafe { &mut *world }.lua_script_add_skill_tries(
+                creature_id,
+                skill,
+                tries,
+            )?;
+            if ok {
+                set_mutation_bool_result(true);
+            }
+            Ok(())
+        }
+        LuaMutation::TileAddItem {
+            x,
+            y,
+            z,
+            item_type,
+            count,
+            flags,
+        } => {
+            let result = unsafe { &mut *world }.lua_script_tile_add_item(
+                x, y, z, item_type, count, flags,
+            )?;
+            if let Some(id) = result {
+                set_mutation_item_result(id);
+            }
+            Ok(())
+        }
+        LuaMutation::GameCreateItem {
+            item_type,
+            count,
+            position,
+        } => {
+            let result = unsafe { &mut *world }.lua_script_game_create_item(
+                item_type, count, position,
+            )?;
+            if let Some(id) = result {
+                set_mutation_item_result(id);
+            }
+            Ok(())
+        }
+        LuaMutation::TargetCombatHealth {
+            attacker_id,
+            target_id,
+            combat_type,
+            damage_min,
+            damage_max,
+            effect,
+        } => {
+            let ok = unsafe { &mut *world }.lua_script_target_combat_health(
+                attacker_id,
+                target_id,
+                combat_type,
+                damage_min,
+                damage_max,
+                effect,
+            )?;
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
     }
 }
 

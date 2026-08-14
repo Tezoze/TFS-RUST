@@ -93,6 +93,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             action_id: item.action_id(),
             unique_id: u32::from(item.unique_id()),
             is_store_item: item.is_store_item(),
+            fluid_type: item.fluid_type(),
         })
     }
 
@@ -240,6 +241,34 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         let cid = self.resolve_creature_from_script(creature_id)?;
         self.creatures.get(cid).and_then(|k| match k {
             CreatureKind::Player(p) => Some(p.level),
+            _ => None,
+        })
+    }
+
+    /// `player:getEffectiveSkillLevel(skill)` — `luaPlayerGetEffectiveSkillLevel`.
+    fn get_player_effective_skill(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+        skill: i32,
+    ) -> Option<i32> {
+        let skill_nr = crate::player::combat::SkillNr::from_tfs_skill_id(skill)?;
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        self.creatures.get(cid).and_then(|k| match k {
+            CreatureKind::Player(p) => Some(p.skill_level_profile(skill_nr, &self.mechanics.profile)),
+            _ => None,
+        })
+    }
+
+    /// `player:isPzLocked()` — TFS `pzLocked`; 772 `earliest_protection_zone_round`.
+    fn player_is_pz_locked(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+    ) -> Option<bool> {
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        self.creatures.get(cid).and_then(|k| match k {
+            CreatureKind::Player(p) => {
+                Some(p.earliest_protection_zone_round > self.round_nr)
+            }
             _ => None,
         })
     }
@@ -943,6 +972,14 @@ impl tfs_rust_common::ScriptContext for GameWorld {
     fn tile_get_ground_type(&self, x: u16, y: u16, z: u8) -> Option<u16> {
         let pos = tfs_rust_common::Position { x, y, z };
         self.map.get_tile(pos).and_then(|t| t.body().ground)
+    }
+
+    fn tile_get_ground_item(&self, x: u16, y: u16, z: u8) -> Option<ScriptItemId> {
+        let pos = tfs_rust_common::Position { x, y, z };
+        self.map
+            .get_tile(pos)
+            .and_then(|t| t.body().ground_item)
+            .map(GameWorld::item_to_script_id)
     }
 
     fn tile_get_top_down_item(&self, x: u16, y: u16, z: u8) -> Option<ScriptItemId> {

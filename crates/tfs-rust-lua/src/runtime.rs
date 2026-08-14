@@ -182,6 +182,7 @@ impl LuaRuntime {
         register_spell_metatable(&lua).map_err(LuaError::Registration)?;
         crate::combat_enums::register_combat_enums(&lua).map_err(LuaError::Registration)?;
         register_do_challenge_creature(&lua).map_err(LuaError::Registration)?;
+        register_do_target_combat(&lua).map_err(LuaError::Registration)?;
 
         // NPC-1: NpcType / NpcDialogue definition builders (no GameWorld).
         register_npc_dialogue(&lua).map_err(LuaError::Registration)?;
@@ -1838,7 +1839,8 @@ end
 /// C++ `luascript.cpp` `luaGameGetWorldType` / `luaGameCreateMonster`.
 fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
     use crate::context::{CreatureRef, ItemRef};
-    use crate::lua_mutation::{call_clear_field, call_create_monster};
+    use crate::lua_mutation::{call_clear_field, call_create_monster, call_lua_game_create_item};
+    use crate::userdata::item::parse_lua_item_type_id;
     use crate::userdata::position::PositionRef;
     // `Game` is a class table (extensible by `function Game:method(...)` in
     // `data/lib/core/game.lua`) with no constructor — `register_class(_, None)`
@@ -1887,6 +1889,49 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
                 ) {
                     Ok(Some(id)) => {
                         let ud = lua.create_userdata(CreatureRef(id))?;
+                        Ok(Value::UserData(ud))
+                    }
+                    Ok(None) => Ok(Value::Nil),
+                    Err(e) => Err(mlua::Error::runtime(e)),
+                }
+            },
+        )?,
+    )?;
+    // `Game.createItem(itemId[, count[, position]])` — `luaGameCreateItem`.
+    game.set(
+        "createItem",
+        lua.create_function(
+            |lua, (item_id, count, pos): (Value, Option<u16>, Option<Value>)| {
+                let Some(item_type) = parse_lua_item_type_id(item_id)? else {
+                    return Ok(Value::Nil);
+                };
+                let count = count.unwrap_or(1);
+                let position = match pos {
+                    None | Some(Value::Nil) => None,
+                    Some(Value::UserData(ud)) => {
+                        if let Ok(p) = ud.borrow::<PositionRef>() {
+                            Some((p.x, p.y, p.z))
+                        } else {
+                            return Err(mlua::Error::runtime(
+                                "Game.createItem: position must be Position",
+                            ));
+                        }
+                    }
+                    Some(Value::Table(t)) => {
+                        let x: i64 = t.get("x").or_else(|_| t.get(1))?;
+                        let y: i64 = t.get("y").or_else(|_| t.get(2))?;
+                        let z: i64 = t.get("z").or_else(|_| t.get(3))?;
+                        Some((x as u16, y as u16, z as u8))
+                    }
+                    Some(_) => {
+                        return Err(mlua::Error::runtime(
+                            "Game.createItem: expected Position or table",
+                        ));
+                    }
+                };
+                match call_lua_game_create_item(item_type, count, position) {
+                    Ok(Some(id)) => {
+                        let ud = lua.create_userdata(ItemRef(id))?;
                         Ok(Value::UserData(ud))
                     }
                     Ok(None) => Ok(Value::Nil),
@@ -1949,6 +1994,58 @@ fn register_do_challenge_creature(lua: &Lua) -> Result<(), mlua::Error> {
             .map_err(mlua::Error::runtime)
     })?;
     lua.globals().set("doChallengeCreature", f)?;
+    Ok(())
+}
+
+/// `doTargetCombat` / `doTargetCombatHealth` — TFS `luaDoTargetCombat`.
+/// Compat aliases Health → Combat (`compat.lua:314`); we register both, no full compat load.
+fn register_do_target_combat(lua: &Lua) -> Result<(), mlua::Error> {
+    use crate::context::CreatureRef;
+    use crate::lua_mutation::call_do_target_combat_health;
+
+    let f = lua.create_function(
+        |_,
+         (attacker, target, combat_type, min, max, effect): (
+            Value,
+            Value,
+            i32,
+            i32,
+            i32,
+            Option<i32>,
+        )| {
+            let attacker_id = match attacker {
+                Value::Nil | Value::Integer(0) => None,
+                Value::Number(0.0) => None,
+                Value::UserData(ud) => Some(ud.borrow::<CreatureRef>()?.0),
+                Value::Integer(i) if i > 0 => Some(i as u64),
+                Value::Number(n) if n > 0.0 => Some(n as u64),
+                _ => {
+                    return Err(mlua::Error::runtime(
+                        "doTargetCombat: attacker must be Creature userdata or 0",
+                    ));
+                }
+            };
+            let target_id = match target {
+                Value::UserData(ud) => ud.borrow::<CreatureRef>()?.0,
+                _ => {
+                    return Err(mlua::Error::runtime(
+                        "doTargetCombat: target must be Creature userdata",
+                    ));
+                }
+            };
+            call_do_target_combat_health(
+                attacker_id,
+                target_id,
+                combat_type,
+                min,
+                max,
+                effect.unwrap_or(0),
+            )
+            .map_err(mlua::Error::runtime)
+        },
+    )?;
+    lua.globals().set("doTargetCombat", f.clone())?;
+    lua.globals().set("doTargetCombatHealth", f)?;
     Ok(())
 }
 

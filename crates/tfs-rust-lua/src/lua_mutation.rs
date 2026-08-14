@@ -244,6 +244,40 @@ pub enum LuaMutation {
         exclude_item_id: u64,
         exclude_creature_id: Option<u64>,
     },
+    /// `player:addSkillTries(skill, tries)` — `luascript.cpp` `luaPlayerAddSkillTries`
+    /// → `Player::addSkillAdvance`. Does **not** apply `rateSkill` (the data-pack
+    /// wrapper sets `APPLY_SKILL_MULTIPLIER = false`).
+    PlayerAddSkillTries {
+        creature_id: u64,
+        skill: i32,
+        tries: u64,
+    },
+    /// `tile:addItem(itemId[, count[, flags]])` — `luascript.cpp` `luaTileAddItem`.
+    TileAddItem {
+        x: u16,
+        y: u16,
+        z: u8,
+        item_type: u16,
+        count: u16,
+        flags: u32,
+    },
+    /// `Game.createItem(itemId[, count[, position]])` — `luascript.cpp` `luaGameCreateItem`.
+    /// `position = None` leaves the item detached (virtual cylinder).
+    GameCreateItem {
+        item_type: u16,
+        count: u16,
+        position: Option<(u16, u16, u8)>,
+    },
+    /// `doTargetCombat` / `doTargetCombatHealth` — `luascript.cpp` `luaDoTargetCombat`.
+    /// Single-target only; `attacker_id = None` is environment damage (`cid == 0`).
+    TargetCombatHealth {
+        attacker_id: Option<u64>,
+        target_id: u64,
+        combat_type: i32,
+        damage_min: i32,
+        damage_max: i32,
+        effect: i32,
+    },
 }
 
 /// Snapshot of a Lua `ConditionBuilder` for the mutation / combat-execute seam.
@@ -796,4 +830,73 @@ pub fn call_clear_field(
         exclude_item_id,
         exclude_creature_id,
     })
+}
+
+/// `player:addSkillTries(skill, tries)` — `luaPlayerAddSkillTries`.
+/// `true` when the player exists, `None` → Lua `nil`.
+pub fn call_lua_add_skill_tries(
+    creature_id: u64,
+    skill: i32,
+    tries: u64,
+) -> Result<Option<bool>, String> {
+    apply_mutation(LuaMutation::PlayerAddSkillTries {
+        creature_id,
+        skill,
+        tries,
+    })?;
+    Ok(take_mutation_bool_result())
+}
+
+/// `tile:addItem(itemId[, count[, flags]])` — `luaTileAddItem`.
+pub fn call_lua_tile_add_item(
+    x: u16,
+    y: u16,
+    z: u8,
+    item_type: u16,
+    count: u16,
+    flags: u32,
+) -> Result<Option<u64>, String> {
+    apply_mutation(LuaMutation::TileAddItem {
+        x,
+        y,
+        z,
+        item_type,
+        count,
+        flags,
+    })?;
+    Ok(take_mutation_item_result())
+}
+
+/// `Game.createItem(itemId[, count[, position]])` — `luaGameCreateItem`.
+pub fn call_lua_game_create_item(
+    item_type: u16,
+    count: u16,
+    position: Option<(u16, u16, u8)>,
+) -> Result<Option<u64>, String> {
+    apply_mutation(LuaMutation::GameCreateItem {
+        item_type,
+        count,
+        position,
+    })?;
+    Ok(take_mutation_item_result())
+}
+
+/// `doTargetCombat` / `doTargetCombatHealth` — `luaDoTargetCombat`.
+pub fn call_do_target_combat_health(
+    attacker_id: Option<u64>,
+    target_id: u64,
+    combat_type: i32,
+    damage_min: i32,
+    damage_max: i32,
+    effect: i32,
+) -> Result<bool, String> {
+    apply_mutation(LuaMutation::TargetCombatHealth {
+        attacker_id,
+        target_id,
+        combat_type,
+        damage_min,
+        damage_max,
+        effect,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
 }

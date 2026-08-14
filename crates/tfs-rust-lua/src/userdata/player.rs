@@ -10,7 +10,7 @@ use crate::lua_mutation::{
     call_lua_add_condition, call_lua_add_item, call_lua_add_item_full, call_lua_add_mana,
     call_lua_add_mana_spent, call_lua_feed, call_lua_get_depot_chest, call_lua_get_depot_locker,
     call_lua_get_inbox, call_lua_remove_condition, call_lua_remove_item,
-    call_lua_send_cancel_message, call_lua_set_in_fight,
+    call_lua_send_cancel_message, call_lua_set_in_fight, call_lua_add_skill_tries,
 };
 use crate::userdata::container::ContainerRef;
 use crate::userdata::group::GroupRef;
@@ -63,6 +63,17 @@ impl UserData for CreatureRef {
                 ctx.get_player_level(this.0)
                     .ok_or_else(|| mlua::Error::runtime("player not found"))
             })
+        });
+
+        // `player:getEffectiveSkillLevel(skillType)` — `luaPlayerGetEffectiveSkillLevel`.
+        // `nil` when missing player or skill > `SKILL_FISHING`.
+        methods.add_method("getEffectiveSkillLevel", |_, this, skill: i32| {
+            with_ctx(|ctx| Ok(ctx.get_player_effective_skill(this.0, skill)))
+        });
+
+        // `player:isPzLocked()` — `luaPlayerIsPzLocked`. 772: protection-zone lock round.
+        methods.add_method("isPzLocked", |_, this, ()| {
+            with_ctx(|ctx| Ok(ctx.player_is_pz_locked(this.0)))
         });
 
         // `player:getMurderTimestamps()` — TVP / kills.lua unjust history.
@@ -264,6 +275,16 @@ impl UserData for CreatureRef {
         methods.add_method("addManaSpent", |_, this, amount: u64| {
             call_lua_add_mana_spent(this.0, amount).map_err(mlua::Error::runtime)?;
             Ok(true)
+        });
+
+        // `player:addSkillTries(skillType, tries)` — `luaPlayerAddSkillTries`.
+        // Returns `true` / `nil` like C++. Does not apply `rateSkill` (wrapper in player.lua).
+        methods.add_method("addSkillTries", |_, this, (skill, tries): (i32, u64)| {
+            match call_lua_add_skill_tries(this.0, skill, tries) {
+                Ok(Some(true)) => Ok(Value::Boolean(true)),
+                Ok(_) => Ok(Value::Nil),
+                Err(e) => Err(mlua::Error::runtime(e)),
+            }
         });
 
         // `player:getAccountType()` — `accounts.type` tier (`enums.h:80-85`).
@@ -946,6 +967,14 @@ mod tests {
             (id == GM_CID).then_some(GM_LEVEL)
         }
 
+        fn get_player_effective_skill(&self, id: ScriptCreatureId, skill: i32) -> Option<i32> {
+            (id == GM_CID && (0..=6).contains(&skill)).then_some(10)
+        }
+
+        fn player_is_pz_locked(&self, id: ScriptCreatureId) -> Option<bool> {
+            (id == GM_CID).then_some(false)
+        }
+
         fn get_player_account_type(&self, id: ScriptCreatureId) -> Option<u8> {
             (id == GM_CID).then_some(GM_ACCOUNT_TYPE)
         }
@@ -997,6 +1026,18 @@ mod tests {
                 .eval()
                 .expect("getLevel");
             assert_eq!(level, GM_LEVEL);
+
+            let fishing: Option<i32> = lua
+                .load("return player:getEffectiveSkillLevel(6)")
+                .eval()
+                .expect("getEffectiveSkillLevel");
+            assert_eq!(fishing, Some(10));
+
+            let pz: Option<bool> = lua
+                .load("return player:isPzLocked()")
+                .eval()
+                .expect("isPzLocked");
+            assert_eq!(pz, Some(false));
 
             // getAccountType
             let atype: i32 = lua

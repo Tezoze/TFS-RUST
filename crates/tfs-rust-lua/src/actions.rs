@@ -688,6 +688,49 @@ mod tests {
         );
     }
 
+    /// Gap 3: engine verbs used by tools scripts are registered on the shipped VM.
+    #[test]
+    fn gap3_tool_lua_verbs_are_registered() {
+        use crate::context::CreatureRef;
+
+        let runtime = LuaRuntime::new().expect("runtime init");
+        let lua = &runtime.lua;
+        let create: String = lua
+            .load("return type(Game.createItem)")
+            .eval()
+            .expect("Game.createItem");
+        assert_eq!(create, "function");
+        let health: String = lua
+            .load("return type(doTargetCombatHealth)")
+            .eval()
+            .expect("doTargetCombatHealth");
+        assert_eq!(health, "function");
+        let combat: String = lua
+            .load("return type(doTargetCombat)")
+            .eval()
+            .expect("doTargetCombat");
+        assert_eq!(combat, "function");
+
+        let p = lua.create_userdata(CreatureRef(1)).expect("player");
+        lua.globals().set("p", p).unwrap();
+        let tries: String = lua
+            .load("return type(p.addSkillTries)")
+            .eval()
+            .expect("addSkillTries");
+        assert_eq!(tries, "function");
+        let tile = lua
+            .create_userdata(crate::userdata::tile::TileRef { x: 1, y: 1, z: 7 })
+            .expect("tile");
+        lua.globals().set("t", tile).unwrap();
+        let add: String = lua.load("return type(t.addItem)").eval().expect("addItem");
+        assert_eq!(add, "function");
+        let bottom: String = lua
+            .load("return type(t.getBottomCreature)")
+            .eval()
+            .expect("getBottomCreature");
+        assert_eq!(bottom, "function");
+    }
+
     /// Gap 1: `Action:allowFarUse(bool)` stores `_allow_far_use` and drains onto
     /// `PendingAction` / `ActionDef`. Default is `false` (C++ `Action` ctor).
     #[test]

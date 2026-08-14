@@ -18,6 +18,19 @@ pub fn register_item_metatable(lua: &mlua::Lua) -> Result<(), mlua::Error> {
     lua.register_userdata_type::<ItemRef>(|_registry| {})
 }
 
+/// Resolve a Lua item-id argument — number or name (`luaGameCreateItem` / `luaTileAddItem`).
+pub(crate) fn parse_lua_item_type_id(value: Value) -> Result<Option<u16>, mlua::Error> {
+    match value {
+        Value::Integer(n) if n > 0 && n <= i64::from(u16::MAX) => Ok(Some(n as u16)),
+        Value::Number(n) if n > 0.0 && n <= f64::from(u16::MAX) => Ok(Some(n as u16)),
+        Value::String(s) => {
+            let name = s.to_str()?.to_owned();
+            Ok(crate::context::current_ctx(|ctx| ctx.get_item_type_id_by_name(&name)).flatten())
+        }
+        _ => Ok(None),
+    }
+}
+
 fn with_ctx<F, R>(f: F) -> Result<R, mlua::Error>
 where
     F: FnOnce(&dyn LuaContext) -> Result<R, mlua::Error>,
@@ -90,6 +103,11 @@ impl UserData for ItemRef {
                     .unwrap_or(0))
             })
         });
+        // TFS compat `item.actionid` → `Item:getActionId()` (`compat.lua` ItemIndex).
+        // Gap 3: `functions.lua` reads `ground.actionid` / `target.actionid`.
+        fields.add_field_method_get("actionid", |_, this| {
+            with_ctx(|ctx| Ok(ctx.get_item_data(this.0).map(|d| d.action_id).unwrap_or(0)))
+        });
         // TFS compat `item.uid` → `Item:getUniqueId()` (`compat.lua` ItemIndex).
         fields.add_field_method_get("uid", |_, this| {
             with_ctx(|ctx| Ok(ctx.get_item_data(this.0).map(|d| d.unique_id).unwrap_or(0)))
@@ -149,6 +167,12 @@ impl UserData for ItemRef {
 
         methods.add_method("getActionId", |_, this, ()| {
             with_ctx(|ctx| Ok(ctx.get_item_data(this.0).map(|d| d.action_id).unwrap_or(0)))
+        });
+
+        // `item:getFluidType()` — `luascript.cpp` `luaItemGetFluidType`.
+        // `Tile.relocateTo` (`lib/core/tile.lua`) skips splash/fluid items via this.
+        methods.add_method("getFluidType", |_, this, ()| {
+            with_ctx(|ctx| Ok(ctx.get_item_data(this.0).map(|d| d.fluid_type).unwrap_or(0)))
         });
 
         methods.add_method("setActionId", |_, this, action_id: u16| {
@@ -421,9 +445,10 @@ mod tests {
                 count: 1,
                 weight: 0,
                 name: "test".into(),
-                action_id: 0,
+                action_id: if id == 1 { 4004 } else { 0 },
                 unique_id: 0,
                 is_store_item: false,
+                fluid_type: if id == 1 { 5 } else { 0 },
             })
         }
         fn item_has_custom_attribute(&self, _: ScriptItemId, key: &str) -> bool {
@@ -493,6 +518,12 @@ mod tests {
 
             let itemid: u16 = lua.load("return door.itemid").eval().unwrap();
             assert_eq!(itemid, 1209);
+
+            let aid: u16 = lua.load("return door.actionid").eval().unwrap();
+            assert_eq!(aid, 4004);
+
+            let fluid: u16 = lua.load("return door:getFluidType()").eval().unwrap();
+            assert_eq!(fluid, 5);
 
             let top_is_item: bool = lua
                 .load("return Tile(100, 100, 7):getTopVisibleThing():isItem()")

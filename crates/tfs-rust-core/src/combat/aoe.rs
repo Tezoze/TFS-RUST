@@ -191,7 +191,7 @@ impl GameWorld {
 
 /// Map a Lua `COMBAT_*` bit-flag value to the Rust `CombatType` enum.
 /// Mirrors `CombatDef::resolved_combat_type` in `tfs-rust-lua/src/userdata/combat.rs`.
-fn combat_type_from_lua(value: i32) -> CombatType {
+pub(crate) fn combat_type_from_lua(value: i32) -> CombatType {
     match value {
         0 => CombatType::Undefined, // COMBAT_NONE — condition/FX-only (utevo lux, haste, …)
         1 => CombatType::Physical,

@@ -27,6 +27,8 @@ pub struct ScriptItemData {
     pub action_id: u16,
     pub unique_id: u32,
     pub is_store_item: bool,
+    /// `item:getFluidType()` — `Item::getFluidType` (`item.h`).
+    pub fluid_type: u16,
 }
 
 /// ID handle wrapper for creatures passed to Lua userdata.
@@ -230,6 +232,26 @@ pub trait ScriptContext {
     /// `player:getLevel()` — `Player::getLevel` (`player.h`). LUA-2 read used by
     /// channel `onSpeak` gating (e.g. advertising.lua level-1 cancel).
     fn get_player_level(&self, creature_id: ScriptCreatureId) -> Option<i32> {
+        let _ = creature_id;
+        None
+    }
+
+    /// `player:getEffectiveSkillLevel(skill)` — `luaPlayerGetEffectiveSkillLevel`
+    /// → `Player::getSkillLevel` (`player.h`). `skill` is TFS `skills_t` (0–6).
+    /// `None` when the creature is not a player or `skill` is out of range.
+    fn get_player_effective_skill(
+        &self,
+        creature_id: ScriptCreatureId,
+        skill: i32,
+    ) -> Option<i32> {
+        let _ = (creature_id, skill);
+        None
+    }
+
+    /// `player:isPzLocked()` — TFS `Player::isPzLocked` (`player.h`).
+    /// 772 outcome: `earliest_protection_zone_round > round_nr`.
+    /// `None` when the creature is not a player (Lua `nil`).
+    fn player_is_pz_locked(&self, creature_id: ScriptCreatureId) -> Option<bool> {
         let _ = creature_id;
         None
     }
@@ -591,8 +613,14 @@ pub trait ScriptContext {
         false
     }
 
-    /// `tile:getGround()` — ground **server item type** id (map stores type, not SlotMap key).
+    /// Ground **server item type** id (`TileBody.ground`) — map speed / flags.
     fn tile_get_ground_type(&self, x: u16, y: u16, z: u8) -> Option<u16> {
+        let _ = (x, y, z);
+        None
+    }
+
+    /// `tile:getGround()` — SlotMap ground item (`luaTileGetGround` returns Item userdata).
+    fn tile_get_ground_item(&self, x: u16, y: u16, z: u8) -> Option<ScriptItemId> {
         let _ = (x, y, z);
         None
     }
@@ -613,6 +641,12 @@ pub trait ScriptContext {
     fn tile_get_creatures(&self, x: u16, y: u16, z: u8) -> Vec<ScriptCreatureId> {
         let _ = (x, y, z);
         Vec::new()
+    }
+
+    /// `tile:getBottomCreature()` — `luaTileGetBottomCreature` → TFS `creatures->rbegin()`.
+    /// Rust `push`s newest last, so the oldest (first) creature is the bottom.
+    fn tile_get_bottom_creature(&self, x: u16, y: u16, z: u8) -> Option<ScriptCreatureId> {
+        self.tile_get_creatures(x, y, z).first().copied()
     }
 
     /// `tile:getCreatureCount()` — `Tile::getCreatureCount`.
