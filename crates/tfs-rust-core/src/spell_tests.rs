@@ -8,8 +8,8 @@ use crate::creature::PlayerInventory;
 use crate::creature::PlayerSkills;
 use crate::creature::PlayerSocial;
 use crate::creature::{CreatureBase, Outfit};
-use tfs_rust_common::enums::{Direction, SkullType};
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::{Direction, SkullType};
 
 fn minimal_player(next_action_until: Option<u64>) -> Player {
     Player {
@@ -52,7 +52,7 @@ fn minimal_player(next_action_until: Option<u64>) -> Player {
             fire_damage_origin: None,
             energy_damage_origin: None,
             earliest_attack_ms: 0,
-        latest_attack_round: 0,
+            latest_attack_round: 0,
             earliest_defend_ms: 0,
             last_defend_ms: 0,
             learning_points: 0,
@@ -135,7 +135,7 @@ fn minimal_player(next_action_until: Option<u64>) -> Player {
         attack_mode: Default::default(),
         secure_mode: false,
         earliest_protection_zone_round: 0,
-            client_icons: 0,
+        client_icons: 0,
         message_buffer_count: 0,
         message_buffer_ticks: 0,
         blessings: 0,

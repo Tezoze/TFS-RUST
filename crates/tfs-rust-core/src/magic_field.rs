@@ -5,8 +5,8 @@
 //! Outcomes: 772 `DAMAGE_*_PERIODIC` → burning/poison/energy timers (`crmain.cc:582-612`,
 //! `crskill.cc` TSkillBurning/Poison/Energy); field kind from items.xml `field` attr.
 
-use tfs_rust_common::enums::CombatType;
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::CombatType;
 use tfs_rust_content::items::FieldDamageType;
 
 use crate::combat::{CombatDamage, CombatParams};
@@ -113,7 +113,8 @@ impl GameWorld {
                 primary: (instant_combat, -(init_damage)),
                 secondary: (CombatType::Undefined, 0),
             };
-            let damage_done = self.combat_execute_with_stimulus(None, target, &damage, &CombatParams::default());
+            let damage_done =
+                self.combat_execute_with_stimulus(None, target, &damage, &CombatParams::default());
             // M2 — `damage_done` is the real `Damage` scalar (includes mana-shield absorb).
             if let Some(snap) = snap {
                 self.notify_player_combat_damage(None, target, damage_done, instant_combat, snap);

@@ -9,9 +9,14 @@ fn firefield_xml_nested_attrs() {
     let it = db.items.get(&1487).expect("1487");
     assert!(it.is_magic_field());
     assert!(!it.is_cip_priority_bottom());
-    assert_eq!(it.xml_attributes.get("field").map(String::as_str), Some("fire"));
     assert_eq!(
-        it.xml_attributes.get("field.initdamage").map(String::as_str),
+        it.xml_attributes.get("field").map(String::as_str),
+        Some("fire")
+    );
+    assert_eq!(
+        it.xml_attributes
+            .get("field.initdamage")
+            .map(String::as_str),
         Some("20")
     );
     assert_eq!(

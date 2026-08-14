@@ -2,9 +2,9 @@
 
 use tfs_rust_content::npcs::{DialogueAction, DialogueProgram, SessionVar};
 
-use super::actions::{log_action_failure, ActionFailCtx, NpcActionHost};
+use super::actions::{ActionFailCtx, NpcActionHost, log_action_failure};
 use super::events::{DialogueEvent, DialogueSituationKind, DialogueTrace, MutateOp, TodoOp};
-use super::expr::{format_npc_response, EvalContext};
+use super::expr::{EvalContext, format_npc_response};
 use super::match_rule::{MatchCaptures, RuleMatch};
 use crate::formulas::NpcTuning;
 use crate::ids::CreatureId;

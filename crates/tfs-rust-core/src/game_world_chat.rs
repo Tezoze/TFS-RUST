@@ -13,9 +13,9 @@
 
 use std::time::Instant;
 
+use tfs_rust_common::ConnId;
 use tfs_rust_common::enums::ConditionType;
 use tfs_rust_common::enums::WorldType;
-use tfs_rust_common::ConnId;
 
 use crate::combat::apply_condition;
 use crate::condition::{ActiveCondition, ConditionData};
@@ -24,14 +24,14 @@ use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::player::flags::{
-    PLAYER_FLAG_CANNOT_BE_MUTED, PLAYER_FLAG_CANNOT_USE_SPELLS, PLAYER_FLAG_CAN_BROADCAST,
-    PLAYER_FLAG_CAN_TALK_RED_PRIVATE, PLAYER_FLAG_HAS_INFINITE_MANA, PLAYER_FLAG_HAS_INFINITE_SOUL,
+    PLAYER_FLAG_CAN_BROADCAST, PLAYER_FLAG_CAN_TALK_RED_PRIVATE, PLAYER_FLAG_CANNOT_BE_MUTED,
+    PLAYER_FLAG_CANNOT_USE_SPELLS, PLAYER_FLAG_HAS_INFINITE_MANA, PLAYER_FLAG_HAS_INFINITE_SOUL,
     PLAYER_FLAG_HAS_NO_EXHAUSTION, PLAYER_FLAG_IGNORE_SPELL_CHECK,
 };
 use crate::return_value::ReturnValue;
-use tfs_rust_net::outgoing_extra;
 use tfs_rust_net::ChannelOpenWire;
 use tfs_rust_net::CreatePrivateChannelWire;
+use tfs_rust_net::outgoing_extra;
 use tfs_rust_net::{PrivateMessageWire, ToChannelWire};
 
 /// `SpeakClasses` byte values — `gameserver/src/const.h:61-77`.
@@ -270,11 +270,7 @@ impl GameWorld {
                         CreatureKind::Player(p) => p.persist.as_ref(),
                         _ => None,
                     })
-                    .is_some_and(|b| {
-                        b.spells
-                            .iter()
-                            .any(|s| s.eq_ignore_ascii_case(&spell.name))
-                    });
+                    .is_some_and(|b| b.spells.iter().any(|s| s.eq_ignore_ascii_case(&spell.name)));
                 if !learned {
                     self.send_spell_fail(cid, ReturnValue::YouNeedToLearnThisSpell);
                     return true;
@@ -327,9 +323,10 @@ impl GameWorld {
                     .get(cid)
                     .map(|k| k.position())
                     .unwrap_or_default();
-                let in_pz = self.map.get_tile(player_pos).is_some_and(|t| {
-                    t.body().zone == tfs_rust_common::enums::ZoneType::Protection
-                });
+                let in_pz = self
+                    .map
+                    .get_tile(player_pos)
+                    .is_some_and(|t| t.body().zone == tfs_rust_common::enums::ZoneType::Protection);
                 if in_pz {
                     self.send_spell_fail(cid, ReturnValue::ActionNotPermittedInProtectionZone);
                     return true;
@@ -1288,8 +1285,7 @@ impl GameWorld {
             let base = kind.base_mut();
             let before = base.active_conditions.len();
             if sub_id == 0 {
-                base.active_conditions
-                    .retain(|c| c.ctype != rust_ctype);
+                base.active_conditions.retain(|c| c.ctype != rust_ctype);
             } else {
                 base.active_conditions
                     .retain(|c| !(c.ctype == rust_ctype && c.sub_id == sub_id));
@@ -1567,11 +1563,7 @@ pub(crate) fn active_condition_from_apply_spec(
         ),
         ConditionType::Poison => {
             // 772 `SetTimer(SKILL_POISON, Damage, 3, 3, -1)` — `crmain.cc:589`.
-            let rank = if spec.cycle != 0 {
-                spec.cycle.abs()
-            } else {
-                1
-            };
+            let rank = if spec.cycle != 0 { spec.cycle.abs() } else { 1 };
             let interval = if spec.max_count > 0 {
                 spec.max_count
             } else if spec.count > 0 {
@@ -1580,7 +1572,10 @@ pub(crate) fn active_condition_from_apply_spec(
                 3
             };
             (
-                ConditionData::Damage { total_rank: rank, factor_percent: 50 },
+                ConditionData::Damage {
+                    total_rank: rank,
+                    factor_percent: 50,
+                },
                 Some(rank),
                 interval,
                 interval,
@@ -1605,7 +1600,10 @@ pub(crate) fn active_condition_from_apply_spec(
             };
             let rank = spec.cycle.abs();
             let data = if rank > 0 {
-                ConditionData::Damage { total_rank: rank, factor_percent: 0 }
+                ConditionData::Damage {
+                    total_rank: rank,
+                    factor_percent: 0,
+                }
             } else {
                 ConditionData::Generic { ticks: spec.ticks }
             };
@@ -1766,7 +1764,13 @@ mod apply_spec_tests {
         };
         let cond = active_condition_from_apply_spec(&spec);
         assert_eq!(cond.ctype, ConditionType::Poison);
-        assert_eq!(cond.data, ConditionData::Damage { total_rank: 40, factor_percent: 50 });
+        assert_eq!(
+            cond.data,
+            ConditionData::Damage {
+                total_rank: 40,
+                factor_percent: 50
+            }
+        );
     }
 
     #[test]
@@ -1777,8 +1781,8 @@ mod apply_spec_tests {
 
     #[test]
     fn spell_exhaust_delay_uses_cooldown_or_world_default() {
-        use tfs_rust_common::enums::WorldType;
         use crate::sim_harness::beat_driven_test_world;
+        use tfs_rust_common::enums::WorldType;
 
         let mut world = beat_driven_test_world();
         world.pvp_config.world_type = WorldType::Pvp;
@@ -1794,12 +1798,12 @@ mod apply_spec_tests {
 
     #[test]
     fn player_say_spell_applies_earliest_spell_time() {
+        use crate::sim_harness::{
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
+            insert_spectator_player, test_player,
+        };
         use tfs_rust_common::Position;
         use tfs_rust_content::spells::InstantSpellDef;
-        use crate::sim_harness::{
-            beat_driven_test_world, ensure_walkable_tile, insert_spectator_player, test_player,
-            TEST_SYNTHETIC_GROUND_WP,
-        };
 
         let mut world = beat_driven_test_world();
         world.server_ms = 5_000;
@@ -1864,12 +1868,12 @@ mod apply_spec_tests {
 
     #[test]
     fn player_say_spell_group_cooldown_blocks_same_group() {
+        use crate::sim_harness::{
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_player,
+            test_player,
+        };
         use tfs_rust_common::Position;
         use tfs_rust_content::spells::InstantSpellDef;
-        use crate::sim_harness::{
-            beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
-            TEST_SYNTHETIC_GROUND_WP,
-        };
 
         let mut world = beat_driven_test_world();
         world.server_ms = 1_000;
@@ -1924,12 +1928,12 @@ mod apply_spec_tests {
 
     #[test]
     fn aggressive_spell_does_not_pz_lock_without_player_target() {
+        use crate::sim_harness::{
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_player,
+            test_player,
+        };
         use tfs_rust_common::Position;
         use tfs_rust_content::spells::InstantSpellDef;
-        use crate::sim_harness::{
-            beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
-            TEST_SYNTHETIC_GROUND_WP,
-        };
 
         // 772 `CastSpell` → `BlockLogout(60, false)` (`magic.cc:3636-3638`).
         let mut world = beat_driven_test_world();
@@ -1976,12 +1980,12 @@ mod apply_spec_tests {
 
     #[test]
     fn rune_exhaust_cst_false_only_multiuse() {
+        use crate::sim_harness::{
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_player,
+            test_player,
+        };
         use tfs_rust_common::Position;
         use tfs_rust_content::spells::RuneSpellDef;
-        use crate::sim_harness::{
-            beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
-            TEST_SYNTHETIC_GROUND_WP,
-        };
 
         let mut world = beat_driven_test_world();
         world.server_ms = 3_000;
@@ -2004,12 +2008,12 @@ mod apply_spec_tests {
 
     #[test]
     fn rune_exhaust_cst_true_bumps_spell_clock() {
+        use crate::sim_harness::{
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_player,
+            test_player,
+        };
         use tfs_rust_common::Position;
         use tfs_rust_content::spells::RuneSpellDef;
-        use crate::sim_harness::{
-            beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
-            TEST_SYNTHETIC_GROUND_WP,
-        };
 
         let mut world = beat_driven_test_world();
         world.server_ms = 3_000;

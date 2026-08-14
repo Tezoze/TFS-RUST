@@ -1,14 +1,14 @@
 //! [`NpcActionHost`] implementation on [`GameWorld`] (NPC-5).
 
 use slotmap::Key;
-use tfs_rust_common::enums::{ConditionType, WorldType};
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::{ConditionType, WorldType};
 
 use super::actions::NpcActionHost;
 use crate::combat::apply_condition;
 use crate::condition::{ActiveCondition, ConditionData};
-use crate::creature::vocation::VocationProfile;
 use crate::creature::CreatureKind;
+use crate::creature::vocation::VocationProfile;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 

@@ -5,7 +5,7 @@
 
 use std::time::{Duration, Instant};
 
-use tfs_rust_common::{ConnId, CLIENTOS_OTCLIENT_LINUX};
+use tfs_rust_common::{CLIENTOS_OTCLIENT_LINUX, ConnId};
 use tfs_rust_net::outgoing::send_ping_back;
 
 use crate::creature::CreatureKind;

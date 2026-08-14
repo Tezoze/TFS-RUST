@@ -1,8 +1,8 @@
 //! Regression tests for inventory / container parity gaps (Phase 1–2 audit).
 
 use slotmap::SlotMap;
-use tfs_rust_common::enums::ZoneType;
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::ZoneType;
 use tfs_rust_core::house::HouseManager;
 use tfs_rust_core::ids::ItemId;
 use tfs_rust_core::map::Map;

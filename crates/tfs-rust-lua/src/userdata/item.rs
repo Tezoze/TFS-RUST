@@ -286,65 +286,61 @@ impl UserData for ItemRef {
 
         // `item:hasAttribute(key)` — `luascript.cpp` `luaItemHasAttribute`.
         // Number = TFS bitflag; string = Remere custom attr (`keynumber`, …).
-        methods.add_method("hasAttribute", |_, this, key: Value| {
-            match key {
-                Value::Nil => Ok(false),
-                Value::Integer(n) => {
-                    let attr_bits = n as u32;
-                    if attr_bits == 0 {
-                        return Ok(false);
-                    }
-                    with_ctx(|ctx| Ok(ctx.item_has_attribute(this.0, attr_bits)))
+        methods.add_method("hasAttribute", |_, this, key: Value| match key {
+            Value::Nil => Ok(false),
+            Value::Integer(n) => {
+                let attr_bits = n as u32;
+                if attr_bits == 0 {
+                    return Ok(false);
                 }
-                Value::Number(n) => {
-                    let attr_bits = n as u32;
-                    if attr_bits == 0 {
-                        return Ok(false);
-                    }
-                    with_ctx(|ctx| Ok(ctx.item_has_attribute(this.0, attr_bits)))
-                }
-                Value::String(s) => {
-                    let key = s.to_str()?.to_string();
-                    with_ctx(|ctx| Ok(ctx.item_has_custom_attribute(this.0, &key)))
-                }
-                _ => Ok(false),
+                with_ctx(|ctx| Ok(ctx.item_has_attribute(this.0, attr_bits)))
             }
+            Value::Number(n) => {
+                let attr_bits = n as u32;
+                if attr_bits == 0 {
+                    return Ok(false);
+                }
+                with_ctx(|ctx| Ok(ctx.item_has_attribute(this.0, attr_bits)))
+            }
+            Value::String(s) => {
+                let key = s.to_str()?.to_string();
+                with_ctx(|ctx| Ok(ctx.item_has_custom_attribute(this.0, &key)))
+            }
+            _ => Ok(false),
         });
 
         // `item:getAttribute(key)` — `luascript.cpp` `luaItemGetAttribute`.
-        methods.add_method("getAttribute", |lua, this, key: Value| {
-            match key {
-                Value::Integer(n) => {
-                    let attr_bits = n as u32;
-                    let v = with_ctx(|ctx| Ok(ctx.item_get_int_attribute(this.0, attr_bits)))?;
-                    Ok(match v {
-                        Some(i) => Value::Integer(i),
-                        None => Value::Integer(0),
-                    })
-                }
-                Value::Number(n) => {
-                    let attr_bits = n as u32;
-                    let v = with_ctx(|ctx| Ok(ctx.item_get_int_attribute(this.0, attr_bits)))?;
-                    Ok(match v {
-                        Some(i) => Value::Integer(i),
-                        None => Value::Integer(0),
-                    })
-                }
-                Value::String(s) => {
-                    let key = s.to_str()?.to_string();
-                    let v = with_ctx(|ctx| Ok(ctx.item_get_custom_attribute(this.0, &key)))?;
-                    Ok(match v {
-                        Some(tfs_rust_common::ScriptAttrValue::Integer(i)) => Value::Integer(i),
-                        Some(tfs_rust_common::ScriptAttrValue::Float(f)) => Value::Number(f),
-                        Some(tfs_rust_common::ScriptAttrValue::Boolean(b)) => Value::Boolean(b),
-                        Some(tfs_rust_common::ScriptAttrValue::String(s)) => {
-                            Value::String(lua.create_string(&s)?)
-                        }
-                        None => Value::Nil,
-                    })
-                }
-                _ => Ok(Value::Nil),
+        methods.add_method("getAttribute", |lua, this, key: Value| match key {
+            Value::Integer(n) => {
+                let attr_bits = n as u32;
+                let v = with_ctx(|ctx| Ok(ctx.item_get_int_attribute(this.0, attr_bits)))?;
+                Ok(match v {
+                    Some(i) => Value::Integer(i),
+                    None => Value::Integer(0),
+                })
             }
+            Value::Number(n) => {
+                let attr_bits = n as u32;
+                let v = with_ctx(|ctx| Ok(ctx.item_get_int_attribute(this.0, attr_bits)))?;
+                Ok(match v {
+                    Some(i) => Value::Integer(i),
+                    None => Value::Integer(0),
+                })
+            }
+            Value::String(s) => {
+                let key = s.to_str()?.to_string();
+                let v = with_ctx(|ctx| Ok(ctx.item_get_custom_attribute(this.0, &key)))?;
+                Ok(match v {
+                    Some(tfs_rust_common::ScriptAttrValue::Integer(i)) => Value::Integer(i),
+                    Some(tfs_rust_common::ScriptAttrValue::Float(f)) => Value::Number(f),
+                    Some(tfs_rust_common::ScriptAttrValue::Boolean(b)) => Value::Boolean(b),
+                    Some(tfs_rust_common::ScriptAttrValue::String(s)) => {
+                        Value::String(lua.create_string(&s)?)
+                    }
+                    None => Value::Nil,
+                })
+            }
+            _ => Ok(Value::Nil),
         });
 
         // `item:setAttribute(key, value)` — bitflag ints + Remere string custom attrs.
@@ -353,9 +349,7 @@ impl UserData for ItemRef {
                 Value::Integer(i) => i,
                 Value::Number(f) => f as i64,
                 _ => {
-                    return Err(mlua::Error::runtime(
-                        "setAttribute: expected integer value",
-                    ));
+                    return Err(mlua::Error::runtime("setAttribute: expected integer value"));
                 }
             };
             let bits = match &key {
@@ -378,7 +372,8 @@ impl UserData for ItemRef {
             }
             if let Value::String(s) = key {
                 let key = s.to_str()?.to_string();
-                call_lua_set_custom_attribute(this.0, key, int_val).map_err(mlua::Error::runtime)?;
+                call_lua_set_custom_attribute(this.0, key, int_val)
+                    .map_err(mlua::Error::runtime)?;
                 return Ok(true);
             }
             Ok(false)
@@ -433,8 +428,8 @@ mod tests {
     use mlua::Lua;
     use std::collections::HashMap;
     use tfs_rust_common::{
-        remere_attr, ScriptAttrValue, ScriptContext, ScriptCreatureData, ScriptCreatureId,
-        ScriptItemData, ScriptItemId, ScriptItemRef, ScriptThing,
+        ScriptAttrValue, ScriptContext, ScriptCreatureData, ScriptCreatureId, ScriptItemData,
+        ScriptItemId, ScriptItemRef, ScriptThing, remere_attr,
     };
 
     struct KeyAttrCtx {
@@ -467,15 +462,8 @@ mod tests {
         fn item_has_custom_attribute(&self, _: ScriptItemId, key: &str) -> bool {
             self.attrs.contains_key(key)
         }
-        fn item_get_custom_attribute(
-            &self,
-            _: ScriptItemId,
-            key: &str,
-        ) -> Option<ScriptAttrValue> {
-            self.attrs
-                .get(key)
-                .copied()
-                .map(ScriptAttrValue::Integer)
+        fn item_get_custom_attribute(&self, _: ScriptItemId, key: &str) -> Option<ScriptAttrValue> {
+            self.attrs.get(key).copied().map(ScriptAttrValue::Integer)
         }
         fn tile_get_top_visible_thing(
             &self,

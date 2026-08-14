@@ -142,13 +142,12 @@ async fn heal_and_adopt_existing_schema(pool: &DbPool, migrator: &Migrator) -> R
         // (the schema already exists from legacy C++ TFS), so the checksum is bookkeeping
         // only. Re-sync it to the current file so a baseline edit/revert doesn't trip
         // SQLx's strict checksum guard in `migrator.run`. Normal migrations stay strict.
-        let row: Option<(Vec<u8>, String)> = sqlx::query_as(
-            "SELECT checksum, description FROM _sqlx_migrations WHERE version = ?",
-        )
-        .bind(BASELINE_VERSION)
-        .fetch_optional(pool.inner())
-        .await
-        .map_err(|e| TfsRustError::Database(e.to_string()))?;
+        let row: Option<(Vec<u8>, String)> =
+            sqlx::query_as("SELECT checksum, description FROM _sqlx_migrations WHERE version = ?")
+                .bind(BASELINE_VERSION)
+                .fetch_optional(pool.inner())
+                .await
+                .map_err(|e| TfsRustError::Database(e.to_string()))?;
 
         let need_resync = row
             .as_ref()
@@ -216,8 +215,8 @@ pub async fn run_migrations(pool: &DbPool, path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::migrate::MigrationType;
     use sqlx::SqlStr;
+    use sqlx::migrate::MigrationType;
     use std::borrow::Cow;
 
     /// Build a `Migration` with the given checksum and description for testing.
@@ -236,21 +235,33 @@ mod tests {
     fn resync_required_when_checksum_differs() {
         let baseline = fake_baseline(&[1, 2, 3], "tfs_142_baseline");
         // Stored checksum differs from the file → must resync.
-        assert!(baseline_needs_resync(&[9, 9, 9], "tfs_142_baseline", &baseline));
+        assert!(baseline_needs_resync(
+            &[9, 9, 9],
+            "tfs_142_baseline",
+            &baseline
+        ));
     }
 
     #[test]
     fn resync_required_when_description_differs() {
         let baseline = fake_baseline(&[1, 2, 3], "tfs_142_baseline");
         // Same checksum, different description → must resync.
-        assert!(baseline_needs_resync(&[1, 2, 3], "renamed_baseline", &baseline));
+        assert!(baseline_needs_resync(
+            &[1, 2, 3],
+            "renamed_baseline",
+            &baseline
+        ));
     }
 
     #[test]
     fn no_resync_when_checksum_and_description_match() {
         let baseline = fake_baseline(&[1, 2, 3], "tfs_142_baseline");
         // Exact match → no resync needed.
-        assert!(!baseline_needs_resync(&[1, 2, 3], "tfs_142_baseline", &baseline));
+        assert!(!baseline_needs_resync(
+            &[1, 2, 3],
+            "tfs_142_baseline",
+            &baseline
+        ));
     }
 
     #[test]

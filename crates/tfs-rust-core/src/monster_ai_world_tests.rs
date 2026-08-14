@@ -3,20 +3,20 @@ use std::time::{Duration, Instant};
 use std::collections::VecDeque;
 use tfs_rust_common::ConnId;
 
-use tfs_rust_common::enums::Direction;
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::Direction;
 
 use crate::creature::{CreatureKind, MonsterAiConfig};
 use crate::formulas::MechanicsProfile;
 use crate::login_out::creature_wire_id;
 use crate::monster_ai::MonsterIdleChaseRepathOutcome;
 use crate::pathfinding::{
-    truncate_tshortway_go_queue, uses_reverse_terrain_path, CHASE_PATH_MAX_STEPS,
+    CHASE_PATH_MAX_STEPS, truncate_tshortway_go_queue, uses_reverse_terrain_path,
 };
 use crate::test_world::support::{
-    beat_driven_test_world, beat_driven_world, dist_idle_monster_config, ensure_walkable_tile,
-    insert_monster_with_config, insert_player, insert_spectator_player, minimal_world, test_player,
-    TEST_SYNTHETIC_GROUND_WP,
+    TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, beat_driven_world, dist_idle_monster_config,
+    ensure_walkable_tile, insert_monster_with_config, insert_player, insert_spectator_player,
+    minimal_world, test_player,
 };
 use crate::{CreatureId, GameWorld};
 
@@ -252,12 +252,7 @@ fn dist_monster_keeps_walk_queue_when_follow_target_moves() {
         .todo
         .queue
         .len();
-    let wakeup_before = world
-        .creatures
-        .get(monster)
-        .unwrap()
-        .base()
-        .next_wakeup;
+    let wakeup_before = world.creatures.get(monster).unwrap().base().next_wakeup;
 
     if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
         p.base.position = ppos_moved;
@@ -444,10 +439,12 @@ fn monster_prunes_opponent_when_player_leaves_can_see_range() {
     let player = insert_player(&mut world, test_player("Hero", near));
     world.map.register_creature_at(near, player);
     world.monster_on_creature_appear_self(monster);
-    assert!(world
-        .creatures
-        .get(monster)
-        .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if !m.opponent_ids.is_empty())));
+    assert!(
+        world
+            .creatures
+            .get(monster)
+            .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if !m.opponent_ids.is_empty()))
+    );
 
     // Player teleports out of monster viewport — C++ updateTargetList prunes via canSee.
     if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
@@ -510,10 +507,12 @@ fn idle_monster_does_not_random_walk() {
 
     let monster =
         insert_monster_with_config(&mut world, "Rat", pos, 200, MonsterAiConfig::default());
-    assert!(world
-        .creatures
-        .get(monster)
-        .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.is_idle)));
+    assert!(
+        world
+            .creatures
+            .get(monster)
+            .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.is_idle))
+    );
 
     let now = Instant::now();
     if let Some(k) = world.creatures.get_mut(monster) {
@@ -908,18 +907,18 @@ fn test_772_allow_diagonal_true_stays_reverse_path_stack() {
     assert!(!steps.is_empty());
     for step in &steps {
         assert!(
-                matches!(
-                    step,
-                    Direction::North | Direction::East | Direction::South | Direction::West
-                ),
-                "allow_diagonal=true on 772 must still use terrain×3 (cardinals on open grass), not TFS 10/25 bias: {step:?} in {steps:?}"
-            );
+            matches!(
+                step,
+                Direction::North | Direction::East | Direction::South | Direction::West
+            ),
+            "allow_diagonal=true on 772 must still use terrain×3 (cardinals on open grass), not TFS 10/25 bias: {step:?} in {steps:?}"
+        );
     }
 }
 
 #[test]
 fn test_772_diagonal_detour_when_cardinals_blocked() {
-    use crate::tile::{flags as tilestate, Tile, TileBody};
+    use crate::tile::{Tile, TileBody, flags as tilestate};
     use tfs_rust_common::enums::ZoneType;
 
     let mut world = beat_driven_test_world();
@@ -1076,7 +1075,7 @@ fn test_772_flee_steps_away() {
 #[test]
 fn test_772_blocked_flee_stops() {
     use crate::map::Map;
-    use crate::tile::{flags as tilestate, Tile, TileBody};
+    use crate::tile::{Tile, TileBody, flags as tilestate};
     use tfs_rust_common::enums::ZoneType;
 
     fn block_tile(map: &mut Map, pos: Position) {
@@ -1360,7 +1359,7 @@ fn cyclops_quad_far_n_path_avoids_nw_sibling_when_last() {
 fn cyclops_quad_nw_and_far_n_shortway_match_live_ref() {
     use crate::creature::MonsterState;
     use crate::pathfinding::{
-        truncate_tshortway_go_queue, CHASE_PATH_MAX_STEPS, REVERSE_PATH_VIEW_RADIUS,
+        CHASE_PATH_MAX_STEPS, REVERSE_PATH_VIEW_RADIUS, truncate_tshortway_go_queue,
     };
     use crate::sim_harness::{
         beat_driven_world_for_kite_synthetic, default_sim_map_config, insert_monster_from_type,

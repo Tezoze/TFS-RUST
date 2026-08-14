@@ -3,15 +3,15 @@
 //! C++ reference: `info.cc` `SearchSpawnField`, `crnonpl.cc` `LoadMonsterhomes` /
 //! `ProcessMonsterhomes`.
 
-use tfs_rust_common::enums::ZoneType;
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::ZoneType;
 
 use crate::creature::CreatureKind;
 use crate::formulas::{SpawnNearPlayer, SpawnPlacement};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
-use crate::player_flags::{flags_for_group, has_player_flag, PLAYER_FLAG_IGNORED_BY_MONSTERS};
-use crate::tile::{flags as tilestate, MapStackEntry, Tile};
+use crate::player_flags::{PLAYER_FLAG_IGNORED_BY_MONSTERS, flags_for_group, has_player_flag};
+use crate::tile::{MapStackEntry, Tile, flags as tilestate};
 
 /// Per-tile probe for classic BFS spawn search.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -573,7 +573,7 @@ mod tests {
     fn probe_rejects_immovable_unpass_wall() {
         use crate::item::Item;
         use crate::sim_harness::{
-            beat_driven_test_world, ensure_walkable_tile, insert_monster, TEST_SYNTHETIC_GROUND_WP,
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_monster,
         };
         use std::sync::Arc;
         use tfs_rust_content::otb::ItemType;
@@ -618,7 +618,9 @@ mod tests {
     /// `SearchSpawnField` must still block expansion or spiders leak into adjacent sewers.
     #[test]
     fn probe_rejects_bank_zero_waypoint_dirt_wall_ground() {
-        use crate::sim_harness::{beat_driven_test_world, insert_monster, TEST_SYNTHETIC_GROUND_WP};
+        use crate::sim_harness::{
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, insert_monster,
+        };
         use crate::tile::{Tile, TileBody};
         use std::sync::Arc;
         use tfs_rust_common::enums::ZoneType;
@@ -687,7 +689,7 @@ mod tests {
     fn classic772_spawn_skips_wall_home_picks_neighbor() {
         use crate::item::Item;
         use crate::sim_harness::{
-            beat_driven_test_world, ensure_walkable_tile, insert_monster, TEST_SYNTHETIC_GROUND_WP,
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_monster,
         };
         use crate::spawn::SpawnManager;
         use std::sync::Arc;
@@ -715,7 +717,11 @@ mod tests {
                 }
                 ensure_walkable_tile(
                     &mut world.map,
-                    Position::new((home.x as i32 + dx) as u16, (home.y as i32 + dy) as u16, home.z),
+                    Position::new(
+                        (home.x as i32 + dx) as u16,
+                        (home.y as i32 + dy) as u16,
+                        home.z,
+                    ),
                     TEST_SYNTHETIC_GROUND_WP,
                 );
             }

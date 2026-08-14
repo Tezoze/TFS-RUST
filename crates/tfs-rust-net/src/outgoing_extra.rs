@@ -3,9 +3,9 @@
 
 use tfs_rust_common::Position;
 
+use crate::NetworkMessage;
 use crate::codec::{Codec1098, ItemTemplateArgs, PlayerSkillsWire, PlayerStatsWire};
 use crate::creature_encode::OutfitWire;
-use crate::NetworkMessage;
 
 /// `ProtocolGame::sendChannelsDialog` — channel list dialog (`protocolgame.cpp:1282`), `0xAB`.
 ///

@@ -45,12 +45,12 @@ impl GameWorld {
     /// TFS `Item::getParent` cylinder — `item.cpp` / `luascript.cpp` `luaItemGetParent`.
     pub fn script_item_parent(&self, item_id: ItemId) -> Option<ScriptCylinder> {
         match self.items.get(item_id)?.parent? {
-            Cylinder::Inventory { player_id, .. } => {
-                Some(ScriptCylinder::Player(Self::creature_to_script_id(player_id)))
-            }
-            Cylinder::Container { item_id: parent, .. } => {
-                Some(ScriptCylinder::Container(Self::item_to_script_id(parent)))
-            }
+            Cylinder::Inventory { player_id, .. } => Some(ScriptCylinder::Player(
+                Self::creature_to_script_id(player_id),
+            )),
+            Cylinder::Container {
+                item_id: parent, ..
+            } => Some(ScriptCylinder::Container(Self::item_to_script_id(parent))),
             Cylinder::Tile { pos } => Some(ScriptCylinder::Tile(pos)),
         }
     }
@@ -82,7 +82,9 @@ impl GameWorld {
             Some(Cylinder::Inventory { player_id, .. }) => {
                 Some(self.creatures.get(player_id)?.position())
             }
-            Some(Cylinder::Container { item_id: parent, .. }) => self.script_item_position(parent),
+            Some(Cylinder::Container {
+                item_id: parent, ..
+            }) => self.script_item_position(parent),
             None => None,
         }
     }
@@ -231,10 +233,7 @@ impl GameWorld {
     }
 
     /// Like [`Self::resolve_item_parent_cylinder`], but writes back a discovered parent.
-    pub(crate) fn resolve_or_repair_item_parent(
-        &mut self,
-        item_id: ItemId,
-    ) -> Option<Cylinder> {
+    pub(crate) fn resolve_or_repair_item_parent(&mut self, item_id: ItemId) -> Option<Cylinder> {
         if let Some(p) = self.items.get(item_id).and_then(|i| i.parent) {
             return Some(p);
         }

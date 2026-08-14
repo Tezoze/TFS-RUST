@@ -89,8 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("backup exists (unchanged): {}", backup.display());
     }
 
-    let (speed_n, flag_n) =
-        patch_file_speeds_and_flags(&otb, &speeds, &flag_ors, &flag_clears)?;
+    let (speed_n, flag_n) = patch_file_speeds_and_flags(&otb, &speeds, &flag_ors, &flag_clears)?;
     println!(
         "patched {speed_n} speed nodes, {flag_n} flag nodes — reload server to pick up changes"
     );

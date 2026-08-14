@@ -10,13 +10,13 @@ use std::path::PathBuf;
 use tfs_rust_common::Position;
 use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig, MonsterState};
 use tfs_rust_core::sim_harness::{
-    audit_otbm_route_tiles, beat_driven_world_for_kite_synthetic, beat_driven_world_from_map,
-    default_sim_map_config, drain_todo_queue_once, harness_place_creature_login,
-    insert_monster_from_type, insert_monster_with_config, insert_player,
-    kite_monsters_appear_batch, log_harness_player_step, move_creatures_explicit, run_sim_tick,
-    set_sim_harness_segment_ms, set_sim_harness_wall_ms, sim_hero_player,
+    SimMapConfig, audit_otbm_route_tiles, beat_driven_world_for_kite_synthetic,
+    beat_driven_world_from_map, default_sim_map_config, drain_todo_queue_once,
+    harness_place_creature_login, insert_monster_from_type, insert_monster_with_config,
+    insert_player, kite_monsters_appear_batch, log_harness_player_step, move_creatures_explicit,
+    run_sim_tick, set_sim_harness_segment_ms, set_sim_harness_wall_ms, sim_hero_player,
     sim_player_damage_monster, teleport_player, validate_positions_walkable, walk_player_adjacent,
-    write_audit_route_json, SimMapConfig,
+    write_audit_route_json,
 };
 
 #[derive(Debug, Clone)]
@@ -734,10 +734,11 @@ mod tests {
         assert_eq!(s.monsters.len(), 1);
         assert_eq!(s.monsters[0].label, "rat");
         assert!(s.monster_load_type);
-        assert!(s
-            .steps
-            .iter()
-            .any(|st| matches!(st, ScenarioStep::MonsterAppear)));
+        assert!(
+            s.steps
+                .iter()
+                .any(|st| matches!(st, ScenarioStep::MonsterAppear))
+        );
         assert!(
             s.steps
                 .iter()
@@ -851,10 +852,11 @@ sim_tick
         let s = parse_scenario(&input).expect("parse");
         assert_eq!(s.name, "kite_dragon_lowhp_flee");
         assert_eq!(s.monsters[0].label, "dragon");
-        assert!(s
-            .steps
-            .iter()
-            .any(|st| matches!(st, ScenarioStep::PlayerDamage(725))));
+        assert!(
+            s.steps
+                .iter()
+                .any(|st| matches!(st, ScenarioStep::PlayerDamage(725)))
+        );
     }
 
     /// P2 — OTBM route audit for real-map cyclops control scenario.

@@ -21,7 +21,7 @@ pub use emit::{definition_filename, emit_npc_lua};
 pub use error::{ImportError, ImportResult};
 pub use lower::lower_npc;
 pub use parse::{parse_ndb_rules, parse_npc_file, parse_npc_source};
-pub use xml_meta::{apply_xml_meta, load_xml_npc_dir, XmlNpcMeta};
+pub use xml_meta::{XmlNpcMeta, apply_xml_meta, load_xml_npc_dir};
 
 use std::path::{Path, PathBuf};
 
@@ -166,8 +166,7 @@ mod tests {
     fn emit_named(root: &Path, stem: &str, items: Option<&ItemDatabase>) -> String {
         let path = root.join(format!("{stem}.npc"));
         let file = parse_npc_file(root, &path).unwrap_or_else(|e| panic!("parse {stem}: {e}"));
-        let pending =
-            lower_npc(file, items).unwrap_or_else(|e| panic!("lower {stem}: {e}"));
+        let pending = lower_npc(file, items).unwrap_or_else(|e| panic!("lower {stem}: {e}"));
         emit_npc_lua(&pending)
     }
 
@@ -236,8 +235,7 @@ mod tests {
             return;
         };
         let items = repo_items();
-        let pending =
-            import_legacy_root(&root, items.as_ref()).expect("import all reference npcs");
+        let pending = import_legacy_root(&root, items.as_ref()).expect("import all reference npcs");
         assert_eq!(pending.len(), 337, "expected 337 npc files");
         assert!(pending.iter().any(|p| p.name == "Albert"));
         assert!(pending.iter().any(|p| p.name == "Quentin"));
@@ -296,10 +294,7 @@ Behaviour = {
                 .and_then(|f| lower_npc(f, None))
                 .expect_err(&format!("{label} should fail"));
             let msg = err.to_string().to_ascii_lowercase();
-            assert!(
-                msg.contains(label),
-                "expected {label} in error, got {msg}"
-            );
+            assert!(msg.contains(label), "expected {label} in error, got {msg}");
         }
     }
 
@@ -318,4 +313,3 @@ Topic=1,"yes" -> Price=500, "hi", Topic=2
         assert_eq!(file.rules.len(), 2, "{:?}", file.rules);
     }
 }
-

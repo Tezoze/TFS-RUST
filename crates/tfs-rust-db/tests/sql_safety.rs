@@ -21,14 +21,18 @@ fn test_no_sql_string_concatenation() {
                     if line.contains("format!") {
                         panic!(
                             "SQL Injection vulnerability found in {:?} at line {}: \n`{}`\nDo not use format! inside sqlx::query(). Use .bind() instead.",
-                            path, i + 1, line
+                            path,
+                            i + 1,
+                            line
                         );
                     }
 
                     if line.contains(" + ") && (line.contains("\"") || line.contains("'")) {
                         panic!(
                             "SQL Injection vulnerability found in {:?} at line {}: \n`{}`\nDo not concatenate strings for SQL queries. Use .bind() instead.",
-                            path, i + 1, line
+                            path,
+                            i + 1,
+                            line
                         );
                     }
                 }

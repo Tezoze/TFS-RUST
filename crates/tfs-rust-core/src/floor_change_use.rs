@@ -3,8 +3,8 @@
 //! C++ reference: `data/actions/scripts/other/teleport.lua` via `Actions::useItem`;
 //! `Position:moveUpstairs` — `data/lib/core/position.lua`; `Game::internalTeleport` — `game.cpp` ~1784.
 
-use tfs_rust_common::enums::Direction;
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::Direction;
 
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;

@@ -7,8 +7,8 @@ use std::time::Instant;
 use crate::condition::ActiveCondition;
 use crate::creature_todo::CreatureTodo;
 use crate::ids::CreatureId;
-use tfs_rust_common::enums::{Direction, SkullType};
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::{Direction, SkullType};
 
 /// C++ `TCombat::ChaseMode` — `crcombat.cc:338`; 1098 ignores (era gating via profile).
 ///
@@ -157,9 +157,9 @@ impl CombatList {
 
     /// Live (id-present) entries — for exp share (772 does **not** apply the window filter).
     pub fn iter_active(&self) -> impl Iterator<Item = (CreatureId, u64, u32)> + '_ {
-        self.entries.iter().filter_map(|e| {
-            e.id.map(|id| (id, e.damage, e.timestamp_round))
-        })
+        self.entries
+            .iter()
+            .filter_map(|e| e.id.map(|id| (id, e.damage, e.timestamp_round)))
     }
 
     /// Compatibility helper used by tests that previously `insert`ed into a HashMap.
@@ -443,7 +443,9 @@ mod combat_list_tests {
         assert_eq!(list.combat_damage, 75);
         // Re-add updates timestamp.
         assert_eq!(
-            list.iter_active().find(|(id, _, _)| *id == a).map(|(_, _, ts)| ts),
+            list.iter_active()
+                .find(|(id, _, _)| *id == a)
+                .map(|(_, _, ts)| ts),
             Some(2)
         );
     }

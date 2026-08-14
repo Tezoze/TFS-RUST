@@ -316,10 +316,7 @@ impl<'a> Lexer<'a> {
     fn lex_include(&mut self, start: SourceSpan) -> ImportResult<Token> {
         self.bump(); // @
         if self.peek() != Some('"') {
-            return Err(ImportError::spanned(
-                start,
-                "expected @\"file\" include",
-            ));
+            return Err(ImportError::spanned(start, "expected @\"file\" include"));
         }
         let Token {
             kind: TokenKind::String(path),
@@ -427,11 +424,7 @@ mod tests {
 
     #[test]
     fn lexes_simple_rule() {
-        let tokens = Lexer::tokenize_all(
-            r#"ADDRESS,"hello$",! -> "hi""#,
-            "t.npc",
-        )
-        .unwrap();
+        let tokens = Lexer::tokenize_all(r#"ADDRESS,"hello$",! -> "hi""#, "t.npc").unwrap();
         assert!(matches!(tokens[0].kind, TokenKind::Ident(ref s) if s == "ADDRESS"));
         assert!(matches!(tokens[2].kind, TokenKind::String(ref s) if s == "hello$"));
         assert!(matches!(tokens[4].kind, TokenKind::Bang));

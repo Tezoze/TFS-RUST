@@ -173,9 +173,7 @@ fn parse_predicate(table: &Table, span: &SourceSpan) -> Result<DialoguePredicate
         });
     }
     if let Ok(Value::Boolean(true)) = table.get::<Value>("select") {
-        return Ok(DialoguePredicate::Select {
-            span: span.clone(),
-        });
+        return Ok(DialoguePredicate::Select { span: span.clone() });
     }
     if let Ok(Value::Integer(slot)) = table.get::<Value>("capture") {
         return Ok(DialoguePredicate::NumericCapture {
@@ -232,9 +230,9 @@ fn parse_action(table: &Table, span: &SourceSpan) -> Result<DialogueAction, mlua
         });
     }
     if let Ok(Value::Table(set)) = table.get::<Value>("set") {
-        let var_name: String = set.get("var").map_err(|_| {
-            runtime("actions.set: requires var".into())
-        })?;
+        let var_name: String = set
+            .get("var")
+            .map_err(|_| runtime("actions.set: requires var".into()))?;
         let var = parse_session_var(&var_name)?;
         let expr = parse_expr(&set.get("value")?)?;
         return Ok(DialogueAction::SetSession {
@@ -244,19 +242,13 @@ fn parse_action(table: &Table, span: &SourceSpan) -> Result<DialogueAction, mlua
         });
     }
     if let Ok(Value::Boolean(true)) = table.get::<Value>("idle") {
-        return Ok(DialogueAction::Idle {
-            span: span.clone(),
-        });
+        return Ok(DialogueAction::Idle { span: span.clone() });
     }
     if let Ok(Value::Boolean(true)) = table.get::<Value>("queue") {
-        return Ok(DialogueAction::Queue {
-            span: span.clone(),
-        });
+        return Ok(DialogueAction::Queue { span: span.clone() });
     }
     if let Ok(Value::Boolean(true)) = table.get::<Value>("nop") {
-        return Ok(DialogueAction::Nop {
-            span: span.clone(),
-        });
+        return Ok(DialogueAction::Nop { span: span.clone() });
     }
     if let Ok(Value::Boolean(true)) = table.get::<Value>("startPosition") {
         return Ok(DialogueAction::StartPosition {
@@ -274,15 +266,11 @@ fn parse_action(table: &Table, span: &SourceSpan) -> Result<DialogueAction, mlua
         });
     }
     if let Ok(Value::Boolean(true)) = table.get::<Value>("repeatPrevious") {
-        return Ok(DialogueAction::RepeatPrevious {
-            span: span.clone(),
-        });
+        return Ok(DialogueAction::RepeatPrevious { span: span.clone() });
     }
     // Accept legacy key only if authored with ["repeat"] = true (rare).
     if let Ok(Value::Boolean(true)) = table.get::<Value>("repeat") {
-        return Ok(DialogueAction::RepeatPrevious {
-            span: span.clone(),
-        });
+        return Ok(DialogueAction::RepeatPrevious { span: span.clone() });
     }
     if let Ok(Value::Table(t)) = table.get::<Value>("create") {
         let item = parse_expr(&t.get("item")?)?;
@@ -444,9 +432,7 @@ fn parse_expr(value: &Value) -> Result<DialogueExpr, mlua::Error> {
             }
             if let Ok(Value::Integer(slot)) = t.get::<Value>("capture") {
                 if !(1..=2).contains(&slot) {
-                    return Err(runtime(format!(
-                        "capture slot must be 1 or 2 (got {slot})"
-                    )));
+                    return Err(runtime(format!("capture slot must be 1 or 2 (got {slot})")));
                 }
                 return Ok(DialogueExpr::Capture { slot: slot as u8 });
             }
@@ -529,9 +515,9 @@ fn parse_expr_ident(name: &str) -> Result<DialogueExpr, mlua::Error> {
         "countmoney" => Ok(DialogueExpr::CountMoney),
         "level" => Ok(DialogueExpr::Level),
         "magiclevel" => Ok(DialogueExpr::MagicLevel),
-        "bless" | "town" | "string" | "promote" => Err(runtime(format!(
-            "unsupported dialogue construct {name:?}"
-        ))),
+        "bless" | "town" | "string" | "promote" => {
+            Err(runtime(format!("unsupported dialogue construct {name:?}")))
+        }
         _ => Err(runtime(format!("unknown expression identifier {name:?}"))),
     }
 }
@@ -614,9 +600,7 @@ fn require_sequence(table: &Table, label: &str) -> Result<(), mlua::Error> {
         match k {
             Value::Integer(i) if i >= 1 => count += 1,
             Value::Integer(_) => {
-                return Err(runtime(format!(
-                    "{label}: array indices must start at 1"
-                )));
+                return Err(runtime(format!("{label}: array indices must start at 1")));
             }
             Value::String(_) | Value::Number(_) => {
                 // Allow optional metadata keys alongside a sequence? Plan says
@@ -627,9 +611,7 @@ fn require_sequence(table: &Table, label: &str) -> Result<(), mlua::Error> {
                 )));
             }
             _ => {
-                return Err(runtime(format!(
-                    "{label}: must be an ordered array"
-                )));
+                return Err(runtime(format!("{label}: must be an ordered array")));
             }
         }
     }
@@ -770,6 +752,9 @@ mod tests {
             .exec();
         assert!(err.is_err());
         let msg = format!("{}", err.unwrap_err());
-        assert!(msg.contains("bless") || msg.contains("unrecognized"), "{msg}");
+        assert!(
+            msg.contains("bless") || msg.contains("unrecognized"),
+            "{msg}"
+        );
     }
 }

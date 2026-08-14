@@ -11,10 +11,6 @@ impl LightInfo {
     /// C++ `Player::getCreatureLight` — pick brighter of two sources.
     #[inline]
     pub fn max_of(a: Self, b: Self) -> Self {
-        if a.level >= b.level {
-            a
-        } else {
-            b
-        }
+        if a.level >= b.level { a } else { b }
     }
 }

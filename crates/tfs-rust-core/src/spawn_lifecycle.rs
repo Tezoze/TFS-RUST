@@ -6,9 +6,9 @@
 use rand::seq::SliceRandom;
 use slotmap::Key;
 use std::sync::Arc;
-use tfs_rust_common::enums::{Direction, SkullType, ZoneType};
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::{Direction, SkullType, ZoneType};
 use tfs_rust_content::monsters::MonsterOutfit;
 use tfs_rust_content::npcs::{DialoguePolicy, NpcAppearance};
 use tfs_rust_net::creature_known::check_creature_known;
@@ -20,11 +20,11 @@ use crate::creature::{Monster, MonsterAiConfig, Npc, NpcRuntimeState, Outfit};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::login_out::{build_add_creature_wire, creature_wire_id};
-use crate::player_flags::{flags_for_group, has_player_flag, PLAYER_FLAG_IGNORED_BY_MONSTERS};
+use crate::player_flags::{PLAYER_FLAG_IGNORED_BY_MONSTERS, flags_for_group, has_player_flag};
 use crate::return_value::ReturnValue;
 use crate::spawn::{SpawnEntryKind, SpawnRequest};
 use crate::tile::client_creature_stack_pos;
-use crate::walk::{tile_query_add_creature, FLAG_IGNOREBLOCKITEM};
+use crate::walk::{FLAG_IGNOREBLOCKITEM, tile_query_add_creature};
 
 fn direction_from_spawn(dir: Option<u16>) -> Direction {
     match dir.unwrap_or(2) {
@@ -331,7 +331,7 @@ impl GameWorld {
             fire_damage_origin: None,
             energy_damage_origin: None,
             earliest_attack_ms: 0,
-        latest_attack_round: 0,
+            latest_attack_round: 0,
             earliest_defend_ms: 0,
             last_defend_ms: 0,
             learning_points: 0,
@@ -618,7 +618,7 @@ impl GameWorld {
             fire_damage_origin: None,
             energy_damage_origin: None,
             earliest_attack_ms: 0,
-        latest_attack_round: 0,
+            latest_attack_round: 0,
             earliest_defend_ms: 0,
             last_defend_ms: 0,
             learning_points: 0,
@@ -642,7 +642,11 @@ impl GameWorld {
             self.creatures.remove(cid);
             return Ok(None);
         }
-        let placed = self.creatures.get(cid).map(|k| k.position()).unwrap_or(center);
+        let placed = self
+            .creatures
+            .get(cid)
+            .map(|k| k.position())
+            .unwrap_or(center);
         self.monster_on_creature_appear_self(cid);
         self.broadcast_creature_appear(cid, placed);
         Ok(Some(cid.data().as_ffi()))
@@ -816,7 +820,7 @@ impl GameWorld {
             fire_damage_origin: None,
             energy_damage_origin: None,
             earliest_attack_ms: 0,
-        latest_attack_round: 0,
+            latest_attack_round: 0,
             earliest_defend_ms: 0,
             last_defend_ms: 0,
             learning_points: 0,
@@ -842,7 +846,11 @@ impl GameWorld {
             return None;
         }
         // `CreateMonster` ShowEffect → `EFFECT_ENERGY` (`enums.hh` = 11).
-        let placed = self.creatures.get(cid).map(|k| k.position()).unwrap_or(place_at);
+        let placed = self
+            .creatures
+            .get(cid)
+            .map(|k| k.position())
+            .unwrap_or(place_at);
         // Same order as `spawn_monster` (non-startup): AI bookkeeping → spectator AddCreature → effect.
         // Skipping `broadcast_creature_appear` left clients with Move/effect for an unknown id → crash.
         self.monster_on_creature_appear_self(cid);
@@ -1372,8 +1380,8 @@ mod tests {
     use super::*;
     use crate::spawn::SpawnManager;
     use crate::test_world::support::{
-        beat_driven_test_world, ensure_walkable_tile, insert_monster, insert_player,
-        insert_spectator_player, minimal_world, test_player, TEST_SYNTHETIC_GROUND_WP,
+        TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_monster,
+        insert_player, insert_spectator_player, minimal_world, test_player,
     };
     use std::collections::HashMap;
     use std::collections::HashSet;
@@ -1711,7 +1719,11 @@ mod tests {
         );
         assert!(world.creatures.get(victim).is_none());
 
-        let self_pkts = world.pending_outgoing.get(&conn).cloned().unwrap_or_default();
+        let self_pkts = world
+            .pending_outgoing
+            .get(&conn)
+            .cloned()
+            .unwrap_or_default();
         assert!(
             self_pkts.iter().any(|b| !b.is_empty() && b[0] == 0x6C),
             "dying player must receive self remove (OTClient tile creature)"
@@ -1758,16 +1770,17 @@ mod tests {
             1,
             0,
             ConditionType::Fire,
-            ConditionData::Damage { total_rank: 10, factor_percent: 0 },
+            ConditionData::Damage {
+                total_rank: 10,
+                factor_percent: 0,
+            },
             Some(3),
         ));
         let victim = insert_spectator_player(&mut world, ConnId(9), player);
 
         world.prepare_player_death_save(victim);
         let mut data = world.build_player_save_data(victim).expect("save data");
-        let temple = world
-            .player_temple_position(victim)
-            .expect("town temple");
+        let temple = world.player_temple_position(victim).expect("town temple");
         data.player.posx = i32::from(temple.x);
         data.player.posy = i32::from(temple.y);
         data.player.posz = i32::from(temple.z);
@@ -1913,7 +1926,7 @@ mod tests {
     #[test]
     fn monster_create_summon_links_master() {
         use crate::creature::CreatureKind;
-        use crate::test_world::support::{insert_monster, TEST_SYNTHETIC_GROUND_WP};
+        use crate::test_world::support::{TEST_SYNTHETIC_GROUND_WP, insert_monster};
 
         let mut world = beat_driven_test_world();
         let mut monsters = HashMap::new();
@@ -1938,13 +1951,10 @@ mod tests {
             Some(master)
         );
         assert_eq!(
-            world
-                .creatures
-                .get(first)
-                .and_then(|k| match k {
-                    CreatureKind::Monster(m) => Some(m.experience),
-                    _ => None,
-                }),
+            world.creatures.get(first).and_then(|k| match k {
+                CreatureKind::Monster(m) => Some(m.experience),
+                _ => None,
+            }),
             Some(0),
             "summons grant no XP"
         );
@@ -1965,7 +1975,7 @@ mod tests {
     #[test]
     fn monster_create_summon_reparents_summon_of_summon() {
         use crate::creature::CreatureKind;
-        use crate::test_world::support::{insert_monster, TEST_SYNTHETIC_GROUND_WP};
+        use crate::test_world::support::{TEST_SYNTHETIC_GROUND_WP, insert_monster};
 
         let mut world = beat_driven_test_world();
         let mut monsters = HashMap::new();
@@ -1998,7 +2008,10 @@ mod tests {
             .iter()
             .filter(|(_, k)| k.base().master == Some(wild))
             .count();
-        assert_eq!(under_wild, 2, "wild master's summon count includes reparented child");
+        assert_eq!(
+            under_wild, 2,
+            "wild master's summon count includes reparented child"
+        );
         assert!(matches!(
             world.creatures.get(mid),
             Some(CreatureKind::Monster(_))
@@ -2008,7 +2021,7 @@ mod tests {
     /// `CreateMonster` `SearchFreeField` after `SearchSummonField` (`crnonpl.cc:3169`).
     #[test]
     fn search_free_field_nudges_off_occupied_center() {
-        use crate::test_world::support::{insert_monster, TEST_SYNTHETIC_GROUND_WP};
+        use crate::test_world::support::{TEST_SYNTHETIC_GROUND_WP, insert_monster};
 
         let mut world = beat_driven_test_world();
         let center = Position::new(100, 100, 7);
@@ -2080,16 +2093,13 @@ mod tests {
         }
     }
 
-    fn world_with_npc_db(
-        pending: Vec<tfs_rust_content::npcs::PendingNpcDefinition>,
-    ) -> GameWorld {
+    fn world_with_npc_db(pending: Vec<tfs_rust_content::npcs::PendingNpcDefinition>) -> GameWorld {
         use tfs_rust_content::npcs::validate_pending_definitions;
         use tfs_rust_content::spawns::{SpawnEntry, SpawnZone};
 
         let mut world = minimal_world();
-        world.npcs_db = Arc::new(
-            validate_pending_definitions(pending, None).expect("npc db validate"),
-        );
+        world.npcs_db =
+            Arc::new(validate_pending_definitions(pending, None).expect("npc db validate"));
 
         let home = Position::new(100, 100, 7);
         let zone = SpawnZone {
@@ -2191,9 +2201,11 @@ mod tests {
         let mut world = world_with_npc_db(vec![quentin_pending()]);
         let home = Position::new(100, 100, 7);
         let before = world.creatures.len();
-        assert!(world
-            .spawn_npc("Nobody", home, Direction::South, home, 0, 3, true, true)
-            .is_none());
+        assert!(
+            world
+                .spawn_npc("Nobody", home, Direction::South, home, 0, 3, true, true)
+                .is_none()
+        );
         assert_eq!(world.creatures.len(), before);
         assert!(world.spawns.slot(0).unwrap().current.is_none());
     }
@@ -2260,7 +2272,7 @@ mod tests {
     #[test]
     fn spawn_npc_places_on_protection_zone() {
         use crate::creature::CreatureKind;
-        use crate::tile::{flags as tilestate, Tile, TileBody};
+        use crate::tile::{Tile, TileBody, flags as tilestate};
         use tfs_rust_common::enums::ZoneType;
 
         let mut world = world_with_npc_db(vec![quentin_pending()]);

@@ -18,14 +18,14 @@
 
 use std::time::Instant;
 
-use tfs_rust_common::enums::{CombatType, Direction};
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::{CombatType, Direction};
 
 use crate::creature::{CreatureKind, MonsterState};
 use crate::cylinder::{Cylinder, CylinderFlags};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
-use crate::player_flags::{flags_for_group, has_player_flag, PLAYER_FLAG_IGNORED_BY_MONSTERS};
+use crate::player_flags::{PLAYER_FLAG_IGNORED_BY_MONSTERS, flags_for_group, has_player_flag};
 use crate::tile::flags as tilestate;
 
 /// 772 `TMonster::KickCreature` / `KickBoxes` shove order — `crnonpl.cc:3057-3058`, `:3014-3015`
@@ -222,7 +222,7 @@ impl GameWorld {
                     // `throw EXHAUSTED`. The `Execute` catch (`cract.cc:870-877`) does NOT clear
                     // `Target` itself; the throw site does. F3: split from kick-kill `Exhausted`.
                     Some(CreatureKind::Player(_)) => {
-                        return MonsterKickOutcome::ExhaustedDropTarget
+                        return MonsterKickOutcome::ExhaustedDropTarget;
                     }
                     // NPC / unpushable monster → hard block (`crnonpl.cc:2216,2228`), not kicked.
                     Some(CreatureKind::Npc(_)) => {

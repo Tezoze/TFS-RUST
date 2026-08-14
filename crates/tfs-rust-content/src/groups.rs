@@ -109,8 +109,8 @@ fn validate_groups(defs: &[Group], path: &Path) -> Result<()> {
 /// Not used in production — `GroupDatabase::load` is the real path.
 #[cfg(test)]
 fn load_xml_for_golden_test(path: &Path) -> Result<Vec<Group>> {
-    use quick_xml::events::Event;
     use quick_xml::Reader;
+    use quick_xml::events::Event;
 
     let xml = std::fs::read_to_string(path).map_err(|e| TfsRustError::Content {
         file: path.to_string_lossy().into_owned(),

@@ -6,14 +6,14 @@
 use std::collections::HashMap;
 use std::io::{self, Read};
 
+use tfs_rust_common::Position;
 use tfs_rust_common::enums::Direction;
 use tfs_rust_common::enums::ZoneType;
-use tfs_rust_common::Position;
 use tfs_rust_core::formulas::{PathCostModel, PathSearchModel};
 use tfs_rust_core::map::{Map, SparseGrid};
 use tfs_rust_core::pathfinding::{
-    effective_terrain_waypoints, get_path_matching, truncate_tshortway_go_queue, FindPathParams,
-    CHASE_PATH_MAX_STEPS,
+    CHASE_PATH_MAX_STEPS, FindPathParams, effective_terrain_waypoints, get_path_matching,
+    truncate_tshortway_go_queue,
 };
 use tfs_rust_core::tile::{Tile, TileBody};
 

@@ -9,40 +9,39 @@
 use std::time::Instant;
 
 use slotmap::Key;
+use tfs_rust_common::Position;
 use tfs_rust_common::enums::{
     CombatType, ConditionType, Direction, SpeakType, WorldType, ZoneType,
 };
 use tfs_rust_common::game_packet::ThrowPayload;
-use tfs_rust_common::Position;
 
 use crate::chase_debug;
 use crate::combat::math::spell_damage;
-use crate::combat::{disc_offsets, CombatDamage, CombatParams};
+use crate::combat::{CombatDamage, CombatParams, disc_offsets};
 use crate::condition::{ActiveCondition, ConditionData};
 use crate::creature::{
-    drunk_power_from_xml, duration_ms_to_rounds, monster_weapon_attack_distance, speed_mdact,
     ChaseMode, CreatureBase, CreatureKind, MonsterFieldType, MonsterSpell, MonsterState,
-    SpellImpact, SpellShape,
+    SpellImpact, SpellShape, drunk_power_from_xml, duration_ms_to_rounds,
+    monster_weapon_attack_distance, speed_mdact,
+};
+use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
+use crate::creature_todo::{
+    ActionObjectRef, CreatureAction, MONSTER_IDLE_WAIT_MS, trace_creature_todo,
 };
 use crate::cylinder::CylinderFlags;
+use crate::game_world::GameWorld;
+use crate::ids::CreatureId;
 use crate::item::Item;
 use crate::item_attributes::ItemAttributes;
 use crate::login_out::creature_wire_id;
-use crate::tile::MapStackEntry;
-use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
-use crate::creature_todo::{
-    trace_creature_todo, ActionObjectRef, CreatureAction, MONSTER_IDLE_WAIT_MS,
-};
-use crate::game_world::GameWorld;
-use crate::ids::CreatureId;
 use crate::monster_ai::{
+    MonsterCombatCloseChaseEnqueue, MonsterEnqueueAttackResult, MonsterIdleChaseRepathOutcome,
     chebyshev, compute_look_toward_target, manhattan, monster_idle_chase_step_budget,
     monster_master_follow_wait_before_go, monster_master_follow_wait_only_band,
-    MonsterCombatCloseChaseEnqueue, MonsterEnqueueAttackResult,
-    MonsterIdleChaseRepathOutcome,
 };
-use crate::player_flags::{flags_for_group, has_player_flag, PLAYER_FLAG_IGNORED_BY_MONSTERS};
+use crate::player_flags::{PLAYER_FLAG_IGNORED_BY_MONSTERS, flags_for_group, has_player_flag};
 use crate::return_value::ReturnValue;
+use crate::tile::MapStackEntry;
 use crate::walk::creature_turn_with_broadcast;
 
 /// C++ `TMonster::IdleStimulus` walking arms — `crnonpl.cc:2676`.
@@ -70,9 +69,14 @@ pub(crate) enum MonsterIdleWalkBranch {
 
 /// Result of executing one idle walk arm.
 enum MonsterIdleWalkOutcome {
-    QueuedGo { via: &'static str, wait_after: bool },
+    QueuedGo {
+        via: &'static str,
+        wait_after: bool,
+    },
     /// `ToDoWait` then `ToDoGo` — master follow Manhattan 3 (`crnonpl.cc:2769-2773`).
-    QueuedWaitThenGo { via: &'static str },
+    QueuedWaitThenGo {
+        via: &'static str,
+    },
     QueuedWait,
     /// No walk arm matched — fall through to roam tail (`crnonpl.cc:2902`).
     FallthroughRoam,
@@ -360,10 +364,7 @@ impl GameWorld {
         let mut reduced_damage = *damage;
         if let Some(attacker_id) = attacker {
             let both_players = matches!(
-                (
-                    self.creatures.get(attacker_id),
-                    self.creatures.get(target),
-                ),
+                (self.creatures.get(attacker_id), self.creatures.get(target),),
                 (Some(CreatureKind::Player(_)), Some(CreatureKind::Player(_)))
             );
             if both_players && !is_periodic {
@@ -408,8 +409,12 @@ impl GameWorld {
             if let Some(armor) = params.armor {
                 if reduced_damage.primary.1 < 0 {
                     let profile = self.mechanics.profile;
-                    let armor_roll =
-                        crate::combat::math::armor_reduction(&profile, &self.mechanics.hooks, armor, &self.parity_rng);
+                    let armor_roll = crate::combat::math::armor_reduction(
+                        &profile,
+                        &self.mechanics.hooks,
+                        armor,
+                        &self.parity_rng,
+                    );
                     reduced_damage.primary.1 += armor_roll;
                     if reduced_damage.primary.1 >= 0 {
                         if let Some(pos) = self.creatures.get(target).map(|k| k.position()) {
@@ -718,8 +723,7 @@ impl GameWorld {
         if !damaging {
             return;
         }
-        let target_is_player =
-            matches!(self.creatures.get(target), Some(CreatureKind::Player(_)));
+        let target_is_player = matches!(self.creatures.get(target), Some(CreatureKind::Player(_)));
         self.player_block_logout_infight(attacker_id, target_is_player);
         if target_is_player {
             self.player_block_logout_infight(target, false);
@@ -822,9 +826,9 @@ impl GameWorld {
                 if !animated.as_bytes().is_empty() {
                     self.broadcast_to_spectators(pos, animated.into_bytes());
                 }
-                let msg = match attacker.and_then(|aid| {
-                    self.creatures.get(aid).map(|k| k.base().name.clone())
-                }) {
+                let msg = match attacker
+                    .and_then(|aid| self.creatures.get(aid).map(|k| k.base().name.clone()))
+                {
                     Some(name) => {
                         format!("You lose {absorbed} mana blocking an attack by {name}.")
                     }
@@ -1142,10 +1146,7 @@ impl GameWorld {
         // Player mapping: follow packet sets `follow_target`; attack packet clears it
         // (`player_set_attack_dest`). Monster masters: Following is always false.
         let (master_following, master_attack_dest) = match self.creatures.get(master_id) {
-            Some(CreatureKind::Player(p)) => (
-                p.base.follow_target.is_some(),
-                p.base.attack_target,
-            ),
+            Some(CreatureKind::Player(p)) => (p.base.follow_target.is_some(), p.base.attack_target),
             Some(k) => (false, k.base().attack_target),
             None => (false, None),
         };
@@ -1319,14 +1320,9 @@ impl GameWorld {
         let mut sector_buf = std::mem::take(&mut self.scratch_sector_buf);
         sector_buf.clear();
         for z in Self::idle_acquire_search_z_range(pos.z) {
-            self.map.grid.collect_spectators_sector_order(
-                pos.x,
-                pos.y,
-                z,
-                12,
-                12,
-                &mut sector_buf,
-            );
+            self.map
+                .grid
+                .collect_spectators_sector_order(pos.x, pos.y, z, 12, 12, &mut sector_buf);
             for target_id in sector_buf.drain(..) {
                 if self.spectator_mark_new(target_id, spectator_gen) {
                     self.scratch_spectators.push(target_id);
@@ -1570,9 +1566,9 @@ impl GameWorld {
             let is_aggressive = spell.impact.is_aggressive();
             if is_aggressive {
                 let Some(tid) = target_id else { continue };
-                if self.creatures.get(cid).is_some_and(|k| {
-                    matches!(k, CreatureKind::Monster(m) if m.base.master == Some(tid))
-                }) {
+                if self.creatures.get(cid).is_some_and(
+                    |k| matches!(k, CreatureKind::Monster(m) if m.base.master == Some(tid)),
+                ) {
                     continue;
                 }
             }
@@ -1594,14 +1590,12 @@ impl GameWorld {
                                 .get(cid)
                                 .map(|k| k.base().direction)
                                 .unwrap_or(Direction::North);
-                            let tiles = Self::monster_idle_spell_tiles(
-                                &spell, pos, caster_dir, pos,
-                            );
+                            let tiles =
+                                Self::monster_idle_spell_tiles(&spell, pos, caster_dir, pos);
                             // Shared `ExecuteCircleSpell` tile filtering — non-aggressive,
                             // LoS from caster, skip self.
-                            let iter = self.filter_area_positions(
-                                &tiles, pos, false, Some(cid), false,
-                            );
+                            let iter =
+                                self.filter_area_positions(&tiles, pos, false, Some(cid), false);
                             for &tile in &iter.tiles {
                                 if let Some(effect) = spell.area_effect {
                                     self.broadcast_magic_effect(tile, effect);
@@ -1687,9 +1681,8 @@ impl GameWorld {
                     // Shared `ExecuteCircleSpell` tile filtering — PZ skip when
                     // aggressive, LoS from caster, skip self.
                     let aggressive = spell.impact.is_aggressive();
-                    let iter = self.filter_area_positions(
-                        &tiles, pos, aggressive, Some(cid), false,
-                    );
+                    let iter =
+                        self.filter_area_positions(&tiles, pos, aggressive, Some(cid), false);
                     for &tile in &iter.tiles {
                         if let Some(effect) = spell.area_effect {
                             self.broadcast_magic_effect(tile, effect);
@@ -1716,9 +1709,8 @@ impl GameWorld {
                     // 772 `OriginShapeSpell`/`AngleShapeSpell` — `ExecuteCircleSpell`/beam:
                     // `handleField` then `handleCreature` per victim (`magic.cc:483–494`).
                     let aggressive = spell.impact.is_aggressive();
-                    let iter = self.filter_area_positions(
-                        &tiles, pos, aggressive, Some(cid), false,
-                    );
+                    let iter =
+                        self.filter_area_positions(&tiles, pos, aggressive, Some(cid), false);
                     for &tile in &iter.tiles {
                         if let Some(effect) = spell.area_effect {
                             self.broadcast_magic_effect(tile, effect);
@@ -1856,12 +1848,9 @@ impl GameWorld {
                 // H1 — armor is now passed via `CombatParams` for the shared path.
                 let mut physical_armor: Option<i32> = None;
                 if *element == CombatType::Physical && dmg > 0 {
-                    if let Some(target_pos) =
-                        self.creatures.get(target_id).map(|k| k.position())
-                    {
-                        let (post_def, armor) = self.mitigate_physical_spell_damage(
-                            target_id, target_pos, dmg, true, true,
-                        );
+                    if let Some(target_pos) = self.creatures.get(target_id).map(|k| k.position()) {
+                        let (post_def, armor) = self
+                            .mitigate_physical_spell_damage(target_id, target_pos, dmg, true, true);
                         dmg = post_def;
                         physical_armor = armor;
                     }
@@ -1959,8 +1948,8 @@ impl GameWorld {
                     ctype,
                     data: ConditionData::Speed { flat_delta },
                     timer_rounds_left: duration_ms_to_rounds(*duration),
-                skill_count: 0,
-                skill_max_count: 0,
+                    skill_count: 0,
+                    skill_max_count: 0,
                 };
                 let params = CombatParams {
                     primary_type: CombatType::Physical,
@@ -1987,8 +1976,7 @@ impl GameWorld {
                 let power = drunk_power_from_xml(*drunkness);
                 let suppressed = match self.creatures.get(target_id) {
                     Some(CreatureKind::Player(p)) => {
-                        p.condition_suppressions
-                            & tfs_rust_content::item_abilities::CONDITION_DRUNK
+                        p.condition_suppressions & tfs_rust_content::item_abilities::CONDITION_DRUNK
                             != 0
                     }
                     _ => false,
@@ -2008,12 +1996,10 @@ impl GameWorld {
                             id: 0,
                             sub_id: 0,
                             ctype: ConditionType::Drunk,
-                            data: ConditionData::Generic {
-                                ticks: *duration,
-                            },
+                            data: ConditionData::Generic { ticks: *duration },
                             timer_rounds_left: duration_ms_to_rounds(*duration),
-                        skill_count: 0,
-                        skill_max_count: 0,
+                            skill_count: 0,
+                            skill_max_count: 0,
                         };
                         let params = CombatParams {
                             primary_type: CombatType::Physical,
@@ -2058,8 +2044,8 @@ impl GameWorld {
                             look_type_ex,
                         },
                         timer_rounds_left: duration_ms_to_rounds(*duration),
-                    skill_count: 0,
-                    skill_max_count: 0,
+                        skill_count: 0,
+                        skill_max_count: 0,
                     };
                     let params = CombatParams {
                         primary_type: CombatType::Physical,
@@ -2084,12 +2070,10 @@ impl GameWorld {
                     id: 0,
                     sub_id: 0,
                     ctype: ConditionType::Invisible,
-                    data: ConditionData::Generic {
-                        ticks: *duration,
-                    },
+                    data: ConditionData::Generic { ticks: *duration },
                     timer_rounds_left: duration_ms_to_rounds(*duration),
-                skill_count: 0,
-                skill_max_count: 0,
+                    skill_count: 0,
+                    skill_max_count: 0,
                 };
                 let params = CombatParams {
                     primary_type: CombatType::Physical,
@@ -3738,8 +3722,8 @@ impl GameWorld {
                                     obj1.stack_pos,
                                     obj1.sprite_id,
                                 );
-                                let item_type = item_id
-                                    .and_then(|id| self.items.get(id).map(|i| i.item_type));
+                                let item_type =
+                                    item_id.and_then(|id| self.items.get(id).map(|i| i.item_type));
                                 let action_id = item_id
                                     .and_then(|id| self.items.get(id).map(|i| i.action_id()))
                                     .unwrap_or(0);
@@ -3748,8 +3732,9 @@ impl GameWorld {
                                 let rune_far = item_type
                                     .and_then(|t| self.spells.runes_by_id.get(&t))
                                     .is_some_and(|r| r.allow_far_use);
-                                let action_far = item_type
-                                    .is_some_and(|t| self.events.action_allows_far_use(t, action_id));
+                                let action_far = item_type.is_some_and(|t| {
+                                    self.events.action_allows_far_use(t, action_id)
+                                });
                                 if distuse || rune_far || action_far {
                                     // DistUse: Chebyshev ≤ 7 (`cract.cc:761`).
                                     // Rune / Action allowFarUse: TFS `canUseFar` `areInRange<7,5>`
@@ -3760,8 +3745,8 @@ impl GameWorld {
                                             if rune_far || action_far {
                                                 let rune = item_type
                                                     .and_then(|t| self.spells.runes_by_id.get(&t));
-                                                let check_floor = rune
-                                                    .is_none_or(|r| r.check_floor);
+                                                let check_floor =
+                                                    rune.is_none_or(|r| r.check_floor);
                                                 if check_floor && pp.z != o2.pos.z {
                                                     let rv = if pp.z > o2.pos.z {
                                                         ReturnValue::FirstGoUpStairs
@@ -3770,26 +3755,22 @@ impl GameWorld {
                                                     };
                                                     return (false, Some(rv));
                                                 }
-                                                let dx = (pp.x as i32 - o2.pos.x as i32)
-                                                    .unsigned_abs();
-                                                let dy = (pp.y as i32 - o2.pos.y as i32)
-                                                    .unsigned_abs();
+                                                let dx =
+                                                    (pp.x as i32 - o2.pos.x as i32).unsigned_abs();
+                                                let dy =
+                                                    (pp.y as i32 - o2.pos.y as i32).unsigned_abs();
                                                 (dx > 7 || dy > 5, None)
                                             } else {
-                                                let dx = (pp.x as i32 - o2.pos.x as i32)
-                                                    .unsigned_abs();
-                                                let dy = (pp.y as i32 - o2.pos.y as i32)
-                                                    .unsigned_abs();
+                                                let dx =
+                                                    (pp.x as i32 - o2.pos.x as i32).unsigned_abs();
+                                                let dy =
+                                                    (pp.y as i32 - o2.pos.y as i32).unsigned_abs();
                                                 (dx > 7 || dy > 7, None)
                                             }
                                         });
                                     if let Some(rv) = floor_rv {
                                         self.apply_todo_result_catch(cid, rv);
-                                        trace_creature_todo(
-                                            self,
-                                            cid,
-                                            "execute_use_far_use_floor",
-                                        );
+                                        trace_creature_todo(self, cid, "execute_use_far_use_floor");
                                         return Some(TodoExecuteKind::Wait);
                                     }
                                     if too_far {
@@ -3812,20 +3793,22 @@ impl GameWorld {
                                     // picks it up first (`ToDoMove`) — not yet ported, so fail
                                     // with `TooFarAway` for the both-map-tiles-far-apart case.
                                     if obj1.pos.x != 0xFFFF {
-                                        self.apply_todo_result_catch(
+                                        self.apply_todo_result_catch(cid, ReturnValue::TooFarAway);
+                                        trace_creature_todo(
+                                            self,
                                             cid,
-                                            ReturnValue::TooFarAway,
+                                            "execute_use_obj2_far_obj1_on_map",
                                         );
-                                        trace_creature_todo(self, cid, "execute_use_obj2_far_obj1_on_map");
                                         return Some(TodoExecuteKind::Wait);
                                     }
                                     // Obj1 in inventory — walk to Obj2 and re-enqueue.
                                     let now = Instant::now();
                                     match self.setup_player_walk_to_target(cid, o2.pos, now) {
                                         Ok(()) => {
-                                            let has_steps = self.creatures.get(cid).is_some_and(
-                                                |k| !k.base().walk_queue.is_empty(),
-                                            );
+                                            let has_steps = self
+                                                .creatures
+                                                .get(cid)
+                                                .is_some_and(|k| !k.base().walk_queue.is_empty());
                                             if has_steps {
                                                 if let Some(k) = self.creatures.get_mut(cid) {
                                                     k.base_mut().todo.queue.push_front(
@@ -3835,12 +3818,19 @@ impl GameWorld {
                                                             open_index,
                                                         },
                                                     );
-                                                    k.base_mut().todo.queue.push_front(CreatureAction::Go);
+                                                    k.base_mut()
+                                                        .todo
+                                                        .queue
+                                                        .push_front(CreatureAction::Go);
                                                 }
                                                 if self.todo_start_go_delay(cid, true) {
                                                     self.schedule_immediate_todo_wakeup(cid);
                                                 }
-                                                trace_creature_todo(self, cid, "execute_use_walk_to_obj2");
+                                                trace_creature_todo(
+                                                    self,
+                                                    cid,
+                                                    "execute_use_walk_to_obj2",
+                                                );
                                                 return Some(TodoExecuteKind::Deferred);
                                             }
                                         }
@@ -4032,15 +4022,14 @@ impl GameWorld {
             if let Some(o2) = obj2 {
                 return self.player_use_item_ex_core(conn_id, cid, item_id, o2);
             }
-            let preferred_cid =
-                if matches!(
-                    self.mechanics.profile.container_window_alloc,
-                    crate::formulas::ContainerWindowAlloc::ClientChooses
-                ) {
-                    Some(open_index.min(crate::container::MAX_CONTAINER_WINDOWS - 1))
-                } else {
-                    (open_index < crate::container::MAX_CONTAINER_WINDOWS).then_some(open_index)
-                };
+            let preferred_cid = if matches!(
+                self.mechanics.profile.container_window_alloc,
+                crate::formulas::ContainerWindowAlloc::ClientChooses
+            ) {
+                Some(open_index.min(crate::container::MAX_CONTAINER_WINDOWS - 1))
+            } else {
+                (open_index < crate::container::MAX_CONTAINER_WINDOWS).then_some(open_index)
+            };
             let is_map_tile = obj1.pos.x != 0xFFFF;
             return self.player_use_item_core(
                 conn_id,
@@ -4302,11 +4291,10 @@ impl GameWorld {
                     // Wait up front; if a future wakeup was armed, do **not** IdleStimulus yet
                     // — otherwise Go+Wait(2000) roam immediately re-idles and loses the pause
                     // (NPC-6; also trips the zero-delay iteration guard).
-                    let has_future_wakeup = self.creatures.get(cid).is_some_and(|k| {
-                        k.base()
-                            .next_wakeup
-                            .is_some_and(|w| w > self.server_ms)
-                    });
+                    let has_future_wakeup = self
+                        .creatures
+                        .get(cid)
+                        .is_some_and(|k| k.base().next_wakeup.is_some_and(|w| w > self.server_ms));
                     if has_future_wakeup {
                         self.monster_combat_reschedule_if_stalled(cid);
                         TodoExecuteLoopControl::Break

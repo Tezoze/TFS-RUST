@@ -18,7 +18,7 @@ use tfs_rust_common::enums::CombatType;
 
 use crate::combat::math::weapon_damage;
 use crate::combat::{CombatDamage, CombatParams};
-use crate::creature::{roll_target_defense, CreatureKind};
+use crate::creature::{CreatureKind, roll_target_defense};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 
@@ -86,7 +86,8 @@ impl GameWorld {
             if learning_active {
                 if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
                     if p.base.learning_points > 0 {
-                        levels_gained = p.skill_increase(atk_skill_nr, skill_tries, &profile, hooks);
+                        levels_gained =
+                            p.skill_increase(atk_skill_nr, skill_tries, &profile, hooks);
                         p.base.learning_points -= 1;
                         skill_trained = skill_tries > 0;
                     }
@@ -97,8 +98,15 @@ impl GameWorld {
                 _ => return,
             };
             // `GetAttackDamage` — fight-mode-scaled probe roll (`crcombat.cc:220`).
-            let attack_roll =
-                weapon_damage(&profile, hooks, skill, atk_value, mode, level, &self.parity_rng);
+            let attack_roll = weapon_damage(
+                &profile,
+                hooks,
+                skill,
+                atk_value,
+                mode,
+                level,
+                &self.parity_rng,
+            );
             ((attack_roll as f64) * melee_mult).floor() as i32
         };
 
@@ -197,7 +205,13 @@ impl GameWorld {
             0
         };
         if let Some(snap) = notify_snap {
-            self.notify_player_combat_damage(Some(cid), target_id, damage_done, CombatType::Physical, snap);
+            self.notify_player_combat_damage(
+                Some(cid),
+                target_id,
+                damage_done,
+                CombatType::Physical,
+                snap,
+            );
         }
 
         // `if (DamageDone > 0) ActivateLearning()` (`crcombat.cc:655`).
@@ -508,7 +522,7 @@ mod tests {
         let snap = world.melee_defense_snapshot_for(defender_id);
         assert_eq!(snap.defense_value, 5);
         assert_eq!(snap.defense_skill, 10); // fist skill
-                                            // Equip a shield → shield defense takes priority + shielding skill is used.
+        // Equip a shield → shield defense takes priority + shielding skill is used.
         equip_shield(&mut world, defender_id);
         let snap2 = world.melee_defense_snapshot_for(defender_id);
         assert_eq!(snap2.defense_value, 22); // shield defense

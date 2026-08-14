@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use tfs_rust_common::enums::{CombatType, ConditionType, Direction};
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::{CombatType, ConditionType, Direction};
 
 use crate::combat::{CombatDamage, CombatParams};
 use crate::creature::{
@@ -15,9 +15,9 @@ use crate::ids::CreatureId;
 use crate::login_out::creature_wire_id;
 use crate::monster_ai::{MonsterCombatCloseChaseEnqueue, MonsterEnqueueAttackResult};
 use crate::test_world::support::{
-    beat_driven_test_world, dist_idle_monster_config, ensure_walkable_tile, insert_monster,
-    insert_monster_with_config, insert_player, insert_spectator_player, minimal_world, test_player,
-    TEST_SYNTHETIC_GROUND_WP,
+    TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, dist_idle_monster_config,
+    ensure_walkable_tile, insert_monster, insert_monster_with_config, insert_player,
+    insert_spectator_player, minimal_world, test_player,
 };
 
 /// Same-floor creature outside the 10-tile targeting box — `CanSeeFloor` awake without a target.
@@ -808,7 +808,7 @@ fn test_772_flee_uses_flight_field_not_shortway() {
 #[test]
 fn test_772_cornered_flee_falls_through_to_roam() {
     use crate::map::Map;
-    use crate::tile::{flags as tilestate, Tile, TileBody};
+    use crate::tile::{Tile, TileBody, flags as tilestate};
     use tfs_rust_common::enums::ZoneType;
 
     fn block_tile(map: &mut Map, pos: Position) {
@@ -877,14 +877,8 @@ fn test_772_cornered_flee_falls_through_to_roam() {
         !base.walk_queue.is_empty(),
         "flight-field failure must fall through to roam pathing"
     );
-    assert!(
-        base.todo.has_go(),
-        "roam fallthrough must enqueue ToDoGo"
-    );
-    assert!(
-        base.todo.has_wait(),
-        "roam tail must append ToDoWait(1000)"
-    );
+    assert!(base.todo.has_go(), "roam fallthrough must enqueue ToDoGo");
+    assert!(base.todo.has_wait(), "roam tail must append ToDoWait(1000)");
 }
 
 /// P4-3 — fresh `Attack`-fronted batch defers to armed wakeup after idle (`cract.cc:789-793`).
@@ -932,7 +926,7 @@ fn test_772_idle_attack_front_deferred_after_idle_stimulus() {
 /// fist monsters in `Attacking` skip idle chase — see `test_e3_attacking_skips_idle_melee_chase`.
 #[test]
 fn test_772_melee_chase_cheb2_must_false_max_three() {
-    use crate::monster_ai::{monster_idle_chase_step_budget, MonsterIdleChaseRepathOutcome};
+    use crate::monster_ai::{MonsterIdleChaseRepathOutcome, monster_idle_chase_step_budget};
     use crate::pathfinding::CHASE_PATH_MAX_STEPS;
 
     let mut world = beat_driven_test_world();
@@ -980,7 +974,7 @@ fn test_772_melee_chase_cheb2_must_false_max_three() {
 /// A2 regression — farther melee chase still allows up to 3 steps.
 #[test]
 fn test_772_melee_chase_cheb4_three_steps() {
-    use crate::monster_ai::{monster_idle_chase_step_budget, MonsterIdleChaseRepathOutcome};
+    use crate::monster_ai::{MonsterIdleChaseRepathOutcome, monster_idle_chase_step_budget};
 
     let mut world = beat_driven_test_world();
     let mpos = Position::new(100, 100, 7);
@@ -1023,7 +1017,7 @@ fn test_772_melee_chase_cheb4_three_steps() {
 /// A3 — dist chase step budget is `cheb - target_distance`, not global `CHASE_PATH_MAX_STEPS`.
 #[test]
 fn test_772_dist_chase_step_budget_from_target_distance() {
-    use crate::monster_ai::{monster_idle_chase_step_budget, MonsterIdleChaseRepathOutcome};
+    use crate::monster_ai::{MonsterIdleChaseRepathOutcome, monster_idle_chase_step_budget};
 
     let mut world = beat_driven_test_world();
     let mpos = Position::new(100, 100, 7);
@@ -1110,7 +1104,7 @@ fn test_772_dist_chase_step_budget_from_target_distance() {
 /// A2 / X5 — failed melee dance at band must not re-enqueue Go on 772 idle Hold.
 #[test]
 fn test_772_idle_hold_no_dance_poll() {
-    use crate::tile::{flags as tilestate, Tile, TileBody};
+    use crate::tile::{Tile, TileBody, flags as tilestate};
     use tfs_rust_common::enums::ZoneType;
 
     let mut world = beat_driven_test_world();
@@ -1168,13 +1162,15 @@ fn test_772_idle_hold_no_dance_poll() {
             .is_some_and(|k| k.base().todo.has_attack()),
         "stick-fight must enqueue Attack when dance cannot move"
     );
-    assert!(world
-        .creatures
-        .get(monster)
-        .unwrap()
-        .base()
-        .walk_queue
-        .is_empty());
+    assert!(
+        world
+            .creatures
+            .get(monster)
+            .unwrap()
+            .base()
+            .walk_queue
+            .is_empty()
+    );
 }
 
 /// A0 — TShortway NOWAY clears chase target and enqueues roam Go same idle tick.
@@ -1476,10 +1472,7 @@ fn test_772_master_follow_manhattan_1_roams() {
         base.todo.has_go(),
         "adjacent summon must roam-jiggle with ToDoGo"
     );
-    assert!(
-        base.todo.has_wait(),
-        "roam tail must append ToDoWait(1000)"
-    );
+    assert!(base.todo.has_wait(), "roam tail must append ToDoWait(1000)");
 }
 
 /// A5 — master follow beyond wait band queues up to 3 steps.
@@ -1546,7 +1539,7 @@ fn test_772_wait_schedules_1000ms_wakeup() {
 /// Regression: multi-step chase must drain the full `walk_queue`, not freeze after one Go.
 #[test]
 fn test_772_multi_step_chase_continues_after_first_go() {
-    use crate::monster_ai::{monster_idle_chase_step_budget, MonsterIdleChaseRepathOutcome};
+    use crate::monster_ai::{MonsterIdleChaseRepathOutcome, monster_idle_chase_step_budget};
 
     let mut world = beat_driven_test_world();
     let mpos = Position::new(100, 100, 7);
@@ -1692,7 +1685,7 @@ fn test_772_roam_pacing_via_wait_not_last_step() {
 fn test_772_dist_flee_fail_enqueues_wait() {
     use tfs_rust_common::enums::ZoneType;
 
-    use crate::tile::{flags as tilestate, Tile, TileBody};
+    use crate::tile::{Tile, TileBody, flags as tilestate};
 
     let mut world = beat_driven_test_world();
     let mpos = Position::new(100, 100, 7);
@@ -1842,7 +1835,7 @@ fn test_772_get_next_step_no_roam_on_beat_loop() {
 fn test_772_attack_from_idle_queue() {
     use tfs_rust_common::enums::ZoneType;
 
-    use crate::tile::{flags as tilestate, Tile, TileBody};
+    use crate::tile::{Tile, TileBody, flags as tilestate};
 
     let mut world = beat_driven_test_world();
     let mpos = Position::new(100, 100, 7);
@@ -1936,9 +1929,9 @@ fn test_772_change_target_only_on_process_creatures() {
         _ => 0,
     };
     assert_eq!(
-            ticks_after_think, 0,
-            "772 ProcessCreatures must not run TFS change-target rolls (no `onThinkTarget` in `crnonpl.cc`)"
-        );
+        ticks_after_think, 0,
+        "772 ProcessCreatures must not run TFS change-target rolls (no `onThinkTarget` in `crnonpl.cc`)"
+    );
 }
 
 /// P0-3 — melee stick-fight enqueues Attack without trailing 1 s Wait.
@@ -1947,7 +1940,7 @@ fn test_772_melee_stick_fight_no_wait_after_attack() {
     use tfs_rust_common::enums::ZoneType;
 
     use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
-    use crate::tile::{flags as tilestate, Tile, TileBody};
+    use crate::tile::{Tile, TileBody, flags as tilestate};
 
     let mut world = beat_driven_test_world();
     let mpos = Position::new(100, 100, 7);
@@ -2184,7 +2177,10 @@ fn e5_apply_player_hit(
         },
         &CombatParams::default(),
     );
-    assert!(applied > 0, "combat_execute_with_stimulus must apply HP loss");
+    assert!(
+        applied > 0,
+        "combat_execute_with_stimulus must apply HP loss"
+    );
 }
 
 #[test]
@@ -2347,15 +2343,12 @@ fn test_combat_execute_pvp_halves_damage_before_absorb() {
     let (mut world, attacker, _conn) = setup_player_world_with_conn();
     let tpos = Position::new(101, 100, 7);
     ensure_walkable_tile(&mut world.map, tpos, TEST_SYNTHETIC_GROUND_WP);
-    let target = insert_player(
-        &mut world,
-        {
-            let mut p = test_player("Victim", tpos);
-            p.base.health = 500;
-            p.base.max_health = 500;
-            p
-        },
-    );
+    let target = insert_player(&mut world, {
+        let mut p = test_player("Victim", tpos);
+        p.base.health = 500;
+        p.base.max_health = 500;
+        p
+    });
 
     let hp_before = world
         .creatures
@@ -2870,16 +2863,8 @@ fn test_idle_rotate_suppresses_turn_packet_when_go_pending() {
     world.server_ms = 1000;
     let conn = ConnId(99);
     let spectator_pos = Position::new(100, 99, 7);
-    ensure_walkable_tile(
-        &mut world.map,
-        spectator_pos,
-        TEST_SYNTHETIC_GROUND_WP,
-    );
-    insert_spectator_player(
-        &mut world,
-        conn,
-        test_player("TurnWatch", spectator_pos),
-    );
+    ensure_walkable_tile(&mut world.map, spectator_pos, TEST_SYNTHETIC_GROUND_WP);
+    insert_spectator_player(&mut world, conn, test_player("TurnWatch", spectator_pos));
     let (monster, _player) = e1_melee_target_setup(&mut world, 15);
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
         m.state = MonsterState::Attacking;
@@ -2920,16 +2905,8 @@ fn test_idle_rotate_broadcasts_when_standing() {
     world.server_ms = 1000;
     let conn = ConnId(100);
     let spectator_pos = Position::new(100, 99, 7);
-    ensure_walkable_tile(
-        &mut world.map,
-        spectator_pos,
-        TEST_SYNTHETIC_GROUND_WP,
-    );
-    insert_spectator_player(
-        &mut world,
-        conn,
-        test_player("TurnWatch2", spectator_pos),
-    );
+    ensure_walkable_tile(&mut world.map, spectator_pos, TEST_SYNTHETIC_GROUND_WP);
+    insert_spectator_player(&mut world, conn, test_player("TurnWatch2", spectator_pos));
     let (monster, _player) = e1_melee_target_setup(&mut world, 15);
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
         m.state = MonsterState::Attacking;
@@ -3501,10 +3478,10 @@ fn test_chase_freeze_attack_path_noway_clears_target() {
     );
     let base = world.creatures.get(monster).unwrap().base();
     assert_eq!(
-            base.follow_target,
-            Some(player),
-            "Noway return must keep chase target — caller clears it (monster_idle_noway_clear_and_roam)"
-        );
+        base.follow_target,
+        Some(player),
+        "Noway return must keep chase target — caller clears it (monster_idle_noway_clear_and_roam)"
+    );
     assert_eq!(base.attack_target, Some(player));
     assert!(
         !base.todo.has_attack(),
@@ -3830,7 +3807,7 @@ fn monster_is_parked(world: &GameWorld, cid: CreatureId) -> bool {
 /// LOS blocked at cheb>1 must still arm close-chase approach — not park on bound target.
 #[test]
 fn test_772_attacking_los_blocked_does_not_freeze() {
-    use crate::tile::{flags as tilestate, Tile, TileBody};
+    use crate::tile::{Tile, TileBody, flags as tilestate};
     use tfs_rust_common::enums::ZoneType;
 
     let mut world = beat_driven_test_world();
@@ -4235,7 +4212,9 @@ fn summon_rebinds_to_master_when_target_clears() {
     let master = insert_player(&mut world, test_player("Hero", mpos));
     world.map.register_creature_at(mpos, master);
     let follow_target = insert_monster(&mut world, "Follow", Position::new(101, 100, 7), 200);
-    world.map.register_creature_at(Position::new(101, 100, 7), follow_target);
+    world
+        .map
+        .register_creature_at(Position::new(101, 100, 7), follow_target);
     if let Some(k) = world.creatures.get_mut(master) {
         k.base_mut().attack_target = Some(follow_target);
         k.base_mut().follow_target = Some(follow_target);
@@ -4252,8 +4231,7 @@ fn summon_rebinds_to_master_when_target_clears() {
     );
     // Master-follow branch returns before SetAttackDest (`crnonpl.cc:2760-2776`).
     assert_eq!(
-        base.attack_target,
-        None,
+        base.attack_target, None,
         "AttackDest is not set while Target == Master"
     );
 }
@@ -4281,15 +4259,26 @@ fn summon_of_monster_inherits_attack_dest_while_master_chases() {
         k.base_mut().attack_target = Some(player);
         k.base_mut().follow_target = Some(player);
     }
-    let summon = insert_summon(&mut world, "Poison Spider", Position::new(102, 100, 7), master);
-    world.map.register_creature_at(Position::new(102, 100, 7), summon);
+    let summon = insert_summon(
+        &mut world,
+        "Poison Spider",
+        Position::new(102, 100, 7),
+        master,
+    );
+    world
+        .map
+        .register_creature_at(Position::new(102, 100, 7), summon);
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(summon) {
         m.melee_skill = 10;
     }
     wake_monster(&mut world, summon);
     world.monster_idle_stimulus(summon);
     let base = world.creatures.get(summon).unwrap().base();
-    assert_eq!(base.follow_target, Some(player), "summon Target inherits master AttackDest");
+    assert_eq!(
+        base.follow_target,
+        Some(player),
+        "summon Target inherits master AttackDest"
+    );
     assert_eq!(
         base.attack_target,
         Some(player),
@@ -4344,7 +4333,7 @@ fn monster_no_talk_when_talk_texts_empty() {
     let mut world = beat_driven_test_world();
     let mpos = Position::new(100, 100, 7);
     let monster = insert_monster(&mut world, "Rat", mpos, 200); // default: talks=0, no talk_texts
-                                                                // Wake the monster so it reaches the talk path.
+    // Wake the monster so it reaches the talk path.
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
         m.state = MonsterState::Idle;
         m.is_idle = false;
@@ -4424,7 +4413,7 @@ fn test_phase9_772_loses_target_entering_house() {
 // `crnonpl.cc:2429` `(Target->IsInvisible() && !RaceData[Race].SeeInvisible)`.
 #[test]
 fn test_phase9_772_loses_invisible_target_without_see_invisible() {
-    use crate::condition::{add_condition_merge, ActiveCondition, ConditionData};
+    use crate::condition::{ActiveCondition, ConditionData, add_condition_merge};
 
     let mut world = beat_driven_test_world();
     let mpos = Position::new(100, 100, 7);
@@ -4472,7 +4461,7 @@ fn test_phase9_772_loses_invisible_target_without_see_invisible() {
 // `(IsInvisible && !SeeInvisible)` gate does not fire.
 #[test]
 fn test_phase9_772_keeps_invisible_target_with_see_invisible() {
-    use crate::condition::{add_condition_merge, ActiveCondition, ConditionData};
+    use crate::condition::{ActiveCondition, ConditionData, add_condition_merge};
 
     let mut world = beat_driven_test_world();
     let mpos = Position::new(100, 100, 7);
@@ -4525,7 +4514,7 @@ fn test_phase9_772_keeps_invisible_target_with_see_invisible() {
 /// all viewers, so monsters kept targeting `utana vid` players.
 #[test]
 fn test_772_acquire_skips_invisible_player_without_see_invisible() {
-    use crate::condition::{add_condition_merge, ActiveCondition, ConditionData};
+    use crate::condition::{ActiveCondition, ConditionData, add_condition_merge};
 
     let mut world = beat_driven_test_world();
     let mpos = Position::new(100, 100, 7);
@@ -4650,7 +4639,11 @@ fn test_772_dragon_fire_wave_angle_casts_toward_target() {
     let ppos = Position::new(103, 100, 7); // directly east of dragon, cheb=3
     // Lay the full beam corridor so every cone tile is valid + sight-clear.
     for x in 100..=111u16 {
-        ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(
+            &mut world.map,
+            Position::new(x, 100, 7),
+            TEST_SYNTHETIC_GROUND_WP,
+        );
     }
 
     let conn = ConnId(1);
@@ -4893,13 +4886,15 @@ fn test_attack_override_clears_pending_walk_and_snapbacks() {
         now,
     );
     assert!(world.creatures.get(player).unwrap().base().todo.has_go());
-    assert!(!world
-        .creatures
-        .get(player)
-        .unwrap()
-        .base()
-        .walk_queue
-        .is_empty());
+    assert!(
+        !world
+            .creatures
+            .get(player)
+            .unwrap()
+            .base()
+            .walk_queue
+            .is_empty()
+    );
 
     // Override with an attack mid-walk.
     world.pending_outgoing.clear();
@@ -5013,20 +5008,24 @@ fn test_player_walk_while_attacking_re_arms_attack() {
 
     // Start attacking.
     world.player_set_attack_dest(conn, player, wire_id, false);
-    assert!(world
-        .creatures
-        .get(player)
-        .unwrap()
-        .base()
-        .attack_target
-        .is_some());
-    assert!(world
-        .creatures
-        .get(player)
-        .unwrap()
-        .base()
-        .todo
-        .has_attack());
+    assert!(
+        world
+            .creatures
+            .get(player)
+            .unwrap()
+            .base()
+            .attack_target
+            .is_some()
+    );
+    assert!(
+        world
+            .creatures
+            .get(player)
+            .unwrap()
+            .base()
+            .todo
+            .has_attack()
+    );
 
     // Take a step — `player_move_request` clears the ToDo queue (removing Attack) + enqueues Go.
     let now = std::time::Instant::now();
@@ -5104,13 +5103,15 @@ fn test_phase1_player_cancel_clears_target_and_sends_clear_target() {
     let wire_id = creature_wire_id(target, world.creatures.get(target).unwrap());
 
     world.player_set_attack_dest(conn, player, wire_id, false);
-    assert!(world
-        .creatures
-        .get(player)
-        .unwrap()
-        .base()
-        .attack_target
-        .is_some());
+    assert!(
+        world
+            .creatures
+            .get(player)
+            .unwrap()
+            .base()
+            .attack_target
+            .is_some()
+    );
 
     world.pending_outgoing.clear();
     world.player_cancel_attack_and_follow(conn, player);
@@ -5867,10 +5868,7 @@ fn test_snapback_audit_s2_enterprotectionzone_sends_unconditional_snapback() {
 fn test_snapback_audit_s2_player_is_pz_locked_sends_unconditional_snapback() {
     let (mut world, player, conn) = setup_player_world_with_conn();
     world.pending_outgoing.clear();
-    world.apply_todo_result_catch(
-        player,
-        crate::return_value::ReturnValue::PlayerIsPzLocked,
-    );
+    world.apply_todo_result_catch(player, crate::return_value::ReturnValue::PlayerIsPzLocked);
     let pkts = world
         .pending_outgoing
         .get(&conn)
@@ -6025,7 +6023,14 @@ fn test_monster_wait_deadline_is_absolute_at_enqueue() {
     assert_eq!(world.server_ms, 0);
     assert!(world.enqueue_creature_wait(monster, 1000));
     assert!(matches!(
-        world.creatures.get(monster).unwrap().base().todo.queue.front(),
+        world
+            .creatures
+            .get(monster)
+            .unwrap()
+            .base()
+            .todo
+            .queue
+            .front(),
         Some(CreatureAction::Wait { deadline_ms: 1000 })
     ));
 
@@ -6123,9 +6128,9 @@ fn test_monster_deep_zero_delay_execute_chain() {
     if let Some(k) = world.creatures.get_mut(monster) {
         let base = k.base_mut();
         for _i in 0..CHAIN_LEN {
-            base.todo.queue.push_back(CreatureAction::Wait {
-                deadline_ms: 0,
-            });
+            base.todo
+                .queue
+                .push_back(CreatureAction::Wait { deadline_ms: 0 });
             base.todo.queue.push_back(CreatureAction::Talk {
                 text: "chain-step".into(),
             });
@@ -6668,7 +6673,7 @@ fn setup_south_stair_world(
 ) -> (GameWorld, CreatureId, tfs_rust_common::ConnId) {
     let mut world = beat_driven_test_world();
     // Stair tile at (100,100,8) with FLOORCHANGE_SOUTH.
-    use crate::tile::{flags as tilestate, Tile, TileBody};
+    use crate::tile::{Tile, TileBody, flags as tilestate};
     use tfs_rust_common::enums::ZoneType;
     world.map.insert_tile(
         Position::new(100, 100, 8),
@@ -6826,7 +6831,7 @@ fn otclient_772_up_from_surface_skips_remove() {
         setup_south_stair_world(Position::new(101, 100, 8), CLIENTOS_OTCLIENT_LINUX);
     // Modify the stair to go UP instead: place a north-facing stair at z=7
     // that chains to z=6. We need tiles at z=6 for the destination.
-    use crate::tile::{flags as tilestate, Tile, TileBody};
+    use crate::tile::{Tile, TileBody, flags as tilestate};
     use tfs_rust_common::enums::ZoneType;
     // Replace the z=8 stair with a z=7 stair going north (up to z=6).
     world.map.insert_tile(
@@ -7052,13 +7057,7 @@ fn two_same_type_monsters_do_not_share_todo_schedule() {
     // B can still re-arm after A's wipe.
     world.monster_idle_stimulus(b);
     assert!(
-        world
-            .creatures
-            .get(b)
-            .unwrap()
-            .base()
-            .next_wakeup
-            .is_some()
+        world.creatures.get(b).unwrap().base().next_wakeup.is_some()
             || !world.creatures.get(b).unwrap().base().todo.queue.is_empty()
             || !world.creatures.get(b).unwrap().base().walk_queue.is_empty(),
         "B must still schedule after A's todo was wiped"
@@ -7108,7 +7107,12 @@ fn tile_has_item_type(world: &GameWorld, pos: Position, item_type: u16) -> bool 
         .down_items
         .iter()
         .chain(tile.body().top_items.iter())
-        .any(|iid| world.items.get(*iid).is_some_and(|i| i.item_type == item_type))
+        .any(|iid| {
+            world
+                .items
+                .get(*iid)
+                .is_some_and(|i| i.item_type == item_type)
+        })
 }
 
 /// 772 `TFieldImpact` / `CreateField` — Destination poisonfield places PvP field 1490.
@@ -7123,7 +7127,11 @@ fn test_772_poisonfield_places_item_on_destination() {
     let mpos = Position::new(100, 100, 7);
     let ppos = Position::new(103, 100, 7);
     for x in 100..=103u16 {
-        ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(
+            &mut world.map,
+            Position::new(x, 100, 7),
+            TEST_SYNTHETIC_GROUND_WP,
+        );
     }
 
     let player = insert_player(&mut world, test_player("Hero", ppos));
@@ -7210,12 +7218,10 @@ fn magic_field_place_damages_creature_on_tile() {
         type_tag: 6,
         ..Default::default()
     };
-    it.xml_attributes
-        .insert("field".into(), "fire".into());
+    it.xml_attributes.insert("field".into(), "fire".into());
     it.xml_attributes
         .insert("field.initdamage".into(), "20".into());
-    it.xml_attributes
-        .insert("field.cycles".into(), "70".into());
+    it.xml_attributes.insert("field.cycles".into(), "70".into());
     it.xml_attributes
         .insert("replacemagicfields".into(), "true".into());
     db.items.insert(1487, it);

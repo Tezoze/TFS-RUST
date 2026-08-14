@@ -281,9 +281,9 @@ mod tests {
     /// `Turn` and `PingBack`, which were previously mis-exempted) does.
     #[test]
     fn packet_counts_as_action_matches_772_reset_timer() {
+        use tfs_rust_common::GamePacket;
         use tfs_rust_common::enums::Direction;
         use tfs_rust_common::game_packet::SayPayload;
-        use tfs_rust_common::GamePacket;
 
         use super::packet_counts_as_action;
 
@@ -357,12 +357,16 @@ mod tests {
             _ => panic!("body must remain on map"),
         };
         assert!(p.logging_out);
-        assert_eq!(p.base.attack_target, Some(mon), "StopFight=false keeps AttackDest");
-        assert_eq!(p.base.latest_attack_round, 160, "StopAttack(60) from RoundNr 100");
         assert_eq!(
-            world.player_logout_possible(player),
-            LogoutPossible::Combat
+            p.base.attack_target,
+            Some(mon),
+            "StopFight=false keeps AttackDest"
         );
+        assert_eq!(
+            p.base.latest_attack_round, 160,
+            "StopAttack(60) from RoundNr 100"
+        );
+        assert_eq!(world.player_logout_possible(player), LogoutPossible::Combat);
 
         world.process_creatures();
         assert!(
@@ -423,12 +427,10 @@ mod tests {
             p.earliest_logout_round = 160;
         }
         world.creature_begin_logout(player, false, false);
-        assert!(
-            matches!(
-                world.creatures.get(player),
-                Some(CreatureKind::Player(p)) if p.logging_out
-            )
-        );
+        assert!(matches!(
+            world.creatures.get(player),
+            Some(CreatureKind::Player(p)) if p.logging_out
+        ));
 
         let (cid, old_conn) = world
             .player_try_takeover_for_login(42, "TakeOver", 0, 0)
@@ -469,10 +471,7 @@ mod tests {
         let err = world
             .player_try_takeover_for_login(7, "Finishing", 0, 0)
             .expect_err("must reject finalize-ready logout");
-        assert!(
-            err.to_string().contains("logging out"),
-            "err={err}"
-        );
+        assert!(err.to_string().contains("logging out"), "err={err}");
         assert!(world.creatures.get(player).is_some());
     }
 

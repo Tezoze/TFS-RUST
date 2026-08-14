@@ -18,14 +18,14 @@
 //! domain shape as `data/scripts/weapons/*.lua`.
 //! Distance item stats still come from `items.xml` (`attack`, `shoot_range`, `shoot_effect`).
 
-use tfs_rust_common::enums::CombatType;
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::CombatType;
 
 use crate::combat::math::{probe_hit, weapon_damage};
 use crate::combat::{CombatDamage, CombatParams};
-use crate::cylinder::CylinderFlags;
 use crate::config::ConfigManager;
-use crate::creature::{roll_target_defense, CreatureKind};
+use crate::creature::{CreatureKind, roll_target_defense};
+use crate::cylinder::CylinderFlags;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::inventory::InventorySlot;
@@ -142,7 +142,11 @@ impl GameWorld {
     /// Empty `vocations` map ⇒ no vocation filter. Keys are allowed names (TFS
     /// `weapon:vocation(name[, showInDescription])` — the bool is description-only; both
     /// `"Sorcerer"` and `"Master Sorcerer"` entries allow those vocations).
-    pub(crate) fn player_meets_wand_requirements(&self, cid: CreatureId, wand_type_id: u16) -> bool {
+    pub(crate) fn player_meets_wand_requirements(
+        &self,
+        cid: CreatureId,
+        wand_type_id: u16,
+    ) -> bool {
         let Some(def) = self.weapons.get_wand(wand_type_id) else {
             // No Lua wand def — still treat as wand for classify; `player_wand_attack` re-arms.
             return true;
@@ -263,10 +267,8 @@ impl GameWorld {
             return;
         }
         let profile = self.mechanics.profile;
-        let magic_tries = ConfigManager::scale_tries(
-            mana_cost as u64,
-            self.config.rate_magic().unwrap_or(1.0),
-        );
+        let magic_tries =
+            ConfigManager::scale_tries(mana_cost as u64, self.config.rate_magic().unwrap_or(1.0));
         let mut levels_gained = 0u32;
         let mut new_maglevel = 0i32;
         {
@@ -410,9 +412,7 @@ impl GameWorld {
             // Throwing weapon — find which hand slot it lives in for the slot update.
             let slot = [InventorySlot::Left as u8, InventorySlot::Right as u8]
                 .into_iter()
-                .find(|&s| {
-                    self.get_player_inventory_item(cid, s) == weapons.throw_
-                })
+                .find(|&s| self.get_player_inventory_item(cid, s) == weapons.throw_)
                 .unwrap_or(InventorySlot::Left as u8);
             (weapons.throw_, None, false, slot)
         } else {
@@ -444,7 +444,13 @@ impl GameWorld {
             };
             let shoot_type = it.shoot_effect.unwrap_or(0);
             let (special, effect_strength) = AmmoSpecialEffect::from_item_type(it);
-            (it.attack, shoot_type, special, effect_strength, it.server_id)
+            (
+                it.attack,
+                shoot_type,
+                special,
+                effect_strength,
+                it.server_id,
+            )
         };
         // TFS scripted distance: `onUseWeapon` replaces native damage/specials
         // (`weapons.cpp:365-369`). Burst arrow lives here via `burst_arrow.lua`.
@@ -842,12 +848,7 @@ impl GameWorld {
         }
         // UNLAY on ground or any stacked item.
         if let Some(gid) = body.ground {
-            if self
-                .items_db
-                .items
-                .get(&gid)
-                .is_some_and(|t| t.is_unlay())
-            {
+            if self.items_db.items.get(&gid).is_some_and(|t| t.is_unlay()) {
                 return false;
             }
         }
@@ -970,8 +971,8 @@ mod tests {
     };
     use crate::item::Item;
     use crate::sim_harness::{
-        beat_driven_test_world, ensure_walkable_tile, insert_monster_with_config,
-        insert_spectator_player, minimal_world, sim_hero_player, TEST_SYNTHETIC_GROUND_WP,
+        TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
+        insert_monster_with_config, insert_spectator_player, minimal_world, sim_hero_player,
     };
     use tfs_rust_common::{ConnId, Position};
     use tfs_rust_content::otb::ItemType;
@@ -1244,8 +1245,7 @@ mod tests {
         assert_eq!(
             anim[6], COLOR_ORANGE,
             "fire wand text color must be ORANGE(198), got {} (blood red would be {})",
-            anim[6],
-            COLOR_RED
+            anim[6], COLOR_RED
         );
     }
 
@@ -1457,7 +1457,10 @@ mod tests {
             .get(target)
             .map(|k| k.base().health)
             .unwrap_or(0);
-        assert_eq!(hp_after, 100, "target should not take damage with mismatched ammo");
+        assert_eq!(
+            hp_after, 100,
+            "target should not take damage with mismatched ammo"
+        );
 
         // Bolt stack unchanged — no consumption.
         let bolt_count = world.items.get(bolt_iid).map(|i| i.count).unwrap_or(0);
@@ -1516,7 +1519,7 @@ mod tests {
     /// Mana shield absorbs damage to mana first, spilling remainder to HP.
     #[test]
     fn mana_shield_absorbs_damage_to_mana() {
-        use crate::condition::{add_condition_merge, ActiveCondition, ConditionData};
+        use crate::condition::{ActiveCondition, ConditionData, add_condition_merge};
         use tfs_rust_common::enums::ConditionType;
 
         let mut world = minimal_world();
@@ -1741,7 +1744,12 @@ mod tests {
         cfg.armor = 0;
         cfg.melee_skill = 100;
         let target = insert_monster_with_config(&mut world, "Tank", target_pos, 100, cfg);
-        let defend_before = world.creatures.get(target).unwrap().base().earliest_defend_ms;
+        let defend_before = world
+            .creatures
+            .get(target)
+            .unwrap()
+            .base()
+            .earliest_defend_ms;
 
         equip_item(
             &mut world,
@@ -1755,7 +1763,12 @@ mod tests {
             let idx = crate::inventory::slot_to_array_index(InventorySlot::Ammo as u8).unwrap();
             p.equipment_slots[idx] = Some(arrow_iid);
         }
-        let arrow_it = make_ammo(2544, 1, 50, tfs_rust_common::enums::ShootEffect::Arrow as u8);
+        let arrow_it = make_ammo(
+            2544,
+            1,
+            50,
+            tfs_rust_common::enums::ShootEffect::Arrow as u8,
+        );
         if !world.items_db.items.contains_key(&2544) {
             let mut items = std::collections::HashMap::clone(&world.items_db.items);
             items.insert(2544, arrow_it);
@@ -1780,7 +1793,10 @@ mod tests {
                 break;
             }
             // Restock ammo if depleted.
-            if world.get_player_inventory_item(cid, InventorySlot::Ammo as u8).is_none() {
+            if world
+                .get_player_inventory_item(cid, InventorySlot::Ammo as u8)
+                .is_none()
+            {
                 let iid = world.items.insert(Item::new(2544, 10));
                 if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
                     let idx =
@@ -1792,10 +1808,11 @@ mod tests {
             world.player_ranged_attack_strike(cid, target);
         }
         assert!(
-            damaged || world
-                .creatures
-                .get(target)
-                .is_some_and(|k| k.base().health < 100),
+            damaged
+                || world
+                    .creatures
+                    .get(target)
+                    .is_some_and(|k| k.base().health < 100),
             "ranged hit must deal damage despite huge target defense (no attacker shield)"
         );
         if let Some(k) = world.creatures.get(target) {
@@ -1879,7 +1896,10 @@ mod tests {
         world.server_ms = 1000;
         // NullEventDispatcher: onUseWeapon is a no-op; native damage must still be skipped.
         for i in 0..30 {
-            if world.get_player_inventory_item(cid, InventorySlot::Ammo as u8).is_none() {
+            if world
+                .get_player_inventory_item(cid, InventorySlot::Ammo as u8)
+                .is_none()
+            {
                 let iid = world.items.insert(Item::new(2546, 5));
                 if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
                     let idx =
@@ -1962,7 +1982,10 @@ mod tests {
         world.player_ranged_attack_strike(cid, target);
 
         let spear_count = world.items.get(spear_iid).map(|i| i.count).unwrap_or(0);
-        assert_eq!(spear_count, 4, "stack should decrement when moving to ground");
+        assert_eq!(
+            spear_count, 4,
+            "stack should decrement when moving to ground"
+        );
 
         // Dropped spear on target tile (hit) or adjacent (miss).
         let mut found_drop = false;
@@ -1974,7 +1997,11 @@ mod tests {
                     target_pos.z,
                 );
                 if let Some(tile) = world.map.get_tile(p) {
-                    for &iid in tile.body().down_items.iter().chain(tile.body().top_items.iter())
+                    for &iid in tile
+                        .body()
+                        .down_items
+                        .iter()
+                        .chain(tile.body().top_items.iter())
                     {
                         if world.items.get(iid).is_some_and(|i| i.item_type == 2389) {
                             found_drop = true;
@@ -2156,7 +2183,10 @@ mod tests {
         world.server_ms = 8_000;
         world.player_maybe_delay_attack_on_weapon_slot_change(cid, InventorySlot::Left as u8);
         let earliest2 = world.creatures.get(cid).unwrap().base().earliest_attack_ms;
-        assert_eq!(earliest2, 7_000, "unchanged CombatWeapons must not DelayAttack");
+        assert_eq!(
+            earliest2, 7_000,
+            "unchanged CombatWeapons must not DelayAttack"
+        );
         // Non-weapon slots do not delay.
         world.player_maybe_delay_attack_on_weapon_slot_change(cid, InventorySlot::Head as u8);
         let earliest3 = world.creatures.get(cid).unwrap().base().earliest_attack_ms;

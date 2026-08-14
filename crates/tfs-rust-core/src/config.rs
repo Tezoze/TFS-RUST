@@ -4,7 +4,7 @@
 use mlua::{Lua, Value};
 use std::path::Path;
 use tfs_rust_common::error::{Result, TfsRustError};
-use tfs_rust_common::{protocol_version_from_i64, ProtocolVersion, WorldType};
+use tfs_rust_common::{ProtocolVersion, WorldType, protocol_version_from_i64};
 use tracing::info;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -530,14 +530,17 @@ impl PvpConfig {
     }
 
     pub fn from_config(cfg: &ConfigManager) -> Result<Self> {
-        let world_type = match get_string_or(cfg, "worldType", "pvp")?.to_ascii_lowercase().as_str() {
+        let world_type = match get_string_or(cfg, "worldType", "pvp")?
+            .to_ascii_lowercase()
+            .as_str()
+        {
             "pvp" => WorldType::Pvp,
             "no-pvp" | "nopvp" => WorldType::NoPvp,
             "pvp-enforced" | "pvpenforced" => WorldType::PvpEnforced,
             other => {
                 return Err(TfsRustError::Config(format!(
                     "config.lua `worldType` has invalid value `{other}` (expected pvp|no-pvp|pvp-enforced)"
-                )))
+                )));
             }
         };
         let d = Self::defaults();
@@ -568,16 +571,12 @@ impl PvpConfig {
                 .max(0) as u32,
             kills_month_red: get_i64_or(cfg, "killsMonthRedSkull", i64::from(d.kills_month_red))?
                 .max(0) as u32,
-            kills_day_ban: get_i64_or(cfg, "killsDayBanishment", i64::from(d.kills_day_ban))?
-                .max(0) as u32,
+            kills_day_ban: get_i64_or(cfg, "killsDayBanishment", i64::from(d.kills_day_ban))?.max(0)
+                as u32,
             kills_week_ban: get_i64_or(cfg, "killsWeekBanishment", i64::from(d.kills_week_ban))?
                 .max(0) as u32,
-            kills_month_ban: get_i64_or(
-                cfg,
-                "killsMonthBanishment",
-                i64::from(d.kills_month_ban),
-            )?
-            .max(0) as u32,
+            kills_month_ban: get_i64_or(cfg, "killsMonthBanishment", i64::from(d.kills_month_ban))?
+                .max(0) as u32,
             ban_days_length: get_i64_or(cfg, "banDaysLength", i64::from(d.ban_days_length))?.max(0)
                 as u32,
         })

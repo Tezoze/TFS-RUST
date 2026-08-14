@@ -7,12 +7,12 @@
 
 use tfs_rust_common::enums::ConditionType;
 use tfs_rust_common::game_packet::SetOutfitPayload;
-use tfs_rust_common::{ConnId, PlayerSex, CLIENTOS_OTCLIENT_LINUX};
+use tfs_rust_common::{CLIENTOS_OTCLIENT_LINUX, ConnId, PlayerSex};
+use tfs_rust_net::Codec;
 use tfs_rust_net::creature_encode::OutfitWire;
 use tfs_rust_net::outgoing_extra::{
     send_outfit_window, send_outfit_window_772_classic, send_outfit_window_772_otclient,
 };
-use tfs_rust_net::Codec;
 
 use crate::creature::{CreatureKind, Outfit};
 use crate::game_world::GameWorld;
@@ -234,9 +234,7 @@ impl GameWorld {
     }
 
     fn allow_change_outfit(&self) -> bool {
-        self.config
-            .get_bool("allowChangeOutfit")
-            .unwrap_or(true)
+        self.config.get_bool("allowChangeOutfit").unwrap_or(true)
     }
 
     /// `Player::getOutfitAddons` — returns `None` when the outfit is not shown in the window.
@@ -288,9 +286,7 @@ fn classic_772_looktype_range(sex: PlayerSex, premium: bool) -> (u16, u16) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sim_harness::{
-        beat_driven_test_world, insert_spectator_player, test_player,
-    };
+    use crate::sim_harness::{beat_driven_test_world, insert_spectator_player, test_player};
     use tfs_rust_common::{Position, ProtocolVersion};
     use tfs_rust_content::outfits::{Outfit, OutfitDatabase};
     use tfs_rust_net::NetworkMessage;
@@ -349,7 +345,11 @@ mod tests {
         assert_eq!(p.base.outfit.look_type, 130);
         assert_eq!(p.base.outfit.look_head, 10);
 
-        let pkts = world.pending_outgoing.get(&conn).cloned().unwrap_or_default();
+        let pkts = world
+            .pending_outgoing
+            .get(&conn)
+            .cloned()
+            .unwrap_or_default();
         assert!(
             pkts.iter().any(|b| b.first() == Some(&0x8E)),
             "expected CREATURE_OUTFIT 0x8E broadcast, got {pkts:?}"

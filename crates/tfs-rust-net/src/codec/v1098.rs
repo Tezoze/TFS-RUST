@@ -5,9 +5,9 @@
 use tfs_rust_common::protocol_opcodes::server;
 use tfs_rust_common::{Position, ProtocolCaps, ProtocolVersion};
 
-use crate::creature_encode::{write_add_creature, write_outfit, AddCreatureWire, OutfitWire};
-use crate::item_encode::{item_template_wire_len, write_item_live, write_item_template};
 use crate::NetworkMessage;
+use crate::creature_encode::{AddCreatureWire, OutfitWire, write_add_creature, write_outfit};
+use crate::item_encode::{item_template_wire_len, write_item_live, write_item_template};
 
 use super::wire::{
     AnimatedTextWire, ChannelMessageWire, ChannelOpenWire, ChannelsDialogWire,

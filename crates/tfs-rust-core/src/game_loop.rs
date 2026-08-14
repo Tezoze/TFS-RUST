@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use tokio::signal;
 use tokio::sync::mpsc::{Receiver, UnboundedReceiver};
 use tokio::task::JoinSet;
-use tokio::time::{interval_at, MissedTickBehavior};
+use tokio::time::{MissedTickBehavior, interval_at};
 
 use tfs_rust_common::{ConnId, GameCommand, GamePacket, OwnedPlayerLoad};
 use tokio::sync::mpsc::error::TryRecvError;
@@ -28,7 +28,7 @@ use crate::login::{self, MAX_CONCURRENT_LOGIN_LOADS};
 use crate::return_value::ReturnValue;
 use tfs_rust_db::player::{LoadedPlayerData, PlayerStore};
 use tfs_rust_net::{
-    GameCmdTx, OutboundSendError, OutboundTx, OutRegistry, MAX_GAME_COMMANDS_PER_TURN,
+    GameCmdTx, MAX_GAME_COMMANDS_PER_TURN, OutRegistry, OutboundSendError, OutboundTx,
 };
 
 /// Game-thread-owned outbound writers — lock-free flush path (GL-3).
@@ -411,9 +411,7 @@ fn begin_player_login_load(
         return;
     }
     login_started.insert(conn_id, Instant::now());
-    world
-        .obs
-        .note_concurrent_logins(pending_login_conns.len());
+    world.obs.note_concurrent_logins(pending_login_conns.len());
 
     let db = world.db.clone();
     let tx = cmd_tx.clone();
@@ -514,12 +512,7 @@ fn handle_player_loaded(
         Ok(login::ApplyPlayerOutcome::Spawned(cid)) => {
             world.register_conn_mapping(conn_id, cid);
             crate::login_out::enqueue_initial_login_packets(world, conn_id, cid);
-            flush_pending_outgoing(
-                world,
-                output_sinks,
-                out_registry,
-                pending_output_shed,
-            );
+            flush_pending_outgoing(world, output_sinks, out_registry, pending_output_shed);
             drain_output_shed(
                 world,
                 pending_login_conns,
@@ -538,12 +531,7 @@ fn handle_player_loaded(
             }
             world.register_conn_mapping(conn_id, cid);
             crate::login_out::enqueue_initial_login_packets(world, conn_id, cid);
-            flush_pending_outgoing(
-                world,
-                output_sinks,
-                out_registry,
-                pending_output_shed,
-            );
+            flush_pending_outgoing(world, output_sinks, out_registry, pending_output_shed);
             drain_output_shed(
                 world,
                 pending_login_conns,
@@ -1336,7 +1324,9 @@ fn obs_advance_beats(
         .obs
         .record_beat(coalesced.max(1), lateness_ms, wall_ms);
     *next_beat_deadline = next_beat_deadline
-        .checked_add(Duration::from_millis(beat_ms.saturating_mul(coalesced.max(1))))
+        .checked_add(Duration::from_millis(
+            beat_ms.saturating_mul(coalesced.max(1)),
+        ))
         .unwrap_or(now);
     // If we fell far behind, clamp so the next lateness sample is relative to "now + beat".
     if *next_beat_deadline < now {
@@ -1632,7 +1622,7 @@ mod f8_s6_handler_routing_tests {
     use crate::creature_todo::{ActionObjectRef, CreatureAction};
     use crate::item::Item;
     use crate::test_world::support::{
-        beat_driven_test_world, ensure_walkable_tile, test_player, TEST_SYNTHETIC_GROUND_WP,
+        TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, test_player,
     };
 
     use super::handle_game_packet;
@@ -1819,7 +1809,10 @@ mod f8_s6_handler_routing_tests {
             "Move → [Wait{{100}}, Move] (D1: ToDoMove prepends Wait{{100}})"
         );
         assert!(
-            matches!(base.todo.queue[0], CreatureAction::Wait { deadline_ms: 100 }),
+            matches!(
+                base.todo.queue[0],
+                CreatureAction::Wait { deadline_ms: 100 }
+            ),
             "front = Wait{{100}}"
         );
         match base.todo.queue[1] {
@@ -2097,12 +2090,10 @@ mod f8_s6_handler_routing_tests {
         use std::ops::ControlFlow;
         use std::time::Duration;
 
-        use tfs_rust_common::{enums::Direction, ConnId};
+        use tfs_rust_common::{ConnId, enums::Direction};
         use tfs_rust_net::MAX_GAME_COMMANDS_PER_TURN;
 
-        use super::{
-            dispatch_command, drain_ready_beats, try_recv_next_command,
-        };
+        use super::{dispatch_command, drain_ready_beats, try_recv_next_command};
 
         let mut world = beat_driven_test_world();
         let (tx, mut game_rx, mut ctrl_rx) = tfs_rust_net::open_game_command_channels();
@@ -2171,12 +2162,10 @@ mod f8_s6_handler_routing_tests {
         use std::ops::ControlFlow;
         use std::time::{Duration, Instant};
 
-        use tfs_rust_common::{enums::Direction, ConnId};
+        use tfs_rust_common::{ConnId, enums::Direction};
         use tfs_rust_net::MAX_GAME_COMMANDS_PER_TURN;
 
-        use super::{
-            dispatch_command, drain_ready_beats, new_beat_timer, try_recv_next_command,
-        };
+        use super::{dispatch_command, drain_ready_beats, new_beat_timer, try_recv_next_command};
 
         let mut world = beat_driven_test_world();
         let (tx, mut game_rx, mut ctrl_rx) = tfs_rust_net::open_game_command_channels();
@@ -2269,9 +2258,7 @@ mod f8_s6_handler_routing_tests {
         let (tx, _rx) = OutboundTx::pair_with_caps(8, 50, 100);
         let mut sinks = HashMap::new();
         sinks.insert(conn, tx);
-        world
-            .pending_outgoing
-            .insert(conn, vec![vec![0u8; 200]]);
+        world.pending_outgoing.insert(conn, vec![vec![0u8; 200]]);
         let mut shed = Vec::new();
         flush_pending_outgoing(&mut world, &mut sinks, &None, &mut shed);
         assert!(
@@ -2294,8 +2281,8 @@ mod f8_s6_handler_routing_tests {
 
         use crate::creature::MonsterAiConfig;
         use crate::item::Item;
-        use crate::tile::Tile;
         use crate::test_world::support::{ensure_walkable_tile, insert_monster_with_config};
+        use crate::tile::Tile;
 
         use super::begin_player_login_load;
 
@@ -2327,13 +2314,8 @@ mod f8_s6_handler_routing_tests {
         // ToDo: due wakeup during pending login.
         let mpos = Position::new(122, 120, 7);
         ensure_walkable_tile(&mut world.map, mpos, 100);
-        let monster = insert_monster_with_config(
-            &mut world,
-            "Rat",
-            mpos,
-            50,
-            MonsterAiConfig::default(),
-        );
+        let monster =
+            insert_monster_with_config(&mut world, "Rat", mpos, 50, MonsterAiConfig::default());
         world.schedule_creature_wakeup(monster, world.server_ms);
 
         let (tx, _game_rx, _ctrl_rx) = tfs_rust_net::open_game_command_channels();

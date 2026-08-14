@@ -1,8 +1,8 @@
 //! Parsed client game packets (after opcode byte). Mirrors `ProtocolGame` parse helpers.
 // C++ reference: `src/protocolgame.cpp` `ProtocolGame::parsePacket` / `parse*` methods.
 
-use crate::enums::Direction;
 use crate::Position;
+use crate::enums::Direction;
 
 #[derive(Debug, Clone)]
 pub struct SayPayload {

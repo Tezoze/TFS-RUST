@@ -14,16 +14,16 @@ use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use slotmap::{Key, SlotMap};
-use tfs_rust_common::enums::{Direction, SkullType};
 use tfs_rust_common::Position;
 use tfs_rust_common::ProtocolVersion;
+use tfs_rust_common::enums::{Direction, SkullType};
 use tfs_rust_content::groups::GroupDatabase;
 use tfs_rust_content::items::ItemDatabase;
 use tfs_rust_content::otb::ItemType;
 use tfs_rust_content::otbm::{OtbmLoader, TownData};
 use tfs_rust_content::vocations::VocationRegistry;
-use tfs_rust_db::player::PlayerRecord;
 use tfs_rust_db::DbPool;
+use tfs_rust_db::player::PlayerRecord;
 
 use crate::combat::{CombatDamage, CombatParams};
 use crate::config::ConfigManager;
@@ -35,12 +35,12 @@ use crate::event_dispatcher::NullEventDispatcher;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::map::{Map, SparseGrid};
-use crate::pathfinding::{scan_min_terrain_waypoints, REVERSE_PATH_VIEW_RADIUS};
+use crate::pathfinding::{REVERSE_PATH_VIEW_RADIUS, scan_min_terrain_waypoints};
 use crate::spawn::SpawnManager;
 use crate::tile::{Tile, TileBody};
+use tfs_rust_common::ConnId;
 use tfs_rust_common::enums::CombatType;
 use tfs_rust_common::enums::ZoneType;
-use tfs_rust_common::ConnId;
 use tfs_rust_content::monsters::MonsterDatabase;
 use tfs_rust_content::monsters::{MonsterOutfit, MonsterType};
 use tfs_rust_content::npcs::NpcDatabase;
@@ -151,7 +151,7 @@ fn test_player_base(name: &str, pos: Position) -> Player {
             fire_damage_origin: None,
             energy_damage_origin: None,
             earliest_attack_ms: 0,
-        latest_attack_round: 0,
+            latest_attack_round: 0,
             earliest_defend_ms: 0,
             last_defend_ms: 0,
             learning_points: 0,
@@ -241,7 +241,7 @@ fn test_player_base(name: &str, pos: Position) -> Player {
         attack_mode: Default::default(),
         secure_mode: false,
         earliest_protection_zone_round: 0,
-            client_icons: 0,
+        client_icons: 0,
         message_buffer_count: 0,
         message_buffer_ticks: 0,
         blessings: 0,
@@ -290,10 +290,10 @@ pub fn minimal_creature_base() -> CreatureBase {
         attack_target: None,
         master: None,
         damage_map: Default::default(),
-            last_hit_by: None,
-            poison_damage_origin: None,
-            fire_damage_origin: None,
-            energy_damage_origin: None,
+        last_hit_by: None,
+        poison_damage_origin: None,
+        fire_damage_origin: None,
+        energy_damage_origin: None,
         earliest_attack_ms: 0,
         latest_attack_round: 0,
         earliest_defend_ms: 0,
@@ -993,10 +993,10 @@ pub fn insert_monster_with_config(
         attack_target: None,
         master: None,
         damage_map: Default::default(),
-            last_hit_by: None,
-            poison_damage_origin: None,
-            fire_damage_origin: None,
-            energy_damage_origin: None,
+        last_hit_by: None,
+        poison_damage_origin: None,
+        fire_damage_origin: None,
+        energy_damage_origin: None,
         earliest_attack_ms: 0,
         latest_attack_round: 0,
         earliest_defend_ms: 0,
@@ -1062,10 +1062,10 @@ pub fn insert_monster_from_type(
         attack_target: None,
         master: None,
         damage_map: Default::default(),
-            last_hit_by: None,
-            poison_damage_origin: None,
-            fire_damage_origin: None,
-            energy_damage_origin: None,
+        last_hit_by: None,
+        poison_damage_origin: None,
+        fire_damage_origin: None,
+        energy_damage_origin: None,
         earliest_attack_ms: 0,
         latest_attack_round: 0,
         earliest_defend_ms: 0,
@@ -1161,10 +1161,10 @@ pub fn insert_npc(world: &mut GameWorld, name: &str, pos: Position, speed: i32) 
         attack_target: None,
         master: None,
         damage_map: Default::default(),
-            last_hit_by: None,
-            poison_damage_origin: None,
-            fire_damage_origin: None,
-            energy_damage_origin: None,
+        last_hit_by: None,
+        poison_damage_origin: None,
+        fire_damage_origin: None,
+        energy_damage_origin: None,
         earliest_attack_ms: 0,
         latest_attack_round: 0,
         earliest_defend_ms: 0,

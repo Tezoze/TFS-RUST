@@ -1,9 +1,10 @@
 //! Simulation core: map, entities, config, scheduler hooks.
 // C++ reference: `game.cpp`, `map.cpp`, `configmanager.cpp` (see per-module comments).
 
+mod actions;
 mod chase_debug;
-mod clear_field;
 pub mod chat;
+mod clear_field;
 pub mod combat;
 pub mod condition;
 mod condition_blob;
@@ -30,9 +31,9 @@ mod game_world_item_cylinder;
 mod game_world_item_move;
 mod game_world_lifecycle;
 mod game_world_lua_tools;
+mod game_world_outfit;
 mod game_world_player_rotate;
 mod game_world_player_throw;
-mod game_world_outfit;
 mod game_world_save;
 mod game_world_script;
 mod game_world_spectators;
@@ -51,8 +52,8 @@ pub mod login;
 mod login_out;
 pub mod lua_command;
 pub mod lua_event_dispatcher;
-mod magic_field;
 pub mod lua_scope;
+mod magic_field;
 pub mod map;
 pub mod matrix_area;
 mod monster_ai;
@@ -84,7 +85,6 @@ pub mod spell;
 pub mod stability;
 mod subsystem_counters;
 pub mod talkactions;
-mod actions;
 #[cfg(test)]
 mod test_world;
 pub mod thing;
@@ -124,10 +124,11 @@ pub(crate) use player::ping as player_ping;
 pub(crate) use player::stats as game_world_player;
 
 pub use combat::{
+    CombatDamage, CombatDenyReason, CombatListCredit, CombatParams, PlayerPvpSnapshot,
     apply_condition, can_player_attack_player, execute, execute_with_credit, is_in_pvp_zone,
-    is_protected, CombatDamage, CombatDenyReason, CombatListCredit, CombatParams, PlayerPvpSnapshot,
+    is_protected,
 };
-pub use condition::{add_condition_merge, ActiveCondition, ConditionData};
+pub use condition::{ActiveCondition, ConditionData, add_condition_merge};
 pub use config::ConfigManager;
 pub use container::{Container, ContainerError, ContainerRegistry, ContainerType, OpenContainer};
 pub use creature::{
@@ -136,15 +137,15 @@ pub use creature::{
     PlayerPersistBaseline, PlayerSkills, PlayerSocial,
 };
 pub use cylinder::{
-    Cylinder, CylinderFlags, CylinderLink, CylinderType, VirtualCylinder, INDEX_ADD_WHEREVER,
-    INDEX_MOVE_UP, INDEX_WHEREEVER,
+    Cylinder, CylinderFlags, CylinderLink, CylinderType, INDEX_ADD_WHEREVER, INDEX_MOVE_UP,
+    INDEX_WHEREEVER, VirtualCylinder,
 };
 pub use event_dispatcher::{EventDispatcher, NullEventDispatcher, TalkActionResult};
 pub use formulas::{
-    load_mechanics, ArmorReduction, ConditionTicks, DamageFormula, DestroyableStoneTuning,
-    DistanceKeep, FightModes, FishingSuccessModel, FishingTuning, FormulaHooks, LevelExpModel,
-    Mechanics, MechanicsProfile, NpcTuning, PathCostModel, PathSearchModel, SpawnNearPlayer,
-    SpellCoeff, TickSpec, WeakestTargetMetric,
+    ArmorReduction, ConditionTicks, DamageFormula, DestroyableStoneTuning, DistanceKeep,
+    FightModes, FishingSuccessModel, FishingTuning, FormulaHooks, LevelExpModel, Mechanics,
+    MechanicsProfile, NpcTuning, PathCostModel, PathSearchModel, SpawnNearPlayer, SpellCoeff,
+    TickSpec, WeakestTargetMetric, load_mechanics,
 };
 pub use game_loop::{graceful_shutdown, run_game_loop, wait_for_shutdown_signal};
 pub use game_world::GameWorld;
@@ -158,18 +159,18 @@ pub use lua_command::LuaCommand;
 pub use lua_event_dispatcher::LuaEventDispatcher;
 pub use map::Map;
 pub use matrix_area::MatrixArea;
-pub use party::{split_shared_experience, Party, PartyInviteState};
+pub use party::{Party, PartyInviteState, split_shared_experience};
 pub use pathfinding::{
-    get_path_matching, uses_reverse_terrain_path, FindPathParams, CREATURE_ON_TILE_PATH_COST,
-    MAP_NORMAL_WALK_COST,
+    CREATURE_ON_TILE_PATH_COST, FindPathParams, MAP_NORMAL_WALK_COST, get_path_matching,
+    uses_reverse_terrain_path,
 };
 pub use protocol_hooks::{NullProtocolHooks, ProtocolHooks, SharedProtocolHooks};
 pub use return_value::ReturnValue;
 pub use run_server::run;
 pub use scheduler::Scheduler;
 pub use spell::{
-    can_cast_instant, matrix_tile_offsets, register_cast_cooldowns, SpellDefinition,
-    SpellFailReason,
+    SpellDefinition, SpellFailReason, can_cast_instant, matrix_tile_offsets,
+    register_cast_cooldowns,
 };
 pub use thing::{LookTarget, Thing};
 pub use tile::Tile;

@@ -114,12 +114,8 @@ impl ReturnValue {
             ReturnValue::FirstGoDownStairs => "First go downstairs.",
             ReturnValue::FirstGoUpStairs => "First go upstairs.",
             ReturnValue::NotEnoughCapacity => "This object is too heavy for you to carry.",
-            ReturnValue::ContainerNotEnoughRoom => {
-                "You cannot put more objects in this container."
-            }
-            ReturnValue::NeedExchange | ReturnValue::NotEnoughRoom => {
-                "There is not enough room."
-            }
+            ReturnValue::ContainerNotEnoughRoom => "You cannot put more objects in this container.",
+            ReturnValue::NeedExchange | ReturnValue::NotEnoughRoom => "There is not enough room.",
             ReturnValue::CannotPickup => "You cannot take this object.",
             ReturnValue::CannotThrow => "You cannot throw there.",
             ReturnValue::ThereIsNoWay => "There is no way.",
@@ -131,9 +127,7 @@ impl ReturnValue {
             ReturnValue::CreatureDoesNotExist => "Creature does not exist.",
             ReturnValue::DepotIsFull => "You cannot put more items in this depot.",
             ReturnValue::CannotUseThisObject => "You cannot use this object.",
-            ReturnValue::PlayerWithThisNameIsNotOnline => {
-                "A player with this name is not online."
-            }
+            ReturnValue::PlayerWithThisNameIsNotOnline => "A player with this name is not online.",
             ReturnValue::NotRequiredLevelToUseRune => {
                 "You do not have the required magic level to use this rune."
             }
@@ -144,9 +138,7 @@ impl ReturnValue {
             ReturnValue::YouMayNotLogoutDuringAFight => {
                 "You may not logout during or immediately after a fight!"
             }
-            ReturnValue::DirectPlayerShoot => {
-                "You are not allowed to shoot directly on players."
-            }
+            ReturnValue::DirectPlayerShoot => "You are not allowed to shoot directly on players.",
             ReturnValue::NotEnoughLevel => "Your level is too low.",
             ReturnValue::NotEnoughMagicLevel => "You do not have enough magic level.",
             ReturnValue::NotEnoughMana => "You do not have enough mana.",
@@ -208,9 +200,7 @@ impl ReturnValue {
                 "Trade player is currently the highest bidder of an auctioned house."
             }
             ReturnValue::YouCannotTradeThisHouse => "You can not trade this house.",
-            ReturnValue::YouDontHaveRequiredProfession => {
-                "You don't have the required profession."
-            }
+            ReturnValue::YouDontHaveRequiredProfession => "You don't have the required profession.",
             ReturnValue::CannotMoveItemIsNotStoreItem => {
                 "You cannot move this item into your Store inbox as it was not bought in the Store."
             }

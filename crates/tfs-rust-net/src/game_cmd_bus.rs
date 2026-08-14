@@ -35,10 +35,7 @@ pub enum GameCmdSendError {
 }
 
 impl GameCmdTx {
-    pub fn new(
-        game: mpsc::Sender<GameCommand>,
-        ctrl: mpsc::UnboundedSender<GameCommand>,
-    ) -> Self {
+    pub fn new(game: mpsc::Sender<GameCommand>, ctrl: mpsc::UnboundedSender<GameCommand>) -> Self {
         Self { game, ctrl }
     }
 
@@ -50,10 +47,7 @@ impl GameCmdTx {
                 Err(TrySendError::Full(_)) => Err(GameCmdSendError::GameLaneFull),
                 Err(TrySendError::Closed(_)) => Err(GameCmdSendError::Closed),
             },
-            other => self
-                .ctrl
-                .send(other)
-                .map_err(|_| GameCmdSendError::Closed),
+            other => self.ctrl.send(other).map_err(|_| GameCmdSendError::Closed),
         }
     }
 
@@ -81,7 +75,7 @@ pub fn open_game_command_channels() -> (
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tfs_rust_common::{enums::Direction, ConnId, GamePacket};
+    use tfs_rust_common::{ConnId, GamePacket, enums::Direction};
 
     #[tokio::test]
     async fn game_lane_reports_full_without_blocking() {
@@ -105,12 +99,13 @@ mod tests {
         let (game_tx, _game_rx) = mpsc::channel(1);
         let (ctrl_tx, mut ctrl_rx) = mpsc::unbounded_channel();
         let tx = GameCmdTx::new(game_tx, ctrl_tx);
-        assert!(tx
-            .send(GameCommand::Game {
+        assert!(
+            tx.send(GameCommand::Game {
                 conn_id: ConnId(1),
                 packet: GamePacket::Move(Direction::North),
             })
-            .is_ok());
+            .is_ok()
+        );
         let _ = tx.send(GameCommand::Game {
             conn_id: ConnId(1),
             packet: GamePacket::Move(Direction::South),

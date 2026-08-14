@@ -5,8 +5,8 @@ use std::collections::HashSet;
 use tfs_rust_common::{Position, ProtocolVersion};
 use tfs_rust_net::creature_encode::AddCreatureWire;
 use tfs_rust_net::map_description::{
-    send_map_description_packet, send_move_creature_player, send_move_creature_spectator,
-    ItemStack, TileContent,
+    ItemStack, TileContent, send_map_description_packet, send_move_creature_player,
+    send_move_creature_spectator,
 };
 use tfs_rust_net::{Codec, NetworkMessage};
 
@@ -436,10 +436,7 @@ fn tile_description_cip_order_emits_bottom_before_creature() {
         .windows(2)
         .position(|w| w == ground_le)
         .expect("ground");
-    let f = bytes
-        .windows(2)
-        .position(|w| w == field_le)
-        .expect("field");
+    let f = bytes.windows(2).position(|w| w == field_le).expect("field");
     let creature_marker = bytes
         .iter()
         .position(|&b| b == 0x62 || b == 0x61)

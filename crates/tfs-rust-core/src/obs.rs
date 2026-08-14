@@ -203,9 +203,7 @@ impl GameObs {
 
     #[inline]
     pub fn record_commands_processed(&mut self, count: usize) {
-        self.commands_processed_total = self
-            .commands_processed_total
-            .saturating_add(count as u64);
+        self.commands_processed_total = self.commands_processed_total.saturating_add(count as u64);
         if count > 0 {
             self.commands_before_beat.record(count as u64);
         }
@@ -225,12 +223,7 @@ impl GameObs {
     }
 
     #[inline]
-    pub fn record_beat(
-        &mut self,
-        coalesced: u64,
-        lateness_ms: u64,
-        wall_ms: u64,
-    ) {
+    pub fn record_beat(&mut self, coalesced: u64, lateness_ms: u64, wall_ms: u64) {
         self.beats = self.beats.saturating_add(1);
         self.coalesced_beats = self.coalesced_beats.saturating_add(coalesced);
         self.beat_lateness_ms.record(lateness_ms);
@@ -509,10 +502,10 @@ mod tests {
 
     #[test]
     fn drain_todo_queue_updates_obs_counters() {
+        use crate::creature::MonsterAiConfig;
         use crate::test_world::support::{
             beat_driven_test_world, insert_monster_with_config, insert_player, test_player,
         };
-        use crate::creature::MonsterAiConfig;
         use tfs_rust_common::Position;
 
         let mut world = beat_driven_test_world();
@@ -561,20 +554,13 @@ mod tests {
         let mut world = beat_driven_test_world();
         let pos = Position::new(150, 150, 7);
         ensure_walkable_tile(&mut world.map, pos, 100);
-        let monster = insert_monster_with_config(
-            &mut world,
-            "Rat",
-            pos,
-            100,
-            MonsterAiConfig::default(),
-        );
+        let monster =
+            insert_monster_with_config(&mut world, "Rat", pos, 100, MonsterAiConfig::default());
 
         // Deterministic LCG — avoid flaky wall-clock RNG in CI.
         let mut state = 0xC0FFEE_u64;
         let mut next_u64 = || {
-            state = state
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1);
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
             state
         };
 
@@ -613,9 +599,15 @@ mod tests {
             "randomized clear/reschedule must produce stale skips (stale={stale})"
         );
         // Live wakeup, if any, must be the creature's current next_wakeup only.
-        if let Some(wake) = world.creatures.get(monster).and_then(|k| k.base().next_wakeup) {
+        if let Some(wake) = world
+            .creatures
+            .get(monster)
+            .and_then(|k| k.base().next_wakeup)
+        {
             assert!(
-                wake > world.server_ms || world.todo_queue.is_empty() || wake == world.server_ms + 1,
+                wake > world.server_ms
+                    || world.todo_queue.is_empty()
+                    || wake == world.server_ms + 1,
                 "surviving wakeup must be current NextWakeup ({wake})"
             );
         }

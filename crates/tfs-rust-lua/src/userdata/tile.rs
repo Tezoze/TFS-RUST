@@ -535,7 +535,10 @@ mod tests {
                 .expect("tile ud");
             lua.globals().set("t", tile).unwrap();
 
-            let aid: u16 = lua.load("return t:getGround():getActionId()").eval().unwrap();
+            let aid: u16 = lua
+                .load("return t:getGround():getActionId()")
+                .eval()
+                .unwrap();
             assert_eq!(aid, 4000);
 
             let name: String = lua

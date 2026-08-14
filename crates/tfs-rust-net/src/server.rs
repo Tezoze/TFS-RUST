@@ -8,13 +8,13 @@ use tracing::{error, info, trace};
 
 use tfs_rust_common::{ConnId, GameCommand, ProtocolCaps, ProtocolVersion};
 
-use crate::game_challenge::{send_game_challenge, GameChallenge};
+use crate::game_challenge::{GameChallenge, send_game_challenge};
 use crate::game_cmd_bus::GameCmdTx;
-use crate::game_first_packet::{parse_first_client_packet, FirstClientPacket, LoginIdentity};
+use crate::game_first_packet::{FirstClientPacket, LoginIdentity, parse_first_client_packet};
 use crate::game_frame::read_sized_payload;
 use crate::outbound::OutboundTx;
 use crate::protocol_game::{encrypt_xtea_game_frame, forward_game_packets_xtea};
-use crate::protocol_login_out::{build_login_error, build_login_success, LoginSuccess};
+use crate::protocol_login_out::{LoginSuccess, build_login_error, build_login_success};
 use crate::xtea_tfs::expand_key;
 
 /// Per-connection writer registry — I/O thread insert/remove only; game thread mirrors via commands (GL-3).
@@ -364,7 +364,11 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
     {
         Ok(()) => {}
         Err(e) => {
-            tracing::warn!(?e, conn_id = conn_id.0, "game packet forward ended with error");
+            tracing::warn!(
+                ?e,
+                conn_id = conn_id.0,
+                "game packet forward ended with error"
+            );
         }
     }
 

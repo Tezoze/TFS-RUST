@@ -89,7 +89,10 @@ pub fn build_all_speed_patches(objects_srv: &Path, otb_path: &Path) -> Result<Ha
 /// [`build_bank_unpass_clear_solid`] so players can still walk those cliff banks.
 /// Identity resolved by `client_id`.
 // C++ reference: `UNPASS` → `blockSolid` — `docs/772_OTB_OBJECTS_SRV_FLAG_MAPPING.md`.
-pub fn build_unpass_block_solid_ors(objects_srv: &Path, otb_path: &Path) -> Result<HashMap<u16, u32>> {
+pub fn build_unpass_block_solid_ors(
+    objects_srv: &Path,
+    otb_path: &Path,
+) -> Result<HashMap<u16, u32>> {
     let items = OtbLoader::load_from_file(otb_path)?;
     let srv = crate::objects_srv::parse_all_types(objects_srv)?;
     let mut ors = HashMap::new();
@@ -111,7 +114,10 @@ pub fn build_unpass_block_solid_ors(objects_srv: &Path, otb_path: &Path) -> Resu
 /// pathfind through dirt walls to ladders. Dirt/earth/stone walls keep `blockSolid` from
 /// [`build_unpass_block_solid_ors`]. Monsters still treat mountains as Unpass via
 /// `is_unpassable_for_field` (Bank+wp0). Identity by `client_id`.
-pub fn build_bank_unpass_clear_solid(objects_srv: &Path, otb_path: &Path) -> Result<HashMap<u16, u32>> {
+pub fn build_bank_unpass_clear_solid(
+    objects_srv: &Path,
+    otb_path: &Path,
+) -> Result<HashMap<u16, u32>> {
     let items = OtbLoader::load_from_file(otb_path)?;
     let srv = crate::objects_srv::parse_all_types(objects_srv)?;
     let mut clears = HashMap::new();
@@ -130,16 +136,16 @@ pub fn build_bank_unpass_clear_solid(objects_srv: &Path, otb_path: &Path) -> Res
 
 /// OTBM places srv `"a mountain"` as walkable cliff/rock-soil ground (lesson 171).
 fn is_otbm_walkable_mountain_bank(t: &ObjectsSrvTypeFlags) -> bool {
-    t.flags.bank
-        && t.flags.unpass
-        && t.waypoints <= 0
-        && t.name.eq_ignore_ascii_case("a mountain")
+    t.flags.bank && t.flags.unpass && t.waypoints <= 0 && t.name.eq_ignore_ascii_case("a mountain")
 }
 
 /// Passable OTB ground (`group==1`, speed 0, identity not `Unpass`, not `blockSolid`) → default 150.
 ///
 /// OTBM often uses Clip borders as sole ground; CipSoft maps keep Bank underneath. Identity by `client_id`.
-pub fn build_passable_zero_speed_defaults(objects_srv: &Path, otb_path: &Path) -> Result<HashMap<u16, u16>> {
+pub fn build_passable_zero_speed_defaults(
+    objects_srv: &Path,
+    otb_path: &Path,
+) -> Result<HashMap<u16, u16>> {
     let items = OtbLoader::load_from_file(otb_path)?;
     let srv = crate::objects_srv::parse_all_types(objects_srv)?;
     let mut patches = HashMap::new();
@@ -160,8 +166,7 @@ pub fn build_passable_zero_speed_defaults(objects_srv: &Path, otb_path: &Path) -
 
 /// Rewrite `path` with patched `ITEM_ATTR_SPEED` values. Returns count of nodes updated.
 pub fn patch_file(path: &Path, patches: &HashMap<u16, u16>) -> Result<u32> {
-    let (speed, _) =
-        patch_file_speeds_and_flags(path, patches, &HashMap::new(), &HashMap::new())?;
+    let (speed, _) = patch_file_speeds_and_flags(path, patches, &HashMap::new(), &HashMap::new())?;
     Ok(speed)
 }
 
@@ -250,7 +255,9 @@ fn patch_or_copy_node(
                 .unwrap_or(true)
         })
     });
-    let flag_or = server_id.and_then(|sid| flag_ors.get(&sid).copied()).unwrap_or(0);
+    let flag_or = server_id
+        .and_then(|sid| flag_ors.get(&sid).copied())
+        .unwrap_or(0);
     let flag_clear = server_id
         .and_then(|sid| flag_clears.get(&sid).copied())
         .unwrap_or(0);
@@ -460,7 +467,10 @@ mod tests {
         // Stairs TypeID 434 (walkable BANK, Waypoints=100) resolves via client_id to its OTB row.
         let stairs = crate::objects_srv::resolve_server_id_for_patch(434, &items)
             .expect("stairs 434 resolvable");
-        assert!(items.contains_key(&stairs), "stairs server row expected in OTB");
+        assert!(
+            items.contains_key(&stairs),
+            "stairs server row expected in OTB"
+        );
         assert_eq!(
             patches.get(&stairs).copied(),
             Some(100),

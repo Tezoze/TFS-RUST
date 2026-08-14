@@ -1,8 +1,8 @@
 //! Client item look text — C++ `Item::getDescription` (`src/item.cpp` ~939–1574).
 //! Used for `playerLookAt` before Lua `EventCallback::onLook` wraps `"You see " ..` (`default_onLook.lua`).
 
-use tfs_rust_common::enums::Skill;
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::Skill;
 use tfs_rust_content::item_abilities::{
     COMBAT_ABSORB_COUNT, STAT_MAGICPOINTS, STAT_MAXHITPOINTS, STAT_MAXMANAPOINTS,
 };
@@ -151,11 +151,7 @@ fn eff_attack_speed(item: &Item, it: &ItemType) -> u32 {
         .as_deref()
         .map(|a| a.get_attack_speed())
         .unwrap_or(0);
-    if v != 0 {
-        v
-    } else {
-        it.attack_speed
-    }
+    if v != 0 { v } else { it.attack_speed }
 }
 
 #[inline]
@@ -488,8 +484,7 @@ fn allow_dist_read_suffix(item: &Item, it: &ItemType, look_distance: i32) -> Opt
 /// C++ `formatDateShort` — `tools.cpp:362` (`strftime` `%d %b %Y`).
 fn format_date_short(unix_secs: i64) -> String {
     use std::time::{Duration, UNIX_EPOCH};
-    let Some(instant) = UNIX_EPOCH.checked_add(Duration::from_secs(unix_secs.max(0) as u64))
-    else {
+    let Some(instant) = UNIX_EPOCH.checked_add(Duration::from_secs(unix_secs.max(0) as u64)) else {
         return String::new();
     };
     let dt: chrono::DateTime<chrono::Local> = instant.into();
@@ -680,11 +675,7 @@ fn format_duration_remaining(duration_sec: u32) -> String {
     } else if duration_sec >= 60 {
         let minutes = duration_sec / 60;
         let seconds = duration_sec % 60;
-        let mut s = format!(
-            "{} minute{}",
-            minutes,
-            if minutes != 1 { "s" } else { "" }
-        );
+        let mut s = format!("{} minute{}", minutes, if minutes != 1 { "s" } else { "" });
         if seconds > 0 {
             s.push_str(&format!(
                 " and {} second{}",
@@ -837,10 +828,7 @@ It can only be wielded properly by players of level 120 or higher."
         };
         let item = Item::new_single(it.id);
         let brand = item_get_description_cpp(&item, &it, 90, 1, None, None, None, None);
-        assert!(
-            brand.contains("that is brand-new"),
-            "brand-new: {brand}"
-        );
+        assert!(brand.contains("that is brand-new"), "brand-new: {brand}");
 
         let with_dur = item_get_description_cpp(&item, &it, 90, 1, None, Some(125_000), None, None);
         assert!(
@@ -888,21 +876,8 @@ It can only be wielded properly by players of level 120 or higher."
         // 772 `FLUID_MANAFLUID` = 10; items.xml id 10 = "manafluid".
         let mut item = Item::new(it.id, 10);
         item.set_fluid_type(10);
-        let s = item_get_description_cpp(
-            &item,
-            &it,
-            180,
-            1,
-            None,
-            None,
-            None,
-            Some("manafluid"),
-        );
-        assert_eq!(
-            s,
-            "a vial of manafluid.\nIt weighs 1.80 oz.",
-            "got: {s}"
-        );
+        let s = item_get_description_cpp(&item, &it, 180, 1, None, None, None, Some("manafluid"));
+        assert_eq!(s, "a vial of manafluid.\nIt weighs 1.80 oz.", "got: {s}");
     }
 
     /// Persistence often stores fluid only in `count` (ATTR_COUNT) — look must still resolve.

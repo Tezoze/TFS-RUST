@@ -430,14 +430,8 @@ mod tests {
             .get("destroyableStone")
             .expect("actionIds.destroyableStone");
         assert_eq!(stone, 4004, "TVP destroyableStone");
-        assert_eq!(
-            action_ids.get::<i32>("sandHole").expect("sandHole"),
-            4002
-        );
-        assert_eq!(
-            action_ids.get::<i32>("pickHole").expect("pickHole"),
-            4003
-        );
+        assert_eq!(action_ids.get::<i32>("sandHole").expect("sandHole"), 4002);
+        assert_eq!(action_ids.get::<i32>("pickHole").expect("pickHole"), 4003);
         assert_eq!(
             action_ids.get::<i32>("levelDoor").expect("levelDoor"),
             1000,

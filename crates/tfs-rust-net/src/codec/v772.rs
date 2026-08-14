@@ -16,8 +16,8 @@
 use tfs_rust_common::protocol_opcodes::server;
 use tfs_rust_common::{Position, ProtocolCaps, ProtocolVersion};
 
-use crate::creature_encode::{AddCreatureWire, OutfitWire};
 use crate::NetworkMessage;
+use crate::creature_encode::{AddCreatureWire, OutfitWire};
 
 use super::wire::{
     AnimatedTextWire, ChannelMessageWire, ChannelOpenWire, ChannelsDialogWire,
@@ -409,7 +409,12 @@ impl Codec772 {
         m.write_u8(c.capacity);
         m.write_u8(u8::from(c.has_parent));
         // 7.72 clients can only address the first 36 container slots (`sending.cc:12`, `:717`).
-        let n = c.items.len().min(c.capacity as usize).min(36).min(u8::MAX as usize) as u8;
+        let n = c
+            .items
+            .len()
+            .min(c.capacity as usize)
+            .min(36)
+            .min(u8::MAX as usize) as u8;
         m.write_u8(n);
         for args in c.items.iter().take(n as usize) {
             self.write_item_template_args(&mut m, *args);

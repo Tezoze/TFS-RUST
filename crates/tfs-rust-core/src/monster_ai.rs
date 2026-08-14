@@ -13,26 +13,24 @@
 pub use crate::monster_targets::TargetSearchType;
 
 use slotmap::Key;
-use tfs_rust_common::enums::{CombatType, Direction, ZoneType};
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::{CombatType, Direction, ZoneType};
 
 use crate::chase_debug;
-use crate::combat::{weapon_damage, CombatDamage, CombatParams, FightMode};
-use crate::creature::{
-    creature_immune_poison, melee_poison_on_hit, roll_target_defense,
-};
+use crate::combat::{CombatDamage, CombatParams, FightMode, weapon_damage};
 use crate::creature::{ChaseMode, CreatureKind, MonsterState};
-use crate::game_world::{creature_can_see, GameWorld};
+use crate::creature::{creature_immune_poison, melee_poison_on_hit, roll_target_defense};
+use crate::game_world::{GameWorld, creature_can_see};
 use crate::ids::CreatureId;
 use crate::monster_distance_step::{
     distance_x, distance_y, offset_x, offset_y, search_flight_field,
 };
 use crate::pathfinding::{
-    scan_min_terrain_waypoints, uses_reverse_terrain_path, FindPathParams, CHASE_PATH_MAX_STEPS,
-    REVERSE_PATH_VIEW_RADIUS,
+    CHASE_PATH_MAX_STEPS, FindPathParams, REVERSE_PATH_VIEW_RADIUS, scan_min_terrain_waypoints,
+    uses_reverse_terrain_path,
 };
-use crate::player_flags::{flags_for_group, has_player_flag, PLAYER_FLAG_IGNORED_BY_MONSTERS};
-use crate::tile::{flags as tilestate, MapStackEntry};
+use crate::player_flags::{PLAYER_FLAG_IGNORED_BY_MONSTERS, flags_for_group, has_player_flag};
+use crate::tile::{MapStackEntry, flags as tilestate};
 use crate::walk::creature_turn_with_broadcast;
 
 /// C++ `Map::maxViewportX` (`map.h`).
@@ -308,13 +306,7 @@ impl GameWorld {
         let server_ms = self.server_ms;
         let profile = self.mechanics.profile;
 
-        let (
-            target_id,
-            monster_pos,
-            melee_skill,
-            melee_attack,
-            poison_cycles,
-        ) = {
+        let (target_id, monster_pos, melee_skill, melee_attack, poison_cycles) = {
             let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
                 return;
             };
@@ -473,7 +465,13 @@ impl GameWorld {
             .map(|k| k.base().health)
             .unwrap_or(hp_before);
         if let Some(snap) = notify_snap {
-            self.notify_player_combat_damage(Some(cid), target_id, damage_done, CombatType::Physical, snap);
+            self.notify_player_combat_damage(
+                Some(cid),
+                target_id,
+                damage_done,
+                CombatType::Physical,
+                snap,
+            );
         }
 
         // A2 — `if (DamageDone > 0) ActivateLearning()` (`crcombat.cc:664-666`). Mirrors the
@@ -1217,11 +1215,7 @@ impl GameWorld {
             // Dist keep-band is MaxSteps only (`cheb − target_distance`), not a trim stop.
             // Predecessor-chain order (first hop first).
             steps = crate::pathfinding::truncate_tshortway_go_queue(
-                pos,
-                target_pos,
-                steps,
-                max_steps,
-                must_reach,
+                pos, target_pos, steps, max_steps, must_reach,
             );
             if chase_debug::chase_path_debug_enabled() {
                 if let Some(k) = self.creatures.get(cid) {
@@ -1373,7 +1367,7 @@ impl GameWorld {
         fpp: &FindPathParams,
     ) -> Option<Vec<Direction>> {
         use crate::pathfinding::{
-            get_path_matching_with_fill, CREATURE_ON_TILE_PATH_COST, REVERSE_PATH_VIEW_RADIUS,
+            CREATURE_ON_TILE_PATH_COST, REVERSE_PATH_VIEW_RADIUS, get_path_matching_with_fill,
         };
 
         let start = self.creatures.get(cid)?.position();
@@ -1922,7 +1916,7 @@ impl GameWorld {
                                 PLAYER_FLAG_IGNORED_BY_MONSTERS,
                             ) =>
                         {
-                            return false
+                            return false;
                         }
                         // C++ `crnonpl.cc:2229-2233`: a non-summon kicker facing a normal player
                         // falls past the creature (plannable-through); EXHAUSTED fires at Execute.

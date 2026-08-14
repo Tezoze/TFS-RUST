@@ -113,9 +113,7 @@ fn read_one_attr(
     is_container: bool,
     source: ItemBlobSource,
 ) -> TfsResult<bool> {
-    if source == ItemBlobSource::OtbmMap
-        && read_otbm_reme_u16(attr_type, stream, attrs)?
-    {
+    if source == ItemBlobSource::OtbmMap && read_otbm_reme_u16(attr_type, stream, attrs)? {
         return Ok(true);
     }
 
@@ -477,9 +475,9 @@ pub fn write_item_blob_with_duration(
 #[cfg(test)]
 mod write_roundtrip_tests {
     use super::{
-        parse_item_blob, parse_otbm_item_blob, write_item_blob, OTBM_CUSTOM_DOORLEVEL,
-        OTBM_CUSTOM_DOORQUESTNUMBER, OTBM_CUSTOM_DOORQUESTVALUE, OTBM_CUSTOM_KEYHOLENUMBER,
-        OTBM_CUSTOM_KEYNUMBER,
+        OTBM_CUSTOM_DOORLEVEL, OTBM_CUSTOM_DOORQUESTNUMBER, OTBM_CUSTOM_DOORQUESTVALUE,
+        OTBM_CUSTOM_KEYHOLENUMBER, OTBM_CUSTOM_KEYNUMBER, parse_item_blob, parse_otbm_item_blob,
+        write_item_blob,
     };
     use crate::item::Item;
     use crate::item_attributes::{AttrType, CustomAttrValue};
@@ -552,11 +550,15 @@ mod write_roundtrip_tests {
         let blob = [0x19, 0x40, 0x01, 0x1a, 0x05, 0x00];
         let parsed = parse_otbm_item_blob(&blob, false).expect("otbm parse");
         assert_eq!(
-            parsed.attrs.get_custom_attribute(OTBM_CUSTOM_DOORQUESTNUMBER),
+            parsed
+                .attrs
+                .get_custom_attribute(OTBM_CUSTOM_DOORQUESTNUMBER),
             Some(&CustomAttrValue::Integer(320))
         );
         assert_eq!(
-            parsed.attrs.get_custom_attribute(OTBM_CUSTOM_DOORQUESTVALUE),
+            parsed
+                .attrs
+                .get_custom_attribute(OTBM_CUSTOM_DOORQUESTVALUE),
             Some(&CustomAttrValue::Integer(5))
         );
 

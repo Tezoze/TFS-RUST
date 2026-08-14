@@ -14,7 +14,7 @@ use crate::inventory::{
     InventorySlot, PLAYER_INVENTORY_SLOT_FIRST, PLAYER_INVENTORY_SLOT_LAST, WEAPON_AMMO,
     WEAPON_DISTANCE, WEAPON_NONE, WEAPON_SHIELD,
 };
-use crate::player::combat::values::{classify_weapon, CombatWeapons, HandWeapon};
+use crate::player::combat::values::{CombatWeapons, HandWeapon, classify_weapon};
 use tfs_rust_content::otb::ItemType;
 
 /// Item location for batch removal — mirrors C++ `Item*` list with known parent cylinder.

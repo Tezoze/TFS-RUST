@@ -5,11 +5,11 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::creature::base::CreatureBase;
-use crate::creature::monster_combat::{combat_from_monster_type, MonsterSpell};
+use crate::creature::monster_combat::{MonsterSpell, combat_from_monster_type};
 use crate::creature::monster_inventory::MonsterInventory;
 use crate::ids::CreatureId;
-use tfs_rust_common::enums::BloodType;
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::BloodType;
 use tfs_rust_content::monsters::{MonsterType, MonsterTypeFlags};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

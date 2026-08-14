@@ -7,8 +7,8 @@ use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 use tfs_rust_lua::{
-    self, set_mutation_bool_result, set_mutation_item_result, with_lua_context,
-    with_lua_mutation_scope, LuaMutation,
+    self, LuaMutation, set_mutation_bool_result, set_mutation_item_result, with_lua_context,
+    with_lua_mutation_scope,
 };
 
 fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), String> {
@@ -81,10 +81,8 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             creature_id,
             depot_id,
         } => {
-            let result = unsafe { &mut *world }.lua_script_get_depot_locker(
-                creature_id,
-                depot_id,
-            )?;
+            let result =
+                unsafe { &mut *world }.lua_script_get_depot_locker(creature_id, depot_id)?;
             if let Some(id) = result {
                 set_mutation_item_result(id);
             }
@@ -151,10 +149,9 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
         LuaMutation::PlayerSendCancelMessage { creature_id, text } => {
             unsafe { &mut *world }.lua_script_player_send_cancel_message(creature_id, text)
         }
-        LuaMutation::PlayerAddCondition { creature_id, spec } => unsafe {
-            &mut *world
+        LuaMutation::PlayerAddCondition { creature_id, spec } => {
+            unsafe { &mut *world }.lua_script_player_add_condition(creature_id, spec)
         }
-        .lua_script_player_add_condition(creature_id, spec),
         LuaMutation::PlayerSetInFight {
             creature_id,
             in_fight,
@@ -201,7 +198,8 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             new_type,
             sub_type,
         } => {
-            let ok = unsafe { &mut *world }.lua_script_item_transform(item_id, new_type, sub_type)?;
+            let ok =
+                unsafe { &mut *world }.lua_script_item_transform(item_id, new_type, sub_type)?;
             set_mutation_bool_result(ok);
             Ok(())
         }
@@ -217,8 +215,7 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             challenger_id,
             target_id,
         } => {
-            let ok = unsafe { &mut *world }
-                .lua_do_challenge_creature(challenger_id, target_id);
+            let ok = unsafe { &mut *world }.lua_do_challenge_creature(challenger_id, target_id);
             set_mutation_bool_result(ok);
             Ok(())
         }
@@ -230,9 +227,8 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             extended,
             force,
         } => {
-            let result = unsafe { &mut *world }.lua_script_create_monster(
-                &name, x, y, z, extended, force,
-            )?;
+            let result = unsafe { &mut *world }
+                .lua_script_create_monster(&name, x, y, z, extended, force)?;
             if let Some(id) = result {
                 set_mutation_item_result(id);
             }
@@ -253,8 +249,13 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             z,
             flags,
         } => {
-            let ret = unsafe { &mut *world }
-                .lua_script_creature_move_to_tile(creature_id, x, y, z, flags)?;
+            let ret = unsafe { &mut *world }.lua_script_creature_move_to_tile(
+                creature_id,
+                x,
+                y,
+                z,
+                flags,
+            )?;
             set_mutation_bool_result(ret);
             Ok(())
         }
@@ -279,8 +280,9 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             creature_id,
             msg_class,
             text,
-        } => unsafe { &mut *world }
-            .lua_script_player_send_text_message(creature_id, msg_class, text),
+        } => {
+            unsafe { &mut *world }.lua_script_player_send_text_message(creature_id, msg_class, text)
+        }
         LuaMutation::NpcSay { npc_id, text } => {
             unsafe { &mut *world }.npc_lua_say_u64(npc_id, text.as_str())
         }
@@ -324,8 +326,7 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             let Some(item) = w.resolve_item_u64(exclude_item_id) else {
                 return Ok(());
             };
-            let exclude_cid =
-                exclude_creature_id.and_then(|id| w.resolve_creature_u64(id));
+            let exclude_cid = exclude_creature_id.and_then(|id| w.resolve_creature_u64(id));
             w.clear_field(item, exclude_cid);
             Ok(())
         }
@@ -334,11 +335,8 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             skill,
             tries,
         } => {
-            let ok = unsafe { &mut *world }.lua_script_add_skill_tries(
-                creature_id,
-                skill,
-                tries,
-            )?;
+            let ok =
+                unsafe { &mut *world }.lua_script_add_skill_tries(creature_id, skill, tries)?;
             if ok {
                 set_mutation_bool_result(true);
             }
@@ -352,9 +350,8 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             count,
             flags,
         } => {
-            let result = unsafe { &mut *world }.lua_script_tile_add_item(
-                x, y, z, item_type, count, flags,
-            )?;
+            let result = unsafe { &mut *world }
+                .lua_script_tile_add_item(x, y, z, item_type, count, flags)?;
             if let Some(id) = result {
                 set_mutation_item_result(id);
             }
@@ -365,9 +362,8 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             count,
             position,
         } => {
-            let result = unsafe { &mut *world }.lua_script_game_create_item(
-                item_type, count, position,
-            )?;
+            let result =
+                unsafe { &mut *world }.lua_script_game_create_item(item_type, count, position)?;
             if let Some(id) = result {
                 set_mutation_item_result(id);
             }
@@ -476,13 +472,9 @@ pub fn fire_on_cast_spell(
         let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
         with_lua_context(ctx, || {
             let world = unsafe { &mut *world_ptr };
-            world.events.dispatch_on_cast_spell(
-                spell_words,
-                cid,
-                need_direction,
-                has_param,
-                param,
-            )
+            world
+                .events
+                .dispatch_on_cast_spell(spell_words, cid, need_direction, has_param, param)
         })
     })
 }
@@ -590,13 +582,9 @@ pub fn fire_on_use_weapon(
         let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
         with_lua_context(ctx, || {
             let world = unsafe { &mut *world_ptr };
-            world.events.dispatch_on_use_weapon(
-                item_id,
-                cid,
-                target_creature,
-                target_pos,
-                hit,
-            )
+            world
+                .events
+                .dispatch_on_use_weapon(item_id, cid, target_creature, target_pos, hit)
         })
     })
 }
@@ -750,9 +738,7 @@ pub fn fire_npc_custom_predicate(
     callback: tfs_rust_content::npcs::NpcCallbackId,
 ) -> bool {
     with_npc_mutation_scope(world, |world| {
-        world
-            .events
-            .on_npc_custom_predicate(npc, player, callback)
+        world.events.on_npc_custom_predicate(npc, player, callback)
     })
 }
 

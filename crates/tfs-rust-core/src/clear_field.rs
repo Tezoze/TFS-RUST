@@ -4,9 +4,9 @@
 //! (`moveuse.cc:569-617`, `505-535`; `info.cc:702-726`).
 //! Domain: TFS door scripts call this before `item:transform` to closed.
 
-use tfs_rust_common::enums::Direction;
-use tfs_rust_common::Position;
 use slotmap::Key;
+use tfs_rust_common::Position;
+use tfs_rust_common::enums::Direction;
 
 use crate::cylinder::{Cylinder, CylinderFlags};
 use crate::game_world::GameWorld;
@@ -117,8 +117,10 @@ impl GameWorld {
 
         if avoid_players {
             for &cid in &body.creatures {
-                if matches!(self.creatures.get(cid), Some(crate::creature::CreatureKind::Player(_)))
-                {
+                if matches!(
+                    self.creatures.get(cid),
+                    Some(crate::creature::CreatureKind::Player(_))
+                ) {
                     return false;
                 }
             }
@@ -158,13 +160,7 @@ impl GameWorld {
         };
 
         for cid in creature_ids {
-            let _ = self.lua_script_creature_teleport(
-                cid.data().as_ffi(),
-                to.x,
-                to.y,
-                to.z,
-                true,
-            );
+            let _ = self.lua_script_creature_teleport(cid.data().as_ffi(), to.x, to.y, to.z, true);
         }
 
         for iid in item_ids {
@@ -201,8 +197,8 @@ mod tests {
     use crate::cylinder::CylinderFlags;
     use crate::item::Item;
     use crate::sim_harness::minimal_world;
-    use crate::tile::{flags, Tile};
     use crate::test_world::support::{insert_player, test_player};
+    use crate::tile::{Tile, flags};
     use tfs_rust_content::otb::ItemType;
 
     fn register_type(world: &mut GameWorld, item_type_id: u16, mut it: ItemType) {

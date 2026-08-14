@@ -19,10 +19,10 @@ use tfs_rust_content::monsters::MonsterDatabase;
 use tfs_rust_content::npcs::NpcDatabase;
 use tfs_rust_content::vocations::VocationRegistry;
 
-use tfs_rust_common::enums::Direction;
 use tfs_rust_common::ConnId;
 use tfs_rust_common::GamePacket;
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::Direction;
 use tfs_rust_db::DbPool;
 use tfs_rust_net::Codec;
 
@@ -241,9 +241,9 @@ impl GameWorld {
     /// Schedule deadline in the active decay clock's units.
     pub(crate) fn decay_schedule_deadline(&self, duration_ms: i32) -> u64 {
         match self.mechanics.profile.decay_clock {
-            crate::formulas::DecayClockModel::ServerMilliseconds => self
-                .server_ms
-                .saturating_add(duration_ms.max(0) as u64),
+            crate::formulas::DecayClockModel::ServerMilliseconds => {
+                self.server_ms.saturating_add(duration_ms.max(0) as u64)
+            }
             crate::formulas::DecayClockModel::RoundNumber => {
                 let sec = duration_ms.max(0) as u64 / 1000;
                 let sec = sec.max(1);
@@ -348,12 +348,9 @@ impl GameWorld {
             .unwrap_or_else(|_| crate::config::ChatConfig::defaults());
         let pvp_config = crate::config::PvpConfig::from_config(config.as_ref())
             .unwrap_or_else(|_| crate::config::PvpConfig::defaults());
-        let items_decay_inside_depots = crate::config::get_bool_or(
-            config.as_ref(),
-            "itemsDecayInsideDepots",
-            false,
-        )
-        .unwrap_or(false);
+        let items_decay_inside_depots =
+            crate::config::get_bool_or(config.as_ref(), "itemsDecayInsideDepots", false)
+                .unwrap_or(false);
         Self {
             creatures: SlotMap::with_key(),
             items,

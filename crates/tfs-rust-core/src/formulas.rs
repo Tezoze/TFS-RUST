@@ -1164,8 +1164,13 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
             p.npc.conversation_timeout_rounds as i64,
         )
         .max(1) as u32;
-        p.npc.numeric_capture_cap =
-            num_or(lua, &npc, "numericCaptureCap", p.npc.numeric_capture_cap as i64).max(0) as i32;
+        p.npc.numeric_capture_cap = num_or(
+            lua,
+            &npc,
+            "numericCaptureCap",
+            p.npc.numeric_capture_cap as i64,
+        )
+        .max(0) as i32;
         p.npc.reply_initial_delay_ms = num_or(
             lua,
             &npc,
@@ -1173,10 +1178,20 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
             p.npc.reply_initial_delay_ms as i64,
         )
         .max(0) as u32;
-        p.npc.reply_base_delay_ms =
-            num_or(lua, &npc, "replyBaseDelayMs", p.npc.reply_base_delay_ms as i64).max(0) as u32;
-        p.npc.reply_byte_factor_ms =
-            num_or(lua, &npc, "replyByteFactorMs", p.npc.reply_byte_factor_ms as i64).max(0) as u32;
+        p.npc.reply_base_delay_ms = num_or(
+            lua,
+            &npc,
+            "replyBaseDelayMs",
+            p.npc.reply_base_delay_ms as i64,
+        )
+        .max(0) as u32;
+        p.npc.reply_byte_factor_ms = num_or(
+            lua,
+            &npc,
+            "replyByteFactorMs",
+            p.npc.reply_byte_factor_ms as i64,
+        )
+        .max(0) as u32;
         p.npc.talking_keepalive_ms = num_or(
             lua,
             &npc,
@@ -1184,10 +1199,20 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
             p.npc.talking_keepalive_ms as i64,
         )
         .max(0) as u32;
-        p.npc.idle_roam_attempts =
-            num_or(lua, &npc, "idleRoamAttempts", p.npc.idle_roam_attempts as i64).max(0) as u32;
-        p.npc.idle_roam_delay_ms =
-            num_or(lua, &npc, "idleRoamDelayMs", p.npc.idle_roam_delay_ms as i64).max(0) as u32;
+        p.npc.idle_roam_attempts = num_or(
+            lua,
+            &npc,
+            "idleRoamAttempts",
+            p.npc.idle_roam_attempts as i64,
+        )
+        .max(0) as u32;
+        p.npc.idle_roam_delay_ms = num_or(
+            lua,
+            &npc,
+            "idleRoamDelayMs",
+            p.npc.idle_roam_delay_ms as i64,
+        )
+        .max(0) as u32;
         p.npc.sleep_search_range_x = num_or(
             lua,
             &npc,
@@ -1207,8 +1232,12 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
     if let Ok(Value::Table(dp)) = formulas.get::<Value>("deathLossPercent") {
         p.death_penalty = DeathPenalty {
             base_percent: num_or(lua, &dp, "base", p.death_penalty.base_percent as i64) as i32,
-            promoted_percent: num_or(lua, &dp, "promoted", p.death_penalty.promoted_percent as i64)
-                as i32,
+            promoted_percent: num_or(
+                lua,
+                &dp,
+                "promoted",
+                p.death_penalty.promoted_percent as i64,
+            ) as i32,
             per_blessing: num_or(lua, &dp, "perBlessing", p.death_penalty.per_blessing as i64)
                 as i32,
         };
@@ -1222,12 +1251,10 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         };
         p.fishing.probe_diff =
             num_or(lua, &fish, "diff", p.fishing.probe_diff as i64).max(0) as i32;
-        p.fishing.probe_prob =
-            num_or(lua, &fish, "prob", p.fishing.probe_prob as i64) as i32;
+        p.fishing.probe_prob = num_or(lua, &fish, "prob", p.fishing.probe_prob as i64) as i32;
         p.fishing.min_chance = float_or(&fish, "minChance", p.fishing.min_chance);
         p.fishing.max_chance = float_or(&fish, "maxChance", p.fishing.max_chance);
-        p.fishing.skill_base =
-            num_or(lua, &fish, "skillBase", p.fishing.skill_base as i64) as i32;
+        p.fishing.skill_base = num_or(lua, &fish, "skillBase", p.fishing.skill_base as i64) as i32;
         p.fishing.skill_coeff = float_or(&fish, "skillCoeff", p.fishing.skill_coeff);
     }
 

@@ -193,7 +193,9 @@ impl UserData for SpellBuilder {
                 mlua::Value::Integer(n) if n >= 0 => n as u32,
                 mlua::Value::Number(n) if n >= 0.0 => n as u32,
                 _ => {
-                    return Err(mlua::Error::runtime("spell:mana: expected non-negative number"));
+                    return Err(mlua::Error::runtime(
+                        "spell:mana: expected non-negative number",
+                    ));
                 }
             };
             this.spell.borrow_mut().mana = mana;
@@ -462,7 +464,9 @@ impl UserData for SpellBuilder {
         methods.add_meta_method(
             mlua::MetaMethod::NewIndex,
             |lua, this, (key, value): (String, Value)| {
-                if key == "onCastSpell" && let Value::Function(func) = value {
+                if key == "onCastSpell"
+                    && let Value::Function(func) = value
+                {
                     let registry_key = lua.create_registry_value(func)?;
                     *this.on_cast_fn.borrow_mut() = Some(registry_key);
                 }

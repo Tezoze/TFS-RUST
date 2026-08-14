@@ -130,7 +130,16 @@ fn merge_into(existing: &mut ActiveCondition, incoming: &ActiveCondition) {
 
     let mut accept_stronger_poison = false;
     match (&mut existing.data, &incoming.data) {
-        (Damage { total_rank: a, factor_percent: fa }, Damage { total_rank: b, factor_percent: fb }) => {
+        (
+            Damage {
+                total_rank: a,
+                factor_percent: fa,
+            },
+            Damage {
+                total_rank: b,
+                factor_percent: fb,
+            },
+        ) => {
             if *b > *a {
                 *a = *b;
                 *fa = *fb;
@@ -208,7 +217,7 @@ pub fn dot_tick_for_condition(
     ctype: ConditionType,
     round: i32,
 ) -> Option<(i32, i32)> {
-    use crate::combat::math::{condition_tick, DotElement};
+    use crate::combat::math::{DotElement, condition_tick};
     match ctype {
         ConditionType::Fire => Some(condition_tick(profile, hooks, DotElement::Fire, round)),
         ConditionType::Energy => Some(condition_tick(profile, hooks, DotElement::Energy, round)),

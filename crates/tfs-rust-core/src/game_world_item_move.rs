@@ -102,7 +102,12 @@ impl GameWorld {
         Ok(())
     }
 
-    pub(crate) fn is_hang_hook_accessible(&self, pos: Position, actor_pos: Position, flags: u32) -> bool {
+    pub(crate) fn is_hang_hook_accessible(
+        &self,
+        pos: Position,
+        actor_pos: Position,
+        flags: u32,
+    ) -> bool {
         if !are_in_range_1_1_0(actor_pos, pos) {
             return false;
         }
@@ -179,19 +184,15 @@ impl GameWorld {
         // `ignore` lets the 772 catch-and-swap (T8) re-check the source after the swapped
         // dest item has been placed on top of the source tile.
         if let Cylinder::Tile { pos } = from_cylinder {
-            if acting_player.is_some_and(|a| matches!(self.creatures.get(a), Some(CreatureKind::Player(_))))
+            if acting_player
+                .is_some_and(|a| matches!(self.creatures.get(a), Some(CreatureKind::Player(_))))
                 && self.get_top_object_for_move(pos, ignore) != Some(item_id)
             {
                 return Err(ReturnValue::NotPossible);
             }
         }
 
-        self.check_move_object(
-            acting_player,
-            &from_cylinder,
-            &to_cylinder,
-            item_id,
-        )?;
+        self.check_move_object(acting_player, &from_cylinder, &to_cylinder, item_id)?;
 
         // 772 `Move` `CloseContainer(Obj, true)` for `CreatureID == 0`.
         if acting_player.is_none() {
@@ -338,7 +339,10 @@ impl GameWorld {
             let from_pos = self.cylinder_position(&from_cylinder);
             let to_pos = self.cylinder_position(&to_work);
             if let (Some(from_pos), Some(to_pos)) = (from_pos, to_pos) {
-                if !self.events.on_remove_item(acting_player, item_id, item_type, from_pos, to_pos) {
+                if !self
+                    .events
+                    .on_remove_item(acting_player, item_id, item_type, from_pos, to_pos)
+                {
                     return Err(ReturnValue::NotPossible);
                 }
                 if let Cylinder::Tile { pos } = &from_cylinder {
@@ -349,7 +353,10 @@ impl GameWorld {
                         return Err(ReturnValue::NotPossible);
                     }
                 }
-                if !self.events.on_add_item(acting_player, item_id, item_type, from_pos, to_pos) {
+                if !self
+                    .events
+                    .on_add_item(acting_player, item_id, item_type, from_pos, to_pos)
+                {
                     return Err(ReturnValue::NotPossible);
                 }
             }
@@ -365,8 +372,14 @@ impl GameWorld {
                     if let Some(src) = self.items.get_mut(item_id) {
                         src.count -= m;
                     }
-                    let (tvp_src_stack_pos, cip_src_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
-                    self.broadcast_tile_item_update(from_pos, item_id, tvp_src_stack_pos, cip_src_stack_pos);
+                    let (tvp_src_stack_pos, cip_src_stack_pos) =
+                        self.item_stack_pos_pair(from_pos, item_id);
+                    self.broadcast_tile_item_update(
+                        from_pos,
+                        item_id,
+                        tvp_src_stack_pos,
+                        cip_src_stack_pos,
+                    );
 
                     // Create new item for the moved portion
                     let new_item = self
@@ -399,8 +412,14 @@ impl GameWorld {
                         }
                         self.merge_check(item_id, merge_id, m_move)?;
                         self.merge_partial_stack_counts(item_id, merge_id, m_move);
-                        let (tvp_src_stack_pos, cip_src_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
-                        self.broadcast_tile_item_update(from_pos, item_id, tvp_src_stack_pos, cip_src_stack_pos);
+                        let (tvp_src_stack_pos, cip_src_stack_pos) =
+                            self.item_stack_pos_pair(from_pos, item_id);
+                        self.broadcast_tile_item_update(
+                            from_pos,
+                            item_id,
+                            tvp_src_stack_pos,
+                            cip_src_stack_pos,
+                        );
                         self.notify_container_stack_merge(dest_cid, merge_id);
                         return Ok(merge_id);
                     }
@@ -777,8 +796,14 @@ impl GameWorld {
                     if is_stackable && m_move < item_count {
                         // Partial: source stack stays on tile; only counts change.
                         self.merge_partial_stack_counts(item_id, merge_id, m_move);
-                        let (tvp_src_stack_pos, cip_src_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
-                        self.broadcast_tile_item_update(from_pos, item_id, tvp_src_stack_pos, cip_src_stack_pos);
+                        let (tvp_src_stack_pos, cip_src_stack_pos) =
+                            self.item_stack_pos_pair(from_pos, item_id);
+                        self.broadcast_tile_item_update(
+                            from_pos,
+                            item_id,
+                            tvp_src_stack_pos,
+                            cip_src_stack_pos,
+                        );
                         self.player_post_add_notification(
                             cid,
                             merge_id,
@@ -810,8 +835,14 @@ impl GameWorld {
                     if let Some(src) = self.items.get_mut(item_id) {
                         src.count -= m_move;
                     }
-                    let (tvp_src_stack_pos, cip_src_stack_pos) = self.item_stack_pos_pair(from_pos, item_id);
-                    self.broadcast_tile_item_update(from_pos, item_id, tvp_src_stack_pos, cip_src_stack_pos);
+                    let (tvp_src_stack_pos, cip_src_stack_pos) =
+                        self.item_stack_pos_pair(from_pos, item_id);
+                    self.broadcast_tile_item_update(
+                        from_pos,
+                        item_id,
+                        tvp_src_stack_pos,
+                        cip_src_stack_pos,
+                    );
                     let new_item = self
                         .items
                         .get(item_id)
@@ -975,14 +1006,11 @@ mod tests {
     use super::*;
     use crate::item::Item;
     use crate::sim_harness::{ensure_walkable_tile, minimal_world};
-    use crate::tile::{flags as tilestate, Tile, TileBody};
+    use crate::tile::{Tile, TileBody, flags as tilestate};
     use tfs_rust_common::enums::ZoneType;
 
     fn tile_has(world: &GameWorld, pos: Position, item_id: ItemId) -> bool {
-        world
-            .map
-            .get_tile(pos)
-            .is_some_and(|t| t.has_item(item_id))
+        world.map.get_tile(pos).is_some_and(|t| t.has_item(item_id))
     }
 
     /// TFS `Tile::queryDestination` (`tile.cpp` ~740–784): throw onto a hole

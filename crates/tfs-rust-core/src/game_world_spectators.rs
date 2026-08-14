@@ -10,8 +10,8 @@ use slotmap::Key;
 use tfs_rust_common::enums::{CombatType, ConditionType};
 use tfs_rust_common::protocol_constants::{MAX_CLIENT_VIEWPORT_X, MAX_CLIENT_VIEWPORT_Y};
 use tfs_rust_common::{ConnId, Position};
-use tfs_rust_net::codec::ItemTemplateArgs;
 use tfs_rust_net::NetworkMessage;
+use tfs_rust_net::codec::ItemTemplateArgs;
 
 use crate::condition::ActiveCondition;
 use crate::creature::CreatureKind;
@@ -570,11 +570,11 @@ impl GameWorld {
             CombatType::Physical => {
                 crate::creature::damage_text_color(self.creature_blood_type(target_id))
             }
-            CombatType::Earth => 30,   // COLOR_LIGHTGREEN — poison
-            CombatType::Fire => 198,   // COLOR_ORANGE
-            CombatType::Energy => 35,  // COLOR_LIGHTBLUE
+            CombatType::Earth => 30,      // COLOR_LIGHTGREEN — poison
+            CombatType::Fire => 198,      // COLOR_ORANGE
+            CombatType::Energy => 35,     // COLOR_LIGHTBLUE
             CombatType::LifeDrain => 180, // COLOR_RED
-            _ => 180,                  // COLOR_RED (default)
+            _ => 180,                     // COLOR_RED (default)
         };
 
         // 772 emits the (race-keyed) hit effect + splash via `apply_physical_hit_blood` in the
@@ -724,10 +724,18 @@ impl GameWorld {
             let wire_id = match k {
                 CreatureKind::Player(p) => p.guid,
                 CreatureKind::Monster(m) => {
-                    if m.wire_id != 0 { m.wire_id } else { (cid.data().as_ffi() & 0xFFFF_FFFF) as u32 }
+                    if m.wire_id != 0 {
+                        m.wire_id
+                    } else {
+                        (cid.data().as_ffi() & 0xFFFF_FFFF) as u32
+                    }
                 }
                 CreatureKind::Npc(n) => {
-                    if n.wire_id != 0 { n.wire_id } else { (cid.data().as_ffi() & 0xFFFF_FFFF) as u32 }
+                    if n.wire_id != 0 {
+                        n.wire_id
+                    } else {
+                        (cid.data().as_ffi() & 0xFFFF_FFFF) as u32
+                    }
                 }
             };
             if wire_id != target_protocol_id {
@@ -915,11 +923,7 @@ impl GameWorld {
             .get(&conn)
             .copied()
             .is_some_and(|vid| self.uses_cip_map_order(vid));
-        if cip_order {
-            cip
-        } else {
-            tvp
-        }
+        if cip_order { cip } else { tvp }
     }
 }
 

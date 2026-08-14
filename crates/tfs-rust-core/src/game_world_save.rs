@@ -6,10 +6,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tfs_rust_common::enums::{Direction, SkullType};
 use tfs_rust_common::error::{Result, TfsRustError};
-use tfs_rust_db::player::{PlayerItemPayload, PlayerSaveData};
 use tfs_rust_db::ItemRecord;
+use tfs_rust_db::player::{PlayerItemPayload, PlayerSaveData};
 
-use crate::creature::{write_outfits_into_storage, CreatureKind};
+use crate::creature::{CreatureKind, write_outfits_into_storage};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::inventory::slot_to_array_index;
@@ -340,9 +340,7 @@ mod tests {
         let cid = insert_player(&mut world, test_player("loose", pos));
 
         // Open the locker (creates locker + chest).
-        let locker = world
-            .player_get_depot_locker(cid, 1)
-            .expect("depot locker");
+        let locker = world.player_get_depot_locker(cid, 1).expect("depot locker");
         world.player_set_last_depot_id(cid, 1);
 
         // Put a coin directly in the locker (not in the chest).
@@ -372,7 +370,12 @@ mod tests {
         assert!(!save.skip_depot_save);
 
         // The loose coin should appear with pid=0x10001 (0x10000 + town_id=1).
-        let coin_rows: Vec<_> = save.items.depot.iter().filter(|r| r.itemtype == 2148).collect();
+        let coin_rows: Vec<_> = save
+            .items
+            .depot
+            .iter()
+            .filter(|r| r.itemtype == 2148)
+            .collect();
         assert!(
             coin_rows.iter().any(|r| r.pid == 0x10001),
             "loose locker coin saved with locker pid"
@@ -404,8 +407,7 @@ mod tests {
         let chest_type = world.items.get(chest_id).map(|i| i.item_type).unwrap_or(0);
         assert!(
             !save.items.depot.iter().any(|r| {
-                r.itemtype == chest_type
-                    && save.items.depot.iter().any(|child| child.pid == r.sid)
+                r.itemtype == chest_type && save.items.depot.iter().any(|child| child.pid == r.sid)
             }),
             "depot chest itself should not be saved as a loose locker item"
         );

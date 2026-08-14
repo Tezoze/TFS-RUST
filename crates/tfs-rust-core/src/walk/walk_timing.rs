@@ -196,11 +196,7 @@ fn ceil_to_walk_quantizer(raw_ms: i64, quantizer_ms: i64) -> i64 {
 /// 772 diagonal multiplier on tile waypoints — `×3` for diagonal, `×1` for cardinal
 /// (`cract.cc:1526-1528`).
 fn waypoint_step_cost_for_direction(dir: Direction) -> u32 {
-    if is_diagonal(dir) {
-        3
-    } else {
-        1
-    }
+    if is_diagonal(dir) { 3 } else { 1 }
 }
 
 /// Next queued step without popping — `walk_queue` is LIFO at the back (`creature.cpp` `listWalkDir`).

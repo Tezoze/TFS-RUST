@@ -55,10 +55,9 @@ impl GameWorld {
     pub fn remove_creature(&mut self, id: CreatureId) {
         // NPC-7: fire onDisappear before teardown when registered.
         let disappear_cb = match self.creatures.get(id) {
-            Some(CreatureKind::Npc(n)) => self
-                .npcs_db
-                .get(n.definition)
-                .and_then(|d| d.on_disappear),
+            Some(CreatureKind::Npc(n)) => {
+                self.npcs_db.get(n.definition).and_then(|d| d.on_disappear)
+            }
             _ => None,
         };
         if let Some(cb) = disappear_cb {
@@ -405,10 +404,7 @@ impl GameWorld {
             return;
         }
 
-        let is_player = matches!(
-            self.creatures.get(victim),
-            Some(CreatureKind::Player(_))
-        );
+        let is_player = matches!(self.creatures.get(victim), Some(CreatureKind::Player(_)));
 
         // 772 kill logout + RecordMurder before XP/remove (`crmain.cc:822–870`).
         if is_player {
@@ -552,9 +548,7 @@ impl GameWorld {
             }
         }
         // Capture before remove — disappear broadcast still needs the mapping.
-        let dead_conn = is_player
-            .then(|| self.conn_for_creature(victim))
-            .flatten();
+        let dead_conn = is_player.then(|| self.conn_for_creature(victim)).flatten();
         self.remove_creature(victim);
         // Drop ConnId↔CreatureId so a recycled SlotMap key cannot hijack the dead session.
         // TCP stays open (`CONNECTION_DEAD`) until OK→Logout / idle timeout.
@@ -651,11 +645,14 @@ impl GameWorld {
         let (pos, exact_lethal, playerkiller_end, keep_inventory) = match self.creatures.get(victim)
         {
             Some(CreatureKind::Player(p)) => {
-                let keep = self.player_has_flag(
-                    victim,
-                    crate::player_flags::PLAYER_FLAG_KEEP_INVENTORY,
-                );
-                (p.base.position, p.exact_lethal_blow, p.playerkiller_end, keep)
+                let keep =
+                    self.player_has_flag(victim, crate::player_flags::PLAYER_FLAG_KEEP_INVENTORY);
+                (
+                    p.base.position,
+                    p.exact_lethal_blow,
+                    p.playerkiller_end,
+                    keep,
+                )
             }
             _ => return,
         };
@@ -695,7 +692,9 @@ impl GameWorld {
         }
 
         // Always create the corpse; items only move when lose mode is not NONE.
-        let corpse_id = self.items.insert(crate::item::Item::new(DEAD_HUMAN_CORPSE, 1));
+        let corpse_id = self
+            .items
+            .insert(crate::item::Item::new(DEAD_HUMAN_CORPSE, 1));
         self.hydrate_container_if_needed(corpse_id);
         let decay_deadline = self
             .now_ms()
@@ -759,15 +758,12 @@ mod tests {
     #[test]
     fn m7_red_skull_drops_all_inventory() {
         let mut world = minimal_world();
-        let cid = insert_player(
-            &mut world,
-            {
-                let mut p = test_player("RedSkull", Position::new(100, 100, 7));
-                p.playerkiller_end = 1_000_000; // non-zero → red skull
-                p.exact_lethal_blow = false; // no AoL scan
-                p
-            },
-        );
+        let cid = insert_player(&mut world, {
+            let mut p = test_player("RedSkull", Position::new(100, 100, 7));
+            p.playerkiller_end = 1_000_000; // non-zero → red skull
+            p.exact_lethal_blow = false; // no AoL scan
+            p
+        });
         let iid1 = place_item(&mut world, cid, 1, 2148); // gold
         let iid2 = place_item(&mut world, cid, 2, 2148); // gold
         let iid3 = place_item(&mut world, cid, 5, 2148); // gold
@@ -778,10 +774,9 @@ mod tests {
         let still_in_inv = [iid1, iid2, iid3]
             .iter()
             .filter(|iid| {
-                world
-                    .items
-                    .get(**iid)
-                    .is_some_and(|i| matches!(i.parent, Some(crate::cylinder::Cylinder::Inventory { .. })))
+                world.items.get(**iid).is_some_and(|i| {
+                    matches!(i.parent, Some(crate::cylinder::Cylinder::Inventory { .. }))
+                })
             })
             .count();
         assert_eq!(still_in_inv, 0, "red skull drops all inventory items");
@@ -808,15 +803,12 @@ mod tests {
         );
         world.groups = std::sync::Arc::new(tfs_rust_content::groups::GroupDatabase { groups });
 
-        let cid = insert_player(
-            &mut world,
-            {
-                let mut p = test_player("Keeper", Position::new(100, 100, 7));
-                p.group_id = 1;
-                p.exact_lethal_blow = false;
-                p
-            },
-        );
+        let cid = insert_player(&mut world, {
+            let mut p = test_player("Keeper", Position::new(100, 100, 7));
+            p.group_id = 1;
+            p.exact_lethal_blow = false;
+            p
+        });
         let iid1 = place_item(&mut world, cid, 1, 2148);
         let iid2 = place_item(&mut world, cid, 5, 2148);
 
@@ -824,10 +816,9 @@ mod tests {
 
         // Both items should still be in inventory.
         for iid in [iid1, iid2] {
-            let in_inv = world
-                .items
-                .get(iid)
-                .is_some_and(|i| matches!(i.parent, Some(crate::cylinder::Cylinder::Inventory { .. })));
+            let in_inv = world.items.get(iid).is_some_and(|i| {
+                matches!(i.parent, Some(crate::cylinder::Cylinder::Inventory { .. }))
+            });
             assert!(in_inv, "KEEP_INVENTORY flag preserves item in inventory");
         }
     }
@@ -837,15 +828,12 @@ mod tests {
     #[test]
     fn m7_default_mode_is_some_creates_corpse() {
         let mut world = minimal_world();
-        let cid = insert_player(
-            &mut world,
-            {
-                let mut p = test_player("Normal", Position::new(100, 100, 7));
-                p.playerkiller_end = 0;
-                p.exact_lethal_blow = false;
-                p
-            },
-        );
+        let cid = insert_player(&mut world, {
+            let mut p = test_player("Normal", Position::new(100, 100, 7));
+            p.playerkiller_end = 0;
+            p.exact_lethal_blow = false;
+            p
+        });
         let _iid = place_item(&mut world, cid, 1, 2148);
 
         world.player_death_drop_inventory(cid);

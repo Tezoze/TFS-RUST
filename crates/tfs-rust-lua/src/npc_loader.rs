@@ -46,10 +46,7 @@ impl LuaRuntime {
         items: &ItemDatabase,
     ) -> Result<NpcDatabase, String> {
         if !defs_dir.exists() {
-            tracing::warn!(
-                "NPC definitions dir not found: {}",
-                defs_dir.display()
-            );
+            tracing::warn!("NPC definitions dir not found: {}", defs_dir.display());
             return Ok(NpcDatabase::new());
         }
 
@@ -93,9 +90,8 @@ impl LuaRuntime {
 
         for path in &lua_files {
             let path_str = path.display().to_string();
-            let source = std::fs::read_to_string(path).map_err(|e| {
-                format!("failed to read NPC definition {path_str}: {e}")
-            })?;
+            let source = std::fs::read_to_string(path)
+                .map_err(|e| format!("failed to read NPC definition {path_str}: {e}"))?;
             self.lua
                 .load(&source)
                 .set_name(&path_str)

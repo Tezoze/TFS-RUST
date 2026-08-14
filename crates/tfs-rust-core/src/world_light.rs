@@ -51,7 +51,10 @@ mod tests {
     #[test]
     fn world_time_is_within_one_game_day() {
         let wt = world_time_from_local_clock();
-        assert!((0..1440).contains(&wt), "world time should be within one game day");
+        assert!(
+            (0..1440).contains(&wt),
+            "world time should be within one game day"
+        );
     }
 
     #[test]

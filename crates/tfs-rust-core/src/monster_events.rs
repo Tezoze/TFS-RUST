@@ -12,9 +12,9 @@ use tfs_rust_common::Position;
 use crate::chase_debug;
 use crate::creature::{ChaseMode, CreatureKind, MonsterState};
 use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
-use crate::game_world::{creature_can_see, GameWorld};
+use crate::game_world::{GameWorld, creature_can_see};
 use crate::ids::CreatureId;
-use crate::monster_ai::{chebyshev, MonsterEnqueueAttackResult, MAP_MAX_VIEWPORT};
+use crate::monster_ai::{MAP_MAX_VIEWPORT, MonsterEnqueueAttackResult, chebyshev};
 
 impl GameWorld {
     pub fn monster_on_creature_appear_self(&mut self, cid: CreatureId) {
@@ -552,14 +552,14 @@ impl GameWorld {
 
 #[cfg(test)]
 mod tests {
-    use tfs_rust_common::enums::Direction;
     use tfs_rust_common::Position;
+    use tfs_rust_common::enums::Direction;
 
     use crate::creature::{ChaseMode, CreatureKind, MonsterState};
     use crate::creature_todo::CreatureAction;
     use crate::test_world::support::{
-        beat_driven_test_world, ensure_walkable_tile, insert_monster, insert_player, test_player,
-        TEST_SYNTHETIC_GROUND_WP,
+        TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_monster,
+        insert_player, test_player,
     };
 
     #[test]

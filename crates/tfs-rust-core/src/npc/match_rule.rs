@@ -1,12 +1,12 @@
 //! Deterministic rule selection (condition count, `!`, captures).
 
 use tfs_rust_content::npcs::{
-    DialoguePredicate, DialogueProgram, DialogueProperty, DialogueSituation, DialogueSituation as Sit,
-    NpcCallbackId,
+    DialoguePredicate, DialogueProgram, DialogueProperty, DialogueSituation,
+    DialogueSituation as Sit, NpcCallbackId,
 };
 
 use super::events::DialogueSituationKind;
-use super::expr::{eval_compare, EvalContext, PlayerVocationKind};
+use super::expr::{EvalContext, PlayerVocationKind, eval_compare};
 use super::words::{search_for_number, search_for_word};
 
 /// Host for custom Lua predicates during matching (NPC-7).
@@ -58,13 +58,7 @@ pub fn match_dialogue_rule(
     situation: DialogueSituationKind,
     ctx: &mut EvalContext<'_>,
 ) -> Option<RuleMatch> {
-    match_dialogue_rule_with_custom(
-        program,
-        text,
-        situation,
-        ctx,
-        &mut NullCustomPredicateHost,
-    )
+    match_dialogue_rule_with_custom(program, text, situation, ctx, &mut NullCustomPredicateHost)
 }
 
 /// Like [`match_dialogue_rule`] but evaluates [`DialoguePredicate::Custom`] via `custom`.
@@ -140,9 +134,7 @@ pub fn match_dialogue_rule_with_custom(
                         match_ok = false;
                     }
                 }
-                DialoguePredicate::Expression {
-                    expr, op, rhs, ..
-                } => {
+                DialoguePredicate::Expression { expr, op, rhs, .. } => {
                     ctx.captures = captures.values;
                     if !eval_compare(expr, *op, rhs, ctx) {
                         match_ok = false;

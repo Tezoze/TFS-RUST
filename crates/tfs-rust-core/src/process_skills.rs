@@ -5,7 +5,7 @@
 use tfs_rust_common::enums::{CombatType, ConditionType};
 
 use crate::combat::{CombatDamage, CombatParams};
-use crate::condition::{dot_tick_for_condition, ConditionData};
+use crate::condition::{ConditionData, dot_tick_for_condition};
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
@@ -133,10 +133,7 @@ impl GameWorld {
                         if cond.skill_count > 0 {
                             continue;
                         }
-                        let round = cond
-                            .timer_rounds_left
-                            .map(|t| interval - t)
-                            .unwrap_or(0);
+                        let round = cond.timer_rounds_left.map(|t| interval - t).unwrap_or(0);
                         let Some((dmg, max_ticks)) =
                             dot_tick_for_condition(profile, hooks, cond.ctype, round)
                         else {
@@ -175,7 +172,11 @@ impl GameWorld {
                         if cond.skill_count > 0 {
                             continue;
                         }
-                        if let ConditionData::Damage { total_rank, factor_percent } = cond.data {
+                        if let ConditionData::Damage {
+                            total_rank,
+                            factor_percent,
+                        } = cond.data
+                        {
                             if total_rank <= 0 {
                                 remove_indices.push(idx);
                                 ended_ctypes.push(cond.ctype);
@@ -184,14 +185,23 @@ impl GameWorld {
                             // 772 `TSkillPoison::Process` (`crskill.cc:977-984`):
                             // `Range = (Cycle * FactorPercent) / 1000`; floor to ±1 when 0.
                             // FactorPercent defaults to 50 → 5% of pool per Event.
-                            let fp = if factor_percent > 0 { factor_percent } else { 50 };
+                            let fp = if factor_percent > 0 {
+                                factor_percent
+                            } else {
+                                50
+                            };
                             let mut range = (total_rank * fp) / 1000;
                             if range == 0 {
                                 range = if total_rank > 0 { 1 } else { -1 };
                             }
                             // 772 Event: `Damage(origin, abs(Range), DAMAGE_POISON)`
                             // (`crskill.cc:1024-1028`).
-                            dot_events.push((base.poison_damage_origin, CombatType::Earth, range.abs(), Some(idx)));
+                            dot_events.push((
+                                base.poison_damage_origin,
+                                CombatType::Earth,
+                                range.abs(),
+                                Some(idx),
+                            ));
                         }
                     }
                     ConditionType::Haste | ConditionType::Paralyze => {
@@ -234,7 +244,8 @@ impl GameWorld {
             // 772 `TSkillHitpoints::Set` → `SendPlayerData` (`crskill.cc:682-683`).
             // Snapshot before apply — death may remove the creature.
             let snap = self.combat_notify_snapshot(cid);
-            let damage_scalar = self.combat_execute_with_stimulus(origin, cid, &damage, &CombatParams::default());
+            let damage_scalar =
+                self.combat_execute_with_stimulus(origin, cid, &damage, &CombatParams::default());
             // M2 — Use the real `Damage` scalar (includes mana-shield absorb).
             let damage_done = damage_scalar;
             if let Some(snap) = snap {
@@ -253,7 +264,9 @@ impl GameWorld {
                 if self.creatures.get(cid).is_some() {
                     let field_kind = match combat {
                         CombatType::Fire => Some(tfs_rust_content::items::FieldDamageType::Fire),
-                        CombatType::Energy => Some(tfs_rust_content::items::FieldDamageType::Energy),
+                        CombatType::Energy => {
+                            Some(tfs_rust_content::items::FieldDamageType::Energy)
+                        }
                         CombatType::Earth => Some(tfs_rust_content::items::FieldDamageType::Poison),
                         _ => None,
                     };
@@ -265,7 +278,9 @@ impl GameWorld {
                                     match cond.ctype {
                                         ConditionType::Poison => {
                                             // Poison `Cycle` = damage pool (`total_rank`).
-                                            if let ConditionData::Damage { total_rank, .. } = &mut cond.data {
+                                            if let ConditionData::Damage { total_rank, .. } =
+                                                &mut cond.data
+                                            {
                                                 *total_rank += 1;
                                             }
                                         }
@@ -334,8 +349,16 @@ impl GameWorld {
                             cond.skill_count = cond.skill_max_count;
                             // 772 `TSkillPoison::Process` (`crskill.cc:983`): `Cycle -= Range`.
                             // Pool drains by exactly the damage dealt this Event.
-                            if let ConditionData::Damage { total_rank, factor_percent } = &mut cond.data {
-                                let fp = if *factor_percent > 0 { *factor_percent } else { 50 };
+                            if let ConditionData::Damage {
+                                total_rank,
+                                factor_percent,
+                            } = &mut cond.data
+                            {
+                                let fp = if *factor_percent > 0 {
+                                    *factor_percent
+                                } else {
+                                    50
+                                };
                                 let mut range = (*total_rank * fp) / 1000;
                                 if range == 0 {
                                     range = if *total_rank > 0 { 1 } else { -1 };
@@ -531,8 +554,8 @@ mod tests {
 
     use tfs_rust_content::vocations::{VocationDef, VocationRegistry};
 
-    use crate::combat::{apply_condition, CombatParams};
-    use crate::condition::{add_condition_merge, ActiveCondition, ConditionData};
+    use crate::combat::{CombatParams, apply_condition};
+    use crate::condition::{ActiveCondition, ConditionData, add_condition_merge};
     use crate::creature::CreatureKind;
     use crate::map::Map;
     use crate::test_world::support::{
@@ -554,7 +577,10 @@ mod tests {
                 id: 1,
                 sub_id: 0,
                 ctype: ConditionType::Fire,
-                data: ConditionData::Damage { total_rank: 10, factor_percent: 0 },
+                data: ConditionData::Damage {
+                    total_rank: 10,
+                    factor_percent: 0,
+                },
                 // Count=0 MaxCount=1 → Event every ProcessSkills (fast unit test).
                 timer_rounds_left: Some(2),
                 skill_count: 0,
@@ -596,7 +622,10 @@ mod tests {
                 id: 1,
                 sub_id: 0,
                 ctype: ConditionType::Fire,
-                data: ConditionData::Damage { total_rank: 10, factor_percent: 0 },
+                data: ConditionData::Damage {
+                    total_rank: 10,
+                    factor_percent: 0,
+                },
                 timer_rounds_left: Some(3),
                 skill_count: 2,
                 skill_max_count: 2,
@@ -632,7 +661,10 @@ mod tests {
             id: 1,
             sub_id: 0,
             ctype: ConditionType::Poison,
-            data: ConditionData::Damage { total_rank: 20, factor_percent: 50 },
+            data: ConditionData::Damage {
+                total_rank: 20,
+                factor_percent: 50,
+            },
             timer_rounds_left: None,
             skill_count: 0,
             skill_max_count: 1, // Event every ProcessSkills for this unit test
@@ -643,7 +675,10 @@ mod tests {
                 id: 1,
                 sub_id: 0,
                 ctype: ConditionType::Poison,
-                data: ConditionData::Damage { total_rank: 20, factor_percent: 50 },
+                data: ConditionData::Damage {
+                    total_rank: 20,
+                    factor_percent: 50,
+                },
                 timer_rounds_left: None,
                 skill_count: 0,
                 skill_max_count: 1,
@@ -673,7 +708,10 @@ mod tests {
             .unwrap_or(0);
         // 772 `TSkillPoison::Process` (`crskill.cc:977`): `Range = (Cycle * 50) / 1000 = 1`.
         // Pool drains by exactly the damage dealt: 20 - 1 = 19.
-        assert_eq!(rank, 19, "poison pool drains by 5% per Event (factor_percent=50, /1000)");
+        assert_eq!(
+            rank, 19,
+            "poison pool drains by 5% per Event (factor_percent=50, /1000)"
+        );
     }
 
     /// Build a `VocationRegistry` with a single knight vocation (id=4) matching
@@ -867,8 +905,8 @@ mod tests {
     /// B7 — weaker poison stimulates but does not re-arm (`crmain.cc:586-590`).
     #[test]
     fn weaker_poison_does_not_override_stronger() {
-        use tfs_rust_common::enums::CombatType;
         use crate::combat::CombatDamage;
+        use tfs_rust_common::enums::CombatType;
 
         let mut world = beat_driven_test_world();
         let pos = Position::new(100, 100, 7);
@@ -897,7 +935,9 @@ mod tests {
             .active_conditions
             .iter()
             .find_map(|c| match (&c.ctype, &c.data) {
-                (ConditionType::Poison, ConditionData::Damage { total_rank, .. }) => Some(*total_rank),
+                (ConditionType::Poison, ConditionData::Damage { total_rank, .. }) => {
+                    Some(*total_rank)
+                }
                 _ => None,
             })
             .expect("strong poison armed");
@@ -920,7 +960,9 @@ mod tests {
             .active_conditions
             .iter()
             .find_map(|c| match (&c.ctype, &c.data) {
-                (ConditionType::Poison, ConditionData::Damage { total_rank, .. }) => Some(*total_rank),
+                (ConditionType::Poison, ConditionData::Damage { total_rank, .. }) => {
+                    Some(*total_rank)
+                }
                 _ => None,
             })
             .expect("poison still present");
@@ -930,8 +972,8 @@ mod tests {
     /// B7 — fire periodic always re-arms Cycle (`crmain.cc:596-603`).
     #[test]
     fn fire_periodic_rearms_unconditionally() {
-        use tfs_rust_common::enums::CombatType;
         use crate::combat::CombatDamage;
+        use tfs_rust_common::enums::CombatType;
 
         let mut world = beat_driven_test_world();
         let pos = Position::new(100, 100, 7);
@@ -984,8 +1026,8 @@ mod tests {
     /// B7 — PvP halving excludes `*_PERIODIC` arming hits (`crmain.cc:497-502`).
     #[test]
     fn pvp_periodic_damage_not_halved() {
-        use tfs_rust_common::enums::CombatType;
         use crate::combat::CombatDamage;
+        use tfs_rust_common::enums::CombatType;
 
         let mut world = beat_driven_test_world();
         let a_pos = Position::new(100, 100, 7);
@@ -1012,7 +1054,9 @@ mod tests {
             .active_conditions
             .iter()
             .find_map(|c| match (&c.ctype, &c.data) {
-                (ConditionType::Poison, ConditionData::Damage { total_rank, .. }) => Some(*total_rank),
+                (ConditionType::Poison, ConditionData::Damage { total_rank, .. }) => {
+                    Some(*total_rank)
+                }
                 _ => None,
             })
             .expect("poison armed at full strength");
@@ -1022,8 +1066,8 @@ mod tests {
     /// B7 — DoT Event ticks credit stored origin on the damage map (`crskill.cc` Events).
     #[test]
     fn dot_kill_credits_origin() {
-        use tfs_rust_common::enums::CombatType;
         use crate::combat::CombatDamage;
+        use tfs_rust_common::enums::CombatType;
 
         let mut world = beat_driven_test_world();
         let pos = Position::new(100, 100, 7);
@@ -1076,10 +1120,7 @@ mod tests {
             .map(|k| k.base().damage_map.damage_by(attacker))
             .unwrap_or(0);
         if world.creatures.contains_key(victim) {
-            assert!(
-                map_dmg > 0,
-                "poison Event must credit poison_damage_origin"
-            );
+            assert!(map_dmg > 0, "poison Event must credit poison_damage_origin");
         }
     }
 
@@ -1100,7 +1141,10 @@ mod tests {
                 id: 1,
                 sub_id: 0,
                 ctype: ConditionType::Poison,
-                data: ConditionData::Damage { total_rank: 100, factor_percent: 50 },
+                data: ConditionData::Damage {
+                    total_rank: 100,
+                    factor_percent: 50,
+                },
                 timer_rounds_left: None,
                 skill_count: 0,
                 skill_max_count: 1, // Event every ProcessSkills
@@ -1109,7 +1153,11 @@ mod tests {
         let hp_before = world.creatures.get(player).unwrap().base().health;
         world.process_skills();
         let hp_after = world.creatures.get(player).unwrap().base().health;
-        assert_eq!(hp_before - hp_after, 5, "first Event deals 5% of pool (100 * 50 / 1000)");
+        assert_eq!(
+            hp_before - hp_after,
+            5,
+            "first Event deals 5% of pool (100 * 50 / 1000)"
+        );
 
         let rank = world
             .creatures
@@ -1128,7 +1176,10 @@ mod tests {
                 })
             })
             .unwrap_or(0);
-        assert_eq!(rank, 95, "pool drains by exactly the damage dealt: 100 - 5 = 95");
+        assert_eq!(
+            rank, 95,
+            "pool drains by exactly the damage dealt: 100 - 5 = 95"
+        );
     }
 
     /// C1 — Total lifetime damage equals the initial poison strength.
@@ -1148,7 +1199,10 @@ mod tests {
                 id: 1,
                 sub_id: 0,
                 ctype: ConditionType::Poison,
-                data: ConditionData::Damage { total_rank: 100, factor_percent: 50 },
+                data: ConditionData::Damage {
+                    total_rank: 100,
+                    factor_percent: 50,
+                },
                 timer_rounds_left: None,
                 skill_count: 0,
                 skill_max_count: 1, // Event every ProcessSkills
@@ -1198,12 +1252,10 @@ mod tests {
         let mut it = ItemType::default();
         it.server_id = 1487;
         it.type_tag = 6; // ITEM_TYPE_MAGICFIELD
-        it.xml_attributes
-            .insert("field".into(), "fire".into());
+        it.xml_attributes.insert("field".into(), "fire".into());
         it.xml_attributes
             .insert("field.initdamage".into(), "0".into());
-        it.xml_attributes
-            .insert("field.cycles".into(), "2".into());
+        it.xml_attributes.insert("field.cycles".into(), "2".into());
         it.xml_attributes
             .insert("replacemagicfields".into(), "true".into());
         db.items.insert(1487, it);
@@ -1220,11 +1272,7 @@ mod tests {
         // Place the fire field — apply_magic_field_to_tile_creatures arms the DoT.
         let iid = world.items.insert(crate::item::Item::new_single(1487));
         world
-            .internal_add_item_to_tile(
-                pos,
-                iid,
-                crate::cylinder::CylinderFlags::NONE,
-            )
+            .internal_add_item_to_tile(pos, iid, crate::cylinder::CylinderFlags::NONE)
             .expect("place fire field");
 
         // DoT should be armed.
@@ -1247,15 +1295,12 @@ mod tests {
 
         // Without C2, the fire condition would have expired.
         // With C2, the creature is still burning because the field re-extends the cycle.
-        let still_burning = world
-            .creatures
-            .get(player)
-            .is_some_and(|k| {
-                k.base()
-                    .active_conditions
-                    .iter()
-                    .any(|c| c.ctype == ConditionType::Fire)
-            });
+        let still_burning = world.creatures.get(player).is_some_and(|k| {
+            k.base()
+                .active_conditions
+                .iter()
+                .any(|c| c.ctype == ConditionType::Fire)
+        });
         assert!(
             still_burning,
             "fire condition must persist while standing on a fire field (C2 re-extension)"
@@ -1290,12 +1335,10 @@ mod tests {
         let mut it = ItemType::default();
         it.server_id = 1487;
         it.type_tag = 6; // ITEM_TYPE_MAGICFIELD
-        it.xml_attributes
-            .insert("field".into(), "fire".into());
+        it.xml_attributes.insert("field".into(), "fire".into());
         it.xml_attributes
             .insert("field.initdamage".into(), "0".into());
-        it.xml_attributes
-            .insert("field.cycles".into(), "2".into());
+        it.xml_attributes.insert("field.cycles".into(), "2".into());
         it.xml_attributes
             .insert("replacemagicfields".into(), "true".into());
         db.items.insert(1487, it);
@@ -1314,23 +1357,21 @@ mod tests {
         // Place the fire field and arm the DoT.
         let iid = world.items.insert(crate::item::Item::new_single(1487));
         world
-            .internal_add_item_to_tile(
-                pos,
-                iid,
-                crate::cylinder::CylinderFlags::NONE,
-            )
+            .internal_add_item_to_tile(pos, iid, crate::cylinder::CylinderFlags::NONE)
             .expect("place fire field");
 
         // Tick once to confirm DoT is active.
         world.process_skills();
-        assert!(world
-            .creatures
-            .get(player)
-            .unwrap()
-            .base()
-            .active_conditions
-            .iter()
-            .any(|c| c.ctype == ConditionType::Fire));
+        assert!(
+            world
+                .creatures
+                .get(player)
+                .unwrap()
+                .base()
+                .active_conditions
+                .iter()
+                .any(|c| c.ctype == ConditionType::Fire)
+        );
 
         // Remove the field — simulate it expiring or being cleared.
         let _ = world.internal_remove_item_from_tile(pos, iid, u16::MAX);
@@ -1339,15 +1380,12 @@ mod tests {
         let mut expired = false;
         for _ in 0..20 {
             world.process_skills();
-            let still_burning = world
-                .creatures
-                .get(player)
-                .is_some_and(|k| {
-                    k.base()
-                        .active_conditions
-                        .iter()
-                        .any(|c| c.ctype == ConditionType::Fire)
-                });
+            let still_burning = world.creatures.get(player).is_some_and(|k| {
+                k.base()
+                    .active_conditions
+                    .iter()
+                    .any(|c| c.ctype == ConditionType::Fire)
+            });
             if !still_burning {
                 expired = true;
                 break;
@@ -1375,12 +1413,10 @@ mod tests {
         let mut it = ItemType::default();
         it.server_id = 1490;
         it.type_tag = 6; // ITEM_TYPE_MAGICFIELD
-        it.xml_attributes
-            .insert("field".into(), "poison".into());
+        it.xml_attributes.insert("field".into(), "poison".into());
         it.xml_attributes
             .insert("field.initdamage".into(), "0".into());
-        it.xml_attributes
-            .insert("field.cycles".into(), "5".into());
+        it.xml_attributes.insert("field.cycles".into(), "5".into());
         it.xml_attributes
             .insert("replacemagicfields".into(), "true".into());
         db.items.insert(1490, it);
@@ -1397,11 +1433,7 @@ mod tests {
         // Place the poison field — apply_magic_field arms the DoT.
         let iid = world.items.insert(crate::item::Item::new_single(1490));
         world
-            .internal_add_item_to_tile(
-                pos,
-                iid,
-                crate::cylinder::CylinderFlags::NONE,
-            )
+            .internal_add_item_to_tile(pos, iid, crate::cylinder::CylinderFlags::NONE)
             .expect("place poison field");
 
         // Poison condition should be armed with a damage pool.
@@ -1459,15 +1491,12 @@ mod tests {
         for _ in 0..60 {
             world.process_skills();
         }
-        let still_poisoned = world
-            .creatures
-            .get(player)
-            .is_some_and(|k| {
-                k.base()
-                    .active_conditions
-                    .iter()
-                    .any(|c| c.ctype == ConditionType::Poison)
-            });
+        let still_poisoned = world.creatures.get(player).is_some_and(|k| {
+            k.base()
+                .active_conditions
+                .iter()
+                .any(|c| c.ctype == ConditionType::Poison)
+        });
         assert!(
             still_poisoned,
             "poison condition must persist while standing on a poison field (C2 re-extension)"

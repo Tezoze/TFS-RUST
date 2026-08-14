@@ -267,11 +267,7 @@ pub async fn run() -> anyhow::Result<()> {
             }
             // Gap 6: era tool knobs (`formulas.fishing` / destroyableStone) from
             // `data/formulas/<clientVersion>.lua` — same file `load_mechanics` parses.
-            if let Err(e) = inject_era_formulas(
-                &lua_runtime,
-                &data_path,
-                protocol_version.raw(),
-            ) {
+            if let Err(e) = inject_era_formulas(&lua_runtime, &data_path, protocol_version.raw()) {
                 tracing::error!(
                     "Era formulas inject failed: {e}. \
                      Aborting startup — tools scripts read formulas.* at use-time."

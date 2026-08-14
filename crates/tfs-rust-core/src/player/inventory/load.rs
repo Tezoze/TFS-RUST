@@ -877,16 +877,17 @@ mod tests {
             .expect("town 1 depot chest");
 
         let has_coin = locker.items.iter().any(|&id| {
-            world.items.get(id).is_some_and(|i| i.item_type == 2148 && i.count == 5)
+            world
+                .items
+                .get(id)
+                .is_some_and(|i| i.item_type == 2148 && i.count == 5)
         });
         assert!(has_coin, "loose coin should be in the locker");
 
         let bag_in_locker = locker
             .items
             .iter()
-            .find(|&&id| {
-                world.items.get(id).is_some_and(|i| i.item_type == 1987)
-            })
+            .find(|&&id| world.items.get(id).is_some_and(|i| i.item_type == 1987))
             .copied()
             .expect("bag should be in the locker");
         assert_ne!(bag_in_locker, chest_id, "bag should not be the chest");
@@ -903,11 +904,15 @@ mod tests {
         );
 
         // The chest should be empty (no items were placed in it).
-        let chest = world.container_registry.get(chest_id).expect("chest registered");
+        let chest = world
+            .container_registry
+            .get(chest_id)
+            .expect("chest registered");
         assert!(
-            chest.items.iter().all(|&id| {
-                world.items.get(id).is_some_and(|i| i.item_type != 2148)
-            }),
+            chest
+                .items
+                .iter()
+                .all(|&id| { world.items.get(id).is_some_and(|i| i.item_type != 2148) }),
             "loose locker coin should NOT be in the chest"
         );
     }
@@ -979,12 +984,8 @@ mod tests {
 
         let older = world.items.insert(Item::new(2148, 1));
         let newer = world.items.insert(Item::new(2148, 2));
-        world
-            .container_add_thing(bag, 0, older)
-            .expect("add older");
-        world
-            .container_add_thing(bag, 0, newer)
-            .expect("add newer");
+        world.container_add_thing(bag, 0, older).expect("add older");
+        world.container_add_thing(bag, 0, newer).expect("add newer");
         let live: Vec<u16> = world
             .container_registry
             .get(bag)

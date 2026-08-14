@@ -200,7 +200,9 @@ impl UserData for WeaponBuilder {
         methods.add_meta_method(
             mlua::MetaMethod::NewIndex,
             |lua, this, (key, value): (String, Value)| {
-                if key == "onUseWeapon" && let Value::Function(func) = value {
+                if key == "onUseWeapon"
+                    && let Value::Function(func) = value
+                {
                     let registry_key = lua.create_registry_value(func)?;
                     *this.on_use_fn.borrow_mut() = Some(registry_key);
                     this.weapon.borrow_mut().has_on_use = true;

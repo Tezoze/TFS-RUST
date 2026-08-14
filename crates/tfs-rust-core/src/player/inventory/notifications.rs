@@ -151,9 +151,7 @@ impl GameWorld {
         self.creatures
             .get(cid)
             .and_then(|k| match k {
-                CreatureKind::Player(p) => {
-                    Some(LightInfo::max_of(p.internal_light, p.items_light))
-                }
+                CreatureKind::Player(p) => Some(LightInfo::max_of(p.internal_light, p.items_light)),
                 _ => None,
             })
             .unwrap_or_default()
@@ -448,12 +446,12 @@ mod tests {
     }
 
     fn test_player_stub() -> Player {
-        use crate::creature::{Outfit, PlayerEconomy, PlayerInventory, PlayerSkills, PlayerSocial};
         use crate::CreatureBase;
+        use crate::creature::{Outfit, PlayerEconomy, PlayerInventory, PlayerSkills, PlayerSocial};
         use std::collections::HashMap;
         use std::time::Instant;
-        use tfs_rust_common::enums::{Direction, SkullType};
         use tfs_rust_common::Position;
+        use tfs_rust_common::enums::{Direction, SkullType};
 
         Player {
             base: CreatureBase {
@@ -490,12 +488,12 @@ mod tests {
                 attack_target: None,
                 master: None,
                 damage_map: Default::default(),
-            last_hit_by: None,
-            poison_damage_origin: None,
-            fire_damage_origin: None,
-            energy_damage_origin: None,
+                last_hit_by: None,
+                poison_damage_origin: None,
+                fire_damage_origin: None,
+                energy_damage_origin: None,
                 earliest_attack_ms: 0,
-        latest_attack_round: 0,
+                latest_attack_round: 0,
                 earliest_defend_ms: 0,
                 last_defend_ms: 0,
                 learning_points: 0,
@@ -551,9 +549,9 @@ mod tests {
             last_action_round: 0,
             food_remaining: 0,
             food_level: 0,
-        soul_cycle: 0,
-        soul_count: 0,
-        soul_max_count: 0,
+            soul_cycle: 0,
+            soul_count: 0,
+            soul_max_count: 0,
             earliest_logout_round: 0,
             attacked_players: Vec::new(),
             former_attacked_players: Vec::new(),
@@ -561,7 +559,7 @@ mod tests {
             former_aggressor: false,
             former_logout_round: 0,
             playerkiller_end: 0,
-        murder_timestamps: [0; 20],
+            murder_timestamps: [0; 20],
             logging_out: false,
             logout_allowed: false,
             last_ping_sent: Instant::now(),

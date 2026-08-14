@@ -3,15 +3,15 @@
 
 use std::collections::HashSet;
 
-use tfs_rust_common::protocol_constants::{
-    client_viewport_height, client_viewport_width, MAP_MAX_LAYERS, MAX_CLIENT_VIEWPORT_X,
-    MAX_CLIENT_VIEWPORT_Y,
-};
 use tfs_rust_common::Position;
+use tfs_rust_common::protocol_constants::{
+    MAP_MAX_LAYERS, MAX_CLIENT_VIEWPORT_X, MAX_CLIENT_VIEWPORT_Y, client_viewport_height,
+    client_viewport_width,
+};
 
+use crate::NetworkMessage;
 use crate::codec::Codec;
 use crate::creature_encode::AddCreatureWire;
-use crate::NetworkMessage;
 
 /// Stackable or single item for template encoding (`NetworkMessage::addItem`).
 #[derive(Debug, Clone)]
@@ -88,8 +88,7 @@ fn emit_creatures_capped<F: FnMut(u32) -> bool>(
         }
         let id = c.id;
         let limit = codec.caps().known_creature_limit as usize;
-        let (known, remove) =
-            check_creature_known(id, known_creatures, can_see_creature, limit);
+        let (known, remove) = check_creature_known(id, known_creatures, can_see_creature, limit);
         let mut cw = c.clone();
         cw.known = known;
         cw.remove_known = remove;
@@ -112,8 +111,7 @@ fn count_creatures_capped<F: FnMut(u32) -> bool>(
         }
         let id = c.id;
         let limit = codec.caps().known_creature_limit as usize;
-        let (known, remove) =
-            check_creature_known(id, known_creatures, can_see_creature, limit);
+        let (known, remove) = check_creature_known(id, known_creatures, can_see_creature, limit);
         let mut cw = c.clone();
         cw.known = known;
         cw.remove_known = remove;

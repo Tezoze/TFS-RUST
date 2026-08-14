@@ -100,7 +100,11 @@ impl GameWorld {
             } else if matches!(self.creatures.get(cid), Some(CreatureKind::Player(_))) {
                 self.send_player_icons(cid);
             }
-            tracing::debug!(?cid, round_nr, "ClearPlayerkillingMarks on EarliestLogoutRound expiry");
+            tracing::debug!(
+                ?cid,
+                round_nr,
+                "ClearPlayerkillingMarks on EarliestLogoutRound expiry"
+            );
         }
 
         // C++ `ProcessCreatures` death safety (`crmain.cc:1108–1117`).

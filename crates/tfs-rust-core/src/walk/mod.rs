@@ -30,19 +30,19 @@
 use std::time::Instant;
 
 use rand::rng;
-use tfs_rust_common::enums::{ConditionType, Direction};
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::{ConditionType, Direction};
 use tfs_rust_content::items::ItemDatabase;
 use tfs_rust_net::map_description::{
-    send_map_description_packet, send_move_creature_player, send_move_creature_spectator,
-    send_notify_go, TileContent,
+    TileContent, send_map_description_packet, send_move_creature_player,
+    send_move_creature_spectator, send_notify_go,
 };
 use tfs_rust_net::outgoing_extra::send_text_message_simple;
 
 use crate::chase_debug;
 use crate::combat::uniform_random;
 use crate::creature::{CreatureKind, NpcActivity};
-use crate::creature_todo::{trace_creature_todo, CreatureAction};
+use crate::creature_todo::{CreatureAction, trace_creature_todo};
 use crate::game_world::{DeferredTurnBroadcast, GameWorld};
 use crate::ids::{CreatureId, ItemId};
 use crate::login_out::{creature_wire_id, map_tile_content};
@@ -178,16 +178,15 @@ fn is_adjacent_move(
 pub(crate) mod walk_tile;
 mod walk_timing;
 
+pub(crate) use walk_tile::query_destination_chain;
 use walk_tile::{
     query_destination, resolve_player_move_destination, tile_query_add_monster, tile_query_add_npc,
     tile_query_add_player,
 };
-pub(crate) use walk_tile::query_destination_chain;
+pub(crate) use walk_timing::{WalkSpeedRole, get_step_duration_ms_with_direction, wire_step_speed};
 use walk_timing::{
-    get_event_step_ticks, last_step_cost_for_move, peek_next_walk_direction,
-    walk_timing_speed_kind,
+    get_event_step_ticks, last_step_cost_for_move, peek_next_walk_direction, walk_timing_speed_kind,
 };
-pub(crate) use walk_timing::{get_step_duration_ms_with_direction, wire_step_speed, WalkSpeedRole};
 
 #[inline]
 fn is_diagonal(direction: Direction) -> bool {
@@ -216,11 +215,7 @@ fn try_drunk_walk_direction(base: &crate::creature::CreatureBase) -> Option<Dire
     }
     let drunk_level = base.drunkenness as i32;
     let stagger_chance = (7 - drunk_level).max(1) as u32;
-    let r = uniform_random(
-        &mut rng(),
-        0,
-        (stagger_chance as i32).saturating_sub(1),
-    ) as u32;
+    let r = uniform_random(&mut rng(), 0, (stagger_chance as i32).saturating_sub(1)) as u32;
     if r != 0 {
         return None;
     }
@@ -567,12 +562,9 @@ impl GameWorld {
             }
             if !self.creature_todo_queue_empty(cid) {
                 if ran_idle {
-                    let front_is_go = self
-                        .creatures
-                        .get(cid)
-                        .is_some_and(|k| {
-                            matches!(k.base().todo.queue.front(), Some(CreatureAction::Go))
-                        });
+                    let front_is_go = self.creatures.get(cid).is_some_and(|k| {
+                        matches!(k.base().todo.queue.front(), Some(CreatureAction::Go))
+                    });
                     if front_is_go {
                         if self
                             .creatures
@@ -716,9 +708,11 @@ impl GameWorld {
         });
         let pending_idle = self.creatures.get(cid).is_some_and(|k| {
             matches!(k, CreatureKind::Npc(_))
-                && k.base().todo.queue.iter().any(|a| {
-                    matches!(a, CreatureAction::ChangeNpcState { to_idle: true })
-                })
+                && k.base()
+                    .todo
+                    .queue
+                    .iter()
+                    .any(|a| matches!(a, CreatureAction::ChangeNpcState { to_idle: true }))
         });
         self.stop_event_walk(cid);
         // C++ `ToDoClear` wipes **all** pending entries, including a queued `TDUse` / `TDMove`
@@ -1176,13 +1170,7 @@ impl GameWorld {
             .creatures
             .get(cid)
             .map(|k| {
-                get_step_duration_ms_with_direction(
-                    k,
-                    k.base(),
-                    step_dir,
-                    gs_dest,
-                    &self.mechanics,
-                )
+                get_step_duration_ms_with_direction(k, k.base(), step_dir, gs_dest, &self.mechanics)
             })
             .unwrap_or(0);
         if let Some(k) = self.creatures.get_mut(cid) {
@@ -1903,7 +1891,9 @@ impl GameWorld {
                             let gs_dest = self
                                 .map
                                 .get_tile(new_pos)
-                                .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
+                                .map(|t| {
+                                    ground_speed_for_tile_body(t.body(), self.items_db.as_ref())
+                                })
                                 .unwrap_or(150);
                             let (go_dbg, eff_dbg, wire_dbg, step_ms) = self
                                 .creatures
@@ -2450,8 +2440,8 @@ impl GameWorld {
         max_steps: usize,
     ) -> Option<Vec<Direction>> {
         use crate::pathfinding::{
-            get_path_matching, truncate_tshortway_go_queue, FindPathParams,
-            CREATURE_ON_TILE_PATH_COST, PLAYER_PATH_VIEW_RADIUS,
+            CREATURE_ON_TILE_PATH_COST, FindPathParams, PLAYER_PATH_VIEW_RADIUS, get_path_matching,
+            truncate_tshortway_go_queue,
         };
 
         let start = self.creatures.get(cid)?.position();
@@ -2518,13 +2508,13 @@ mod step_speed_tests {
     use std::time::{Duration, Instant};
 
     use super::walk_timing::{
-        calculated_step_speed_tfs, get_event_step_ticks, get_step_duration,
-        get_step_duration_ms_with_direction, walk_timing_speed, wire_step_speed, WalkSpeedRole,
+        WalkSpeedRole, calculated_step_speed_tfs, get_event_step_ticks, get_step_duration,
+        get_step_duration_ms_with_direction, walk_timing_speed, wire_step_speed,
     };
-    use crate::creature::CreatureKind;
-    use crate::formulas::{linear_go_effective_speed, Mechanics};
-    use crate::test_world::support::test_player;
     use crate::Monster;
+    use crate::creature::CreatureKind;
+    use crate::formulas::{Mechanics, linear_go_effective_speed};
+    use crate::test_world::support::test_player;
     use tfs_rust_common::{Position, ProtocolVersion};
 
     /// Anchors from `src/creature.cpp` `Creature::getStepDuration` (`floor((A*log((step/2)+B)+C)+0.5)`).
@@ -2775,10 +2765,7 @@ mod step_speed_tests {
             "z-change completed step must use ×1 waypoint cost, not ×2 (cract.cc:1526-1528)"
         );
         // Diagonal: 150×3×1000/520 = 865 → ceil 50 = 900 ms (×3 before ceil).
-        assert_eq!(
-            delay_diagonal, 900,
-            "diagonal completed step = ×3 = 900 ms"
-        );
+        assert_eq!(delay_diagonal, 900, "diagonal completed step = ×3 = 900 ms");
         assert_ne!(
             delay_diagonal, delay_cardinal,
             "diagonal must differ from cardinal (×3 vs ×1)"
@@ -2859,9 +2846,9 @@ mod monster_walk_tests {
     use crate::creature::CreatureKind;
     use crate::login_out::creature_wire_id;
     use crate::test_world::support;
-    use tfs_rust_common::enums::Direction;
     use tfs_rust_common::ConnId;
     use tfs_rust_common::Position;
+    use tfs_rust_common::enums::Direction;
 
     /// Regression: when a creature is pushed mid-walk, `on_walk` must step toward the
     /// **absolute destination** (from `walk_destinations`), not the queued `Direction`.
@@ -3046,10 +3033,7 @@ mod monster_walk_tests {
             .get(&conn)
             .cloned()
             .unwrap_or_default();
-        let opcodes: Vec<u8> = packets
-            .iter()
-            .filter_map(|p| p.first().copied())
-            .collect();
+        let opcodes: Vec<u8> = packets.iter().filter_map(|p| p.first().copied()).collect();
         // C++ always sends 0x6D for both-visible non-teleport moves — no 0x6A appear,
         // no 0x6C remove. A 0x6A would recreate the sprite and blink the HP bar/name.
         assert!(

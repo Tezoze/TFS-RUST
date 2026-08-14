@@ -2,13 +2,13 @@
 // C++ reference: `src/rsa.cpp` — **raw** RSA (`Integer` → `CalculateInverse` → 128-byte encode), not PKCS#1 unpadding.
 // The `rsa` crate’s `Pkcs1v15Encrypt` decrypt strips padding and often fails against OTClient/TFS ciphertext.
 
-use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use num_bigint_dig::BigUint;
+use rsa::RsaPrivateKey;
 use rsa::pkcs1::DecodeRsaPrivateKey;
 use rsa::traits::PrivateKeyParts;
 use rsa::traits::PublicKeyParts;
-use rsa::RsaPrivateKey;
 use tfs_rust_common::error::{Result, TfsRustError};
 
 /// Raw 1024-bit RSA block decrypt, matching `RSA::decrypt` in `src/rsa.cpp`.

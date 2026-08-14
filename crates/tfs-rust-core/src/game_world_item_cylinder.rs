@@ -251,7 +251,9 @@ impl GameWorld {
         count: u16,
     ) -> Option<ItemId> {
         let target = self.get_top_object_for_move(pos, None)?;
-        self.merge_check(item_id, target, count).ok().map(|_| target)
+        self.merge_check(item_id, target, count)
+            .ok()
+            .map(|_| target)
     }
 
     /// Query if a tile can accept an item.
@@ -308,9 +310,8 @@ impl GameWorld {
         let is_unpass = it.block_solid();
         let is_hang = it.is_hangable();
         let has_bank = body.ground.is_some();
-        let has_hook = (body.flags
-            & (crate::tile::flags::HOOKEAST | crate::tile::flags::HOOKSOUTH))
-            != 0;
+        let has_hook =
+            (body.flags & (crate::tile::flags::HOOKEAST | crate::tile::flags::HOOKSOUTH)) != 0;
 
         let mut has_unpass = false;
         let mut has_unlay = false;
@@ -363,12 +364,7 @@ impl GameWorld {
 
     /// 772 `ObjectInRange` — `posz == ObjZ && |dx| <= Range && |dy| <= Range`
     /// (`info.cc:247-249`). Inventory/container sources are always "in range".
-    pub(crate) fn object_in_range(
-        &self,
-        actor: CreatureId,
-        pos: Position,
-        range: u32,
-    ) -> bool {
+    pub(crate) fn object_in_range(&self, actor: CreatureId, pos: Position, range: u32) -> bool {
         if pos.x == 0xFFFF {
             return true;
         }
@@ -756,7 +752,7 @@ mod detach_tile_flag_tests {
     use crate::cylinder::{Cylinder, CylinderFlags};
     use crate::item::Item;
     use crate::sim_harness::minimal_world;
-    use crate::tile::{flags, Tile};
+    use crate::tile::{Tile, flags};
     use tfs_rust_common::Position;
     use tfs_rust_content::otb::ItemType;
 

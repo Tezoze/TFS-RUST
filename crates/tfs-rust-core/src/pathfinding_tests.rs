@@ -104,7 +104,7 @@ fn effective_terrain_waypoints_defaults_missing_to_150() {
 
 #[test]
 fn scan_min_terrain_waypoints_ignores_blocked_tiles() {
-    use crate::tile::{flags as tilestate, Tile, TileBody};
+    use crate::tile::{Tile, TileBody, flags as tilestate};
     use tfs_rust_common::enums::ZoneType;
 
     let mut map = Map {
@@ -196,8 +196,7 @@ fn reverse_search_finds_path_to_origin() {
     )
     .expect("reverse path");
     assert!(!path.is_empty());
-    let steps =
-        truncate_tshortway_go_queue(start, target, path, usize::MAX, false);
+    let steps = truncate_tshortway_go_queue(start, target, path, usize::MAX, false);
     assert!(!steps.is_empty());
     let mut pos = start;
     for dir in &steps {
@@ -282,7 +281,7 @@ fn reverse_with_allow_diagonal_still_uses_reverse_expansion() {
 
 #[test]
 fn reverse_falls_back_to_forward_around_obstacle() {
-    use crate::tile::{flags as tilestate, Tile, TileBody};
+    use crate::tile::{Tile, TileBody, flags as tilestate};
     use tfs_rust_common::enums::ZoneType;
 
     let mut map = Map {
@@ -343,8 +342,7 @@ fn reverse_falls_back_to_forward_around_obstacle() {
     .expect("reverse A* must detour around obstacle");
     assert!(!path.is_empty());
 
-    let steps =
-        truncate_tshortway_go_queue(start, target, path, usize::MAX, false);
+    let steps = truncate_tshortway_go_queue(start, target, path, usize::MAX, false);
     assert!(!steps.is_empty());
     let mut pos = start;
     for dir in &steps {
@@ -361,11 +359,7 @@ fn reverse_path_heuristic_prefers_toward_origin() {
     let origin = Position::new(0, 0, 7);
     let min_wp = 50;
     let ground = |pos: Position| {
-        if pos.y == 0 {
-            50
-        } else {
-            200
-        }
+        if pos.y == 0 { 50 } else { 200 }
     };
     let near = reverse_path_heuristic(Position::new(1, 0, 7), origin, min_wp, ground);
     let far = reverse_path_heuristic(Position::new(5, 0, 7), origin, min_wp, ground);
@@ -400,11 +394,7 @@ fn reverse_prefers_fast_tile_on_asymmetric_terrain() {
     let can_walk = |pos: Position| map.is_walkable(pos);
     let no_extra = |_pos: Position| 0u32;
     let ground = |pos: Position| {
-        if pos.y == 1 {
-            50
-        } else {
-            200
-        }
+        if pos.y == 1 { 50 } else { 200 }
     };
 
     let forward = get_path_matching(
@@ -464,7 +454,7 @@ fn forward_pathfinder_obeys_allow_diagonal() {
         }
     }
     // Block (1, 1), (2, 2) etc., forcing detours
-    use crate::tile::{flags as tilestate, Tile, TileBody};
+    use crate::tile::{Tile, TileBody, flags as tilestate};
     use tfs_rust_common::enums::ZoneType;
     let block_pos = [
         Position::new(1, 1, 7),
@@ -545,7 +535,7 @@ fn reverse_noway_without_fallback() {
         }
     }
     // Block entire column x=4, completely separating start (1, 10) from target (5, 10).
-    use crate::tile::{flags as tilestate, Tile, TileBody};
+    use crate::tile::{Tile, TileBody, flags as tilestate};
     use tfs_rust_common::enums::ZoneType;
     for y in 9..=11u16 {
         map.insert_tile(
@@ -714,8 +704,7 @@ fn cyclops_quad_east_and_south_shortway_on_uniform_terrain() {
             None,
         )
         .expect(label);
-        let trimmed =
-            truncate_tshortway_go_queue(start, target, dirs, CHASE_PATH_MAX_STEPS, false);
+        let trimmed = truncate_tshortway_go_queue(start, target, dirs, CHASE_PATH_MAX_STEPS, false);
         let mut pos = start;
         let got_tiles: Vec<Position> = trimmed
             .iter()
@@ -867,8 +856,7 @@ fn tshortway_skips_blocked_sibling_tile_in_fill() {
             "predecessor chain must not visit blocked tile (walk_order={walk_order:?})"
         );
     }
-    let dirs =
-        truncate_tshortway_go_queue(start, target, walk_order, CHASE_PATH_MAX_STEPS, false);
+    let dirs = truncate_tshortway_go_queue(start, target, walk_order, CHASE_PATH_MAX_STEPS, false);
     let mut pos = start;
     for &dir in &dirs {
         pos = pos.offset(dir);
@@ -891,8 +879,7 @@ fn tshortway_skips_blocked_sibling_tile_in_fill() {
         |_| 150,
     )
     .expect("path without tile");
-    let dirs =
-        truncate_tshortway_go_queue(start, target, walk_order, CHASE_PATH_MAX_STEPS, false);
+    let dirs = truncate_tshortway_go_queue(start, target, walk_order, CHASE_PATH_MAX_STEPS, false);
     assert_eq!(
         dirs,
         vec![Direction::East, Direction::South, Direction::South],
@@ -1131,7 +1118,10 @@ fn tshortway_scratch_reuse_preserves_paths() {
         |_| 150,
     )
     .expect("second path after scratch reuse");
-    assert_eq!(first, second, "generation-scratch reuse must not change paths");
+    assert_eq!(
+        first, second,
+        "generation-scratch reuse must not change paths"
+    );
 }
 
 /// Many successive searches on one scratch (floor-change wake storm shape).

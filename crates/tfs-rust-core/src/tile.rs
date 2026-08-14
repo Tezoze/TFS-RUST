@@ -277,11 +277,7 @@ impl Tile {
     ///
     /// When `cip_order`, `is_priority_bottom` distinguishes Cip BOTTOM (before creatures)
     /// from LOW (after creatures) among `down_items`.
-    pub fn get_item_stack_pos_ordered(
-        &self,
-        item_id: ItemId,
-        cip_order: bool,
-    ) -> Option<u8> {
+    pub fn get_item_stack_pos_ordered(&self, item_id: ItemId, cip_order: bool) -> Option<u8> {
         // Legacy cip path treated every down item as BOTTOM — wrong for PRIORITY_LOW.
         // Prefer [`Self::get_item_stack_pos_cip`] at GameWorld call sites.
         self.get_item_stack_pos_cip(item_id, cip_order, |_| true)

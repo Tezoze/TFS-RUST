@@ -153,11 +153,7 @@ impl UserData for NpcTypeBuilder {
         });
 
         methods.add_method_mut("parameter", |_, this, (key, value): (String, String)| {
-            this.pending
-                .borrow_mut()
-                .def
-                .parameters
-                .insert(key, value);
+            this.pending.borrow_mut().def.parameters.insert(key, value);
             Ok(true)
         });
 
@@ -250,19 +246,13 @@ impl UserData for NpcTypeBuilder {
             // Parallel callback tables: idx → { name → function }
             let action_cbs: mlua::Table = globals
                 .get("_pending_npc_action_callbacks")
-                .map_err(|_| {
-                    mlua::Error::runtime("_pending_npc_action_callbacks missing")
-                })?;
+                .map_err(|_| mlua::Error::runtime("_pending_npc_action_callbacks missing"))?;
             let pred_cbs: mlua::Table = globals
                 .get("_pending_npc_predicate_callbacks")
-                .map_err(|_| {
-                    mlua::Error::runtime("_pending_npc_predicate_callbacks missing")
-                })?;
+                .map_err(|_| mlua::Error::runtime("_pending_npc_predicate_callbacks missing"))?;
             let life_cbs: mlua::Table = globals
                 .get("_pending_npc_lifecycle_callbacks")
-                .map_err(|_| {
-                    mlua::Error::runtime("_pending_npc_lifecycle_callbacks missing")
-                })?;
+                .map_err(|_| mlua::Error::runtime("_pending_npc_lifecycle_callbacks missing"))?;
 
             let actions_map = lua.create_table()?;
             for (name, key) in this.action_fns.borrow_mut().drain() {
@@ -303,10 +293,7 @@ mod tests {
             .set("_pending_npcs", lua.create_table().unwrap())
             .unwrap();
         lua.globals()
-            .set(
-                "_pending_npc_action_callbacks",
-                lua.create_table().unwrap(),
-            )
+            .set("_pending_npc_action_callbacks", lua.create_table().unwrap())
             .unwrap();
         lua.globals()
             .set(

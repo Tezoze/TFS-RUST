@@ -8,9 +8,9 @@ use std::cell::RefCell;
 use crate::context::{CURRENT_CTX, CreatureData, CreatureRef, ItemRef, LuaContext};
 use crate::lua_mutation::{
     call_lua_add_condition, call_lua_add_item, call_lua_add_item_full, call_lua_add_mana,
-    call_lua_add_mana_spent, call_lua_feed, call_lua_get_depot_chest, call_lua_get_depot_locker,
-    call_lua_get_inbox, call_lua_remove_condition, call_lua_remove_item,
-    call_lua_send_cancel_message, call_lua_set_in_fight, call_lua_add_skill_tries,
+    call_lua_add_mana_spent, call_lua_add_skill_tries, call_lua_feed, call_lua_get_depot_chest,
+    call_lua_get_depot_locker, call_lua_get_inbox, call_lua_remove_condition, call_lua_remove_item,
+    call_lua_send_cancel_message, call_lua_set_in_fight,
 };
 use crate::userdata::container::ContainerRef;
 use crate::userdata::group::GroupRef;
@@ -116,36 +116,39 @@ impl UserData for CreatureRef {
         // `player:setStorageValue(key, value)` — `Player::addStorageValue`.
         // Reserved range (`const.h` PSTRG_RESERVED_RANGE) rejected like TFS Lua.
         // `value == -1` erases the key.
-        methods.add_method("setStorageValue", |_, this, (key, value): (Value, Value)| {
-            let key = match key {
-                Value::Integer(i) => i as u32,
-                Value::Number(n) => n as u32,
-                Value::Nil => 0,
-                _ => {
-                    return Err(mlua::Error::runtime(
-                        "setStorageValue: expected integer key",
-                    ));
+        methods.add_method(
+            "setStorageValue",
+            |_, this, (key, value): (Value, Value)| {
+                let key = match key {
+                    Value::Integer(i) => i as u32,
+                    Value::Number(n) => n as u32,
+                    Value::Nil => 0,
+                    _ => {
+                        return Err(mlua::Error::runtime(
+                            "setStorageValue: expected integer key",
+                        ));
+                    }
+                };
+                let value = match value {
+                    Value::Integer(i) => i as i32,
+                    Value::Number(n) => n as i32,
+                    _ => {
+                        return Err(mlua::Error::runtime(
+                            "setStorageValue: expected integer value",
+                        ));
+                    }
+                };
+                // `const.h` `PSTRG_RESERVED_RANGE_START` / `_SIZE` — `IS_IN_KEYRANGE`.
+                const RESERVED_START: u32 = 10_000_000;
+                const RESERVED_SIZE: u32 = 10_000_000;
+                if key >= RESERVED_START && key - RESERVED_START <= RESERVED_SIZE {
+                    return Ok(false);
                 }
-            };
-            let value = match value {
-                Value::Integer(i) => i as i32,
-                Value::Number(n) => n as i32,
-                _ => {
-                    return Err(mlua::Error::runtime(
-                        "setStorageValue: expected integer value",
-                    ));
-                }
-            };
-            // `const.h` `PSTRG_RESERVED_RANGE_START` / `_SIZE` — `IS_IN_KEYRANGE`.
-            const RESERVED_START: u32 = 10_000_000;
-            const RESERVED_SIZE: u32 = 10_000_000;
-            if key >= RESERVED_START && key - RESERVED_START <= RESERVED_SIZE {
-                return Ok(false);
-            }
-            crate::lua_mutation::call_lua_set_storage_value(this.0, key, value)
-                .map_err(mlua::Error::runtime)?;
-            Ok(true)
-        });
+                crate::lua_mutation::call_lua_set_storage_value(this.0, key, value)
+                    .map_err(mlua::Error::runtime)?;
+                Ok(true)
+            },
+        );
 
         methods.add_method("getBankBalance", |_, this, ()| {
             with_ctx(|ctx| {
@@ -199,41 +202,22 @@ impl UserData for CreatureRef {
 
         // `player:computeDamage(damage, variation[, limitMinimum[, limitMaximum]])`
         // — 772 `ComputeDamage` (`magic.cc:776`); coeffs from profile, not hardcoded 2/3.
-        methods.add_method(
-            "computeDamage",
-            |_, this, args: mlua::Variadic<Value>| {
-                let (damage, variation, limit_min, limit_max) =
-                    parse_compute_damage_args(&args)?;
-                with_ctx(|ctx| {
-                    let (lo, hi) = ctx.compute_magic_damage_range(
-                        this.0,
-                        damage,
-                        variation,
-                        limit_min,
-                        limit_max,
-                    );
-                    Ok((-lo, -hi))
-                })
-            },
-        );
+        methods.add_method("computeDamage", |_, this, args: mlua::Variadic<Value>| {
+            let (damage, variation, limit_min, limit_max) = parse_compute_damage_args(&args)?;
+            with_ctx(|ctx| {
+                let (lo, hi) =
+                    ctx.compute_magic_damage_range(this.0, damage, variation, limit_min, limit_max);
+                Ok((-lo, -hi))
+            })
+        });
 
         // `player:computeHealing(...)` — same formula, positive magnitudes.
-        methods.add_method(
-            "computeHealing",
-            |_, this, args: mlua::Variadic<Value>| {
-                let (damage, variation, limit_min, limit_max) =
-                    parse_compute_damage_args(&args)?;
-                with_ctx(|ctx| {
-                    Ok(ctx.compute_magic_damage_range(
-                        this.0,
-                        damage,
-                        variation,
-                        limit_min,
-                        limit_max,
-                    ))
-                })
-            },
-        );
+        methods.add_method("computeHealing", |_, this, args: mlua::Variadic<Value>| {
+            let (damage, variation, limit_min, limit_max) = parse_compute_damage_args(&args)?;
+            with_ctx(|ctx| {
+                Ok(ctx.compute_magic_damage_range(this.0, damage, variation, limit_min, limit_max))
+            })
+        });
 
         // `player:computeSkillDamage(damage, variation, skill[, limitMinimum[, limitMaximum]])`
         // — magic formula then `× level / 25` (`functions.lua`).
@@ -245,11 +229,7 @@ impl UserData for CreatureRef {
                 with_ctx(|ctx| {
                     let level = ctx.get_player_level(this.0).unwrap_or(0);
                     let (lo, hi) = ctx.compute_magic_damage_range(
-                        this.0,
-                        damage,
-                        variation,
-                        limit_min,
-                        limit_max,
+                        this.0, damage, variation, limit_min, limit_max,
                     );
                     let lo = (lo * level) / 25;
                     let hi = (hi * level) / 25;
@@ -532,8 +512,8 @@ impl UserData for CreatureRef {
         methods.add_method(
             "getDepotLocker",
             |lua, this, (depot_id, _auto_create): (u32, Option<bool>)| {
-                let id_opt = call_lua_get_depot_locker(this.0, depot_id)
-                    .map_err(mlua::Error::runtime)?;
+                let id_opt =
+                    call_lua_get_depot_locker(this.0, depot_id).map_err(mlua::Error::runtime)?;
                 match id_opt {
                     Some(iid) => {
                         let ud = lua.create_userdata(ContainerRef(iid))?;
@@ -716,7 +696,8 @@ impl UserData for CreatureRef {
                     ));
                 }
             };
-            crate::lua_mutation::call_add_summon(this.0, summon_id).map_err(mlua::Error::runtime)?;
+            crate::lua_mutation::call_add_summon(this.0, summon_id)
+                .map_err(mlua::Error::runtime)?;
             Ok(true)
         });
 
@@ -725,9 +706,10 @@ impl UserData for CreatureRef {
             let name = with_ctx(|ctx| Ok(ctx.get_creature_monster_type_name(this.0)))?;
             match name {
                 Some(n) => {
-                    let ud = lua.create_userdata(crate::userdata::monster_type::MonsterTypeRef {
-                        name: n,
-                    })?;
+                    let ud =
+                        lua.create_userdata(crate::userdata::monster_type::MonsterTypeRef {
+                            name: n,
+                        })?;
                     Ok(Value::UserData(ud))
                 }
                 None => Ok(Value::Nil),
@@ -782,14 +764,8 @@ impl UserData for CreatureRef {
                         return Err(mlua::Error::runtime("teleportTo: expected Position"));
                     }
                 };
-                crate::lua_mutation::call_creature_teleport(
-                    this.0,
-                    x,
-                    y,
-                    z,
-                    push.unwrap_or(false),
-                )
-                .map_err(mlua::Error::runtime)?;
+                crate::lua_mutation::call_creature_teleport(this.0, x, y, z, push.unwrap_or(false))
+                    .map_err(mlua::Error::runtime)?;
                 Ok(true)
             },
         );

@@ -76,10 +76,7 @@ pub fn validate_pending_definitions(
                     if !items_db.items.contains_key(&line.item_id) {
                         return Err(NpcValidateError::content(
                             &file,
-                            format!(
-                                "shop item[{i}]: unknown item id {}",
-                                line.item_id
-                            ),
+                            format!("shop item[{i}]: unknown item id {}", line.item_id),
                         ));
                     }
                 }
@@ -129,16 +126,9 @@ fn validate_dialogue(
         .iter()
         .map(|s| s.name.as_str())
         .collect();
-    let predicate_ids: HashSet<NpcCallbackId> = pending
-        .custom_predicates
-        .iter()
-        .map(|s| s.id)
-        .collect();
-    let action_ids: HashSet<NpcCallbackId> = pending
-        .custom_actions
-        .iter()
-        .map(|s| s.id)
-        .collect();
+    let predicate_ids: HashSet<NpcCallbackId> =
+        pending.custom_predicates.iter().map(|s| s.id).collect();
+    let action_ids: HashSet<NpcCallbackId> = pending.custom_actions.iter().map(|s| s.id).collect();
 
     for (ri, rule) in dialogue.rules.iter().enumerate() {
         if rule.predicates.is_empty() && rule.actions.is_empty() {
@@ -195,9 +185,7 @@ fn validate_predicate(
             if !names.contains(name.as_str()) || !ids.contains(callback_id) {
                 return Err(NpcValidateError::content(
                     file,
-                    format!(
-                        "rule[{ri}].when[{pi}]: missing custom predicate callback {name:?}"
-                    ),
+                    format!("rule[{ri}].when[{pi}]: missing custom predicate callback {name:?}"),
                 ));
             }
         }
@@ -237,12 +225,8 @@ fn validate_action(
         DialogueAction::CreateMoney { amount, .. } | DialogueAction::DeleteMoney { amount, .. } => {
             validate_expr(file, &format!("{loc}.amount"), amount, items)?;
         }
-        DialogueAction::Burning {
-            cycles, param, ..
-        }
-        | DialogueAction::Poison {
-            cycles, param, ..
-        } => {
+        DialogueAction::Burning { cycles, param, .. }
+        | DialogueAction::Poison { cycles, param, .. } => {
             validate_expr(file, &format!("{loc}.cycles"), cycles, items)?;
             validate_expr(file, &format!("{loc}.param"), param, items)?;
         }
@@ -384,8 +368,7 @@ mod tests {
 
     #[test]
     fn freezes_unique_names() {
-        let db = validate_pending_definitions(vec![minimal_pending("Quentin")], None)
-            .expect("ok");
+        let db = validate_pending_definitions(vec![minimal_pending("Quentin")], None).expect("ok");
         assert_eq!(db.len(), 1);
         let def = db.get_by_name("quentin").expect("lookup");
         assert_eq!(def.name, "Quentin");

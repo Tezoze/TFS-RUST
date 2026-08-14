@@ -5,8 +5,8 @@ use tfs_rust_content::npcs::{DialoguePolicy, DialogueProgram};
 
 use super::events::{DialogueEvent, DialogueSituationKind, DialogueTrace, QueueOp};
 use super::expr::{EvalContext, PlayerVocationKind};
-use super::match_rule::{match_dialogue_rule_with_custom, CustomPredicateHost};
-use super::react::{apply_dialogue_plan, ReactMeta};
+use super::match_rule::{CustomPredicateHost, match_dialogue_rule_with_custom};
+use super::react::{ReactMeta, apply_dialogue_plan};
 use crate::creature::{CreatureKind, NpcActivity, QueuedNpcAddress};
 use crate::creature_todo::CreatureAction;
 use crate::game_world::GameWorld;
@@ -78,10 +78,7 @@ impl GameWorld {
             return;
         };
         let def_id = npc.definition;
-        let on_think = self
-            .npcs_db
-            .get(def_id)
-            .and_then(|d| d.on_think);
+        let on_think = self.npcs_db.get(def_id).and_then(|d| d.on_think);
         if let Some(cb) = on_think {
             let interval = self.mechanics.profile.npc.talking_keepalive_ms;
             crate::lua_scope::fire_npc_think(self, npc_id, cb, interval);
@@ -276,11 +273,9 @@ impl GameWorld {
         use tfs_rust_common::enums::Direction;
 
         let (pos, home, radius) = match self.creatures.get(npc_id) {
-            Some(CreatureKind::Npc(n)) => (
-                n.base.position,
-                n.runtime.home_position,
-                n.runtime.radius,
-            ),
+            Some(CreatureKind::Npc(n)) => {
+                (n.base.position, n.runtime.home_position, n.runtime.radius)
+            }
             _ => return false,
         };
         let attempts = self.mechanics.profile.npc.idle_roam_attempts;
@@ -358,9 +353,7 @@ impl GameWorld {
                         return false;
                     };
                     let sid = item.item_type;
-                    if self.items_db.is_avoid(sid)
-                        || self.items_db.is_unpassable_for_field(sid)
-                    {
+                    if self.items_db.is_avoid(sid) || self.items_db.is_unpassable_for_field(sid) {
                         return false;
                     }
                 }
@@ -712,51 +705,41 @@ impl GameWorld {
         let npc_name = def.name.clone();
         let premium = self.player_is_premium(player);
 
-        let (
-            player_name,
-            sex,
-            level,
-            hp,
-            vocation,
-            maglevel,
-            promoted,
-            pz_block,
-            poison,
-            burning,
-        ) = match self.creatures.get(player) {
-            Some(CreatureKind::Player(p)) => {
-                let poison = p
-                    .base
-                    .active_conditions
-                    .iter()
-                    .find(|c| c.ctype == ConditionType::Poison)
-                    .map(|c| c.timer_rounds_left.unwrap_or(1).max(0))
-                    .unwrap_or(0);
-                let burning = p
-                    .base
-                    .active_conditions
-                    .iter()
-                    .find(|c| c.ctype == ConditionType::Fire)
-                    .map(|c| c.timer_rounds_left.unwrap_or(1).max(0))
-                    .unwrap_or(0);
-                (
-                    p.base.name.clone(),
-                    match p.sex {
-                        tfs_rust_common::PlayerSex::Male => 1u8,
-                        tfs_rust_common::PlayerSex::Female => 2u8,
-                    },
-                    p.level,
-                    p.base.health,
-                    vocation_kind(p.vocation_id),
-                    p.magic_level(),
-                    p.vocation_id >= 5,
-                    p.earliest_protection_zone_round > self.round_nr,
-                    poison,
-                    burning,
-                )
-            }
-            _ => return,
-        };
+        let (player_name, sex, level, hp, vocation, maglevel, promoted, pz_block, poison, burning) =
+            match self.creatures.get(player) {
+                Some(CreatureKind::Player(p)) => {
+                    let poison = p
+                        .base
+                        .active_conditions
+                        .iter()
+                        .find(|c| c.ctype == ConditionType::Poison)
+                        .map(|c| c.timer_rounds_left.unwrap_or(1).max(0))
+                        .unwrap_or(0);
+                    let burning = p
+                        .base
+                        .active_conditions
+                        .iter()
+                        .find(|c| c.ctype == ConditionType::Fire)
+                        .map(|c| c.timer_rounds_left.unwrap_or(1).max(0))
+                        .unwrap_or(0);
+                    (
+                        p.base.name.clone(),
+                        match p.sex {
+                            tfs_rust_common::PlayerSex::Male => 1u8,
+                            tfs_rust_common::PlayerSex::Female => 2u8,
+                        },
+                        p.level,
+                        p.base.health,
+                        vocation_kind(p.vocation_id),
+                        p.magic_level(),
+                        p.vocation_id >= 5,
+                        p.earliest_protection_zone_round > self.round_nr,
+                        poison,
+                        burning,
+                    )
+                }
+                _ => return,
+            };
         let money = self.player_count_money(player).min(i32::MAX as u64) as i32;
 
         let (topic, price, amount, item_type, data) =
@@ -786,7 +769,11 @@ impl GameWorld {
                     })
                     .map(|n| {
                         if program.policy == DialoguePolicy::PerPlayer {
-                            n.runtime.player_sessions.get(&player).map(|s| s.data).unwrap_or(0)
+                            n.runtime
+                                .player_sessions
+                                .get(&player)
+                                .map(|s| s.data)
+                                .unwrap_or(0)
                         } else {
                             n.runtime.data
                         }
@@ -796,9 +783,8 @@ impl GameWorld {
             // SAFETY: single-threaded game loop; host mutations finish before next eval read.
             unsafe { (*world_ptr).player_get_item_type_count_npc(player, item_id, data) as i32 }
         };
-        let quest = move |id: u32| -> i32 {
-            unsafe { (*world_ptr).player_get_storage(player, id) }
-        };
+        let quest =
+            move |id: u32| -> i32 { unsafe { (*world_ptr).player_get_storage(player, id) } };
         let spell_k = move |id: i32| -> i32 {
             let key = id.to_string();
             unsafe {
@@ -819,9 +805,8 @@ impl GameWorld {
             }
         };
         let spell_l = move |_id: i32| -> i32 { 0 };
-        let mut rng = move |lo: i32, hi: i32| -> i32 {
-            unsafe { (*world_ptr).parity_random(lo, hi) }
-        };
+        let mut rng =
+            move |lo: i32, hi: i32| -> i32 { unsafe { (*world_ptr).parity_random(lo, hi) } };
 
         let game_minutes = crate::world_light::world_time_from_local_clock();
         let (game_hour, game_minute) = ((game_minutes / 60) as u8, (game_minutes % 60) as u8);
@@ -879,16 +864,7 @@ impl GameWorld {
             npc_name: &npc_name,
         };
         let plan = apply_dialogue_plan(
-            &program,
-            matched,
-            situation,
-            player,
-            text,
-            &mut ctx,
-            tuning,
-            self,
-            &meta,
-            trace,
+            &program, matched, situation, player, text, &mut ctx, tuning, self, &meta, trace,
         );
 
         self.npc_apply_plan(npc_id, player, text, situation, &plan, &program, trace);
@@ -1035,16 +1011,19 @@ impl GameWorld {
         }
 
         if plan.deferred_idle {
-            let _ = self.creature_todo_add(
-                npc_id,
-                CreatureAction::ChangeNpcState { to_idle: true },
-            );
+            let _ =
+                self.creature_todo_add(npc_id, CreatureAction::ChangeNpcState { to_idle: true });
         }
 
         if plan.start_todo {
             let final_delay = u64::from(plan.final_talk_delay_ms);
             let final_deadline_ms = self.server_ms.saturating_add(final_delay);
-            let _ = self.creature_todo_add(npc_id, CreatureAction::Wait { deadline_ms: final_deadline_ms });
+            let _ = self.creature_todo_add(
+                npc_id,
+                CreatureAction::Wait {
+                    deadline_ms: final_deadline_ms,
+                },
+            );
             // Trace Wait/Start already emitted in `apply_dialogue_plan`.
             self.todo_start_from_action(npc_id, first_delay.max(1));
         } else if !plan.replies.is_empty() || plan.deferred_idle {
@@ -1146,20 +1125,19 @@ impl GameWorld {
         new_pos: tfs_rust_common::Position,
         deleted: bool,
     ) {
-        let range = self.mechanics.profile.npc.focus_range_x.max(self.mechanics.profile.npc.focus_range_y)
-            as u16
+        let range = self
+            .mechanics
+            .profile
+            .npc
+            .focus_range_x
+            .max(self.mechanics.profile.npc.focus_range_y) as u16
             + 1;
         let mut ids = Vec::new();
         for pos in [old_pos, new_pos] {
             let mut raw = Vec::new();
-            self.map.grid.collect_spectators_sector_order(
-                pos.x,
-                pos.y,
-                pos.z,
-                range,
-                range,
-                &mut raw,
-            );
+            self.map
+                .grid
+                .collect_spectators_sector_order(pos.x, pos.y, pos.z, range, range, &mut raw);
             for cid in raw {
                 if matches!(self.creatures.get(cid), Some(CreatureKind::Npc(_)))
                     && !ids.contains(&cid)
@@ -1169,8 +1147,7 @@ impl GameWorld {
             }
         }
         // Also notify the moved creature if it is an NPC (self-move).
-        if matches!(self.creatures.get(moved), Some(CreatureKind::Npc(_)))
-            && !ids.contains(&moved)
+        if matches!(self.creatures.get(moved), Some(CreatureKind::Npc(_))) && !ids.contains(&moved)
         {
             ids.push(moved);
         }

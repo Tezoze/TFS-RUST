@@ -9,7 +9,7 @@ use tokio::net::TcpStream;
 
 use tfs_rust_common::{ProtocolCaps, ProtocolVersion};
 use tfs_rust_net::game_frame::read_sized_payload;
-use tfs_rust_net::xtea_tfs::{expand_key, RoundKeys};
+use tfs_rust_net::xtea_tfs::{RoundKeys, expand_key};
 
 use crate::decrypt::decrypt_game_body;
 use crate::handshake::parse_first_game_packet;

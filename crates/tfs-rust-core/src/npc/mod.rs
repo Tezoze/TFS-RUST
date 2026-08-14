@@ -26,11 +26,11 @@ pub use events::{DialogueEvent, DialogueSituationKind, DialogueTrace, MutateOp};
 pub(crate) use focus::deliver_npc_say_stimuli;
 #[allow(unused_imports)]
 pub use match_rule::{
-    match_dialogue_rule, match_dialogue_rule_with_custom, CustomPredicateHost, MatchCaptures,
-    NullCustomPredicateHost, RuleMatch,
+    CustomPredicateHost, MatchCaptures, NullCustomPredicateHost, RuleMatch, match_dialogue_rule,
+    match_dialogue_rule_with_custom,
 };
 #[allow(unused_imports)]
-pub use react::{apply_dialogue_plan, DialoguePlan, PlannedReply, ReactMeta};
+pub use react::{DialoguePlan, PlannedReply, ReactMeta, apply_dialogue_plan};
 #[allow(unused_imports)]
 pub use stimulus::collect_npc_speech_candidates;
 #[allow(unused_imports)]

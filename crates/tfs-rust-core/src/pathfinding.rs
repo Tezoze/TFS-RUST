@@ -8,7 +8,7 @@
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
-use tfs_rust_common::{enums::Direction, Position};
+use tfs_rust_common::{Position, enums::Direction};
 
 use crate::formulas::{PathCostModel, PathSearchModel};
 use crate::map::Map;
@@ -216,11 +216,7 @@ where
         move |pos| ground_for_cost(pos),
         move |pos| {
             let raw = ground_for_fill(pos);
-            if raw == 0 {
-                -1
-            } else {
-                raw as i32
-            }
+            if raw == 0 { -1 } else { raw as i32 }
         },
         scratch,
     )
@@ -519,7 +515,10 @@ fn tshortway_cell_idx(dx: i32, dy: i32, outer: i32) -> Option<usize> {
 }
 
 fn tshortway_rel(origin: Position, pos: Position) -> (i32, i32) {
-    (pos.x as i32 - origin.x as i32, pos.y as i32 - origin.y as i32)
+    (
+        pos.x as i32 - origin.x as i32,
+        pos.y as i32 - origin.y as i32,
+    )
 }
 
 /// 772 `TShortway` search state — dense matrix + linked-list open set (`cract.cc`).
@@ -1275,23 +1274,11 @@ fn neighbor_offsets(
     let dx = prev.x as i32 - current.x as i32;
     let dy = prev.y as i32 - current.y as i32;
     let idx = if dy == 0 {
-        if dx == -1 {
-            3
-        } else {
-            1
-        }
+        if dx == -1 { 3 } else { 1 }
     } else if !allow_diagonal || dx == 0 {
-        if dy == -1 {
-            0
-        } else {
-            2
-        }
+        if dy == -1 { 0 } else { 2 }
     } else if dy == -1 {
-        if dx == -1 {
-            6
-        } else {
-            7
-        }
+        if dx == -1 { 6 } else { 7 }
     } else if dx == -1 {
         4
     } else {

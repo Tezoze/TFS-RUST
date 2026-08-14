@@ -20,7 +20,7 @@ use crate::creature::{ChaseMode, CreatureKind};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::player_flags::{
-    has_player_flag, PLAYER_FLAG_CANNOT_USE_COMBAT, PLAYER_FLAG_CANNOT_BE_ATTACKED,
+    PLAYER_FLAG_CANNOT_BE_ATTACKED, PLAYER_FLAG_CANNOT_USE_COMBAT, has_player_flag,
 };
 
 impl GameWorld {
@@ -120,9 +120,10 @@ impl GameWorld {
     /// `AttackDest` changes — for monsters, that is the idle walk prelude
     /// (`crnonpl.cc:2784`), not strategy `Target = …`. No-op for non-players / dead.
     pub(crate) fn player_attack_stimulus(&mut self, cid: CreatureId) {
-        let alive_player = self.creatures.get(cid).is_some_and(|k| {
-            matches!(k, CreatureKind::Player(_)) && k.base().health > 0
-        });
+        let alive_player = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| matches!(k, CreatureKind::Player(_)) && k.base().health > 0);
         if alive_player {
             self.player_block_logout_infight(cid, false);
         }
@@ -134,8 +135,7 @@ impl GameWorld {
     /// `Target->AttackStimulus` then `Master->BlockLogout(60, Target->Type == PLAYER)`.
     pub(crate) fn combat_on_attack_dest_changed(&mut self, master: CreatureId, target: CreatureId) {
         self.player_attack_stimulus(target);
-        let target_is_player =
-            matches!(self.creatures.get(target), Some(CreatureKind::Player(_)));
+        let target_is_player = matches!(self.creatures.get(target), Some(CreatureKind::Player(_)));
         self.player_block_logout_infight(master, target_is_player);
     }
 
@@ -157,7 +157,12 @@ impl GameWorld {
     /// (`CheckState` / `Player::sendIcons`).
     /// Skipped for non-players and for `PlayerFlag_NotGainInFight` / 772 `NO_LOGOUT_BLOCK`
     /// (`crmain.cc:438`, TFS `Player::addInFightTicks` — `player.cpp:2246`).
-    pub(crate) fn player_block_logout(&mut self, cid: CreatureId, delay_rounds: u32, block_pz: bool) {
+    pub(crate) fn player_block_logout(
+        &mut self,
+        cid: CreatureId,
+        delay_rounds: u32,
+        block_pz: bool,
+    ) {
         if self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_NOT_GAIN_IN_FIGHT) {
             return;
         }
@@ -206,8 +211,8 @@ impl GameWorld {
             ctype: tfs_rust_common::enums::ConditionType::Infight,
             data: crate::condition::ConditionData::Generic { ticks: ticks_ms },
             timer_rounds_left: Some(remaining_i32),
-        skill_count: 0,
-        skill_max_count: 0,
+            skill_count: 0,
+            skill_max_count: 0,
         };
         crate::combat::apply_condition(&mut self.creatures, cid, cond);
         self.on_condition_started(cid, tfs_rust_common::enums::ConditionType::Infight);
@@ -227,13 +232,13 @@ impl GameWorld {
         if self.pvp_config.world_type != WorldType::Pvp {
             return false;
         }
-        let (attacker_secure, both_players) = match (
-            self.creatures.get(attacker),
-            self.creatures.get(target),
-        ) {
-            (Some(CreatureKind::Player(a)), Some(CreatureKind::Player(_))) => (a.secure_mode, true),
-            _ => return false,
-        };
+        let (attacker_secure, both_players) =
+            match (self.creatures.get(attacker), self.creatures.get(target)) {
+                (Some(CreatureKind::Player(a)), Some(CreatureKind::Player(_))) => {
+                    (a.secure_mode, true)
+                }
+                _ => return false,
+            };
         both_players && attacker_secure && !self.player_is_attack_justified(attacker, target)
     }
 
@@ -316,12 +321,12 @@ mod tests {
     fn secure_mode_does_not_block_monster_target() {
         let mut world = make_pvp_world(WorldType::Pvp);
         let a = insert_player(&mut world, "alice");
-        let m = world.creatures.insert(CreatureKind::Monster(
-            crate::creature::Monster::new(
+        let m = world
+            .creatures
+            .insert(CreatureKind::Monster(crate::creature::Monster::new(
                 crate::sim_harness::minimal_creature_base(),
                 tfs_rust_common::Position::new(1, 1, 7),
-            ),
-        ));
+            )));
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(a) {
             p.secure_mode = true;
         }
@@ -483,7 +488,9 @@ mod tests {
             .map(|v| v.as_slice())
             .unwrap_or(&[]);
         assert!(
-            queued.iter().any(|pkt| pkt.len() >= 2 && pkt[0] == 0xA2 && (pkt[1] & 0x80) != 0),
+            queued
+                .iter()
+                .any(|pkt| pkt.len() >= 2 && pkt[0] == 0xA2 && (pkt[1] & 0x80) != 0),
             "expected 0xA2 icons update with ICON_SWORDS (0x80), got {queued:?}"
         );
         world.round_nr = 160;
@@ -503,12 +510,12 @@ mod tests {
         let player = insert_player(&mut world, "alice");
         let conn = tfs_rust_common::ConnId(1);
         world.register_conn_mapping(conn, player);
-        let monster = world.creatures.insert(CreatureKind::Monster(
-            crate::creature::Monster::new(
+        let monster = world
+            .creatures
+            .insert(CreatureKind::Monster(crate::creature::Monster::new(
                 crate::sim_harness::minimal_creature_base(),
                 tfs_rust_common::Position::new(1, 1, 7),
-            ),
-        ));
+            )));
         let applied = world.combat_execute_with_stimulus(
             Some(monster),
             player,
@@ -583,7 +590,10 @@ mod tests {
         world.monster_idle_maybe_enter_attacking(monster);
 
         assert_eq!(
-            world.creatures.get(monster).and_then(|k| k.base().attack_target),
+            world
+                .creatures
+                .get(monster)
+                .and_then(|k| k.base().attack_target),
             Some(player),
             "SetAttackDest must copy Target → AttackDest"
         );
@@ -705,7 +715,7 @@ mod tests {
     #[test]
     fn logout_denied_on_nologout_flag_with_normal_zone() {
         use crate::game_world_lifecycle::LogoutPossible;
-        use crate::tile::{flags as tilestate, Tile, TileBody};
+        use crate::tile::{Tile, TileBody, flags as tilestate};
         use tfs_rust_common::enums::ZoneType;
 
         let mut world = make_pvp_world(WorldType::Pvp);

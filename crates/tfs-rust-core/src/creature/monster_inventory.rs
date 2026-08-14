@@ -3,9 +3,9 @@
 //! - `TMonster::TMonster` loot roll — `crnonpl.cc:2050-2103`.
 //! - `CheckCombatValues` / `GetWeapon` / `GetArmorStrength` — `crcombat.cc:128,36,286`.
 
-use tfs_rust_common::enums::BloodType;
 use tfs_rust_common::Position;
-use tfs_rust_content::monsters::{LootBlock, MonsterType, MAX_LOOTCHANCE};
+use tfs_rust_common::enums::BloodType;
+use tfs_rust_content::monsters::{LootBlock, MAX_LOOTCHANCE, MonsterType};
 use tfs_rust_content::otb::ItemType;
 
 use crate::container::Container;
@@ -14,8 +14,8 @@ use crate::cylinder::CylinderFlags;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::inventory::{
-    item_fits_equipment_slot, slot_to_array_index, slot_type_for_item_type, WEAPON_NONE,
-    WEAPON_SHIELD,
+    WEAPON_NONE, WEAPON_SHIELD, item_fits_equipment_slot, slot_to_array_index,
+    slot_type_for_item_type,
 };
 use crate::item::Item;
 
@@ -389,7 +389,7 @@ impl GameWorld {
     /// skill for all arms (their skill table is fist-centric); players use `SkillNr`.
     pub(crate) fn monster_get_defend_value(&self, cid: CreatureId) -> (i32, i32) {
         use crate::inventory::InventorySlot;
-        use crate::player::combat::values::{classify_weapon, HandWeapon};
+        use crate::player::combat::values::{HandWeapon, classify_weapon};
 
         let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
             return (0, 0);
@@ -523,7 +523,8 @@ impl GameWorld {
 
         // Phase 3: both eras use the 772 `server_ms` decay clock.
         let decay_clock = self.now_ms();
-        let (deadline, replace_with) = item_decay_schedule(&self.items_db, corpse_type, decay_clock);
+        let (deadline, replace_with) =
+            item_decay_schedule(&self.items_db, corpse_type, decay_clock);
         self.decay.schedule(corpse_id, deadline, replace_with);
 
         if self
@@ -647,15 +648,15 @@ mod tests {
     use std::sync::Arc;
 
     use slotmap::SlotMap;
-    use tfs_rust_common::enums::CombatType;
     use tfs_rust_common::Position;
+    use tfs_rust_common::enums::CombatType;
     use tfs_rust_content::items::ItemDatabase;
     use tfs_rust_content::monsters::{
-        LootBlock, MonsterDefenses, MonsterOutfit, MonsterType, MonsterTypeFlags, MAX_LOOTCHANCE,
+        LootBlock, MAX_LOOTCHANCE, MonsterDefenses, MonsterOutfit, MonsterType, MonsterTypeFlags,
     };
     use tfs_rust_content::otb::ItemType;
 
-    use super::{effective_monster_combat_stats, MonsterInventory};
+    use super::{MonsterInventory, effective_monster_combat_stats};
     use crate::combat::{CombatDamage, CombatParams};
     use crate::creature::{CreatureKind, MonsterAiConfig};
     use crate::game_world::GameWorld;

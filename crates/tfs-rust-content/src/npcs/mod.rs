@@ -12,8 +12,8 @@ mod span;
 mod validate;
 
 pub use dialogue::{
-    DialogueAction, DialogueExpr, DialoguePolicy, DialoguePredicate, DialogueProgram, DialogueProperty,
-    DialogueRule, DialogueSituation, ExprOp, NpcCallbackId, SessionVar,
+    DialogueAction, DialogueExpr, DialoguePolicy, DialoguePredicate, DialogueProgram,
+    DialogueProperty, DialogueRule, DialogueSituation, ExprOp, NpcCallbackId, SessionVar,
 };
 pub use shop::{NpcShopDefinition, NpcShopItem};
 pub use span::SourceSpan;
@@ -70,7 +70,10 @@ pub struct NpcMovement {
 
 impl Default for NpcMovement {
     fn default() -> Self {
-        Self { radius: 0, speed: 100 }
+        Self {
+            radius: 0,
+            speed: 100,
+        }
     }
 }
 

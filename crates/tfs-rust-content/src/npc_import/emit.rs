@@ -86,7 +86,10 @@ fn emit_rule(out: &mut String, rule: &DialogueRule, indent: usize) {
             .and_then(|s| s.to_str())
             .unwrap_or(rule.span.original_file.as_str());
         if rule.span.original_line > 0 {
-            out.push_str(&format!("{pad}-- from {basename}:{}\n", rule.span.original_line));
+            out.push_str(&format!(
+                "{pad}-- from {basename}:{}\n",
+                rule.span.original_line
+            ));
         } else {
             out.push_str(&format!("{pad}-- from {basename}\n"));
         }

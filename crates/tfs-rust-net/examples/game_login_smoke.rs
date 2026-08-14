@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Context;
 use tfs_rust_common::ProtocolVersion;
 use tfs_rust_net::{
-    open_game_command_channels, GameWireConfig, LoginWireConfig, OutRegistry, Server,
+    GameWireConfig, LoginWireConfig, OutRegistry, Server, open_game_command_channels,
 };
 use tokio::net::TcpListener;
 

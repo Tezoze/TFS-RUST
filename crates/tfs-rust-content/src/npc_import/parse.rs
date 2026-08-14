@@ -5,11 +5,9 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::npc_import::ast::{
-    RawAction, RawCond, RawExpr, RawNpcFile, RawOp, RawOutfit, RawRule,
-};
+use crate::npc_import::ast::{RawAction, RawCond, RawExpr, RawNpcFile, RawOp, RawOutfit, RawRule};
 use crate::npc_import::error::{ImportError, ImportResult};
-use crate::npc_import::include::{read_npc_file, resolve_include, IncludeStack};
+use crate::npc_import::include::{IncludeStack, read_npc_file, resolve_include};
 use crate::npc_import::lex::{Lexer, Token, TokenKind};
 use crate::npcs::SourceSpan;
 
@@ -37,9 +35,7 @@ pub fn parse_npc_source(root: &Path, path: &Path, src: &str) -> ImportResult<Raw
     let mut parser = Parser {
         tokens: &tokens,
         i: 0,
-        root: root
-            .canonicalize()
-            .unwrap_or_else(|_| root.to_path_buf()),
+        root: root.canonicalize().unwrap_or_else(|_| root.to_path_buf()),
         stack,
     };
     parser.parse_full_npc(display)
@@ -167,10 +163,7 @@ impl<'a> Parser<'a> {
                     "male" => 1,
                     "female" => 0,
                     other => {
-                        return Err(ImportError::spanned(
-                            span,
-                            format!("unknown sex {other:?}"),
-                        ));
+                        return Err(ImportError::spanned(span, format!("unknown sex {other:?}")));
                     }
                 });
             }
@@ -420,8 +413,9 @@ impl<'a> Parser<'a> {
                     let next = self.tokens.get(self.i + 1).map(|t| &t.kind);
                     let alone = matches!(
                         next,
-                        Some(TokenKind::Comma | TokenKind::Arrow | TokenKind::Bang | TokenKind::Eof)
-                            | None
+                        Some(
+                            TokenKind::Comma | TokenKind::Arrow | TokenKind::Bang | TokenKind::Eof
+                        ) | None
                     );
                     if alone {
                         let (id, sp) = self.expect_ident()?;
@@ -448,12 +442,7 @@ impl<'a> Parser<'a> {
                 let lhs = self.parse_expr()?;
                 let op = self.parse_cmp_op()?;
                 let rhs = self.parse_expr()?;
-                Ok(RawCond::Compare {
-                    lhs,
-                    op,
-                    rhs,
-                    span,
-                })
+                Ok(RawCond::Compare { lhs, op, rhs, span })
             }
             other => Err(ImportError::spanned(
                 span,
@@ -748,10 +737,7 @@ impl<'a> Parser<'a> {
             TokenKind::Gt => RawOp::Gt,
             TokenKind::Ge => RawOp::Ge,
             _ => {
-                return Err(ImportError::spanned(
-                    span,
-                    "expected comparison operator",
-                ));
+                return Err(ImportError::spanned(span, "expected comparison operator"));
             }
         };
         self.bump();

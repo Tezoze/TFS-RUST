@@ -450,9 +450,7 @@ impl UserData for CombatRef {
             })?;
             // TFS `LuaScriptInterface::getEvent` — `luascript.cpp:355-357`.
             lua.globals().set(name.as_str(), Value::Nil)?;
-            this.0
-                .borrow_mut()
-                .set_callback(param, name, Some(func));
+            this.0.borrow_mut().set_callback(param, name, Some(func));
             Ok(true)
         });
 
@@ -553,8 +551,7 @@ impl UserData for CombatRef {
                         // magnitude from era `MechanicsProfile` (772 ClassicProbe /
                         // `772.lua` damageTuning; 1098 TFS getMaxWeaponDamage).
                         FormulaType::Skill => {
-                            let (mina, minb, maxa, maxb) =
-                                (f.min_a, f.min_b, f.max_a, f.max_b);
+                            let (mina, minb, maxa, maxb) = (f.min_a, f.min_b, f.max_a, f.max_b);
                             CURRENT_CTX.with(|c| {
                                 let ptr = (*c.borrow())
                                     .ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
@@ -786,7 +783,9 @@ fn resolve_caster_position(caster_id: u64) -> Result<(u16, u16, u8), mlua::Error
 /// dx/dy are non-zero, use the diagonal overlay (NW=raw, NE=mirror, SW=flip,
 /// SE=transpose). Otherwise rotate the primary matrix for N/E/S/W.
 fn resolve_oriented_offsets(area: &AreaCombat, dx_dir: i32, dy_dir: i32) -> Vec<(i32, i32)> {
-    if area.has_ext_area() && dx_dir != 0 && dy_dir != 0
+    if area.has_ext_area()
+        && dx_dir != 0
+        && dy_dir != 0
         && let Some(ext) = area.ext_affected_offsets()
     {
         return transform_diagonal_offsets(&ext, dx_dir, dy_dir);
@@ -1156,20 +1155,18 @@ mod tests {
         let a = combat_a.borrow::<CombatRef>().expect("CombatRef a");
         let b = combat_b.borrow::<CombatRef>().expect("CombatRef b");
 
-        let cb_a = a
-            .0
-            .borrow()
-            .callbacks
-            .get(&CALLBACK_PARAM_LEVELMAGICVALUE)
-            .cloned()
-            .expect("callback a");
-        let cb_b = b
-            .0
-            .borrow()
-            .callbacks
-            .get(&CALLBACK_PARAM_LEVELMAGICVALUE)
-            .cloned()
-            .expect("callback b");
+        let cb_a =
+            a.0.borrow()
+                .callbacks
+                .get(&CALLBACK_PARAM_LEVELMAGICVALUE)
+                .cloned()
+                .expect("callback a");
+        let cb_b =
+            b.0.borrow()
+                .callbacks
+                .get(&CALLBACK_PARAM_LEVELMAGICVALUE)
+                .cloned()
+                .expect("callback b");
 
         assert!(cb_a.function.is_some());
         assert!(cb_b.function.is_some());
@@ -1178,9 +1175,7 @@ mod tests {
         assert!(matches!(global, mlua::Value::Nil));
 
         // Invoke snapshotted functions with dummy args — returns must differ.
-        let player = lua
-            .create_userdata(CreatureRef(1))
-            .expect("player ud");
+        let player = lua.create_userdata(CreatureRef(1)).expect("player ud");
         let (min_a, max_a): (f64, f64) = cb_a
             .function
             .as_ref()

@@ -259,19 +259,11 @@ impl ItemAttributes {
     }
 
     pub fn get_date(&self) -> i64 {
-        if self.has_date() {
-            self.date
-        } else {
-            0
-        }
+        if self.has_date() { self.date } else { 0 }
     }
 
     pub fn get_charges(&self) -> u16 {
-        if self.has_charges() {
-            self.charges
-        } else {
-            0
-        }
+        if self.has_charges() { self.charges } else { 0 }
     }
 
     pub fn get_fluid_type(&self) -> u16 {
@@ -283,11 +275,7 @@ impl ItemAttributes {
     }
 
     pub fn get_owner(&self) -> u32 {
-        if self.has_owner() {
-            self.owner
-        } else {
-            0
-        }
+        if self.has_owner() { self.owner } else { 0 }
     }
 
     pub fn get_corpse_owner(&self) -> u32 {

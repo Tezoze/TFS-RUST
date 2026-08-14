@@ -6,8 +6,8 @@ mod v1098;
 mod v772;
 pub mod wire;
 
-pub use v1098::Codec1098;
 pub use v772::Codec772;
+pub use v1098::Codec1098;
 pub use wire::{
     AddCreatureWire, AnimatedTextWire, ChannelOpenWire, ChannelsDialogWire, CombatDamageNotifyWire,
     ContainerOpenWire, CreatePrivateChannelWire, CreatureHealthWire, CreatureSpeedWire,
@@ -17,9 +17,9 @@ pub use wire::{
 
 use tfs_rust_common::{Position, ProtocolCaps, ProtocolVersion};
 
+use crate::NetworkMessage;
 use crate::creature_encode::AddCreatureWire as CreatureWire;
 use crate::creature_encode::OutfitWire as CreatureOutfitWire;
-use crate::NetworkMessage;
 
 /// Outgoing wire encoder — one impl per protocol family (A1: 1098 only).
 pub trait ProtocolCodec {
@@ -177,12 +177,15 @@ pub trait ProtocolCodec {
 
     /// `ProtocolGame::sendCreatureOutfit` — `0x8E` + id + era `AddOutfit`.
     /// 772 has no addons/mount; using the 1098 outfit body desyncs and crashes 7.72 clients.
-    fn encode_creature_outfit(&self, creature_id: u32, outfit: &CreatureOutfitWire)
-        -> NetworkMessage;
+    fn encode_creature_outfit(
+        &self,
+        creature_id: u32,
+        outfit: &CreatureOutfitWire,
+    ) -> NetworkMessage;
 
     /// Player damage caption — simple text (772) vs damage block (1098).
     fn encode_combat_damage_text_message(&self, w: &wire::CombatDamageNotifyWire)
-        -> NetworkMessage;
+    -> NetworkMessage;
 
     /// `ProtocolGame::sendCreatureSay` — `0xAA` speech packet (1098 with `level`, 772 without).
     fn encode_creature_say(&self, statement_id: u32, w: &wire::CreatureSayWire) -> NetworkMessage;

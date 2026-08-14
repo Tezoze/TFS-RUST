@@ -237,7 +237,10 @@ pub enum LuaMutation {
     },
     /// `setWorldLight(level, color)` — TFS `LuaScriptInterface::luaSetWorldLight`.
     /// C++ ref: `gameserver/src/luascript.cpp:3132-3145`.
-    SetWorldLight { level: u8, color: u8 },
+    SetWorldLight {
+        level: u8,
+        color: u8,
+    },
     /// 772 `ClearField` before door close — shove stack mates off the door tile.
     /// `exclude_item_id` is the door (not moved); optional creature exclude for SeparationEvent.
     ClearField {
@@ -429,7 +432,7 @@ fn apply_mutation(mutation: LuaMutation) -> Result<(), String> {
 
 #[cfg(test)]
 mod mutation_scope_tests {
-    use super::{with_lua_mutation_scope, MUTATION_WORLD};
+    use super::{MUTATION_WORLD, with_lua_mutation_scope};
 
     #[test]
     fn nested_mutation_scope_restores_outer_world() {
@@ -506,10 +509,7 @@ pub fn call_lua_get_depot_chest(
 }
 
 /// `player:getDepotLocker(depotId)` — TFS `Player::getDepotLocker` (`player.cpp:826`).
-pub fn call_lua_get_depot_locker(
-    creature_id: u64,
-    depot_id: u32,
-) -> Result<Option<u64>, String> {
+pub fn call_lua_get_depot_locker(creature_id: u64, depot_id: u32) -> Result<Option<u64>, String> {
     apply_mutation(LuaMutation::PlayerGetDepotLocker {
         creature_id,
         depot_id,
@@ -594,10 +594,7 @@ pub fn call_lua_send_cancel_message(creature_id: u64, text: String) -> Result<()
 
 /// `player:addCondition(condition)` — LUA-4 / PC-3a Phase 3. Immediate-apply
 /// condition add with full [`ConditionApplySpec`] fields.
-pub fn call_lua_add_condition(
-    creature_id: u64,
-    spec: ConditionApplySpec,
-) -> Result<(), String> {
+pub fn call_lua_add_condition(creature_id: u64, spec: ConditionApplySpec) -> Result<(), String> {
     apply_mutation(LuaMutation::PlayerAddCondition { creature_id, spec })
 }
 
@@ -670,11 +667,7 @@ pub fn call_lua_add_mana_spent(creature_id: u64, amount: u64) -> Result<(), Stri
 
 /// `item:transform(itemId[, count/subType])` — PC-3a Phase 5.
 /// C++ `luascript.cpp` `luaItemTransform` → `Game::transformItem`.
-pub fn call_lua_item_transform(
-    item_id: u64,
-    new_type: u16,
-    sub_type: i32,
-) -> Result<bool, String> {
+pub fn call_lua_item_transform(item_id: u64, new_type: u16, sub_type: i32) -> Result<bool, String> {
     apply_mutation(LuaMutation::ItemTransform {
         item_id,
         new_type,
@@ -763,11 +756,7 @@ pub fn call_creature_teleport(
     Ok(take_mutation_bool_result().unwrap_or(false))
 }
 
-pub fn call_send_text_message(
-    creature_id: u64,
-    msg_class: u8,
-    text: String,
-) -> Result<(), String> {
+pub fn call_send_text_message(creature_id: u64, msg_class: u8, text: String) -> Result<(), String> {
     apply_mutation(LuaMutation::PlayerSendTextMessage {
         creature_id,
         msg_class,

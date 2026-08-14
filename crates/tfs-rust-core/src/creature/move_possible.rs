@@ -214,7 +214,8 @@ impl GameWorld {
                 if let Some(master_k) = self.creatures.get(master_cid) {
                     let master_pos = master_k.position();
                     if master_pos.z == cur_pos.z {
-                        let cur_dist = (master_pos.x as i32 - cur_pos.x as i32).unsigned_abs() as i32
+                        let cur_dist = (master_pos.x as i32 - cur_pos.x as i32).unsigned_abs()
+                            as i32
                             + (master_pos.y as i32 - cur_pos.y as i32).unsigned_abs() as i32;
                         let dest_dist = (master_pos.x as i32 - dest.x as i32).unsigned_abs() as i32
                             + (master_pos.y as i32 - dest.y as i32).unsigned_abs() as i32;

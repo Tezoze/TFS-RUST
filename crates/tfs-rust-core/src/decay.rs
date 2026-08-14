@@ -193,7 +193,7 @@ impl DecayManager {
 
 #[cfg(test)]
 mod tests {
-    use super::{decay_deadline_ms, DecayManager};
+    use super::{DecayManager, decay_deadline_ms};
     use crate::ids::ItemId;
     use slotmap::SlotMap;
 

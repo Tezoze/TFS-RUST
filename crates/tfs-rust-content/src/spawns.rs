@@ -4,8 +4,8 @@
 
 use roxmltree::Document;
 use std::path::Path;
-use tfs_rust_common::error::{Result, TfsRustError};
 use tfs_rust_common::Position;
+use tfs_rust_common::error::{Result, TfsRustError};
 use tracing::info;
 
 /// One `<spawn>` block from the spawn XML file.

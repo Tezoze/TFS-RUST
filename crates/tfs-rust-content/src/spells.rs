@@ -383,15 +383,27 @@ mod tests {
     #[test]
     fn compare_four_syllable_with_spaces() {
         // "ex,evo, vis, lux" → player types "exevo vis lux"
-        assert!(compare_spell_words("ex,evo, vis, lux", "exevo vis lux", false));
-        assert!(compare_spell_words("ex,evo, vis, lux", "EXEVO VIS LUX", false));
+        assert!(compare_spell_words(
+            "ex,evo, vis, lux",
+            "exevo vis lux",
+            false
+        ));
+        assert!(compare_spell_words(
+            "ex,evo, vis, lux",
+            "EXEVO VIS LUX",
+            false
+        ));
     }
 
     #[test]
     fn compare_extra_spaces_collapsed() {
         // Extra spaces are collapsed by `remove_extra_spaces` in `get_instant_spell`
         // before `compare_spell_words` is called. Test the collapsed form here.
-        assert!(compare_spell_words("ex,evo, vis, lux", "exevo vis lux", false));
+        assert!(compare_spell_words(
+            "ex,evo, vis, lux",
+            "exevo vis lux",
+            false
+        ));
     }
 
     #[test]
@@ -507,7 +519,9 @@ mod tests {
     #[test]
     fn get_instant_spell_with_quoted_param() {
         let reg = make_registry();
-        let (spell, param) = reg.get_instant_spell("exiva \"Player Name\"").expect("match");
+        let (spell, param) = reg
+            .get_instant_spell("exiva \"Player Name\"")
+            .expect("match");
         assert_eq!(spell.name, "Find Person");
         assert_eq!(param, "Player Name");
     }

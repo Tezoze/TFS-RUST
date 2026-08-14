@@ -1,8 +1,8 @@
 //! Monster definitions from `data/monster/` (index + per-file XML).
 // C++ reference: `src/monsters.cpp` `Monsters::loadMonster`, `loadLootItem`, `deserializeSpell` (attacks/defenses parsed as spell nodes).
 
-use quick_xml::events::Event;
 use quick_xml::Reader;
+use quick_xml::events::Event;
 use roxmltree::Document;
 use std::collections::HashMap;
 use std::path::Path;

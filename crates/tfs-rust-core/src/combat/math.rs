@@ -167,7 +167,12 @@ pub fn probe_damage_ceiling(
     profile: &MechanicsProfile,
 ) -> i32 {
     let modified_attack = apply_attack_mode(&profile.fight_modes, mode, attack);
-    classic_probe_sample_raw(skill, modified_attack, profile.damage_probe, profile.damage_probe.random_max.max(0))
+    classic_probe_sample_raw(
+        skill,
+        modified_attack,
+        profile.damage_probe,
+        profile.damage_probe.random_max.max(0),
+    )
 }
 
 /// One `ProbeValue` sample with a pre-rolled `random_factor` (`crskill.cc:535-546`).
@@ -246,8 +251,7 @@ pub fn formula_skill_damage_bounds(
 ) -> (i32, i32) {
     match profile.damage_formula {
         DamageFormula::ClassicProbe => {
-            let rolled =
-                weapon_damage(profile, hooks, skill, attack, mode, level as i32, parity);
+            let rolled = weapon_damage(profile, hooks, skill, attack, mode, level as i32, parity);
             let v = (f64::from(rolled) * max_a + max_b).round() as i32;
             (v, v)
         }
@@ -429,13 +433,7 @@ pub fn spell_damage(
     if let Some(v) = hooks.spell_damage(level, magic_level, base) {
         return v;
     }
-    let mult = spell_formula_multiplier(
-        profile,
-        level,
-        magic_level,
-        clamp_max_100,
-        clamp_min_100,
-    );
+    let mult = spell_formula_multiplier(profile, level, magic_level, clamp_max_100, clamp_min_100);
     (base * mult) / 100
 }
 
@@ -578,8 +576,8 @@ pub fn pvp_kill_experience_amount(
     if amount == 0 || victim_level <= 0 || profile.pvp_exp_cap_den == 0 {
         return 0;
     }
-    let max_level = (victim_level as i64 * profile.pvp_exp_cap_num as i64)
-        / profile.pvp_exp_cap_den as i64;
+    let max_level =
+        (victim_level as i64 * profile.pvp_exp_cap_num as i64) / profile.pvp_exp_cap_den as i64;
     if attacker_level as i64 >= max_level {
         return 0;
     }
@@ -776,10 +774,7 @@ mod tests {
             );
         }
         // A=1 returns 1 in both.
-        assert_eq!(
-            armor_reduction(&m772.profile, &m772.hooks, 1, &parity),
-            1
-        );
+        assert_eq!(armor_reduction(&m772.profile, &m772.hooks, 1, &parity), 1);
     }
 
     #[test]
@@ -791,10 +786,7 @@ mod tests {
             .unwrap();
         let hooks = FormulaHooks::from_lua_for_test(lua);
         let parity = GlibcRngState::seed(1);
-        assert_eq!(
-            armor_reduction(&p772().profile, &hooks, 30, &parity),
-            42
-        );
+        assert_eq!(armor_reduction(&p772().profile, &hooks, 30, &parity), 42);
     }
 
     #[test]
@@ -821,8 +813,7 @@ mod tests {
     fn spell_damage_range_matches_compute_damage() {
         let m = p772();
         // level=20, magic=10 → mult=70; damage=45, variation=10 → (24, 38)
-        let (lo, hi) =
-            spell_damage_range(&m.profile, &m.hooks, 20, 10, 45, 10, false, false);
+        let (lo, hi) = spell_damage_range(&m.profile, &m.hooks, 20, 10, 45, 10, false, false);
         assert_eq!((lo, hi), (24, 38));
     }
 
@@ -869,10 +860,7 @@ mod tests {
     fn pvp_kill_experience_max_level_11_10() {
         let m = p772();
         // Victim L100 → MaxLevel 110. Attacker L100 → ((110-100)*1000)/100 = 100.
-        assert_eq!(
-            pvp_kill_experience_amount(&m.profile, 100, 100, 1000),
-            100
-        );
+        assert_eq!(pvp_kill_experience_amount(&m.profile, 100, 100, 1000), 100);
         // Attacker at/above MaxLevel → 0.
         assert_eq!(pvp_kill_experience_amount(&m.profile, 100, 110, 1000), 0);
         assert_eq!(pvp_kill_experience_amount(&m.profile, 100, 120, 1000), 0);

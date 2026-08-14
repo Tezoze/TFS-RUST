@@ -30,13 +30,13 @@ pub(crate) mod values;
 pub(crate) use values::SkillNr;
 
 use slotmap::Key;
-use tfs_rust_common::enums::ZoneType;
 use tfs_rust_common::ConnId;
 use tfs_rust_common::WorldType;
+use tfs_rust_common::enums::ZoneType;
 use tfs_rust_net::outgoing_extra::send_text_message_simple;
 
 use crate::creature::{ChaseMode, CreatureKind};
-use crate::creature_todo::{trace_creature_todo, MONSTER_IDLE_WAIT_MS};
+use crate::creature_todo::{MONSTER_IDLE_WAIT_MS, trace_creature_todo};
 use crate::game_world::GameWorld;
 use crate::idle_stimulus::TodoExecuteKind;
 use crate::ids::CreatureId;
@@ -329,8 +329,7 @@ impl GameWorld {
 
         // Invisible mid-fight — `CanToDoAttack` (`crcombat.cc:460-465`).
         if self.creatures.get(target_id).is_some_and(|k| {
-            matches!(k, CreatureKind::Monster(_) | CreatureKind::Npc(_))
-                && k.base().is_invisible()
+            matches!(k, CreatureKind::Monster(_) | CreatureKind::Npc(_)) && k.base().is_invisible()
         }) {
             return PlayerChaseOutcome::TargetLost;
         }
@@ -451,9 +450,7 @@ impl GameWorld {
                 PlayerChaseOutcome::NoTarget | PlayerChaseOutcome::TargetLost
             )
         {
-            if let Some(target_id) =
-                self.creatures.get(cid).and_then(|k| k.base().attack_target)
-            {
+            if let Some(target_id) = self.creatures.get(cid).and_then(|k| k.base().attack_target) {
                 // Invisible mid-fight — `Attack()` (`crcombat.cc:556-561`).
                 if self.creatures.get(target_id).is_some_and(|k| {
                     matches!(k, CreatureKind::Monster(_) | CreatureKind::Npc(_))
@@ -729,8 +726,7 @@ impl GameWorld {
         }
         // Invisible creature target — `crcombat.cc:417-422` (player vs non-player).
         if self.creatures.get(target_id).is_some_and(|k| {
-            matches!(k, CreatureKind::Monster(_) | CreatureKind::Npc(_))
-                && k.base().is_invisible()
+            matches!(k, CreatureKind::Monster(_) | CreatureKind::Npc(_)) && k.base().is_invisible()
         }) {
             return CombatResult::TargetLost;
         }
@@ -819,11 +815,19 @@ impl GameWorld {
         }
         self.creatures.iter().find_map(|(cid, k)| match k {
             CreatureKind::Monster(m) => {
-                let native = if m.wire_id != 0 { m.wire_id } else { (cid.data().as_ffi() & 0xFFFF_FFFF) as u32 };
+                let native = if m.wire_id != 0 {
+                    m.wire_id
+                } else {
+                    (cid.data().as_ffi() & 0xFFFF_FFFF) as u32
+                };
                 (native == wire_id).then_some(cid)
             }
             CreatureKind::Npc(n) => {
-                let native = if n.wire_id != 0 { n.wire_id } else { (cid.data().as_ffi() & 0xFFFF_FFFF) as u32 };
+                let native = if n.wire_id != 0 {
+                    n.wire_id
+                } else {
+                    (cid.data().as_ffi() & 0xFFFF_FFFF) as u32
+                };
                 (native == wire_id).then_some(cid)
             }
             _ => None,
@@ -864,7 +868,7 @@ mod set_attack_dest_tests {
 
     use crate::login_out::creature_wire_id;
     use crate::sim_harness::{
-        ensure_walkable_tile, insert_monster, insert_player, test_player, TEST_SYNTHETIC_GROUND_WP,
+        TEST_SYNTHETIC_GROUND_WP, ensure_walkable_tile, insert_monster, insert_player, test_player,
     };
 
     use super::*;
@@ -896,13 +900,21 @@ mod set_attack_dest_tests {
         world.register_conn_mapping(conn, player);
         let result = world.player_set_attack_dest(conn, player, wire_b, false);
         assert_eq!(result, CombatResult::NoError);
-        let earliest = world.creatures.get(player).unwrap().base().earliest_attack_ms;
+        let earliest = world
+            .creatures
+            .get(player)
+            .unwrap()
+            .base()
+            .earliest_attack_ms;
         assert_eq!(
             earliest, 7_000,
             "retarget must not clear EarliestAttackTime / attack-speed exhaust"
         );
         let delay = world.todo_attack_delay_ms(player);
-        assert_eq!(delay, 2_000, "ToDoStart must wait remaining exhaust before next strike");
+        assert_eq!(
+            delay, 2_000,
+            "ToDoStart must wait remaining exhaust before next strike"
+        );
     }
 
     #[test]
@@ -924,7 +936,11 @@ mod set_attack_dest_tests {
 
         world.creature_start_logout_stop_fight(player, false);
         let base = world.creatures.get(player).unwrap().base();
-        assert_eq!(base.attack_target, Some(mon), "delayed stop must keep AttackDest");
+        assert_eq!(
+            base.attack_target,
+            Some(mon),
+            "delayed stop must keep AttackDest"
+        );
         assert_eq!(base.latest_attack_round, 160);
     }
 
@@ -971,13 +987,15 @@ mod set_attack_dest_tests {
             b.latest_attack_round = 40;
         }
         assert!(!world.combat_expire_delayed_stop_attack(player));
-        assert!(world
-            .creatures
-            .get(player)
-            .unwrap()
-            .base()
-            .attack_target
-            .is_some());
+        assert!(
+            world
+                .creatures
+                .get(player)
+                .unwrap()
+                .base()
+                .attack_target
+                .is_some()
+        );
     }
 
     #[test]
@@ -1003,7 +1021,12 @@ mod set_attack_dest_tests {
             CombatResult::NoError
         );
         assert_eq!(
-            world.creatures.get(player).unwrap().base().latest_attack_round,
+            world
+                .creatures
+                .get(player)
+                .unwrap()
+                .base()
+                .latest_attack_round,
             0,
             "SetAttackDest !Follow must clear LatestAttackTime"
         );
@@ -1027,13 +1050,15 @@ mod set_attack_dest_tests {
             !world.combat_expire_delayed_stop_attack(player),
             "Attack() returns early when Following — no expire"
         );
-        assert!(world
-            .creatures
-            .get(player)
-            .unwrap()
-            .base()
-            .attack_target
-            .is_some());
+        assert!(
+            world
+                .creatures
+                .get(player)
+                .unwrap()
+                .base()
+                .attack_target
+                .is_some()
+        );
     }
 
     #[test]

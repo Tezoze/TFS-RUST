@@ -8,8 +8,8 @@
 //! IdleStimulus engine, which uses `search_flight_field` for flee and A* (`get_creature_path_to`)
 //! for chase. Only the offset/distance primitives and `search_flight_field` remain live.
 
-use tfs_rust_common::enums::Direction;
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::Direction;
 
 /// TFS `Position::getDistanceX/Y` — absolute axis delta (symmetric in argument order).
 pub(crate) fn distance_x(a: Position, b: Position) -> i32 {
@@ -119,10 +119,10 @@ mod tests {
     fn flight_field_prefers_axial_then_cardinal_then_diagonal() {
         let from = Position::new(100, 100, 7);
         let pursuer = Position::new(98, 100, 7); // West of us, so ox = 2, oy = 0.
-                                                 // dx = 2, dy = 0.
-                                                 // Preferred axial: East.
-                                                 // Fallback card: East (already preferred), North, South.
-                                                 // Fallback diag: NorthEast, SouthEast.
+        // dx = 2, dy = 0.
+        // Preferred axial: East.
+        // Fallback card: East (already preferred), North, South.
+        // Fallback diag: NorthEast, SouthEast.
 
         // 1. All clear -> East.
         let can_walk = |_d: Direction| true;

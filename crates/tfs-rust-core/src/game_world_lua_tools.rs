@@ -5,8 +5,8 @@
 //! Outcomes: 772 skill tries via `skill_increase`; PZ-lock is a read (`earliest_protection_zone_round`).
 
 use slotmap::Key;
-use tfs_rust_common::enums::CombatType;
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::CombatType;
 
 use crate::combat::aoe::combat_type_from_lua;
 use crate::combat::{CombatDamage, CombatParams};
@@ -154,13 +154,8 @@ impl GameWorld {
         let signed_value = if combat_type == CombatType::Healing {
             value.max(0)
         } else if combat_type == CombatType::Physical {
-            let (abs_dmg, armor) = self.mitigate_physical_spell_damage(
-                target_id,
-                target_pos,
-                value,
-                false,
-                false,
-            );
+            let (abs_dmg, armor) =
+                self.mitigate_physical_spell_damage(target_id, target_pos, value, false, false);
             physical_armor = armor;
             -abs_dmg
         } else {
@@ -214,8 +209,8 @@ mod tests {
     };
     use crate::tile::{Tile, TileBody};
     use std::sync::Arc;
-    use tfs_rust_common::enums::ZoneType;
     use tfs_rust_common::ScriptContext;
+    use tfs_rust_common::enums::ZoneType;
 
     fn register_item_type(world: &mut GameWorld, id: u16, stackable: bool) {
         let mut it = pickup_item_type(id);
@@ -324,10 +319,7 @@ mod tests {
             }),
         );
         let sid = iid.data().as_ffi();
-        assert_eq!(
-            world.get_item_data(sid).map(|d| d.fluid_type),
-            Some(5)
-        );
+        assert_eq!(world.get_item_data(sid).map(|d| d.fluid_type), Some(5));
         assert_eq!(world.tile_get_ground_item(50, 50, 7), Some(sid));
     }
 
@@ -342,13 +334,18 @@ mod tests {
             Some(CreatureKind::Player(p)) => p.base.health,
             _ => panic!("player"),
         };
-        assert!(world
-            .lua_script_target_combat_health(None, id, 1, -50, -50, 0)
-            .unwrap());
+        assert!(
+            world
+                .lua_script_target_combat_health(None, id, 1, -50, -50, 0)
+                .unwrap()
+        );
         let hp_after = match world.creatures.get(cid) {
             Some(CreatureKind::Player(p)) => p.base.health,
             _ => panic!("player"),
         };
-        assert!(hp_after < hp_before, "expected HP loss: {hp_before} → {hp_after}");
+        assert!(
+            hp_after < hp_before,
+            "expected HP loss: {hp_before} → {hp_after}"
+        );
     }
 }

@@ -20,7 +20,8 @@ pub struct XmlNpcMeta {
 /// Load all `*.xml` NPC definitions under `npc_dir` (non-recursive except ignoring scripts/).
 pub fn load_xml_npc_dir(npc_dir: &Path) -> ImportResult<Vec<XmlNpcMeta>> {
     let mut out = Vec::new();
-    let entries = std::fs::read_dir(npc_dir).map_err(|e| ImportError::io(npc_dir, e.to_string()))?;
+    let entries =
+        std::fs::read_dir(npc_dir).map_err(|e| ImportError::io(npc_dir, e.to_string()))?;
     for ent in entries {
         let ent = ent.map_err(|e| ImportError::io(npc_dir, e.to_string()))?;
         let path = ent.path();
@@ -53,9 +54,8 @@ fn parse_npc_xml(path: &Path) -> ImportResult<XmlNpcMeta> {
         text
     };
 
-    let doc = roxmltree::Document::parse(&text).map_err(|e| {
-        ImportError::io(path, format!("xml parse error: {e}"))
-    })?;
+    let doc = roxmltree::Document::parse(&text)
+        .map_err(|e| ImportError::io(path, format!("xml parse error: {e}")))?;
     let root = doc.root_element();
     if root.tag_name().name() != "npc" {
         return Err(ImportError::io(path, "root element must be <npc>"));

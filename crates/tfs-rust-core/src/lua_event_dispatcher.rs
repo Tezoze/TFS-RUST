@@ -13,8 +13,8 @@ use crate::talkactions::TalkActionRegistry;
 use slotmap::Key;
 use tfs_rust_common::Position;
 use tfs_rust_lua::{
-    with_lua_context, CallbackRef, CreatureEventType, LuaRuntime, MoveEventKind,
-    MoveEventsRegistry, PlayerEventType,
+    CallbackRef, CreatureEventType, LuaRuntime, MoveEventKind, MoveEventsRegistry, PlayerEventType,
+    with_lua_context,
 };
 
 /// Lua-based event dispatcher.
@@ -169,7 +169,13 @@ impl LuaEventDispatcher {
         ) {
             Ok(allow) => allow,
             Err(e) => {
-                tracing::error!(?actor, ?item, item_type, ?kind, "Lua move item event failed: {e}");
+                tracing::error!(
+                    ?actor,
+                    ?item,
+                    item_type,
+                    ?kind,
+                    "Lua move item event failed: {e}"
+                );
                 true
             }
         }
@@ -199,7 +205,13 @@ impl LuaEventDispatcher {
         ) {
             Ok(allow) => allow,
             Err(e) => {
-                tracing::error!(?actor, ?item, item_type, ?kind, "Lua move step event failed: {e}");
+                tracing::error!(
+                    ?actor,
+                    ?item,
+                    item_type,
+                    ?kind,
+                    "Lua move step event failed: {e}"
+                );
                 true
             }
         }
@@ -316,7 +328,14 @@ impl EventDispatcher for LuaEventDispatcher {
         pos: Position,
         from_pos: Position,
     ) -> bool {
-        self.dispatch_move_step(MoveEventKind::StepOut, actor, item, item_type, pos, from_pos)
+        self.dispatch_move_step(
+            MoveEventKind::StepOut,
+            actor,
+            item,
+            item_type,
+            pos,
+            from_pos,
+        )
     }
 
     fn on_step_in(
@@ -532,11 +551,7 @@ impl EventDispatcher for LuaEventDispatcher {
         ) {
             Ok(success) => success,
             Err(e) => {
-                tracing::error!(
-                    ?creature,
-                    item_id,
-                    "Lua onUseWeapon callback failed: {e}"
-                );
+                tracing::error!(?creature, item_id, "Lua onUseWeapon callback failed: {e}");
                 false
             }
         }
@@ -604,11 +619,10 @@ impl EventDispatcher for LuaEventDispatcher {
         callback: tfs_rust_content::npcs::NpcCallbackId,
         interval_ms: u32,
     ) {
-        if let Err(e) = self.runtime.call_npc_callback_think(
-            callback,
-            npc.data().as_ffi(),
-            interval_ms,
-        ) {
+        if let Err(e) =
+            self.runtime
+                .call_npc_callback_think(callback, npc.data().as_ffi(), interval_ms)
+        {
             tracing::error!(?npc, "Lua onNpcThink failed: {e}");
         }
     }

@@ -82,32 +82,27 @@ impl UserData for NpcRef {
             Ok(())
         });
 
-        methods.add_method_mut(
-            "setFocus",
-            |_, this, player: Option<mlua::AnyUserData>| {
-                let player_id = match player {
-                    None => None,
-                    Some(ud) => {
-                        let cref = ud.borrow::<CreatureRef>().map_err(|_| {
-                            mlua::Error::runtime("setFocus: expected Player userdata or nil")
-                        })?;
-                        Some(cref.0)
-                    }
-                };
-                call_lua_npc_set_focus(this.0, player_id).map_err(mlua::Error::runtime)?;
-                Ok(())
-            },
-        );
+        methods.add_method_mut("setFocus", |_, this, player: Option<mlua::AnyUserData>| {
+            let player_id = match player {
+                None => None,
+                Some(ud) => {
+                    let cref = ud.borrow::<CreatureRef>().map_err(|_| {
+                        mlua::Error::runtime("setFocus: expected Player userdata or nil")
+                    })?;
+                    Some(cref.0)
+                }
+            };
+            call_lua_npc_set_focus(this.0, player_id).map_err(mlua::Error::runtime)?;
+            Ok(())
+        });
 
         methods.add_method("getFocus", |lua, this, ()| {
-            with_ctx(|ctx| {
-                match ctx.get_npc_focus(this.0) {
-                    Some(id) => {
-                        let ud = lua.create_userdata(CreatureRef(id))?;
-                        Ok(mlua::Value::UserData(ud))
-                    }
-                    None => Ok(mlua::Value::Nil),
+            with_ctx(|ctx| match ctx.get_npc_focus(this.0) {
+                Some(id) => {
+                    let ud = lua.create_userdata(CreatureRef(id))?;
+                    Ok(mlua::Value::UserData(ud))
                 }
+                None => Ok(mlua::Value::Nil),
             })
         });
     }

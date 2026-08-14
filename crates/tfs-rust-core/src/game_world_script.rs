@@ -254,21 +254,18 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         let skill_nr = crate::player::combat::SkillNr::from_tfs_skill_id(skill)?;
         let cid = self.resolve_creature_from_script(creature_id)?;
         self.creatures.get(cid).and_then(|k| match k {
-            CreatureKind::Player(p) => Some(p.skill_level_profile(skill_nr, &self.mechanics.profile)),
+            CreatureKind::Player(p) => {
+                Some(p.skill_level_profile(skill_nr, &self.mechanics.profile))
+            }
             _ => None,
         })
     }
 
     /// `player:isPzLocked()` — TFS `pzLocked`; 772 `earliest_protection_zone_round`.
-    fn player_is_pz_locked(
-        &self,
-        creature_id: tfs_rust_common::ScriptCreatureId,
-    ) -> Option<bool> {
+    fn player_is_pz_locked(&self, creature_id: tfs_rust_common::ScriptCreatureId) -> Option<bool> {
         let cid = self.resolve_creature_from_script(creature_id)?;
         self.creatures.get(cid).and_then(|k| match k {
-            CreatureKind::Player(p) => {
-                Some(p.earliest_protection_zone_round > self.round_nr)
-            }
+            CreatureKind::Player(p) => Some(p.earliest_protection_zone_round > self.round_nr),
             _ => None,
         })
     }
@@ -291,10 +288,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         }
     }
 
-    fn get_player_killer_end(
-        &self,
-        creature_id: tfs_rust_common::ScriptCreatureId,
-    ) -> Option<i64> {
+    fn get_player_killer_end(&self, creature_id: tfs_rust_common::ScriptCreatureId) -> Option<i64> {
         let cid = self.resolve_creature_from_script(creature_id)?;
         self.creatures.get(cid).and_then(|k| match k {
             CreatureKind::Player(p) => Some(p.playerkiller_end),
@@ -430,10 +424,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
     /// `player:getDirection()` — `Creature::getDirection` (`creature.h`).
     /// PC-3a: spell variant construction offsets the center position by one
     /// tile in the player's facing direction when `needDirection(true)` is set.
-    fn get_player_direction(
-        &self,
-        creature_id: tfs_rust_common::ScriptCreatureId,
-    ) -> Option<u8> {
+    fn get_player_direction(&self, creature_id: tfs_rust_common::ScriptCreatureId) -> Option<u8> {
         let cid = self.resolve_creature_from_script(creature_id)?;
         self.creatures.get(cid).map(|k| k.base().direction as u8)
     }
@@ -465,11 +456,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
 
     /// `item:hasAttribute(key)` — `ItemAttributes::hasAttribute` (`src/item.h`).
     /// PC-3a Phase 5: `conjureItem` checks `ITEM_ATTRIBUTE_DURATION`.
-    fn item_has_attribute(
-        &self,
-        item_id: tfs_rust_common::ScriptItemId,
-        attr_bits: u32,
-    ) -> bool {
+    fn item_has_attribute(&self, item_id: tfs_rust_common::ScriptItemId, attr_bits: u32) -> bool {
         let Some(iid) = self.resolve_item_u64(item_id) else {
             return false;
         };
@@ -483,11 +470,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
     }
 
     /// Remere / OTBM custom attrs (`keynumber`, `keyholenumber`, …).
-    fn item_has_custom_attribute(
-        &self,
-        item_id: tfs_rust_common::ScriptItemId,
-        key: &str,
-    ) -> bool {
+    fn item_has_custom_attribute(&self, item_id: tfs_rust_common::ScriptItemId, key: &str) -> bool {
         let Some(iid) = self.resolve_item_u64(item_id) else {
             return false;
         };
@@ -540,9 +523,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             CustomAttrValue::Integer(v) => Some(tfs_rust_common::ScriptAttrValue::Integer(*v)),
             CustomAttrValue::Float(v) => Some(tfs_rust_common::ScriptAttrValue::Float(*v)),
             CustomAttrValue::Boolean(v) => Some(tfs_rust_common::ScriptAttrValue::Boolean(*v)),
-            CustomAttrValue::String(s) => {
-                Some(tfs_rust_common::ScriptAttrValue::String(s.clone()))
-            }
+            CustomAttrValue::String(s) => Some(tfs_rust_common::ScriptAttrValue::String(s.clone())),
             CustomAttrValue::None => None,
         }
     }
@@ -597,10 +578,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
 
     /// `player:getMana()` — `Player::getMana` (`player.h`).
     /// PC-3a Phase 5: `conjureItem` dual-hand second-conjure mana check.
-    fn get_player_mana(
-        &self,
-        creature_id: tfs_rust_common::ScriptCreatureId,
-    ) -> Option<i32> {
+    fn get_player_mana(&self, creature_id: tfs_rust_common::ScriptCreatureId) -> Option<i32> {
         let cid = self.resolve_creature_from_script(creature_id)?;
         self.creatures.get(cid).and_then(|k| match k {
             CreatureKind::Player(p) => Some(p.mana),
@@ -667,7 +645,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         max_a: f64,
         max_b: f64,
     ) -> (i32, i32) {
-        use crate::combat::math::{classic_probe_sample, formula_skill_weapon_max, FightMode};
+        use crate::combat::math::{FightMode, classic_probe_sample, formula_skill_weapon_max};
         use crate::formulas::DamageFormula;
 
         let params = self.get_player_weapon_combat_params(creature_id);
@@ -818,8 +796,12 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         }
         let local_uid = self.script_env_last_uid.get();
         self.script_env_last_uid.set(local_uid + 1);
-        self.script_env_local_map.borrow_mut().insert(local_uid, iid);
-        self.script_env_item_to_uid.borrow_mut().insert(iid, local_uid);
+        self.script_env_local_map
+            .borrow_mut()
+            .insert(local_uid, iid);
+        self.script_env_item_to_uid
+            .borrow_mut()
+            .insert(iid, local_uid);
         local_uid
     }
 
@@ -1054,9 +1036,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         idx -= body.top_items.len();
 
         if idx < body.creatures.len() {
-            return Some(ScriptThing::Creature(
-                body.creatures[idx].data().as_ffi(),
-            ));
+            return Some(ScriptThing::Creature(body.creatures[idx].data().as_ffi()));
         }
         idx -= body.creatures.len();
 
@@ -1121,13 +1101,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         crate::walk::tile_query_add_creature(self, tile, cid, flags) as i32
     }
 
-    fn tile_get_item_by_type(
-        &self,
-        x: u16,
-        y: u16,
-        z: u8,
-        type_tag: i32,
-    ) -> Option<ScriptItemId> {
+    fn tile_get_item_by_type(&self, x: u16, y: u16, z: u8, type_tag: i32) -> Option<ScriptItemId> {
         let pos = tfs_rust_common::Position { x, y, z };
         let tile = self.map.get_tile(pos)?;
         let body = tile.body();
@@ -1237,11 +1211,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             .and_then(|d| d.parameters.get(key).cloned())
     }
 
-    fn npc_is_in_talk_range(
-        &self,
-        npc_id: ScriptCreatureId,
-        player_id: ScriptCreatureId,
-    ) -> bool {
+    fn npc_is_in_talk_range(&self, npc_id: ScriptCreatureId, player_id: ScriptCreatureId) -> bool {
         let Some(npc) = self.resolve_creature_u64(npc_id) else {
             return false;
         };

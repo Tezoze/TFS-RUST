@@ -13,8 +13,8 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use mlua::{
-    AnyUserData, FromLua, FromLuaMulti, Function, IntoLua, IntoLuaMulti, Lua, MaybeSend, MultiValue,
-    Table, UserData, UserDataFields, UserDataMethods, UserDataRegistry, Value,
+    AnyUserData, FromLua, FromLuaMulti, Function, IntoLua, IntoLuaMulti, Lua, MaybeSend,
+    MultiValue, Table, UserData, UserDataFields, UserDataMethods, UserDataRegistry, Value,
 };
 
 /// Lua-registry key for the name → callable map written by [`register_class`].
@@ -266,15 +266,14 @@ pub(crate) fn registered_method_entries(
 }
 
 /// Native userdata fields recorded by [`RecordingRegistry`], as `(class, fields)`.
-pub(crate) fn registered_field_entries(lua: &Lua) -> Result<Vec<(String, Vec<String>)>, mlua::Error> {
+pub(crate) fn registered_field_entries(
+    lua: &Lua,
+) -> Result<Vec<(String, Vec<String>)>, mlua::Error> {
     flush_recorded_members(lua)?;
     read_name_set_registry(lua, REGISTERED_FIELDS_KEY)
 }
 
-fn read_name_set_registry(
-    lua: &Lua,
-    key: &str,
-) -> Result<Vec<(String, Vec<String>)>, mlua::Error> {
+fn read_name_set_registry(lua: &Lua, key: &str) -> Result<Vec<(String, Vec<String>)>, mlua::Error> {
     let Ok(table) = lua.named_registry_value::<Table>(key) else {
         return Ok(Vec::new());
     };
@@ -578,9 +577,7 @@ mod tests {
     #[test]
     fn register_class_creates_callable_extensible_table() {
         let lua = Lua::new();
-        let ctor = lua
-            .create_function(|_, n: i32| Ok(n * 2))
-            .expect("ctor");
+        let ctor = lua.create_function(|_, n: i32| Ok(n * 2)).expect("ctor");
         let t = register_class(&lua, "Widget", Some(ctor)).expect("register");
         // Extensible: a Lua method can be attached.
         t.set("greet", lua.create_function(|_, _: ()| Ok("hi")).unwrap())
@@ -648,7 +645,13 @@ mod tests {
         let lua = Lua::new();
         register_engine_class_tables(&lua).expect("register");
         for name in [
-            "Monster", "Npc", "Item", "Container", "Party", "Teleport", "Vocation",
+            "Monster",
+            "Npc",
+            "Item",
+            "Container",
+            "Party",
+            "Teleport",
+            "Vocation",
         ] {
             let kind: String = lua
                 .load(&format!("return type({name})"))
@@ -667,9 +670,15 @@ mod tests {
         // returns whatever sits at the key — a method would be a Function.)
         register_class(&lua, "Player", None).expect("Player");
         register_class(&lua, "Creature", None).expect("Creature");
-        lua.load("Player.shared = 'player'").exec().expect("Player.shared");
-        lua.load("Creature.shared = 'creature'").exec().expect("Creature.shared");
-        lua.load("Creature.creature_only = 'creature'").exec().expect("Creature.creature_only");
+        lua.load("Player.shared = 'player'")
+            .exec()
+            .expect("Player.shared");
+        lua.load("Creature.shared = 'creature'")
+            .exec()
+            .expect("Creature.shared");
+        lua.load("Creature.creature_only = 'creature'")
+            .exec()
+            .expect("Creature.creature_only");
 
         let key = lua.create_string("shared").expect("key shared");
         let v: String = class_index_lookup(&lua, CREATURE_INDEX_CHAIN, key)
@@ -681,7 +690,9 @@ mod tests {
             .to_string();
         assert_eq!(v, "player", "first hit (Player) wins");
 
-        let key = lua.create_string("creature_only").expect("key creature_only");
+        let key = lua
+            .create_string("creature_only")
+            .expect("key creature_only");
         let v: String = class_index_lookup(&lua, CREATURE_INDEX_CHAIN, key)
             .expect("lookup creature_only")
             .as_string()

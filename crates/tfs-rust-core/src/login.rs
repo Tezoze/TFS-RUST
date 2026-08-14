@@ -6,23 +6,23 @@
 
 use std::collections::HashMap;
 
-use tfs_rust_common::enums::{Direction, SkullType};
-use tfs_rust_common::error::{Result, TfsRustError};
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::{Direction, SkullType};
+use tfs_rust_common::error::{Result, TfsRustError};
 use tfs_rust_db::player::{LoadedPlayerData, PlayerStore};
 
-use crate::creature::vocation::{base_walk_speed, VocationProfile};
 use crate::creature::CreatureKind;
+use crate::creature::vocation::{VocationProfile, base_walk_speed};
 use crate::creature::{
-    take_outfits_from_storage, CreatureBase, Outfit, Player, PlayerEconomy, PlayerInventory,
-    PlayerPersistBaseline, PlayerSkills, PlayerSocial,
+    CreatureBase, Outfit, Player, PlayerEconomy, PlayerInventory, PlayerPersistBaseline,
+    PlayerSkills, PlayerSocial, take_outfits_from_storage,
 };
 use crate::formulas::StepSpeedModel;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::lua_scope::fire_on_login;
-use crate::player_flags::{flags_for_group, has_player_flag, PLAYER_FLAG_SET_MAX_SPEED};
+use crate::player_flags::{PLAYER_FLAG_SET_MAX_SPEED, flags_for_group, has_player_flag};
 use tfs_rust_content::groups::GroupDatabase;
 use tfs_rust_content::vocations::VocationRegistry;
 
@@ -135,10 +135,10 @@ pub fn player_from_loaded(
         attack_target: None,
         master: None,
         damage_map: Default::default(),
-            last_hit_by: None,
-            poison_damage_origin: None,
-            fire_damage_origin: None,
-            energy_damage_origin: None,
+        last_hit_by: None,
+        poison_damage_origin: None,
+        fire_damage_origin: None,
+        energy_damage_origin: None,
         earliest_attack_ms: 0,
         latest_attack_round: 0,
         earliest_defend_ms: 0,
@@ -285,11 +285,7 @@ fn playerkiller_end_from_skulltime(skulltime: i64) -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    if skulltime < now {
-        0
-    } else {
-        skulltime
-    }
+    if skulltime < now { 0 } else { skulltime }
 }
 
 /// 772 offline food drain — `crplayer.cc:1395-1400`.
@@ -323,10 +319,7 @@ fn apply_offline_food_drain(food_remaining: u32, lastlogout: u64) -> u32 {
 pub const MAX_CONCURRENT_LOGIN_LOADS: usize = 8;
 
 /// I/O-thread (or Tokio task) load — never call while holding the game loop.
-pub async fn load_player_data(
-    db: &tfs_rust_db::DbPool,
-    name: &str,
-) -> Result<LoadedPlayerData> {
+pub async fn load_player_data(db: &tfs_rust_db::DbPool, name: &str) -> Result<LoadedPlayerData> {
     let store = PlayerStore::new(db);
     let Some(loaded) = store.load_player_full(name).await? else {
         return Err(TfsRustError::Database(format!(

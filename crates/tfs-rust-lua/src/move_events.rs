@@ -256,7 +256,11 @@ pub fn load_move_event_scripts(
 }
 
 /// Apply revscript defs into an existing registry (after XML load).
-pub fn merge_move_event_defs(registry: &mut MoveEventsRegistry, runtime: &LuaRuntime, defs: Vec<MoveEventDef>) {
+pub fn merge_move_event_defs(
+    registry: &mut MoveEventsRegistry,
+    runtime: &LuaRuntime,
+    defs: Vec<MoveEventDef>,
+) {
     for def in defs {
         let Some(key) = def.callback.as_ref() else {
             tracing::warn!(

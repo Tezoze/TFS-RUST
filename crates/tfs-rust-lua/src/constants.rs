@@ -351,7 +351,9 @@ mod tests {
 
         let config_keys: mlua::Table = globals.get("configKeys").expect("configKeys");
         assert_eq!(
-            config_keys.get::<i32>("FREE_PREMIUM").expect("FREE_PREMIUM"),
+            config_keys
+                .get::<i32>("FREE_PREMIUM")
+                .expect("FREE_PREMIUM"),
             7
         );
         assert_eq!(get("ITEM_ATTRIBUTE_ACTIONID"), 1 << 0);

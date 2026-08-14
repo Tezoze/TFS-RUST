@@ -71,7 +71,7 @@ pub fn item_template_wire_len(
     with_description: bool,
 ) -> usize {
     let mut n = 2 + 1; // client id + MARK_UNMARKED
-                       // Stackable writes a count byte; splash/fluid writes a liquid-color byte — both 1 byte.
+    // Stackable writes a count byte; splash/fluid writes a liquid-color byte — both 1 byte.
     if stackable || is_splash_or_fluid {
         n += 1;
     }

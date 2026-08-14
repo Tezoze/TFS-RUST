@@ -5,8 +5,8 @@
 //! - `Game::internalMoveCreature` height floor change — `game.cpp` (~804–834).
 //! - `Tile::hasHeight(n)` — `tile.cpp` (~62–87).
 
-use tfs_rust_common::enums::{Direction, ZoneType};
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::{Direction, ZoneType};
 use tfs_rust_content::items::ItemDatabase;
 
 use crate::creature::CreatureKind;
@@ -18,8 +18,8 @@ use crate::return_value::ReturnValue;
 use crate::tile::flags as tilestate;
 
 use super::{
-    is_diagonal, FLAG_IGNOREBLOCKCREATURE, FLAG_IGNOREBLOCKITEM, FLAG_IGNOREFIELDDAMAGE,
-    FLAG_NOLIMIT, FLAG_PATHFINDING,
+    FLAG_IGNOREBLOCKCREATURE, FLAG_IGNOREBLOCKITEM, FLAG_IGNOREFIELDDAMAGE, FLAG_NOLIMIT,
+    FLAG_PATHFINDING, is_diagonal,
 };
 
 /// Bank+`Waypoints==0` with OTB `blockSolid` cleared for player cliffs (lesson 171).
@@ -661,9 +661,7 @@ pub(crate) fn tile_query_add_player(
     // Skip when already standing in PZ (movement within / out of PZ is allowed).
     if body.zone == ZoneType::Protection {
         let pz_lock_from = match world.creatures.get(mover) {
-            Some(CreatureKind::Player(p))
-                if p.earliest_protection_zone_round > world.round_nr =>
-            {
+            Some(CreatureKind::Player(p)) if p.earliest_protection_zone_round > world.round_nr => {
                 Some(p.base.position)
             }
             _ => None,
@@ -743,12 +741,12 @@ mod pz_entry_lock_tests {
     use super::*;
     use crate::creature::CreatureKind;
     use crate::sim_harness::{
-        beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
-        TEST_SYNTHETIC_GROUND_WP,
+        TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_player,
+        test_player,
     };
     use crate::tile::{Tile, TileBody};
-    use tfs_rust_common::enums::ZoneType;
     use tfs_rust_common::Position;
+    use tfs_rust_common::enums::ZoneType;
 
     fn ensure_pz_tile(map: &mut crate::map::Map, pos: Position) {
         map.insert_tile(

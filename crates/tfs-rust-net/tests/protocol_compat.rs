@@ -21,7 +21,7 @@ use tfs_rust_net::outgoing::{
     send_ping_back, send_text_message,
 };
 use tfs_rust_net::outgoing_extra::send_unjustified_stats_stub;
-use tfs_rust_net::{item_encode::write_item_template, NetworkMessage};
+use tfs_rust_net::{NetworkMessage, item_encode::write_item_template};
 
 /// `GameFeature::GameExtendedOpcode` / `GameItemTooltip` (`src/const.h`) — same pair as `ProtocolGame::sendFeatures`.
 const GAME_EXTENDED_OPCODE: u8 = 80;
@@ -50,14 +50,16 @@ fn magic_effect_encoding() {
 
 #[test]
 fn animated_text_1098_has_no_equivalent() {
-    assert!(codec()
-        .encode_animated_text(&AnimatedTextWire {
-            pos: Position::new(1, 2, 3),
-            color: 180,
-            text: "9".to_string(),
-        })
-        .into_bytes()
-        .is_empty());
+    assert!(
+        codec()
+            .encode_animated_text(&AnimatedTextWire {
+                pos: Position::new(1, 2, 3),
+                color: 180,
+                text: "9".to_string(),
+            })
+            .into_bytes()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -1022,7 +1024,9 @@ mod v772 {
             .into_bytes();
         assert_eq!(
             b,
-            vec![0x6B, 0x02, 0x01, 0x04, 0x03, 0x05, 0x02, 0x63, 0x00, 0x44, 0x33, 0x22, 0x11, 1]
+            vec![
+                0x6B, 0x02, 0x01, 0x04, 0x03, 0x05, 0x02, 0x63, 0x00, 0x44, 0x33, 0x22, 0x11, 1
+            ]
         );
     }
 
@@ -1113,14 +1117,18 @@ mod v772 {
     /// 7.72 has no `sendBasicData` / by-id tile removal — encoders return empty (skipped by core).
     #[test]
     fn no_equivalent_packets_are_empty() {
-        assert!(codec()
-            .encode_basic_data(true, 1234, 1)
-            .into_bytes()
-            .is_empty());
-        assert!(codec()
-            .encode_remove_tile_creature_by_id(42)
-            .into_bytes()
-            .is_empty());
+        assert!(
+            codec()
+                .encode_basic_data(true, 1234, 1)
+                .into_bytes()
+                .is_empty()
+        );
+        assert!(
+            codec()
+                .encode_remove_tile_creature_by_id(42)
+                .into_bytes()
+                .is_empty()
+        );
     }
 
     /// `sendAnimatedText` (`0x84`): position + color + string.
@@ -1136,7 +1144,9 @@ mod v772 {
             .into_bytes();
         assert_eq!(
             b,
-            vec![0x84, 0x02, 0x01, 0x04, 0x03, 0x05, 180, 0x02, 0x00, b'4', b'2']
+            vec![
+                0x84, 0x02, 0x01, 0x04, 0x03, 0x05, 180, 0x02, 0x00, b'4', b'2'
+            ]
         );
     }
 
@@ -1154,7 +1164,9 @@ mod v772 {
             .into_bytes();
         assert_eq!(
             b,
-            vec![0x85, 0x02, 0x01, 0x04, 0x03, 0x05, 0x06, 0x05, 0x08, 0x07, 0x05, 11]
+            vec![
+                0x85, 0x02, 0x01, 0x04, 0x03, 0x05, 0x06, 0x05, 0x08, 0x07, 0x05, 11
+            ]
         );
     }
 
@@ -1225,7 +1237,9 @@ mod v772 {
             .into_bytes();
         assert_eq!(
             b,
-            vec![0xAC, 4, 0, 9, 0, b'G', b'a', b'm', b'e', b'-', b'C', b'h', b'a', b't',]
+            vec![
+                0xAC, 4, 0, 9, 0, b'G', b'a', b'm', b'e', b'-', b'C', b'h', b'a', b't',
+            ]
         );
     }
 
@@ -1523,7 +1537,10 @@ mod v772_floor_change {
             Position::new(32380, 32205, 7),
             Position::new(32380, 32204, 8),
         );
-        assert_eq!(b[0], 0x6C, "must not pre-set client z with 0x6D before FloorDown");
+        assert_eq!(
+            b[0], 0x6C,
+            "must not pre-set client z with 0x6D before FloorDown"
+        );
         assert_eq!(b[SELF_REMOVE_PACKET_LEN], 0xBF);
     }
 

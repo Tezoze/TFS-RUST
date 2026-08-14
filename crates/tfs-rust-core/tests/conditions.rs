@@ -3,7 +3,7 @@
 
 use proptest::prelude::*;
 use tfs_rust_common::enums::ConditionType;
-use tfs_rust_core::{add_condition_merge, ActiveCondition, ConditionData};
+use tfs_rust_core::{ActiveCondition, ConditionData, add_condition_merge};
 
 proptest! {
     #[test]

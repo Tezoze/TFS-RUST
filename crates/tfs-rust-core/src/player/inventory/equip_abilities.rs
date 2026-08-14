@@ -6,11 +6,11 @@
 
 use tfs_rust_common::enums::ConditionType;
 use tfs_rust_content::item_abilities::{
-    ItemAbilities, CONDITION_DRUNK, STAT_MAGICPOINTS, STAT_MAXHITPOINTS, STAT_MAXMANAPOINTS,
+    CONDITION_DRUNK, ItemAbilities, STAT_MAGICPOINTS, STAT_MAXHITPOINTS, STAT_MAXMANAPOINTS,
     STAT_SOULPOINTS,
 };
 
-use crate::condition::{add_condition_merge, ActiveCondition, ConditionData};
+use crate::condition::{ActiveCondition, ConditionData, add_condition_merge};
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
@@ -253,9 +253,9 @@ impl GameWorld {
                 self.announce_player_change_visible(cid, false);
             } else {
                 let still_invisible = if let Some(kind) = self.creatures.get_mut(cid) {
-                    kind.base_mut().active_conditions.retain(|c| {
-                        !(c.ctype == ConditionType::Invisible && c.id == slot as u32)
-                    });
+                    kind.base_mut()
+                        .active_conditions
+                        .retain(|c| !(c.ctype == ConditionType::Invisible && c.id == slot as u32));
                     kind.base().is_invisible()
                 } else {
                     false
@@ -283,9 +283,9 @@ impl GameWorld {
                     );
                 }
             } else if let Some(kind) = self.creatures.get_mut(cid) {
-                kind.base_mut().active_conditions.retain(|c| {
-                    !(c.ctype == ConditionType::ManaShield && c.id == slot as u32)
-                });
+                kind.base_mut()
+                    .active_conditions
+                    .retain(|c| !(c.ctype == ConditionType::ManaShield && c.id == slot as u32));
             }
         }
 
@@ -329,9 +329,9 @@ impl GameWorld {
                     );
                 }
             } else if let Some(kind) = self.creatures.get_mut(cid) {
-                kind.base_mut().active_conditions.retain(|c| {
-                    !(c.ctype == ConditionType::Regeneration && c.id == slot as u32)
-                });
+                kind.base_mut()
+                    .active_conditions
+                    .retain(|c| !(c.ctype == ConditionType::Regeneration && c.id == slot as u32));
             }
         }
 
@@ -364,8 +364,7 @@ impl GameWorld {
                     STAT_MAGICPOINTS => p.skills.maglevel,
                     _ => 0,
                 };
-                let adj =
-                    ((default as f32) * (((pct - 100) as f32) / 100.0)).floor() as i32;
+                let adj = ((default as f32) * (((pct - 100) as f32) / 100.0)).floor() as i32;
                 if adj != 0 {
                     p.var_stats[i] += adj * sign;
                     need_stats = true;
@@ -525,7 +524,9 @@ mod tests {
         let mut it = ItemType::default();
         it.abilities = abilities;
         register_type(world, item_type_id, it);
-        let iid = world.items.insert(crate::item::Item::new_single(item_type_id));
+        let iid = world
+            .items
+            .insert(crate::item::Item::new_single(item_type_id));
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
             let idx = crate::inventory::slot_to_array_index(slot).expect("slot");
             p.equipment_slots[idx] = Some(iid);
@@ -605,9 +606,7 @@ mod tests {
         active
             .xml_attributes
             .insert("duration".into(), "600".into());
-        active
-            .xml_attributes
-            .insert("decayto".into(), "0".into());
+        active.xml_attributes.insert("decayto".into(), "0".into());
         active
             .xml_attributes
             .insert("transformdeequipto".into(), "2169".into());
@@ -628,7 +627,10 @@ mod tests {
             30
         );
         assert!(
-            world.items.get(iid).is_some_and(|i| i.decaying() == DecayState::True),
+            world
+                .items
+                .get(iid)
+                .is_some_and(|i| i.decaying() == DecayState::True),
             "active ring should be decaying"
         );
 

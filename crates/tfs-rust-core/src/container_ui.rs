@@ -342,8 +342,7 @@ impl GameWorld {
         // 772 `HasUpContainer` is true whenever the container has a parent that is not a body slot
         // (`sending.cc:714`). A bag on the ground has a tile cylinder parent, so the up arrow shows.
         let parent_cyl = self.resolve_item_parent_cylinder(container_item_id);
-        let has_parent =
-            parent_cyl.is_some_and(|c| !matches!(c, Cylinder::Inventory { .. }));
+        let has_parent = parent_cyl.is_some_and(|c| !matches!(c, Cylinder::Inventory { .. }));
         let unlocked = cont.unlocked;
         let total_items = cont.items.len() as u16;
         let pagination = cont.pagination;
@@ -486,13 +485,7 @@ impl GameWorld {
                 continue;
             };
             for _ in 0..remove_count {
-                self.enqueue_container_slot_delta(
-                    pl,
-                    conn,
-                    client_cid,
-                    change,
-                    container_item_id,
-                );
+                self.enqueue_container_slot_delta(pl, conn, client_cid, change, container_item_id);
             }
         }
         self.notify_container_owner_carry_weight(container_item_id);
@@ -540,7 +533,10 @@ impl GameWorld {
     /// `PRIORITY_BOTTOM` downs (fields, pools) precede the always-on-top group; ordinary
     /// `PRIORITY_LOW` downs come last, newest first (`map.cc` `GetObjectPriority` /
     /// `PlaceObject`). Creatures are skipped — this yields items only.
-    fn tile_items_in_chain_order(&self, pos: Position) -> Option<impl Iterator<Item = ItemId> + '_> {
+    fn tile_items_in_chain_order(
+        &self,
+        pos: Position,
+    ) -> Option<impl Iterator<Item = ItemId> + '_> {
         let body = self.map.get_tile(pos)?.body();
         let bottoms = body
             .down_items
@@ -694,14 +690,8 @@ impl GameWorld {
             Some(CreatureKind::Player(p)) => p.guid,
             _ => return Err(ReturnValue::NotPossible),
         };
-        let can_edit = self.player_has_flag(
-            cid,
-            crate::player_flags::PLAYER_FLAG_CAN_EDIT_HOUSES,
-        );
-        if self
-            .houses
-            .door_can_use(house_id, door_id, guid, can_edit)
-        {
+        let can_edit = self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_CAN_EDIT_HOUSES);
+        if self.houses.door_can_use(house_id, door_id, guid, can_edit) {
             Ok(())
         } else {
             Err(ReturnValue::NotPossible)
@@ -732,15 +722,8 @@ impl GameWorld {
         } else {
             self.script_item_position(item_id).unwrap_or(pos)
         };
-        if crate::lua_scope::fire_on_use_action(
-            self,
-            cid,
-            item_id,
-            from,
-            Some(item_id),
-            None,
-            from,
-        ) {
+        if crate::lua_scope::fire_on_use_action(self, cid, item_id, from, Some(item_id), None, from)
+        {
             return Ok(());
         }
 
@@ -1051,7 +1034,10 @@ impl GameWorld {
         // 772 `CUpContainer` (`receiving.cc:609`) walks up one cylinder. If the resolved parent is a
         // map tile or inventory slot (the root), the window is closed instead of opened.
         let parent_cyl = self.resolve_item_parent_cylinder(current_id);
-        let Some(Cylinder::Container { item_id: parent_id, .. }) = parent_cyl else {
+        let Some(Cylinder::Container {
+            item_id: parent_id, ..
+        }) = parent_cyl
+        else {
             self.send_close_container_packet(conn_id, client_cid);
             return;
         };
@@ -1212,11 +1198,13 @@ mod tests {
             .container_registry
             .add_container(cid, container_item_id, Some(0), 0)
             .expect("open container");
-        assert!(world
-            .container_registry
-            .open_container_entries(cid)
-            .iter()
-            .any(|(open_cid, root)| *open_cid == ccid && *root == container_item_id));
+        assert!(
+            world
+                .container_registry
+                .open_container_entries(cid)
+                .iter()
+                .any(|(open_cid, root)| *open_cid == ccid && *root == container_item_id)
+        );
 
         // Move two tiles away and run the auto-close sweep.
         world.creatures.get_mut(cid).unwrap().set_position(far_pos);

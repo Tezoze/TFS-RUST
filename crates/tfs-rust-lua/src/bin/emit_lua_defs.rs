@@ -12,10 +12,10 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use tfs_rust_lua::LuaRuntime;
 use tfs_rust_lua::lua_defs::{
     check_lua_defs, default_lua_defs_dir, snapshot_lua_defs, write_lua_defs,
 };
-use tfs_rust_lua::LuaRuntime;
 
 fn main() -> ExitCode {
     match run(std::env::args().skip(1).collect()) {
@@ -39,17 +39,13 @@ fn run(args: Vec<String>) -> Result<String, String> {
             "--check" => check = true,
             "--out" => {
                 i += 1;
-                let path = args
-                    .get(i)
-                    .ok_or("--out requires a directory")?;
+                let path = args.get(i).ok_or("--out requires a directory")?;
                 out = Some(PathBuf::from(path));
             }
             "-h" | "--help" => {
-                return Ok(
-                    "emit-lua-defs [--check] [--out DIR]\n\
+                return Ok("emit-lua-defs [--check] [--out DIR]\n\
                      Write LuaLS stubs from the live engine VM (pillar 5)."
-                        .into(),
-                );
+                    .into());
             }
             other => return Err(format!("unknown argument: {other}")),
         }

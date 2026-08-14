@@ -239,11 +239,7 @@ pub trait ScriptContext {
     /// `player:getEffectiveSkillLevel(skill)` — `luaPlayerGetEffectiveSkillLevel`
     /// → `Player::getSkillLevel` (`player.h`). `skill` is TFS `skills_t` (0–6).
     /// `None` when the creature is not a player or `skill` is out of range.
-    fn get_player_effective_skill(
-        &self,
-        creature_id: ScriptCreatureId,
-        skill: i32,
-    ) -> Option<i32> {
+    fn get_player_effective_skill(&self, creature_id: ScriptCreatureId, skill: i32) -> Option<i32> {
         let _ = (creature_id, skill);
         None
     }
@@ -692,13 +688,7 @@ pub trait ScriptContext {
     }
 
     /// `tile:getItemByType(ITEM_TYPE_*)` — first matching item by type_tag.
-    fn tile_get_item_by_type(
-        &self,
-        x: u16,
-        y: u16,
-        z: u8,
-        type_tag: i32,
-    ) -> Option<ScriptItemId> {
+    fn tile_get_item_by_type(&self, x: u16, y: u16, z: u8, type_tag: i32) -> Option<ScriptItemId> {
         let _ = (x, y, z, type_tag);
         None
     }
@@ -770,11 +760,7 @@ pub trait ScriptContext {
     }
 
     /// NPC-7: `npc:isInTalkRange(player)` — same-floor focus-range check.
-    fn npc_is_in_talk_range(
-        &self,
-        npc_id: ScriptCreatureId,
-        player_id: ScriptCreatureId,
-    ) -> bool {
+    fn npc_is_in_talk_range(&self, npc_id: ScriptCreatureId, player_id: ScriptCreatureId) -> bool {
         let _ = (npc_id, player_id);
         false
     }

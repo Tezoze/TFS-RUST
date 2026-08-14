@@ -1,7 +1,7 @@
 use tfs_rust_common::Position;
 use tfs_rust_common::ZoneType;
-use tfs_rust_core::map::{walk_grid_line, Map, SparseGrid};
-use tfs_rust_core::tile::{flags, Tile, TileBody};
+use tfs_rust_core::map::{Map, SparseGrid, walk_grid_line};
+use tfs_rust_core::tile::{Tile, TileBody, flags};
 
 fn body_at(x: u16, y: u16, flags: u32) -> Tile {
     let _ = (x, y);

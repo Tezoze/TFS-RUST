@@ -193,7 +193,7 @@ fn can_kick_boxes_inherits_from_master() {
 fn kicker_paths_through_pushable_bear_not_stall() {
     use crate::creature::ChaseMode;
     use crate::monster_ai::MonsterCombatCloseChaseEnqueue;
-    use crate::sim_harness::{beat_driven_test_world, TEST_SYNTHETIC_GROUND_WP};
+    use crate::sim_harness::{TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world};
 
     let mut world = beat_driven_test_world();
     // 1-wide corridor: cyclops(100,100) → bear(101,100) → player(103,100).
@@ -297,8 +297,13 @@ fn master_kicks_own_boxed_summon() {
 
     let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
     let master = insert_monster_with_config(&mut world, "Giant Spider", mpos, 80, kicker_config());
-    let summon =
-        insert_monster_with_config(&mut world, "Poison Spider", spos, 40, MonsterAiConfig::default());
+    let summon = insert_monster_with_config(
+        &mut world,
+        "Poison Spider",
+        spos,
+        40,
+        MonsterAiConfig::default(),
+    );
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(summon) {
         m.base.master = Some(master);
         m.pushable = true;
@@ -342,8 +347,13 @@ fn master_pushes_own_summon_when_escape_exists() {
 
     let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
     let master = insert_monster_with_config(&mut world, "Giant Spider", mpos, 80, kicker_config());
-    let summon =
-        insert_monster_with_config(&mut world, "Poison Spider", spos, 40, MonsterAiConfig::default());
+    let summon = insert_monster_with_config(
+        &mut world,
+        "Poison Spider",
+        spos,
+        40,
+        MonsterAiConfig::default(),
+    );
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(summon) {
         m.base.master = Some(master);
         m.pushable = true;
@@ -370,7 +380,6 @@ fn master_pushes_own_summon_when_escape_exists() {
         "own summon must have been relocated off the destination tile"
     );
 }
-
 
 /// End-to-end: cyclops paths through a boxed-in **pushable** creature (rat) in a 1-wide
 /// corridor and kills it on step execution. This verifies the full flow: planning routes
@@ -508,7 +517,7 @@ fn ignored_player_tile_is_hard_block_not_exhausted() {
 /// planning gate — `monster_move_possible_planning` returns false for invisible creatures.
 #[test]
 fn invisible_blocker_is_hard_block_in_planning() {
-    use crate::condition::{add_condition_merge, ActiveCondition, ConditionData};
+    use crate::condition::{ActiveCondition, ConditionData, add_condition_merge};
     use tfs_rust_common::enums::ConditionType as CondType;
 
     let mut world = beat_driven_world();
@@ -804,7 +813,7 @@ fn f3_player_tile_clears_target() {
 /// might pick a different target or sleep.
 #[test]
 fn f3_kick_kill_reengages_same_target() {
-    use crate::sim_harness::{beat_driven_test_world, TEST_SYNTHETIC_GROUND_WP};
+    use crate::sim_harness::{TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world};
 
     let mut world = beat_driven_test_world();
     let now = std::time::Instant::now();
@@ -1169,7 +1178,8 @@ fn kicked_monster_walk_queue_cleared_by_adjacency_check() {
         m.base.walk_queue.clear();
         m.base.walk_destinations.clear();
         m.base.walk_queue.push_back(Direction::South);
-        m.base.walk_destinations
+        m.base
+            .walk_destinations
             .push_back(Position::new(101, 101, 7));
         m.base.has_follow_path = true;
         // Arm the walk timer so `on_walk` processes the step.
@@ -1241,7 +1251,7 @@ fn kicked_monster_walk_queue_cleared_by_adjacency_check() {
 /// kick direction (`NotifyTurn`, `cract.cc:1566–1581`).
 #[test]
 fn kick_applies_notify_go_dest_floor_speed_and_facing() {
-    use crate::sim_harness::{beat_driven_test_world, TEST_SYNTHETIC_GROUND_WP};
+    use crate::sim_harness::{TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world};
     use crate::walk::{get_step_duration_ms_with_direction, ground_speed_for_tile_body};
 
     let mut world = beat_driven_test_world();
@@ -1287,7 +1297,11 @@ fn kick_applies_notify_go_dest_floor_speed_and_facing() {
         .get_tile(escape)
         .map(|t| ground_speed_for_tile_body(t.body(), world.items_db.as_ref()))
         .unwrap_or(0);
-    assert_eq!(gs_escape, u32::from(wp), "escape tile must use synthetic WP");
+    assert_eq!(
+        gs_escape,
+        u32::from(wp),
+        "escape tile must use synthetic WP"
+    );
 
     let (earliest, last_gs, last_ms, facing, expected_step) = world
         .creatures
@@ -1315,7 +1329,11 @@ fn kick_applies_notify_go_dest_floor_speed_and_facing() {
         last_gs, gs_escape,
         "last_step_ground_speed must be escape WAYPOINTS"
     );
-    assert_eq!(last_ms, Some(1000), "last_step_server_ms must be kick instant");
+    assert_eq!(
+        last_ms,
+        Some(1000),
+        "last_step_server_ms must be kick instant"
+    );
     assert_eq!(facing, Direction::North, "NotifyTurn faces kick direction");
     assert!(expected_step > 0, "step duration must be positive");
     assert_eq!(
@@ -1336,7 +1354,7 @@ fn kick_applies_notify_go_dest_floor_speed_and_facing() {
 /// ```
 #[test]
 fn fast_kicker_steps_onto_vacated_tiles_three_pushes() {
-    use crate::sim_harness::{beat_driven_test_world, TEST_SYNTHETIC_GROUND_WP};
+    use crate::sim_harness::{TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world};
     use crate::walk::{get_step_duration_ms_with_direction, ground_speed_for_tile_body};
 
     let mut world = beat_driven_test_world();
@@ -1390,21 +1408,11 @@ fn fast_kicker_steps_onto_vacated_tiles_three_pushes() {
     // Expected step duration at kicker speed vs blocker speed (same ground).
     let (fast_ms, slow_ms) = {
         let k = world.creatures.get(kicker).expect("kicker");
-        let fast = get_step_duration_ms_with_direction(
-            k,
-            k.base(),
-            Direction::East,
-            gs,
-            &world.mechanics,
-        );
+        let fast =
+            get_step_duration_ms_with_direction(k, k.base(), Direction::East, gs, &world.mechanics);
         let b = world.creatures.get(blockers[0]).expect("blocker");
-        let slow = get_step_duration_ms_with_direction(
-            b,
-            b.base(),
-            Direction::East,
-            gs,
-            &world.mechanics,
-        );
+        let slow =
+            get_step_duration_ms_with_direction(b, b.base(), Direction::East, gs, &world.mechanics);
         (fast, slow)
     };
     assert!(
@@ -1726,7 +1734,8 @@ fn monster_queryadd_passes_furniture_with_kick() {
         can_push_items: true,
         ..MonsterAiConfig::default()
     };
-    let mover = insert_monster_with_config(&mut world, "Cyclops", Position::new(99, 100, 7), 200, cfg);
+    let mover =
+        insert_monster_with_config(&mut world, "Cyclops", Position::new(99, 100, 7), 200, cfg);
     let tile = world.map.get_tile(pos).expect("tile");
     let ret = tile_query_add_creature(&world, tile, mover, 0);
     assert_eq!(

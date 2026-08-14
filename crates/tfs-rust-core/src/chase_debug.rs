@@ -51,11 +51,7 @@ mod stubs {
     pub fn todo_go_via_from_path(from: Position, dest: Position) -> &'static str {
         let dx = (dest.x as i32 - from.x as i32).abs();
         let dy = (dest.y as i32 - from.y as i32).abs();
-        if dx + dy == 1 {
-            "single"
-        } else {
-            "enter"
-        }
+        if dx + dy == 1 { "single" } else { "enter" }
     }
 
     pub fn log_todo_go(
@@ -375,11 +371,7 @@ pub fn log_branch(
 pub fn todo_go_via_from_path(from: Position, dest: Position) -> &'static str {
     let dx = (dest.x as i32 - from.x as i32).abs();
     let dy = (dest.y as i32 - from.y as i32).abs();
-    if dx + dy == 1 {
-        "single"
-    } else {
-        "enter"
-    }
+    if dx + dy == 1 { "single" } else { "enter" }
 }
 
 #[cfg(any(test, feature = "sim"))]

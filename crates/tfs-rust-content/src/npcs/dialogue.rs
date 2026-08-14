@@ -129,10 +129,7 @@ pub enum DialoguePredicate {
         span: SourceSpan,
     },
     /// `%1` / `%2` numeric word capture (cap applied at runtime).
-    NumericCapture {
-        slot: u8,
-        span: SourceSpan,
-    },
+    NumericCapture { slot: u8, span: SourceSpan },
     Expression {
         expr: DialogueExpr,
         op: ExprOp,
@@ -144,9 +141,7 @@ pub enum DialoguePredicate {
         span: SourceSpan,
     },
     /// `!` — select this rule immediately once preceding conditions match.
-    Select {
-        span: SourceSpan,
-    },
+    Select { span: SourceSpan },
     Custom {
         callback_id: NpcCallbackId,
         name: String,

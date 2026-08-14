@@ -90,12 +90,10 @@ pub fn death_loss_fraction_for_profile(
     promoted: bool,
 ) -> f64 {
     match profile.damage_formula {
-        crate::formulas::DamageFormula::ClassicProbe => {
-            profile
-                .death_penalty
-                .loss_fraction(promoted, blessing_count(blessings))
-                .clamp(0.0, 1.0)
-        }
+        crate::formulas::DamageFormula::ClassicProbe => profile
+            .death_penalty
+            .loss_fraction(promoted, blessing_count(blessings))
+            .clamp(0.0, 1.0),
         crate::formulas::DamageFormula::Modern => {
             death_loss_fraction(config, level, experience, blessings)
         }
@@ -300,8 +298,8 @@ mod tests {
     use crate::event_dispatcher::NullEventDispatcher;
     use crate::formulas::{MechanicsProfile, StepSpeedModel};
     use crate::sim_harness::{insert_player, minimal_world, test_player};
-    use tfs_rust_common::enums::WorldType;
     use tfs_rust_common::Position;
+    use tfs_rust_common::enums::WorldType;
 
     #[test]
     fn blessing_count_bits_0_to_4() {
@@ -367,23 +365,17 @@ mod tests {
                 .map(|d| d.as_nanos())
                 .unwrap_or(0),
         ));
-        std::fs::write(
-            &path,
-            "depotFreeLimit = 2000\ndeathLosePercent = 0\n",
-        )
-        .expect("write config");
+        std::fs::write(&path, "depotFreeLimit = 2000\ndeathLosePercent = 0\n")
+            .expect("write config");
         world.config = std::rc::Rc::new(ConfigManager::load(&path).expect("load config"));
 
-        let cid = insert_player(
-            &mut world,
-            {
-                let mut p = test_player("ZeroLoss", Position::new(100, 100, 7));
-                p.blessings = 0b11111;
-                p.experience = 10_000;
-                p.level = 20;
-                p
-            },
-        );
+        let cid = insert_player(&mut world, {
+            let mut p = test_player("ZeroLoss", Position::new(100, 100, 7));
+            p.blessings = 0b11111;
+            p.experience = 10_000;
+            p.level = 20;
+            p
+        });
 
         let (_, grants) = death_call(&mut world, cid, WorldType::Pvp);
 
@@ -501,16 +493,13 @@ mod tests {
     #[test]
     fn m6_death_penalty_flat_772_unpromoted_10_percent() {
         let mut world = world_772();
-        let cid = insert_player(
-            &mut world,
-            {
-                let mut p = test_player("Vic", Position::new(100, 100, 7));
-                p.experience = 10_000;
-                p.level = 20;
-                p.blessings = 0;
-                p
-            },
-        );
+        let cid = insert_player(&mut world, {
+            let mut p = test_player("Vic", Position::new(100, 100, 7));
+            p.experience = 10_000;
+            p.level = 20;
+            p.blessings = 0;
+            p
+        });
         let (_, grants) = death_call(&mut world, cid, WorldType::Pvp);
         let grant = grants.iter().find(|g| g.cid == cid).expect("victim grant");
         // 10% of 10_000 = 1_000 exp lost → level may drop; check exp delta via grant levels.
@@ -526,19 +515,16 @@ mod tests {
     #[test]
     fn m6_death_penalty_flat_772_promoted_7_percent() {
         let mut world = world_772();
-        let cid = insert_player(
-            &mut world,
-            {
-                let mut p = test_player("Vic", Position::new(100, 100, 7));
-                p.experience = 10_000;
-                p.level = 20;
-                p.blessings = 0;
-                // Promoted: from_vocation != id && from_vocation != 0.
-                p.vocation_profile.from_vocation = 1;
-                p.vocation_profile.id = 5;
-                p
-            },
-        );
+        let cid = insert_player(&mut world, {
+            let mut p = test_player("Vic", Position::new(100, 100, 7));
+            p.experience = 10_000;
+            p.level = 20;
+            p.blessings = 0;
+            // Promoted: from_vocation != id && from_vocation != 0.
+            p.vocation_profile.from_vocation = 1;
+            p.vocation_profile.id = 5;
+            p
+        });
         let _ = death_call(&mut world, cid, WorldType::Pvp);
         let exp = match world.creatures.get(cid) {
             Some(CreatureKind::Player(p)) => p.experience,
@@ -550,16 +536,13 @@ mod tests {
     #[test]
     fn m6_death_penalty_flat_772_blessings_reduce() {
         let mut world = world_772();
-        let cid = insert_player(
-            &mut world,
-            {
-                let mut p = test_player("Vic", Position::new(100, 100, 7));
-                p.experience = 10_000;
-                p.level = 20;
-                p.blessings = 0b00111; // 3 blessings
-                p
-            },
-        );
+        let cid = insert_player(&mut world, {
+            let mut p = test_player("Vic", Position::new(100, 100, 7));
+            p.experience = 10_000;
+            p.level = 20;
+            p.blessings = 0b00111; // 3 blessings
+            p
+        });
         let _ = death_call(&mut world, cid, WorldType::Pvp);
         let exp = match world.creatures.get(cid) {
             Some(CreatureKind::Player(p)) => p.experience,
@@ -572,18 +555,15 @@ mod tests {
     #[test]
     fn m6_death_penalty_flat_772_promoted_with_all_blessings_zero() {
         let mut world = world_772();
-        let cid = insert_player(
-            &mut world,
-            {
-                let mut p = test_player("Vic", Position::new(100, 100, 7));
-                p.experience = 10_000;
-                p.level = 20;
-                p.blessings = 0b11111; // 5 blessings
-                p.vocation_profile.from_vocation = 1;
-                p.vocation_profile.id = 5;
-                p
-            },
-        );
+        let cid = insert_player(&mut world, {
+            let mut p = test_player("Vic", Position::new(100, 100, 7));
+            p.experience = 10_000;
+            p.level = 20;
+            p.blessings = 0b11111; // 5 blessings
+            p.vocation_profile.from_vocation = 1;
+            p.vocation_profile.id = 5;
+            p
+        });
         let _ = death_call(&mut world, cid, WorldType::Pvp);
         let exp = match world.creatures.get(cid) {
             Some(CreatureKind::Player(p)) => p.experience,

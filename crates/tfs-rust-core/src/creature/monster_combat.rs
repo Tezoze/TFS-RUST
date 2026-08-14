@@ -3,10 +3,10 @@
 //! C++ reference: `cr.hh` `TSpellData`; `crnonpl.cc:2521-2667` CASTING shape/impact switches;
 //! `crcombat.cc:647` `CloseAttack`, `:660` poison-on-hit.
 
-use crate::combat::math::{defense_gate_ms, defense_value, FightMode};
+use crate::combat::math::{FightMode, defense_gate_ms, defense_value};
 use crate::condition::{ActiveCondition, ConditionData};
-use crate::creature::base::CreatureBase;
 use crate::creature::CreatureKind;
+use crate::creature::base::CreatureBase;
 use crate::formulas::{FormulaHooks, MechanicsProfile};
 use tfs_rust_common::enums::{CombatType, ConditionType, ShootEffect};
 use tfs_rust_content::monsters::{MonsterSpellNode, MonsterType};
@@ -504,8 +504,8 @@ pub fn melee_poison_on_hit(
             factor_percent: 50,
         },
         timer_rounds_left: None,
-    skill_count: 0,
-    skill_max_count: 0,
+        skill_count: 0,
+        skill_max_count: 0,
     })
 }
 
@@ -764,33 +764,36 @@ fn parse_shoot_effect_name(name: &str) -> Option<u8> {
 /// Names beyond the 772 client range (>25) are dropped — they would not render.
 fn parse_area_effect_name(name: &str) -> Option<u8> {
     let byte = match name.to_ascii_lowercase().as_str() {
-        "redspark" => 1,        // CONST_ME_DRAWBLOOD
-        "bluebubble" => 2,      // CONST_ME_LOSEENERGY
-        "poff" => 3,            // CONST_ME_POFF
-        "yellowspark" => 4,     // CONST_ME_BLOCKHIT
-        "explosionarea" => 5,   // CONST_ME_EXPLOSIONAREA
-        "explosion" => 6,       // CONST_ME_EXPLOSIONHIT
-        "firearea" => 7,        // CONST_ME_FIREAREA
-        "yellowbubble" => 8,    // CONST_ME_YELLOW_RINGS
-        "greenbubble" => 9,     // CONST_ME_GREEN_RINGS
-        "blackspark" => 10,     // CONST_ME_HITAREA
-        "teleport" => 11,       // CONST_ME_TELEPORT
-        "energy" => 12,         // CONST_ME_ENERGYHIT
-        "blueshimmer" => 13,    // CONST_ME_MAGIC_BLUE
-        "redshimmer" => 14,     // CONST_ME_MAGIC_RED
-        "greenshimmer" => 15,   // CONST_ME_MAGIC_GREEN
-        "fire" => 16,           // CONST_ME_HITBYFIRE
-        "greenspark" => 17,     // CONST_ME_HITBYPOISON
-        "mortarea" => 18,       // CONST_ME_MORTAREA
-        "greennote" => 19,      // CONST_ME_SOUND_GREEN
-        "rednote" => 20,        // CONST_ME_SOUND_RED
-        "poison" => 21,         // CONST_ME_POISONAREA
-        "yellownote" => 22,     // CONST_ME_SOUND_YELLOW
-        "purplenote" => 23,     // CONST_ME_SOUND_PURPLE
-        "bluenote" => 24,       // CONST_ME_SOUND_BLUE
-        "whitenote" => 25,      // CONST_ME_SOUND_WHITE
+        "redspark" => 1,      // CONST_ME_DRAWBLOOD
+        "bluebubble" => 2,    // CONST_ME_LOSEENERGY
+        "poff" => 3,          // CONST_ME_POFF
+        "yellowspark" => 4,   // CONST_ME_BLOCKHIT
+        "explosionarea" => 5, // CONST_ME_EXPLOSIONAREA
+        "explosion" => 6,     // CONST_ME_EXPLOSIONHIT
+        "firearea" => 7,      // CONST_ME_FIREAREA
+        "yellowbubble" => 8,  // CONST_ME_YELLOW_RINGS
+        "greenbubble" => 9,   // CONST_ME_GREEN_RINGS
+        "blackspark" => 10,   // CONST_ME_HITAREA
+        "teleport" => 11,     // CONST_ME_TELEPORT
+        "energy" => 12,       // CONST_ME_ENERGYHIT
+        "blueshimmer" => 13,  // CONST_ME_MAGIC_BLUE
+        "redshimmer" => 14,   // CONST_ME_MAGIC_RED
+        "greenshimmer" => 15, // CONST_ME_MAGIC_GREEN
+        "fire" => 16,         // CONST_ME_HITBYFIRE
+        "greenspark" => 17,   // CONST_ME_HITBYPOISON
+        "mortarea" => 18,     // CONST_ME_MORTAREA
+        "greennote" => 19,    // CONST_ME_SOUND_GREEN
+        "rednote" => 20,      // CONST_ME_SOUND_RED
+        "poison" => 21,       // CONST_ME_POISONAREA
+        "yellownote" => 22,   // CONST_ME_SOUND_YELLOW
+        "purplenote" => 23,   // CONST_ME_SOUND_PURPLE
+        "bluenote" => 24,     // CONST_ME_SOUND_BLUE
+        "whitenote" => 25,    // CONST_ME_SOUND_WHITE
         _ => {
-            debug!(areaeffect = name, "monster areaeffect not mapped to a 772 effect");
+            debug!(
+                areaeffect = name,
+                "monster areaeffect not mapped to a 772 effect"
+            );
             return None;
         }
     };
@@ -899,7 +902,10 @@ mod tests {
             .expect("poisonfield spell");
         assert_eq!(field.delay, 6);
         assert_eq!(field.range, 7);
-        assert_eq!(field.radius, 0, "TFS radius=1 → 772 disc radius 0 (center only)");
+        assert_eq!(
+            field.radius, 0,
+            "TFS radius=1 → 772 disc radius 0 (center only)"
+        );
         assert_eq!(field.shape, SpellShape::Destination);
         assert!(matches!(
             field.impact,
@@ -973,11 +979,7 @@ mod tests {
                 .filter(|s| matches!(s.impact, SpellImpact::Field { .. }))
                 .collect();
             fields.sort_by_key(|s| s.delay);
-            assert_eq!(
-                fields.len(),
-                expected.len(),
-                "{name}: field spell count"
-            );
+            assert_eq!(fields.len(), expected.len(), "{name}: field spell count");
             for (spell, &(delay, radius, shoot, field_type)) in fields.iter().zip(expected.iter()) {
                 assert_eq!(spell.delay, delay, "{name} delay");
                 assert_eq!(spell.radius, radius, "{name} 772 disc radius");
@@ -1018,7 +1020,10 @@ mod tests {
         let mtype = load_monster_type("dragon");
         let cfg = MonsterAiConfig::from_monster_type(&mtype);
         let spell_len = cfg.spells.len();
-        assert!(spell_len >= 2, "dragon must have merged attack/defense spells");
+        assert!(
+            spell_len >= 2,
+            "dragon must have merged attack/defense spells"
+        );
 
         let mut world = beat_driven_test_world();
         let mut monsters = Vec::new();
@@ -1120,7 +1125,13 @@ mod tests {
         assert_eq!(wave.spread, 3, "spread → 772 Angle/10");
         assert_eq!(wave.delay, 9);
         assert_eq!(wave.area_effect, Some(7), "firearea → CONST_ME_FIREAREA 7");
-        assert!(matches!(wave.impact, SpellImpact::Damage { element: CombatType::Fire, .. }));
+        assert!(matches!(
+            wave.impact,
+            SpellImpact::Damage {
+                element: CombatType::Fire,
+                ..
+            }
+        ));
 
         let fireball = cfg
             .spells
@@ -1131,7 +1142,13 @@ mod tests {
         // XML `radius="4"` → 772 disc radius 3 (`Destination (7, 4, 3, 7)`).
         assert_eq!(fireball.radius, 3);
         assert_eq!(fireball.shoot_effect, Some(ShootEffect::Fire as u8));
-        assert!(matches!(fireball.impact, SpellImpact::Damage { element: CombatType::Fire, .. }));
+        assert!(matches!(
+            fireball.impact,
+            SpellImpact::Damage {
+                element: CombatType::Fire,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -1172,8 +1189,8 @@ mod tests {
 
     fn test_creature_base() -> crate::creature::base::CreatureBase {
         use std::collections::VecDeque;
-        use tfs_rust_common::enums::{Direction, SkullType};
         use tfs_rust_common::Position;
+        use tfs_rust_common::enums::{Direction, SkullType};
 
         crate::creature::base::CreatureBase {
             name: "Test".into(),
@@ -1214,7 +1231,7 @@ mod tests {
             fire_damage_origin: None,
             energy_damage_origin: None,
             earliest_attack_ms: 0,
-        latest_attack_round: 0,
+            latest_attack_round: 0,
             earliest_defend_ms: 0,
             last_defend_ms: 0,
             learning_points: 0,
@@ -1242,36 +1259,16 @@ mod tests {
         };
         let parity = GlibcRngState::seed(7);
 
-        let _ = roll_target_defense(
-            &mut base,
-            1000,
-            &mechanics.profile,
-            &hooks,
-            snap,
-            &parity,
-        );
+        let _ = roll_target_defense(&mut base, 1000, &mechanics.profile, &hooks, snap, &parity);
         assert_eq!(base.last_defend_ms, 1000);
         assert_eq!(base.earliest_defend_ms, 2000);
 
-        let _ = roll_target_defense(
-            &mut base,
-            2100,
-            &mechanics.profile,
-            &hooks,
-            snap,
-            &parity,
-        );
+        let _ = roll_target_defense(&mut base, 2100, &mechanics.profile, &hooks, snap, &parity);
         assert_eq!(base.last_defend_ms, 2100);
         assert_eq!(base.earliest_defend_ms, 3000);
 
-        let blocked = roll_target_defense(
-            &mut base,
-            2200,
-            &mechanics.profile,
-            &hooks,
-            snap,
-            &parity,
-        );
+        let blocked =
+            roll_target_defense(&mut base, 2200, &mechanics.profile, &hooks, snap, &parity);
         assert_eq!(
             blocked, 0,
             "defense must gate until LastDefendTime + 2000 ms"
@@ -1485,7 +1482,12 @@ mod tests {
     fn test_parse_poison_and_manadrain_damage() {
         let poison = MonsterSpell::try_from_node(&spell_node(
             "poison",
-            &[("delay", "5"), ("range", "7"), ("min", "-50"), ("max", "-100")],
+            &[
+                ("delay", "5"),
+                ("range", "7"),
+                ("min", "-50"),
+                ("max", "-100"),
+            ],
             &[("shooteffect", "poison")],
         ))
         .expect("poison");
@@ -1499,7 +1501,12 @@ mod tests {
 
         let mana = MonsterSpell::try_from_node(&spell_node(
             "manadrain",
-            &[("delay", "5"), ("range", "7"), ("min", "-20"), ("max", "-40")],
+            &[
+                ("delay", "5"),
+                ("range", "7"),
+                ("min", "-20"),
+                ("max", "-40"),
+            ],
             &[],
         ))
         .expect("manadrain");
@@ -1574,18 +1581,22 @@ mod tests {
         assert_eq!(speed_mdact(100, 60), 60);
         assert_eq!(speed_mdact(100, -50), -50);
         assert_eq!(speed_mdact(100, -120), -120); // -Act - 20
-        assert!(!SpellImpact::Speed {
-            percent: 60,
-            variation: 5,
-            duration: 3000,
-        }
-        .is_aggressive());
-        assert!(SpellImpact::Speed {
-            percent: -75,
-            variation: 25,
-            duration: 15000,
-        }
-        .is_aggressive());
+        assert!(
+            !SpellImpact::Speed {
+                percent: 60,
+                variation: 5,
+                duration: 3000,
+            }
+            .is_aggressive()
+        );
+        assert!(
+            SpellImpact::Speed {
+                percent: -75,
+                variation: 25,
+                duration: 15000,
+            }
+            .is_aggressive()
+        );
     }
 
     #[test]

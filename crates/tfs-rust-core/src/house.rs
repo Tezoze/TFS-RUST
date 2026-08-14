@@ -173,8 +173,7 @@ impl HouseManager {
         player_guid: u32,
         can_edit_houses: bool,
     ) -> bool {
-        if self.access_level(house_id, player_guid, can_edit_houses) >= AccessHouseLevel::SubOwner
-        {
+        if self.access_level(house_id, player_guid, can_edit_houses) >= AccessHouseLevel::SubOwner {
             return true;
         }
         self.door_lists
@@ -274,18 +273,10 @@ mod tests {
         let mut h = HouseManager::default();
         h.set_owner(1, 10);
         h.apply_list_row(1, GUEST_LIST, "guest", |n| {
-            if n == "guest" {
-                Some(30)
-            } else {
-                None
-            }
+            if n == "guest" { Some(30) } else { None }
         });
         h.apply_list_row(1, SUBOWNER_LIST, "sub", |n| {
-            if n == "sub" {
-                Some(20)
-            } else {
-                None
-            }
+            if n == "sub" { Some(20) } else { None }
         });
         assert!(h.is_invited(1, 30));
         assert!(h.door_can_use(1, 1, 20, false));
@@ -304,11 +295,7 @@ mod tests {
     #[test]
     fn access_list_skips_comments_and_guild() {
         let list = AccessList::parse_list("# comment\n@guild\nalice", |n| {
-            if n == "alice" {
-                Some(1)
-            } else {
-                None
-            }
+            if n == "alice" { Some(1) } else { None }
         });
         assert!(list.is_in_list(1));
         assert_eq!(list.player_guids.len(), 1);

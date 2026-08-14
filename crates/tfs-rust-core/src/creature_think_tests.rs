@@ -1,8 +1,8 @@
 use tfs_rust_common::{Position, ZoneType};
 
 use crate::test_world::support::{
-    beat_driven_test_world, beat_driven_world, ensure_walkable_tile, insert_player, test_player,
-    CountingEventDispatcher,
+    CountingEventDispatcher, beat_driven_test_world, beat_driven_world, ensure_walkable_tile,
+    insert_player, test_player,
 };
 
 use super::*;

@@ -23,9 +23,8 @@ use crate::creature::{CreatureKind, PlayerSkills};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::inventory::{
-    slot_type_for_item_type, PLAYER_INVENTORY_SLOT_FIRST,
-    PLAYER_INVENTORY_SLOT_LAST, WEAPON_AMMO, WEAPON_AXE, WEAPON_CLUB, WEAPON_DISTANCE,
-    WEAPON_SHIELD, WEAPON_SWORD,
+    PLAYER_INVENTORY_SLOT_FIRST, PLAYER_INVENTORY_SLOT_LAST, WEAPON_AMMO, WEAPON_AXE, WEAPON_CLUB,
+    WEAPON_DISTANCE, WEAPON_SHIELD, WEAPON_SWORD, slot_type_for_item_type,
 };
 
 /// Skill index used by `ProbeValue` — C++ `SKILL_*` (`enums.hh:555-566`).

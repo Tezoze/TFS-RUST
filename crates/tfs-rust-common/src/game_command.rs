@@ -51,13 +51,9 @@ pub enum GameCommand {
         display_effect: bool,
     },
     /// I/O thread registered a bounded outbound writer — mirror into game-thread sink map (GL-3).
-    RegisterOutputSink {
-        conn_id: ConnId,
-    },
+    RegisterOutputSink { conn_id: ConnId },
     /// I/O thread removed outbound writer (TCP closed / writer task ended).
-    UnregisterOutputSink {
-        conn_id: ConnId,
-    },
+    UnregisterOutputSink { conn_id: ConnId },
     /// One decoded client game packet.
     Game { conn_id: ConnId, packet: GamePacket },
 }

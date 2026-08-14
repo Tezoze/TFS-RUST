@@ -179,19 +179,13 @@ impl GameWorld {
             DepotLockerStructure::ClassicDepotChest => {
                 self.create_classic_depot_locker(cid, depot_id)
             }
-            DepotLockerStructure::TfsMarketInbox => {
-                self.create_tfs_depot_locker(cid, depot_id)
-            }
+            DepotLockerStructure::TfsMarketInbox => self.create_tfs_depot_locker(cid, depot_id),
         }
     }
 
     /// 772 depot locker — single depot chest directly inside the locker
     /// (`crplayer.cc:2004` `LoadDepot` → `Create(Con, GetSpecialObject(DEPOT_CHEST), 0)`).
-    fn create_classic_depot_locker(
-        &mut self,
-        cid: CreatureId,
-        depot_id: u32,
-    ) -> Option<ItemId> {
+    fn create_classic_depot_locker(&mut self, cid: CreatureId, depot_id: u32) -> Option<ItemId> {
         let locker_cap = self.container_capacity(ITEM_LOCKER1);
         let locker_iid = self.items.insert(Item::new_single(ITEM_LOCKER1));
 
@@ -229,7 +223,12 @@ impl GameWorld {
         self.container_registry = reg;
 
         // Re-parent the existing chest under the new locker.
-        Self::link_child_in_registry(&mut self.container_registry, &mut self.items, locker_iid, chest_iid);
+        Self::link_child_in_registry(
+            &mut self.container_registry,
+            &mut self.items,
+            locker_iid,
+            chest_iid,
+        );
 
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.depot_lockers.insert(depot_id, locker_iid);
@@ -240,11 +239,7 @@ impl GameWorld {
     }
 
     /// 1098 / TFS depot locker — market + inbox + unified depot with per-town chests.
-    fn create_tfs_depot_locker(
-        &mut self,
-        cid: CreatureId,
-        depot_id: u32,
-    ) -> Option<ItemId> {
+    fn create_tfs_depot_locker(&mut self, cid: CreatureId, depot_id: u32) -> Option<ItemId> {
         let locker_cap = self.container_capacity(ITEM_LOCKER1);
         let max_items = self.player_get_max_depot_items(cid);
         let locker_iid = self.items.insert(Item::new_single(ITEM_LOCKER1));
@@ -292,8 +287,7 @@ impl GameWorld {
     fn sync_depot_locker_contents(&mut self, cid: CreatureId, locker_id: ItemId) {
         use crate::formulas::DepotLockerStructure;
         // 772 lockers have a single depot chest at index 0 — no inbox/market to sync.
-        if self.mechanics.profile.depot_locker_structure
-            == DepotLockerStructure::ClassicDepotChest
+        if self.mechanics.profile.depot_locker_structure == DepotLockerStructure::ClassicDepotChest
         {
             return;
         }
@@ -323,7 +317,13 @@ impl GameWorld {
             .unwrap_or_default();
         for town_id in town_ids {
             if let Some(chest_id) = self.player_get_depot_chest(cid, town_id, false) {
-                Self::ensure_child_in_container(&mut reg, &mut self.items, uni_id, chest_id, usize::MAX);
+                Self::ensure_child_in_container(
+                    &mut reg,
+                    &mut self.items,
+                    uni_id,
+                    chest_id,
+                    usize::MAX,
+                );
             }
         }
         self.container_registry = reg;
@@ -467,7 +467,7 @@ mod tests {
     use crate::container::ContainerType;
     use crate::item_constants::ITEM_DEPOT;
     use crate::test_world::support::{insert_player, minimal_world, test_player};
-    use crate::tile::{flags as tilestate, Tile, TileBody};
+    use crate::tile::{Tile, TileBody, flags as tilestate};
     use tfs_rust_common::enums::ZoneType;
 
     #[test]
@@ -546,17 +546,21 @@ mod tests {
         world.refresh_container_derived(chest);
 
         // Now open the depot locker (as the player would by clicking the depot).
-        let locker = world
-            .player_get_depot_locker(cid, 1)
-            .expect("depot locker");
+        let locker = world.player_get_depot_locker(cid, 1).expect("depot locker");
 
         // The locker should contain the SAME chest, not a new empty one.
-        let locker_cont = world.container_registry.get(locker).expect("locker registered");
+        let locker_cont = world
+            .container_registry
+            .get(locker)
+            .expect("locker registered");
         assert_eq!(locker_cont.items.len(), 1);
         assert_eq!(locker_cont.items[0], chest);
 
         // The chest should still contain the coin.
-        let chest_cont = world.container_registry.get(chest).expect("chest registered");
+        let chest_cont = world
+            .container_registry
+            .get(chest)
+            .expect("chest registered");
         assert_eq!(chest_cont.items.len(), 1);
         assert_eq!(chest_cont.items[0], coin);
 

@@ -12,12 +12,12 @@
 //! - Tile item create — `Combat::combatTileEffects` — `combat.cpp:557`.
 //! - Distance FX — `Combat::postCombatEffects` — `combat.cpp:643`.
 
-use tfs_rust_common::enums::{CombatType, ConditionType, WorldType, ZoneType};
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::{CombatType, ConditionType, WorldType, ZoneType};
 use tfs_rust_lua::CombatExecuteRequest;
 
-use crate::combat::{apply_condition, CombatDamage, CombatParams};
-use crate::creature::{roll_target_defense, CreatureKind};
+use crate::combat::{CombatDamage, CombatParams, apply_condition};
+use crate::creature::{CreatureKind, roll_target_defense};
 use crate::cylinder::CylinderFlags;
 use crate::game_world::GameWorld;
 use crate::game_world_chat::{active_condition_from_apply_spec, condition_type_from_lua};
@@ -94,7 +94,11 @@ impl GameWorld {
             abs_dmg = (abs_dmg - defense_roll).max(0);
         }
         // H1 — Return armor value for the shared path instead of subtracting here.
-        let armor = if block_armor { Some(defense_snap.armor) } else { None };
+        let armor = if block_armor {
+            Some(defense_snap.armor)
+        } else {
+            None
+        };
         if abs_dmg <= 0 {
             // Defense >= attack → poff (3).
             self.broadcast_magic_effect(target_pos, 3u8);
@@ -276,7 +280,10 @@ impl GameWorld {
     /// tiles, checks `throw_possible` + PZ per tile (matching 772
     /// `ExecuteCircleSpell` `magic.cc:475-481`), and applies damage to every
     /// creature on each affected tile via `combat_execute_with_stimulus`.
-    pub fn combat_execute_from_lua(&mut self, request: &CombatExecuteRequest) -> Result<(), String> {
+    pub fn combat_execute_from_lua(
+        &mut self,
+        request: &CombatExecuteRequest,
+    ) -> Result<(), String> {
         let caster_id = self.resolve_creature_u64(request.caster_id);
         let center = Position {
             x: request.center_x,
@@ -504,11 +511,8 @@ impl GameWorld {
                 // Roll damage — 1098 `getCombatDamage` (`combat.cpp:100`). For
                 // `COMBAT_FORMULA_DAMAGE` the min/max are the literal range. For
                 // level/magic formula the Lua side already resolved the values.
-                let value = crate::combat::uniform_random_glibc(
-                    &self.parity_rng,
-                    damage_min,
-                    damage_max,
-                );
+                let value =
+                    crate::combat::uniform_random_glibc(&self.parity_rng, damage_min, damage_max);
 
                 // Healing spells (COMBAT_HEALING) use positive deltas; damage uses
                 // negative. 772 `THealingImpact` vs `TDamageImpact` (`magic.cc:210,119`).

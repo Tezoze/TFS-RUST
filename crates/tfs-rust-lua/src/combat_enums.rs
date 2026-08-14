@@ -416,10 +416,7 @@ fn register_tile_states(globals: &mlua::Table) -> Result<(), mlua::Error> {
     globals.set("TILESTATE_BLOCKPATH", 262144i32)?; // 1<<18
     globals.set("TILESTATE_IMMOVABLEBLOCKSOLID", 524288i32)?; // 1<<19
     // Composite floor-change mask — tile.h TILESTATE_FLOORCHANGE.
-    globals.set(
-        "TILESTATE_FLOORCHANGE",
-        1i32 | 2 | 4 | 8 | 16 | 32 | 64,
-    )?;
+    globals.set("TILESTATE_FLOORCHANGE", 1i32 | 2 | 4 | 8 | 16 | 32 | 64)?;
     Ok(())
 }
 

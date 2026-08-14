@@ -263,7 +263,8 @@ impl GameWorld {
             // Depot chest limit (`DepotChest::queryAdd` — `depotchest.cpp`).
             if cont.container_type == ContainerType::Depot {
                 if let Some((holder_id, max_items)) = self.depot_limit_holder(container_item_id) {
-                    let add_count = self.depot_add_count_for_item(container_item_id, item_id, count);
+                    let add_count =
+                        self.depot_add_count_for_item(container_item_id, item_id, count);
                     let holder_count = self
                         .container_registry
                         .get(holder_id)
@@ -299,7 +300,8 @@ impl GameWorld {
             {
                 if let Some(actor_cid) = actor {
                     let max_items = self.player_get_max_depot_items(actor_cid);
-                    let add_count = self.depot_add_count_for_item(container_item_id, item_id, count);
+                    let add_count =
+                        self.depot_add_count_for_item(container_item_id, item_id, count);
                     let holder_count = self
                         .container_registry
                         .get(container_item_id)
@@ -689,10 +691,7 @@ impl GameWorld {
                     if extra & crate::walk::FLAG_NOLIMIT != 0 {
                         flags = flags.union(CylinderFlags::NO_LIMIT);
                     }
-                    to_merge_item = self
-                        .map
-                        .get_tile(dest)
-                        .and_then(|t| t.get_top_down_item());
+                    to_merge_item = self.map.get_tile(dest).and_then(|t| t.get_top_down_item());
                     to = Cylinder::Tile { pos: dest };
                     break;
                 }

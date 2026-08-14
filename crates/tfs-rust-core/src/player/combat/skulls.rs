@@ -5,9 +5,9 @@
 //! `CheckPlayerkilling` / `ClearPlayerkillingMarks` / `GetPlayerkillingMark`;
 //! timer `crmain.cc:1102`; kill logout `crmain.cc:822`; wire `sending.cc:1045`.
 
-use tfs_rust_common::enums::SkullType;
 use tfs_rust_common::Position;
 use tfs_rust_common::WorldType;
+use tfs_rust_common::enums::SkullType;
 use tfs_rust_net::outgoing::send_text_message;
 use tfs_rust_net::outgoing_extra::send_creature_skull;
 
@@ -33,15 +33,17 @@ pub(crate) enum PlayerkillingVerdict {
 
 impl Player {
     /// 772 `TPlayer::IsAttacker` — `crplayer.cc:1414–1430`.
-    pub(crate) fn is_attacker(&self, victim: CreatureId, check_former: bool, round_nr: u32) -> bool {
+    pub(crate) fn is_attacker(
+        &self,
+        victim: CreatureId,
+        check_former: bool,
+        round_nr: u32,
+    ) -> bool {
         if self.attacked_players.contains(&victim) {
             return true;
         }
         if check_former
-            && self
-                .former_logout_round
-                .saturating_add(FORMER_MARK_ROUNDS)
-                >= round_nr
+            && self.former_logout_round.saturating_add(FORMER_MARK_ROUNDS) >= round_nr
             && self.former_attacked_players.contains(&victim)
         {
             return true;
@@ -54,10 +56,7 @@ impl Player {
         self.aggressor
             || (check_former
                 && self.former_aggressor
-                && self
-                    .former_logout_round
-                    .saturating_add(FORMER_MARK_ROUNDS)
-                    >= round_nr)
+                && self.former_logout_round.saturating_add(FORMER_MARK_ROUNDS) >= round_nr)
     }
 
     /// 772 `TPlayer::GetPartyLeader` key — `crplayer.cc:1678–1684` (party id stand-in).
@@ -84,12 +83,7 @@ impl Player {
     }
 
     /// 772 `TPlayer::InPartyWith` — `crplayer.cc:1686–1694`.
-    pub(crate) fn in_party_with(
-        &self,
-        other: &Player,
-        check_former: bool,
-        round_nr: u32,
-    ) -> bool {
+    pub(crate) fn in_party_with(&self, other: &Player, check_former: bool, round_nr: u32) -> bool {
         match (
             self.party_key(check_former, round_nr),
             other.party_key(check_former, round_nr),
@@ -186,11 +180,7 @@ pub fn decode_murder_timestamps(csv: &str) -> [i64; 20] {
         .split(',')
         .filter_map(|s| {
             let t = s.trim();
-            if t.is_empty() {
-                None
-            } else {
-                t.parse().ok()
-            }
+            if t.is_empty() { None } else { t.parse().ok() }
         })
         .collect();
     let take = parsed.len().min(20);
@@ -310,7 +300,11 @@ impl GameWorld {
     }
 
     /// 772 `TPlayer::RecordMurder` — `crplayer.cc:1492–1535`.
-    pub(crate) fn player_record_murder(&mut self, attacker: CreatureId, victim: CreatureId) -> bool {
+    pub(crate) fn player_record_murder(
+        &mut self,
+        attacker: CreatureId,
+        victim: CreatureId,
+    ) -> bool {
         if self.pvp_config.world_type != WorldType::Pvp || attacker == victim {
             return false;
         }
@@ -354,7 +348,10 @@ impl GameWorld {
 
         if let Some(conn) = self.conn_for_creature(attacker) {
             let msg = format!("Warning! The murder of {victim_name} was not justified.");
-            self.enqueue_outgoing(conn, send_text_message(TALK_ADMIN_MESSAGE, &msg).into_bytes());
+            self.enqueue_outgoing(
+                conn,
+                send_text_message(TALK_ADMIN_MESSAGE, &msg).into_bytes(),
+            );
         }
 
         if verdict == PlayerkillingVerdict::None {
@@ -466,9 +463,8 @@ impl GameWorld {
             }
         }
 
-        let murderer = responsible.filter(|&id| {
-            matches!(self.creatures.get(id), Some(CreatureKind::Player(_)))
-        });
+        let murderer = responsible
+            .filter(|&id| matches!(self.creatures.get(id), Some(CreatureKind::Player(_))));
         if let Some(m) = murderer {
             self.player_record_murder(m, victim);
         }
@@ -483,13 +479,14 @@ impl GameWorld {
                     round.wrapping_sub(*ts) < window
                         && matches!(self.creatures.get(*id), Some(CreatureKind::Player(_)))
                 })
-                .fold(None, |best: Option<(CreatureId, u64)>, (id, dmg, _)| {
-                    match best {
+                .fold(
+                    None,
+                    |best: Option<(CreatureId, u64)>, (id, dmg, _)| match best {
                         Some((_, best_dmg)) if dmg > best_dmg => Some((id, dmg)),
                         Some(_) => best,
                         None => Some((id, dmg)),
-                    }
-                })
+                    },
+                )
                 .map(|(id, _)| id)
         };
         if let Some(md) = most_dangerous {
@@ -628,15 +625,13 @@ impl GameWorld {
     }
 
     /// Resolve responsible player for RecordAttack on the damage path (summon → master).
-    pub(crate) fn player_responsible_for_attack(
-        &self,
-        attacker: CreatureId,
-    ) -> Option<CreatureId> {
+    pub(crate) fn player_responsible_for_attack(&self, attacker: CreatureId) -> Option<CreatureId> {
         match self.creatures.get(attacker) {
             Some(CreatureKind::Player(_)) => Some(attacker),
-            Some(k) => k.base().master.filter(|&m| {
-                matches!(self.creatures.get(m), Some(CreatureKind::Player(_)))
-            }),
+            Some(k) => k
+                .base()
+                .master
+                .filter(|&m| matches!(self.creatures.get(m), Some(CreatureKind::Player(_)))),
             None => None,
         }
     }
@@ -944,6 +939,9 @@ mod tests {
         let Some(CreatureKind::Player(p)) = world.creatures.get(a) else {
             panic!("missing");
         };
-        assert_eq!(p.earliest_logout_round, 50 + world.pvp_config.white_skull_rounds());
+        assert_eq!(
+            p.earliest_logout_round,
+            50 + world.pvp_config.white_skull_rounds()
+        );
     }
 }

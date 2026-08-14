@@ -2,8 +2,8 @@
 //!
 //! C++ reference: `src/connection.cpp` send path / output buffer.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use tokio::sync::mpsc;
 
@@ -100,13 +100,10 @@ impl OutboundTx {
         }
         match self.inner.try_send(batch) {
             Ok(()) => {
-                self.queued_bytes
-                    .fetch_add(batch_bytes, Ordering::Relaxed);
+                self.queued_bytes.fetch_add(batch_bytes, Ordering::Relaxed);
                 Ok(())
             }
-            Err(mpsc::error::TrySendError::Full(batch)) => {
-                Err((OutboundSendError::Full, batch))
-            }
+            Err(mpsc::error::TrySendError::Full(batch)) => Err((OutboundSendError::Full, batch)),
             Err(mpsc::error::TrySendError::Closed(batch)) => {
                 Err((OutboundSendError::Closed, batch))
             }
@@ -118,8 +115,7 @@ impl OutboundRx {
     pub async fn recv(&mut self) -> Option<OutputBatch> {
         let batch = self.inner.recv().await?;
         let batch_bytes: usize = batch.iter().map(|b| b.len()).sum();
-        self.queued_bytes
-            .fetch_sub(batch_bytes, Ordering::Relaxed);
+        self.queued_bytes.fetch_sub(batch_bytes, Ordering::Relaxed);
         Some(batch)
     }
 }

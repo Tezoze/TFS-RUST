@@ -81,11 +81,7 @@ impl Player {
             return 0;
         }
         let result = (count * 100) / next_level_count;
-        if result > 100 {
-            0
-        } else {
-            result as u8
-        }
+        if result > 100 { 0 } else { result as u8 }
     }
 
     /// Percent toward next combat-skill level (TFS `skills[skill].percent` after `addSkillAdvance`).
@@ -310,12 +306,7 @@ impl Player {
         let mut l = min_level + 1;
         while l <= level {
             sum = sum.saturating_add(req_skill_tries(
-                hooks,
-                skill_code,
-                l,
-                skill_base,
-                multiplier,
-                min_level,
+                hooks, skill_code, l, skill_base, multiplier, min_level,
             ));
             l += 1;
         }
@@ -323,11 +314,7 @@ impl Player {
     }
 
     /// Cumulative mana spent toward current magic level.
-    pub fn magic_total_tries(
-        &self,
-        profile: &MechanicsProfile,
-        hooks: &FormulaHooks,
-    ) -> u64 {
+    pub fn magic_total_tries(&self, profile: &MechanicsProfile, hooks: &FormulaHooks) -> u64 {
         let skill_base = profile.skill_tries.magic_skill_base;
         let min_level = profile.skill_tries.magic_min_level;
         let multiplier = f64::from(self.vocation_profile.mana_multiplier);
@@ -366,11 +353,17 @@ mod tests {
             skill_multipliers: [1.5, 2.0, 2.0, 2.0, 2.0, 1.5, 1.1],
             ..p.vocation_profile
         };
-        assert_eq!(p.skill_increase(SkillNr::Sword, 30, &m.profile, &m.hooks), 0);
+        assert_eq!(
+            p.skill_increase(SkillNr::Sword, 30, &m.profile, &m.hooks),
+            0
+        );
         assert_eq!(p.skills.sword, 10);
         assert_eq!(p.skills.sword_tries, 30);
         assert_eq!(p.skill_percent(SkillNr::Sword, &m.profile, &m.hooks), 60); // 30/50
-        assert_eq!(p.skill_increase(SkillNr::Sword, 30, &m.profile, &m.hooks), 1);
+        assert_eq!(
+            p.skill_increase(SkillNr::Sword, 30, &m.profile, &m.hooks),
+            1
+        );
         assert_eq!(p.skills.sword, 11);
         assert_eq!(p.skills.sword_tries, 10); // 60 - 50
     }
@@ -443,10 +436,7 @@ mod tests {
         p.max_mana = 5;
         p.mana = 5;
         // Drop below level-2 threshold → level 1.
-        let leveled = p.remove_experience(
-            p.experience,
-            crate::formulas::StepSpeedModel::LinearGo,
-        );
+        let leveled = p.remove_experience(p.experience, crate::formulas::StepSpeedModel::LinearGo);
         assert!(leveled);
         assert_eq!(p.level, 1);
         assert_eq!(p.capacity, 40000);
@@ -458,10 +448,7 @@ mod tests {
         let mut p = bare_player();
         p.level = 20;
         p.experience = 150_000;
-        let leveled = p.remove_experience(
-            200_000,
-            crate::formulas::StepSpeedModel::LinearGo,
-        );
+        let leveled = p.remove_experience(200_000, crate::formulas::StepSpeedModel::LinearGo);
         assert!(!leveled);
         assert_eq!(p.experience, 150_000);
         assert_eq!(p.level, 20);

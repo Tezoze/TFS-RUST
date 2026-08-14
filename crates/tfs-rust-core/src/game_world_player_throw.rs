@@ -60,7 +60,8 @@ impl GameWorld {
         }
 
         // Resolve source thing
-        let Some(thing) = self.internal_get_thing_move(cid, from_pos, from_stack_pos, sprite_id) else {
+        let Some(thing) = self.internal_get_thing_move(cid, from_pos, from_stack_pos, sprite_id)
+        else {
             return Err(ReturnValue::NotPossible);
         };
 
@@ -73,7 +74,11 @@ impl GameWorld {
                 if moving_creature == cid {
                     // 772 `Obj == this->CrObject` → `this->Go(DestX, DestY, DestZ)`.
                     self.setup_player_walk_to_target(cid, to_pos, now)?;
-                    if self.creatures.get(cid).is_some_and(|k| !k.base().walk_queue.is_empty()) {
+                    if self
+                        .creatures
+                        .get(cid)
+                        .is_some_and(|k| !k.base().walk_queue.is_empty())
+                    {
                         if let Some(k) = self.creatures.get_mut(cid) {
                             k.base_mut().todo.queue.push_front(CreatureAction::Go);
                         }
@@ -351,9 +356,7 @@ impl GameWorld {
                     Some(CreatureKind::Monster(_)) => {
                         self.monster_move_possible_push(moving_creature, to)
                     }
-                    Some(CreatureKind::Npc(_)) => {
-                        self.npc_move_possible_push(moving_creature, to)
-                    }
+                    Some(CreatureKind::Npc(_)) => self.npc_move_possible_push(moving_creature, to),
                     None => Ok(false),
                 };
                 match result {
@@ -414,7 +417,11 @@ impl GameWorld {
             };
             (it.stackable(), item.count)
         };
-        let move_count = if is_stackable { count as u32 } else { item_count as u32 };
+        let move_count = if is_stackable {
+            count as u32
+        } else {
+            item_count as u32
+        };
 
         // Find a single inventory slot that can accept this item right now.
         let mut temp_slot = None;
@@ -441,7 +448,11 @@ impl GameWorld {
                 from_cylinder,
                 temp_cylinder,
                 item_id,
-                if is_stackable { count as u16 } else { item_count },
+                if is_stackable {
+                    count as u16
+                } else {
+                    item_count
+                },
                 CylinderFlags::NONE,
                 None,
             )
@@ -474,14 +485,11 @@ impl GameWorld {
             .get(cid)
             .is_some_and(|k| !k.base().walk_queue.is_empty());
         if let Some(k) = self.creatures.get_mut(cid) {
-            k.base_mut()
-                .todo
-                .queue
-                .push_front(CreatureAction::Move {
-                    obj: new_obj,
-                    dest: to_pos,
-                    count,
-                });
+            k.base_mut().todo.queue.push_front(CreatureAction::Move {
+                obj: new_obj,
+                dest: to_pos,
+                count,
+            });
             if has_steps {
                 k.base_mut().todo.queue.push_front(CreatureAction::Go);
             }
@@ -560,7 +568,11 @@ impl GameWorld {
             if let Some(tile) = self.map.get_tile(map_to_pos) {
                 let body = tile.body();
                 if (body.flags & (tilestate::HOOKEAST | tilestate::HOOKSOUTH)) != 0 {
-                    if let Some(it) = self.items_db.items.get(&self.items.get(item_id).map(|i| i.item_type).unwrap_or(0)) {
+                    if let Some(it) = self
+                        .items_db
+                        .items
+                        .get(&self.items.get(item_id).map(|i| i.item_type).unwrap_or(0))
+                    {
                         if it.is_hangable()
                             && !self.is_hang_hook_accessible(map_to_pos, player_pos, body.flags)
                         {
@@ -672,9 +684,6 @@ impl GameWorld {
                 | ReturnValue::DropTwoHandedItem
         )
     }
-
-
-
 }
 
 #[cfg(test)]
@@ -929,7 +938,9 @@ mod push_phase_b_tests {
         let to = Position::new(101, 100, 7);
         let (actor, _mover, obj) = setup_push_arena_pb(&mut world, 5000, from, to);
 
-        world.enqueue_player_move(actor, obj, to, 1).expect("creature push enqueues");
+        world
+            .enqueue_player_move(actor, obj, to, 1)
+            .expect("creature push enqueues");
 
         let todo = &world.creatures.get(actor).unwrap().base().todo;
         assert_eq!(todo.queue.len(), 2, "creature push → [Wait(1000), Move]");
@@ -958,7 +969,9 @@ mod push_phase_b_tests {
             .base_mut()
             .earliest_walk_server_ms = 8000;
 
-        world.enqueue_player_move(actor, obj, to, 1).expect("creature push enqueues");
+        world
+            .enqueue_player_move(actor, obj, to, 1)
+            .expect("creature push enqueues");
 
         let todo = &world.creatures.get(actor).unwrap().base().todo;
         // Deadline = server_ms + 1000 + 3000 = 5000 + 4000 = 9000.
@@ -1049,7 +1062,9 @@ mod push_phase_b_tests {
             .base_mut()
             .earliest_walk_server_ms = 3000;
 
-        world.enqueue_player_move(actor, obj, to, 1).expect("creature push enqueues");
+        world
+            .enqueue_player_move(actor, obj, to, 1)
+            .expect("creature push enqueues");
 
         let todo = &world.creatures.get(actor).unwrap().base().todo;
         // Deadline = 5000 + 1000 = 6000 (no cooldown addition).
@@ -1070,8 +1085,8 @@ mod push_phase_c_tests {
         beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player,
         test_player,
     };
-    use tfs_rust_common::enums::ZoneType;
     use tfs_rust_common::Position;
+    use tfs_rust_common::enums::ZoneType;
     use tfs_rust_content::otb::ItemType;
 
     /// Item type ID for test height items (avoids collision with 1987/2148).
@@ -1105,7 +1120,9 @@ mod push_phase_c_tests {
         let mover = insert_monster_with_config(world, "Mover", from, 200, Default::default());
         if let Some(elev) = height_elevation {
             let mut new_db = (*world.items_db).clone();
-            new_db.items.insert(HEIGHT_ITEM_TYPE, height_item_type(elev));
+            new_db
+                .items
+                .insert(HEIGHT_ITEM_TYPE, height_item_type(elev));
             world.items_db = std::sync::Arc::new(new_db);
         }
         (actor, mover)
@@ -1113,7 +1130,9 @@ mod push_phase_c_tests {
 
     /// Place a height item (type `HEIGHT_ITEM_TYPE`) on the tile at `pos`.
     fn place_height_item(world: &mut GameWorld, pos: Position) {
-        let item_id = world.items.insert(crate::item::Item::new_single(HEIGHT_ITEM_TYPE));
+        let item_id = world
+            .items
+            .insert(crate::item::Item::new_single(HEIGHT_ITEM_TYPE));
         if let Some(tile) = world.map.get_tile_mut(pos) {
             tile.body_mut().down_items.push(item_id);
         }
@@ -1307,8 +1326,8 @@ mod push_phase_d_tests {
         synthetic_ground_item_type, test_player,
     };
     use crate::tile::{HouseTile, Tile, TileBody};
-    use tfs_rust_common::enums::{Direction, SkullType, ZoneType};
     use tfs_rust_common::Position;
+    use tfs_rust_common::enums::{Direction, SkullType, ZoneType};
 
     /// Register ground type 1 as a BANK ground tile in the items_db.
     /// `beat_driven_world()` doesn't register ground type 1 by default — needed for
@@ -1366,7 +1385,8 @@ mod push_phase_d_tests {
         let actor_pos = Position::new(from.x, from.y.saturating_sub(1), from.z);
         ensure_walkable_tile(&mut world.map, actor_pos, 1);
         let actor = insert_player(world, test_player("Actor", actor_pos));
-        let mover = insert_monster_with_config(world, "Mover", from, 200, MonsterAiConfig::default());
+        let mover =
+            insert_monster_with_config(world, "Mover", from, 200, MonsterAiConfig::default());
         (actor, mover)
     }
 
@@ -1384,7 +1404,8 @@ mod push_phase_d_tests {
         let actor_pos = Position::new(101, 99, 7);
         ensure_walkable_tile(&mut world.map, actor_pos, 1);
         let actor = insert_player(&mut world, test_player("Actor", actor_pos));
-        let mover = insert_monster_with_config(&mut world, "Mover", from, 200, MonsterAiConfig::default());
+        let mover =
+            insert_monster_with_config(&mut world, "Mover", from, 200, MonsterAiConfig::default());
         // Set spawn at (100,100,7) and home_radius=1.
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(mover) {
             m.spawn_position = Position::new(100, 100, 7);
@@ -1459,7 +1480,8 @@ mod push_phase_d_tests {
         ensure_walkable_tile(&mut world.map, actor_pos, 1);
         let master = insert_player(&mut world, test_player("Master", master_pos));
         let actor = insert_player(&mut world, test_player("Actor", actor_pos));
-        let mover = insert_monster_with_config(&mut world, "Summon", from, 200, MonsterAiConfig::default());
+        let mover =
+            insert_monster_with_config(&mut world, "Summon", from, 200, MonsterAiConfig::default());
         // Make the mover a summon (master set) — not ATTACKING/PANIC.
         if let Some(k) = world.creatures.get_mut(mover) {
             k.base_mut().master = Some(master);
@@ -1487,7 +1509,8 @@ mod push_phase_d_tests {
         ensure_walkable_tile(&mut world.map, actor_pos, 1);
         let master = insert_player(&mut world, test_player("Master", master_pos));
         let actor = insert_player(&mut world, test_player("Actor", actor_pos));
-        let mover = insert_monster_with_config(&mut world, "Summon", from, 200, MonsterAiConfig::default());
+        let mover =
+            insert_monster_with_config(&mut world, "Summon", from, 200, MonsterAiConfig::default());
         if let Some(k) = world.creatures.get_mut(mover) {
             k.base_mut().master = Some(master);
         }
@@ -1695,8 +1718,8 @@ mod push_gm_bypass_tests {
         test_player,
     };
     use crate::tile::{HouseTile, Tile, TileBody};
-    use tfs_rust_common::enums::{Direction, SkullType, ZoneType};
     use tfs_rust_common::Position;
+    use tfs_rust_common::enums::{Direction, SkullType, ZoneType};
     use tfs_rust_content::groups::{Group, GroupDatabase};
 
     /// Register a GM group (id 2) with `canpushallcreatures` flag and assign the actor to it.
@@ -1749,13 +1772,18 @@ mod push_gm_bypass_tests {
     }
 
     /// Standard push arena: actor adjacent to `from`, monster at `from`, dest at `to`.
-    fn setup_arena(world: &mut GameWorld, from: Position, to: Position) -> (CreatureId, CreatureId) {
+    fn setup_arena(
+        world: &mut GameWorld,
+        from: Position,
+        to: Position,
+    ) -> (CreatureId, CreatureId) {
         ensure_walkable_tile(&mut world.map, from, 1);
         ensure_walkable_tile(&mut world.map, to, 1);
         let actor_pos = Position::new(from.x, from.y.saturating_sub(1), from.z);
         ensure_walkable_tile(&mut world.map, actor_pos, 1);
         let actor = insert_player(world, test_player("Actor", actor_pos));
-        let mover = insert_monster_with_config(world, "Mover", from, 200, MonsterAiConfig::default());
+        let mover =
+            insert_monster_with_config(world, "Mover", from, 200, MonsterAiConfig::default());
         (actor, mover)
     }
 
@@ -1849,7 +1877,8 @@ mod push_gm_bypass_tests {
         let actor_pos = Position::new(100, 99, 7);
         ensure_walkable_tile(&mut world.map, actor_pos, 1);
         let actor = insert_player(&mut world, test_player("Actor", actor_pos));
-        let mover = insert_monster_with_config(&mut world, "Mover", from, 200, MonsterAiConfig::default());
+        let mover =
+            insert_monster_with_config(&mut world, "Mover", from, 200, MonsterAiConfig::default());
         make_gm(&mut world, actor);
 
         let rv = world.player_push_creature(actor, mover, from, to);
@@ -2008,7 +2037,13 @@ mod push_followup_d4_d8_tests {
         // Mover: `can_push_creatures` but NO target, NOT attacking → kick loop skipped.
         let mover = insert_monster_with_config(&mut world, "Cyclops", mpos, 200, kicker_config());
         // Blocker: pushable monster on the dest tile.
-        let blocker = insert_monster_with_config(&mut world, "Blocker", bpos, 200, MonsterAiConfig::default());
+        let blocker = insert_monster_with_config(
+            &mut world,
+            "Blocker",
+            bpos,
+            200,
+            MonsterAiConfig::default(),
+        );
         world.map.register_creature_at(bpos, blocker);
 
         let rv = world.player_push_creature(actor, mover, mpos, bpos);
@@ -2063,7 +2098,13 @@ mod push_followup_d4_d8_tests {
 
         let actor = insert_player(&mut world, test_player("Actor", actor_pos));
         // Mover registered at live position.
-        let mover = insert_monster_with_config(&mut world, "Mover", live_pos, 200, MonsterAiConfig::default());
+        let mover = insert_monster_with_config(
+            &mut world,
+            "Mover",
+            live_pos,
+            200,
+            MonsterAiConfig::default(),
+        );
         world.map.register_creature_at(live_pos, mover);
 
         // Call with stale from_pos — D4 fix makes the range cap use live_pos instead.
@@ -2090,8 +2131,8 @@ mod push_followup_d1_d2_d3_tests {
         beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player,
         synthetic_ground_item_type, test_player,
     };
-    use tfs_rust_content::otb::ItemType;
     use tfs_rust_common::Position;
+    use tfs_rust_content::otb::ItemType;
 
     /// Item type ID for test height items (avoids collision with 1987/2148).
     /// Mirrors `push_phase_c_tests::HEIGHT_ITEM_TYPE`.
@@ -2119,7 +2160,9 @@ mod push_followup_d1_d2_d3_tests {
     /// Register the height item type with the given elevation in the items_db.
     fn register_height_item(world: &mut GameWorld, elevation: i32) {
         let mut new_db = (*world.items_db).clone();
-        new_db.items.insert(HEIGHT_ITEM_TYPE, height_item_type(elevation));
+        new_db
+            .items
+            .insert(HEIGHT_ITEM_TYPE, height_item_type(elevation));
         world.items_db = std::sync::Arc::new(new_db);
     }
 
@@ -2132,7 +2175,9 @@ mod push_followup_d1_d2_d3_tests {
 
     /// Place a height item (type `HEIGHT_ITEM_TYPE`) on the tile at `pos`.
     fn place_height_item(world: &mut GameWorld, pos: Position) {
-        let item_id = world.items.insert(crate::item::Item::new_single(HEIGHT_ITEM_TYPE));
+        let item_id = world
+            .items
+            .insert(crate::item::Item::new_single(HEIGHT_ITEM_TYPE));
         if let Some(tile) = world.map.get_tile_mut(pos) {
             tile.body_mut().down_items.push(item_id);
         }
@@ -2158,7 +2203,8 @@ mod push_followup_d1_d2_d3_tests {
         let actor = insert_player(&mut world, test_player("Actor", actor_pos));
         let mover = insert_player_on_tile(&mut world, test_player("Mover", from), from);
         // Blocker creature on the dest tile — registered on the map.
-        let blocker = insert_monster_with_config(&mut world, "Blocker", to, 200, MonsterAiConfig::default());
+        let blocker =
+            insert_monster_with_config(&mut world, "Blocker", to, 200, MonsterAiConfig::default());
 
         let rv = world.player_push_creature(actor, mover, from, to);
         assert_eq!(
@@ -2200,9 +2246,11 @@ mod push_followup_d1_d2_d3_tests {
 
         let actor = insert_player(&mut world, test_player("Actor", actor_pos));
         // Monster mover — C5 skips MovePossible for dz != 0.
-        let mover = insert_monster_with_config(&mut world, "Mover", from, 200, MonsterAiConfig::default());
+        let mover =
+            insert_monster_with_config(&mut world, "Mover", from, 200, MonsterAiConfig::default());
         // Blocker creature on the dest tile.
-        let blocker = insert_monster_with_config(&mut world, "Blocker", to, 200, MonsterAiConfig::default());
+        let blocker =
+            insert_monster_with_config(&mut world, "Blocker", to, 200, MonsterAiConfig::default());
 
         let rv = world.player_push_creature(actor, mover, from, to);
         assert_eq!(

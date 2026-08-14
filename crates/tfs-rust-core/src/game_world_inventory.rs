@@ -17,7 +17,7 @@ use crate::creature::CreatureKind;
 use crate::cylinder::{Cylinder, CylinderFlags, INDEX_WHEREEVER};
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
-use crate::inventory::{slot_type_for_item_type, InventorySlot};
+use crate::inventory::{InventorySlot, slot_type_for_item_type};
 use crate::item::Item;
 use crate::item_look::{item_get_description_cpp, look_distance_tfs};
 use crate::player_inventory_notifications::NotificationParent;
@@ -598,10 +598,7 @@ impl GameWorld {
         if let Some(item) = self.items.get_mut(iid) {
             item.attributes
                 .get_or_insert_with(|| Box::new(crate::item_attributes::ItemAttributes::new()))
-                .set_custom_attribute(
-                    key,
-                    crate::item_attributes::CustomAttrValue::Integer(value),
-                );
+                .set_custom_attribute(key, crate::item_attributes::CustomAttrValue::Integer(value));
             Ok(())
         } else {
             Err("item not found".into())
@@ -747,14 +744,10 @@ impl GameWorld {
                     item_id: container_id,
                     ..
                 } => {
-                    if let Some(slot) =
-                        self.get_thing_index_in_container(container_id, item_id)
-                    {
+                    if let Some(slot) = self.get_thing_index_in_container(container_id, item_id) {
                         self.notify_container_content_changed(
                             container_id,
-                            ContainerContentChange::Update {
-                                slot: slot as u16,
-                            },
+                            ContainerContentChange::Update { slot: slot as u16 },
                         );
                     } else {
                         self.notify_container_content_changed(
@@ -1071,15 +1064,7 @@ impl GameWorld {
             slot: target_slot,
         };
         if self
-            .internal_move_item(
-                Some(cid),
-                from,
-                to,
-                found_id,
-                n,
-                CylinderFlags::NONE,
-                None,
-            )
+            .internal_move_item(Some(cid), from, to, found_id, n, CylinderFlags::NONE, None)
             .is_err()
         {
             self.send_cancel_message(conn_id, ReturnValue::NotPossible);
@@ -1131,7 +1116,9 @@ impl GameWorld {
         if !dest_stackable || source.item_type != dest.item_type {
             return Err(ReturnValue::NoMatch);
         }
-        if self.items_db.is_splash_or_fluid_for_server(source.item_type)
+        if self
+            .items_db
+            .is_splash_or_fluid_for_server(source.item_type)
             && source.fluid_type() != dest.fluid_type()
         {
             return Err(ReturnValue::NoMatch);
@@ -1321,7 +1308,11 @@ impl GameWorld {
     }
 
     /// `items[subType].name` for fluid/splash look — TFS `item.cpp` ~1408–1419.
-    fn fluid_look_type_name(&self, item: &Item, it: &tfs_rust_content::otb::ItemType) -> Option<String> {
+    fn fluid_look_type_name(
+        &self,
+        item: &Item,
+        it: &tfs_rust_content::otb::ItemType,
+    ) -> Option<String> {
         if !it.is_fluid_container() && !it.is_splash() {
             return None;
         }
@@ -1395,10 +1386,7 @@ impl GameWorld {
                     match access_group {
                         Some(group_name) => {
                             // Access group: omit level (`player.cpp:107-109`).
-                            format!(
-                                "You see {}. {pronoun} is {group_name}.",
-                                p.base.name
-                            )
+                            format!("You see {}. {pronoun} is {group_name}.", p.base.name)
                         }
                         None => {
                             let voc_desc = self

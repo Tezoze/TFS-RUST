@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use tfs_rust_common::game_packet::{UseItemExPayload, UseItemPayload};
-use tfs_rust_common::{PlayerSex, Position, CLIENTOS_OTCLIENT_LINUX};
+use tfs_rust_common::{CLIENTOS_OTCLIENT_LINUX, PlayerSex, Position};
 use tfs_rust_db::player::PlayerRecord;
 use tfs_rust_db::{ItemRecord, VipEntry};
 
@@ -14,7 +14,7 @@ use crate::ids::ItemId;
 use crate::creature::base::CreatureBase;
 use crate::creature::light::LightInfo;
 use crate::creature::vocation::{
-    base_walk_speed, experience_to_next_level, total_experience_for_level, VocationProfile,
+    VocationProfile, base_walk_speed, experience_to_next_level, total_experience_for_level,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -591,16 +591,14 @@ impl Player {
     /// TFS `Player::getMagicLevel` — base maglevel + `varStats[STAT_MAGICPOINTS]`.
     #[inline]
     pub fn magic_level(&self) -> i32 {
-        (self.skills.maglevel
-            + self.var_stats[tfs_rust_content::item_abilities::STAT_MAGICPOINTS])
+        (self.skills.maglevel + self.var_stats[tfs_rust_content::item_abilities::STAT_MAGICPOINTS])
             .max(0)
     }
 
     /// Effective max HP including `varStats[STAT_MAXHITPOINTS]`.
     #[inline]
     pub fn effective_max_health(&self) -> i32 {
-        (self.base.max_health
-            + self.var_stats[tfs_rust_content::item_abilities::STAT_MAXHITPOINTS])
+        (self.base.max_health + self.var_stats[tfs_rust_content::item_abilities::STAT_MAXHITPOINTS])
             .max(0)
     }
 

@@ -2,8 +2,8 @@ use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
 use slotmap::SlotMap;
-use tfs_rust_common::enums::{Direction, SkullType};
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::{Direction, SkullType};
 use tfs_rust_core::{
     CreatureBase, CreatureId, CreatureKind, Outfit, Player, PlayerEconomy, PlayerInventory,
     PlayerSkills, PlayerSocial,
@@ -50,7 +50,7 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
             fire_damage_origin: None,
             energy_damage_origin: None,
             earliest_attack_ms: 0,
-        latest_attack_round: 0,
+            latest_attack_round: 0,
             earliest_defend_ms: 0,
             last_defend_ms: 0,
             learning_points: 0,
@@ -133,7 +133,7 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
         attack_mode: Default::default(),
         secure_mode: false,
         earliest_protection_zone_round: 0,
-            client_icons: 0,
+        client_icons: 0,
         message_buffer_count: 0,
         message_buffer_ticks: 0,
         blessings: 0,

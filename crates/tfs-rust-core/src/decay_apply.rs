@@ -31,11 +31,7 @@ impl GameWorld {
         let Some(item) = self.items.get(item_id) else {
             return false;
         };
-        if item
-            .attributes
-            .as_ref()
-            .is_some_and(|a| a.has_unique_id())
-        {
+        if item.attributes.as_ref().is_some_and(|a| a.has_unique_id()) {
             return false;
         }
         let action_id = item.action_id();
@@ -145,10 +141,7 @@ impl GameWorld {
     /// prevents `change_item_type` from treating rounds as milliseconds.
     pub fn stop_decay(&mut self, item_id: ItemId) -> u64 {
         let now = self.decay_clock_now();
-        let remaining = self
-            .decay
-            .remaining_ms(item_id, now)
-            .unwrap_or(0);
+        let remaining = self.decay.remaining_ms(item_id, now).unwrap_or(0);
         self.decay.cancel(item_id);
         let item_ms = self.decay_clock_remaining_to_item_ms(remaining);
         if let Some(item) = self.items.get_mut(item_id) {
@@ -347,9 +340,11 @@ impl GameWorld {
 
         // Ensure registry entry so we can iterate children (map corpses may be lazy).
         self.hydrate_container_if_needed(container_id);
-        let Some((_viewers, children)) = self.container_registry.get(container_id).map(|c| {
-            (c.open_by.clone(), c.items.clone())
-        }) else {
+        let Some((_viewers, children)) = self
+            .container_registry
+            .get(container_id)
+            .map(|c| (c.open_by.clone(), c.items.clone()))
+        else {
             return;
         };
 
@@ -530,9 +525,7 @@ impl GameWorld {
                 if let Some(slot) = self.get_thing_index_in_container(container_id, item_id) {
                     self.notify_container_content_changed(
                         container_id,
-                        ContainerContentChange::Update {
-                            slot: slot as u16,
-                        },
+                        ContainerContentChange::Update { slot: slot as u16 },
                     );
                 } else {
                     self.notify_container_content_changed(
@@ -581,10 +574,10 @@ impl GameWorld {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::creature::CreatureKind;
     use crate::item::Item;
     use crate::sim_harness::minimal_world;
     use crate::tile::Tile;
-    use crate::creature::CreatureKind;
     use tfs_rust_common::Position;
     use tfs_rust_content::otb::ItemType;
 
@@ -603,11 +596,7 @@ mod tests {
     fn place_on_tile(world: &mut GameWorld, pos: Position, type_id: u16) -> ItemId {
         world.map.insert_tile(pos, Tile::empty_normal());
         let iid = world.items.insert(Item::new_single(type_id));
-        world
-            .map
-            .get_tile_mut(pos)
-            .expect("tile")
-            .add_item(iid);
+        world.map.get_tile_mut(pos).expect("tile").add_item(iid);
         if let Some(item) = world.items.get_mut(iid) {
             item.parent = Some(crate::cylinder::Cylinder::Tile { pos });
         }
@@ -678,16 +667,10 @@ mod tests {
 
         assert_eq!(world.items.get(iid).map(|i| i.item_type), Some(2810));
         assert!(
-            world
-                .map
-                .get_tile(pos)
-                .is_some_and(|t| t.has_item(iid)),
+            world.map.get_tile(pos).is_some_and(|t| t.has_item(iid)),
             "transformed item remains on tile"
         );
-        assert_eq!(
-            world.decay.remaining_ms(iid, world.server_ms),
-            Some(20_000)
-        );
+        assert_eq!(world.decay.remaining_ms(iid, world.server_ms), Some(20_000));
     }
 
     #[test]
@@ -708,12 +691,7 @@ mod tests {
         world.process_decay_expiry(&expired);
 
         assert!(world.items.get(iid).is_none());
-        assert!(
-            world
-                .map
-                .get_tile(pos)
-                .is_none_or(|t| !t.has_item(iid))
-        );
+        assert!(world.map.get_tile(pos).is_none_or(|t| !t.has_item(iid)));
     }
 
     #[test]
@@ -779,10 +757,7 @@ mod tests {
             world.items.get(iid).map(|i| i.decaying()),
             Some(DecayState::True)
         );
-        assert_eq!(
-            world.decay.remaining_ms(iid, world.server_ms),
-            Some(30_000)
-        );
+        assert_eq!(world.decay.remaining_ms(iid, world.server_ms), Some(30_000));
     }
 
     #[test]
@@ -975,9 +950,7 @@ mod tests {
 
         let pos = Position::new(70, 70, 7);
         let corpse = place_on_tile(&mut world, pos, 2806);
-        world
-            .container_registry
-            .register(Container::new(corpse, 7));
+        world.container_registry.register(Container::new(corpse, 7));
 
         let mut loot_ids = Vec::new();
         for _ in 0..5 {
@@ -1021,9 +994,7 @@ mod tests {
 
         let pos = Position::new(71, 71, 7);
         let bag_id = place_on_tile(&mut world, pos, 1988);
-        world
-            .container_registry
-            .register(Container::new(bag_id, 5));
+        world.container_registry.register(Container::new(bag_id, 5));
 
         let loot = world.items.insert(Item::new_single(2148));
         if let Some(cont) = world.container_registry.get_mut(bag_id) {
@@ -1036,10 +1007,7 @@ mod tests {
 
         assert!(world.items.get(bag_id).is_none());
         assert!(
-            world
-                .map
-                .get_tile(pos)
-                .is_some_and(|t| t.has_item(loot)),
+            world.map.get_tile(pos).is_some_and(|t| t.has_item(loot)),
             "loot moved to tile before bag removed"
         );
     }
@@ -1220,9 +1188,7 @@ mod tests {
 
         let pos = Position::new(75, 75, 7);
         let corpse = place_on_tile(&mut world, pos, 2806);
-        world
-            .container_registry
-            .register(Container::new(corpse, 7));
+        world.container_registry.register(Container::new(corpse, 7));
 
         let mut loot_ids = Vec::new();
         for _ in 0..5 {

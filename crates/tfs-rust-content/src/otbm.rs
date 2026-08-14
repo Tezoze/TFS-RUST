@@ -3,8 +3,8 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use tfs_rust_common::error::{Result, TfsRustError};
 use tfs_rust_common::Position;
+use tfs_rust_common::error::{Result, TfsRustError};
 use tracing::info;
 
 /// One stack entry on a map tile (ground or top items), in map load order.

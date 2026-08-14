@@ -1,8 +1,8 @@
 //! Server → client game packet builders.
 // C++ reference (this repo): `src/protocolgame.cpp` — `ProtocolGame::send*`.
 
-use tfs_rust_common::protocol_opcodes::server;
 use tfs_rust_common::Position;
+use tfs_rust_common::protocol_opcodes::server;
 
 use crate::NetworkMessage;
 

@@ -68,9 +68,10 @@ fn run(args: Vec<String>) -> Result<String, String> {
         let root = opts
             .root
             .ok_or_else(|| "missing --root <legacy-npc-dir> (or use --split-xml)".to_string())?;
-        let items_ref = items
-            .as_ref()
-            .ok_or_else(|| "CipSoft --root import requires items (pass --validate-data-dir or --items-dir)".to_string())?;
+        let items_ref = items.as_ref().ok_or_else(|| {
+            "CipSoft --root import requires items (pass --validate-data-dir or --items-dir)"
+                .to_string()
+        })?;
         import_legacy_root(&root, Some(items_ref)).map_err(|e| e.to_string())?
     };
 
@@ -203,10 +204,7 @@ fn load_items(data_dir: &Path) -> Result<ItemDatabase, String> {
 
 fn staging_dir(out: &Path) -> Result<PathBuf, String> {
     fs::create_dir_all(out).map_err(|e| format!("create {}: {e}", out.display()))?;
-    let staging = out.join(format!(
-        ".import-npcs-staging-{}",
-        std::process::id()
-    ));
+    let staging = out.join(format!(".import-npcs-staging-{}", std::process::id()));
     if staging.exists() {
         fs::remove_dir_all(&staging).map_err(|e| e.to_string())?;
     }

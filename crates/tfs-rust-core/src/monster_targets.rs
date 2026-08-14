@@ -6,17 +6,17 @@
 //! - `Monster::canUseAttack` / `isTarget` — `monster.cpp` (~649, ~876).
 
 use rand::RngExt;
-use tfs_rust_common::enums::ZoneType;
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::ZoneType;
 use tfs_rust_content::monsters::MonsterSpellNode;
 
 use crate::creature::{monster_has_melee_strike, runtime_spell_in_attack_range};
 
 use crate::creature::{CreatureKind, MonsterState};
-use crate::game_world::{creature_can_see, GameWorld};
+use crate::game_world::{GameWorld, creature_can_see};
 use crate::ids::CreatureId;
-use crate::monster_ai::{chebyshev, manhattan, MAP_MAX_VIEWPORT};
-use crate::player_flags::{flags_for_group, has_player_flag, PLAYER_FLAG_IGNORED_BY_MONSTERS};
+use crate::monster_ai::{MAP_MAX_VIEWPORT, chebyshev, manhattan};
+use crate::player_flags::{PLAYER_FLAG_IGNORED_BY_MONSTERS, flags_for_group, has_player_flag};
 
 /// TFS `TargetSearchType_t` (`monster.h`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

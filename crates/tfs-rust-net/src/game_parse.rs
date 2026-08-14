@@ -3,6 +3,7 @@
 // (incoming `case 0x..` switch ~L466–528). Opcode support is version-keyed via
 // `protocol_opcodes::client::is_supported` (Phase A2).
 
+use tfs_rust_common::ProtocolVersion;
 use tfs_rust_common::enums::Direction;
 use tfs_rust_common::error::{Result, TfsRustError};
 use tfs_rust_common::game_packet::{
@@ -10,7 +11,6 @@ use tfs_rust_common::game_packet::{
     UseItemExPayload, UseItemPayload,
 };
 use tfs_rust_common::protocol_opcodes::client as C;
-use tfs_rust_common::ProtocolVersion;
 
 use crate::NetworkMessage;
 

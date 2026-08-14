@@ -7,8 +7,8 @@
 //         (`u32` accountNumber + password). 772 has no Adler checksum and no session key.
 
 use rsa::RsaPrivateKey;
-use tfs_rust_common::error::{Result, TfsRustError};
 use tfs_rust_common::ProtocolCaps;
+use tfs_rust_common::error::{Result, TfsRustError};
 
 use crate::adler::adler_checksum;
 use crate::rsa::decrypt as rsa_decrypt_block;

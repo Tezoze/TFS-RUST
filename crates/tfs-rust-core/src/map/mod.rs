@@ -14,9 +14,9 @@ use tfs_rust_content::otbm::{self, MapData, TileData, TileThing};
 use crate::ids::{CreatureId, ItemId};
 use crate::item::Item;
 use crate::tile::HouseTile;
-use crate::tile::{flags, Tile, TileBody};
+use crate::tile::{Tile, TileBody, flags};
 
-pub use grid::{SparseGrid, CHUNK_AREA, CHUNK_SIZE, SECTOR_SIZE};
+pub use grid::{CHUNK_AREA, CHUNK_SIZE, SECTOR_SIZE, SparseGrid};
 pub use los::walk_grid_line;
 
 /// Runtime map state (sparse chunk grid + metadata).
@@ -179,7 +179,8 @@ fn internal_add_item_id(
 
     let mut item = Item::new_single(id);
     if let Some(blob) = otbm_attr_blob.filter(|b| !b.is_empty()) {
-        let is_container = it.map(|t| t.group == tfs_rust_content::otb::ItemType::GROUP_CONTAINER)
+        let is_container = it
+            .map(|t| t.group == tfs_rust_content::otb::ItemType::GROUP_CONTAINER)
             .unwrap_or(false);
         // Remere OTBM attrs 23–28 (key/door) — not DB `AttrTypes_t` NAME/WEIGHT.
         match crate::item_blob::parse_otbm_item_blob(blob, is_container) {
@@ -548,14 +549,7 @@ fn tile_from_data(
                 }
                 // Bytes after the item id — C++ `unserializeItemNode` (`item.cpp:754`).
                 let attr_blob = &raw[2..];
-                internal_add_item_id(
-                    pos,
-                    stream_id,
-                    items_db,
-                    &mut body,
-                    items,
-                    Some(attr_blob),
-                );
+                internal_add_item_id(pos, stream_id, items_db, &mut body, items, Some(attr_blob));
             }
         }
     }
@@ -576,7 +570,7 @@ mod tile_flag_tests {
 
     use slotmap::SlotMap;
     use tfs_rust_common::Position;
-    use tfs_rust_content::items::{ItemDatabase, ITEM_TYPE_TELEPORT};
+    use tfs_rust_content::items::{ITEM_TYPE_TELEPORT, ItemDatabase};
     use tfs_rust_content::otb::ItemType;
     use tfs_rust_content::otbm::{MapData, TileData, TileThing};
 
@@ -682,11 +676,8 @@ mod tile_flag_tests {
             },
         )]);
         let pos = Position::new(100, 100, 7);
-        let (map, items) = map_and_items_from_single_tile(
-            pos,
-            vec![TileThing::ItemNodeProps(raw)],
-            &db,
-        );
+        let (map, items) =
+            map_and_items_from_single_tile(pos, vec![TileThing::ItemNodeProps(raw)], &db);
         let tile = map.get_tile(pos).expect("tile");
         let item_id = tile
             .body()

@@ -4,12 +4,12 @@
 //! `tasks/player-combat-plan.md` Phase PM / `REFACTOR_AUDIT.md` §6 "module
 //! fragmentation" recommendation. Pure file relocation — no logic edits.
 
+pub(crate) mod equip_abilities;
 pub(crate) mod load;
 pub(crate) mod money;
 pub(crate) mod notifications;
 pub(crate) mod query_add;
 pub(crate) mod util;
-pub(crate) mod equip_abilities;
 
 // `#[allow(unused_imports)]` — populated as later phases add `crate::player::inventory::…`
 // call sites; the pure-move phase (PM) keeps them unused.

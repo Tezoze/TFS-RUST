@@ -4,22 +4,22 @@
 use std::collections::HashSet;
 
 use slotmap::Key;
-use tfs_rust_common::enums::{ConditionType, SkullType};
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::{ConditionType, SkullType};
 use tracing::warn;
 
 use crate::creature::CreatureKind;
 use crate::creature::LightInfo;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
-use crate::walk::{wire_step_speed, WalkSpeedRole};
+use crate::walk::{WalkSpeedRole, wire_step_speed};
 use crate::{Monster, Npc, Outfit, Player};
 
 use tfs_rust_net::codec::ItemTemplateArgs;
 use tfs_rust_net::creature_encode::{AddCreatureWire, OutfitWire};
 use tfs_rust_net::map_description::{
-    send_map_description_packet, send_map_description_stub, ItemStack, TileContent,
+    ItemStack, TileContent, send_map_description_packet, send_map_description_stub,
 };
 use tfs_rust_net::outgoing::{send_extended_opcode, send_magic_effect, send_otcv8_features};
 use tfs_rust_net::outgoing_extra::{
@@ -153,7 +153,9 @@ pub(crate) fn build_add_creature_wire(
             player_to_add_creature_wire(p, is_self, light, viewer_access, &world.mechanics, skull)
         }
         Some(1) => match world.creatures.get(cid) {
-            Some(CreatureKind::Monster(m)) => monster_to_add_creature_wire(cid, m, &world.mechanics),
+            Some(CreatureKind::Monster(m)) => {
+                monster_to_add_creature_wire(cid, m, &world.mechanics)
+            }
             _ => AddCreatureWire::default(),
         },
         Some(2) => match world.creatures.get(cid) {
@@ -206,7 +208,11 @@ fn monster_to_add_creature_wire(
     mech: &crate::formulas::Mechanics,
 ) -> AddCreatureWire {
     AddCreatureWire {
-        id: if m.wire_id != 0 { m.wire_id } else { non_player_wire_id(cid) },
+        id: if m.wire_id != 0 {
+            m.wire_id
+        } else {
+            non_player_wire_id(cid)
+        },
         remove_known: 0,
         known: false,
         creature_type: 1,
@@ -233,7 +239,11 @@ fn npc_to_add_creature_wire(
     mech: &crate::formulas::Mechanics,
 ) -> AddCreatureWire {
     AddCreatureWire {
-        id: if n.wire_id != 0 { n.wire_id } else { non_player_wire_id(cid) },
+        id: if n.wire_id != 0 {
+            n.wire_id
+        } else {
+            non_player_wire_id(cid)
+        },
         remove_known: 0,
         known: false,
         creature_type: 2,
@@ -374,9 +384,7 @@ pub(crate) fn map_tile_content(
                 continue;
             }
             let skull = match world.creatures.get(ocid) {
-                Some(CreatureKind::Player(_)) => {
-                    world.player_get_killing_mark(ocid, self_cid)
-                }
+                Some(CreatureKind::Player(_)) => world.player_get_killing_mark(ocid, self_cid),
                 _ => SkullType::None,
             };
             let light = match world.creatures.get(ocid) {
@@ -395,9 +403,7 @@ pub(crate) fn map_tile_content(
                 Some(CreatureKind::Monster(m)) => {
                     monster_to_add_creature_wire(ocid, m, &world.mechanics)
                 }
-                Some(CreatureKind::Npc(n)) => {
-                    npc_to_add_creature_wire(ocid, n, &world.mechanics)
-                }
+                Some(CreatureKind::Npc(n)) => npc_to_add_creature_wire(ocid, n, &world.mechanics),
                 None => continue,
             };
             content.creatures.push(w);
@@ -608,7 +614,10 @@ fn enqueue_initial_login_packets_classic(
 
     // World light (`0x82`) + this player's creature light (`0x8D`).
     let (wl_level, wl_color) = world.current_world_light();
-    world.enqueue_outgoing(conn_id, send_world_light(wl_level, wl_color, false).into_bytes());
+    world.enqueue_outgoing(
+        conn_id,
+        send_world_light(wl_level, wl_color, false).into_bytes(),
+    );
     let pl = world.player_creature_light(creature_id);
     world.enqueue_encoded(
         conn_id,
@@ -767,7 +776,10 @@ fn enqueue_initial_login_packets_1098(
     world.send_player_skills(creature_id);
 
     let (wl_level, wl_color) = world.current_world_light();
-    world.enqueue_outgoing(conn_id, send_world_light(wl_level, wl_color, false).into_bytes());
+    world.enqueue_outgoing(
+        conn_id,
+        send_world_light(wl_level, wl_color, false).into_bytes(),
+    );
     let pl = world.player_creature_light(creature_id);
     world.enqueue_encoded(
         conn_id,
@@ -841,7 +853,14 @@ mod map_creature_wire_tests {
     fn gm_viewer_uses_access_player_wire_flag() {
         let p = test_player("GM", Position::new(100, 100, 7));
         let mech = Mechanics::for_version(ProtocolVersion::V1098);
-        let wire = player_to_add_creature_wire(&p, true, LightInfo::default(), true, &mech, SkullType::None);
+        let wire = player_to_add_creature_wire(
+            &p,
+            true,
+            LightInfo::default(),
+            true,
+            &mech,
+            SkullType::None,
+        );
         assert!(wire.access_player);
     }
 
@@ -858,7 +877,14 @@ mod map_creature_wire_tests {
         p.base.base_speed = 220;
         p.base.var_speed = 0;
         let mech = Mechanics::for_version(ProtocolVersion::V772);
-        let wire = player_to_add_creature_wire(&p, true, LightInfo::default(), false, &mech, SkullType::None);
+        let wire = player_to_add_creature_wire(
+            &p,
+            true,
+            LightInfo::default(),
+            false,
+            &mech,
+            SkullType::None,
+        );
 
         assert_eq!(wire.id, p.guid);
         // Decompile `sending.cc` SendWord(GetSpeed()) = 2*220+80 = 520.
@@ -889,7 +915,14 @@ mod map_creature_wire_tests {
             None,
         ));
         let mech = Mechanics::for_version(ProtocolVersion::V772);
-        let wire = player_to_add_creature_wire(&p, true, LightInfo::default(), false, &mech, SkullType::None);
+        let wire = player_to_add_creature_wire(
+            &p,
+            true,
+            LightInfo::default(),
+            false,
+            &mech,
+            SkullType::None,
+        );
         assert_eq!(wire.outfit.look_type, 0);
         assert_eq!(wire.outfit.look_type_ex, 0);
     }

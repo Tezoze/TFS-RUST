@@ -72,14 +72,14 @@ impl UserData for PositionRef {
 
             // Prefer south of upstairs tile, else scan directions.
             let candidates: [(i16, i16); 8] = [
-                (0, 1),  // SOUTH default
-                (0, -1), // NORTH
-                (1, 0),  // EAST
-                (-1, 0), // WEST
-                (-1, 1), // SW
-                (1, 1),  // SE
+                (0, 1),   // SOUTH default
+                (0, -1),  // NORTH
+                (1, 0),   // EAST
+                (-1, 0),  // WEST
+                (-1, 1),  // SW
+                (1, 1),   // SE
                 (-1, -1), // NW
-                (1, -1), // NE
+                (1, -1),  // NE
             ];
 
             let base_x = this.x;
@@ -213,11 +213,7 @@ pub fn register_position_metatable(lua: &mlua::Lua) -> Result<(), mlua::Error> {
                         return Err(mlua::Error::runtime("Position(x,y,z): missing z"));
                     }
                 };
-                let ud = lua.create_userdata(PositionRef {
-                    x: x as u16,
-                    y,
-                    z,
-                })?;
+                let ud = lua.create_userdata(PositionRef { x: x as u16, y, z })?;
                 Ok(Value::UserData(ud))
             }
             Value::Number(x) => {
@@ -236,11 +232,7 @@ pub fn register_position_metatable(lua: &mlua::Lua) -> Result<(), mlua::Error> {
                         return Err(mlua::Error::runtime("Position(x,y,z): missing z"));
                     }
                 };
-                let ud = lua.create_userdata(PositionRef {
-                    x: x as u16,
-                    y,
-                    z,
-                })?;
+                let ud = lua.create_userdata(PositionRef { x: x as u16, y, z })?;
                 Ok(Value::UserData(ud))
             }
             Value::Nil => {

@@ -313,16 +313,18 @@ impl GameWorld {
     }
 
     /// C++ `TCreature::ToDoTalk` — `cract.cc:1367-1390`: enqueue `TDTalk` at the back.
-    pub(crate) fn enqueue_creature_talk(&mut self, cid: CreatureId, text: impl Into<String>) -> bool {
+    pub(crate) fn enqueue_creature_talk(
+        &mut self,
+        cid: CreatureId,
+        text: impl Into<String>,
+    ) -> bool {
         let Some(k) = self.creatures.get_mut(cid) else {
             return false;
         };
         k.base_mut()
             .todo
             .queue
-            .push_back(CreatureAction::Talk {
-                text: text.into(),
-            });
+            .push_back(CreatureAction::Talk { text: text.into() });
         tracing::debug!(
             creature = k.base().name.as_str(),
             ?cid,
@@ -342,7 +344,10 @@ impl GameWorld {
     /// Phase A: used for NPC dialogue scheduling only; player/monster call sites still use
     /// the raw enqueue builders until audited in Phase B.
     pub(crate) fn creature_todo_add(&mut self, cid: CreatureId, action: CreatureAction) -> bool {
-        let locked = self.creatures.get(cid).is_some_and(|k| k.base().todo.locked);
+        let locked = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| k.base().todo.locked);
         if locked {
             let had_go = self.creature_todo_clear(cid);
             if had_go {
@@ -1053,9 +1058,9 @@ mod tests {
     };
     use crate::ids::CreatureId;
     use crate::test_world::support::{
-        beat_driven_test_world, dist_idle_monster_config, ensure_walkable_tile, insert_monster,
-        insert_monster_with_config, insert_player, minimal_world, test_player,
-        TEST_SYNTHETIC_GROUND_WP,
+        TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, dist_idle_monster_config,
+        ensure_walkable_tile, insert_monster, insert_monster_with_config, insert_player,
+        minimal_world, test_player,
     };
 
     fn beat_driven_test_world_at(ms: u64) -> crate::game_world::GameWorld {
@@ -1620,10 +1625,13 @@ mod tests {
             1,
             "EXHAUSTED catch → ToDoClear + ToDoWait(1000) → [Wait{{1000}}]"
         );
-        assert!(matches!(
-            base.todo.queue[0],
-            CreatureAction::Wait { deadline_ms: 6000 }
-        ), "ToDoWait(1000) at server_ms=5000 → deadline 6000");
+        assert!(
+            matches!(
+                base.todo.queue[0],
+                CreatureAction::Wait { deadline_ms: 6000 }
+            ),
+            "ToDoWait(1000) at server_ms=5000 → deadline 6000"
+        );
     }
 
     /// RESULT catch: non-exhausted error → `ToDoYield` = `ToDoWait(0)` + `ToDoStart`.
@@ -1646,10 +1654,13 @@ mod tests {
             1,
             "non-exhausted catch → [Wait{{0}}] (ToDoYield)"
         );
-        assert!(matches!(
-            base.todo.queue[0],
-            CreatureAction::Wait { deadline_ms: 5000 }
-        ), "ToDoWait(0) at server_ms=5000 → deadline 5000");
+        assert!(
+            matches!(
+                base.todo.queue[0],
+                CreatureAction::Wait { deadline_ms: 5000 }
+            ),
+            "ToDoWait(0) at server_ms=5000 → deadline 5000"
+        );
     }
 
     /// RESULT catch: `ThereIsNoWay` (C++ `NOWAY`) is NOT in the 3-result snapback set.
@@ -1677,10 +1688,13 @@ mod tests {
 
         let base = world.creatures.get(cid).unwrap().base();
         assert_eq!(base.todo.queue.len(), 1, "yield enqueued Wait{{0}}");
-        assert!(matches!(
-            base.todo.queue[0],
-            CreatureAction::Wait { deadline_ms: 5000 }
-        ), "ToDoWait(0) at server_ms=5000 → deadline 5000");
+        assert!(
+            matches!(
+                base.todo.queue[0],
+                CreatureAction::Wait { deadline_ms: 5000 }
+            ),
+            "ToDoWait(0) at server_ms=5000 → deadline 5000"
+        );
     }
 
     /// RESULT catch: the 2-result exempt set (`PlayerIsNotInvited` /
@@ -1703,10 +1717,13 @@ mod tests {
 
         let base = world.creatures.get(cid).unwrap().base();
         assert_eq!(base.todo.queue.len(), 1, "yield enqueued Wait{{0}}");
-        assert!(matches!(
-            base.todo.queue[0],
-            CreatureAction::Wait { deadline_ms: 5000 }
-        ), "ToDoWait(0) at server_ms=5000 → deadline 5000");
+        assert!(
+            matches!(
+                base.todo.queue[0],
+                CreatureAction::Wait { deadline_ms: 5000 }
+            ),
+            "ToDoWait(0) at server_ms=5000 → deadline 5000"
+        );
     }
 
     /// `Use` execute arm: single-object use on a bag opens the container (success).
@@ -1808,7 +1825,10 @@ mod tests {
             "front = Go (walk-to-reach)"
         );
         assert!(
-            matches!(base.todo.queue[1], CreatureAction::Wait { deadline_ms: 100 }),
+            matches!(
+                base.todo.queue[1],
+                CreatureAction::Wait { deadline_ms: 100 }
+            ),
             "second = Wait{{100}}"
         );
         assert!(
@@ -1853,7 +1873,10 @@ mod tests {
             "front = Go (walk-to-reach)"
         );
         assert!(
-            matches!(base.todo.queue[1], CreatureAction::Wait { deadline_ms: 100 }),
+            matches!(
+                base.todo.queue[1],
+                CreatureAction::Wait { deadline_ms: 100 }
+            ),
             "second = Wait{{100}}"
         );
         assert!(
@@ -1978,7 +2001,10 @@ mod tests {
             "front = Go (walk-to-reach)"
         );
         assert!(
-            matches!(base.todo.queue[1], CreatureAction::Wait { deadline_ms: 100 }),
+            matches!(
+                base.todo.queue[1],
+                CreatureAction::Wait { deadline_ms: 100 }
+            ),
             "second = Wait{{100}}"
         );
         assert!(
@@ -2055,7 +2081,10 @@ mod tests {
             "ToDo queue unchanged (Wait{{500}} still there)"
         );
         assert!(
-            matches!(base.todo.queue[0], CreatureAction::Wait { deadline_ms: 500 }),
+            matches!(
+                base.todo.queue[0],
+                CreatureAction::Wait { deadline_ms: 500 }
+            ),
             "ToDo queue not cleared by setup_player_walk_to_target"
         );
     }
@@ -2127,7 +2156,10 @@ mod tests {
             "front = Go (walk-to-reach)"
         );
         assert!(
-            matches!(base.todo.queue[1], CreatureAction::Wait { deadline_ms: 100 }),
+            matches!(
+                base.todo.queue[1],
+                CreatureAction::Wait { deadline_ms: 100 }
+            ),
             "second = Wait{{100}}"
         );
         assert!(
@@ -2499,8 +2531,7 @@ mod tests {
     #[test]
     fn need_target_rune_on_empty_ground_poffs_as_miss() {
         let mut world = beat_driven_test_world();
-        let (conn, cid, obj1, obj2) =
-            inventory_rune_and_empty_ground(&mut world, 2268, true);
+        let (conn, cid, obj1, obj2) = inventory_rune_and_empty_ground(&mut world, 2268, true);
 
         world
             .enqueue_player_use(cid, obj1, Some(obj2), 0)
@@ -2549,8 +2580,7 @@ mod tests {
     #[test]
     fn floor_aoe_rune_on_empty_ground_reaches_cast() {
         let mut world = beat_driven_test_world();
-        let (conn, cid, obj1, obj2) =
-            inventory_rune_and_empty_ground(&mut world, 2304, false);
+        let (conn, cid, obj1, obj2) = inventory_rune_and_empty_ground(&mut world, 2304, false);
 
         world
             .enqueue_player_use(cid, obj1, Some(obj2), 0)

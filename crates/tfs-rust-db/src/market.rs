@@ -286,8 +286,7 @@ impl<'a> MarketStore<'a> {
             created: u64,
         }
 
-        let select_sql =
-            "SELECT player_id, sale, itemtype, amount, price, created FROM market_offers WHERE id = ?";
+        let select_sql = "SELECT player_id, sale, itemtype, amount, price, created FROM market_offers WHERE id = ?";
         let maybe_offer = self
             .pool
             .execute_with_retry(|| {

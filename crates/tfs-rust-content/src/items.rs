@@ -4,8 +4,8 @@
 use crate::item_abilities::apply_ability_attribute;
 use crate::items_xml_keys::is_known_xml_key;
 use crate::otb::{ItemType, OtbLoader};
-use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
+use quick_xml::events::{BytesStart, Event};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
@@ -196,9 +196,7 @@ impl ItemDatabase {
     /// OTB has no DistUse bit. Must be set by offline content prep — **not** runtime `objects.srv`.
     #[inline]
     pub fn is_distuse(&self, server_id: u16) -> bool {
-        self.items
-            .get(&server_id)
-            .is_some_and(|t| t.is_distuse())
+        self.items.get(&server_id).is_some_and(|t| t.is_distuse())
     }
 
     /// Openable as a container window — normal bags or map depot lockers (`actions.cpp`).
@@ -220,11 +218,7 @@ impl ItemDatabase {
     #[inline]
     pub fn ground_speed_for_item(&self, server_id: u16) -> u32 {
         let raw = self.items.get(&server_id).map(|t| t.speed).unwrap_or(0);
-        if raw == 0 {
-            150
-        } else {
-            raw as u32
-        }
+        if raw == 0 { 150 } else { raw as u32 }
     }
 
     /// 772 `WAYPOINTS` for `TShortway::FillMap` — raw OTB speed; `0` is invalid (`cract.cc:95-98`).
@@ -274,9 +268,7 @@ impl ItemDatabase {
     /// (`operate.cc:525`).
     #[inline]
     pub fn is_avoid(&self, server_id: u16) -> bool {
-        self.items
-            .get(&server_id)
-            .is_some_and(|t| t.is_avoid())
+        self.items.get(&server_id).is_some_and(|t| t.is_avoid())
     }
 
     /// 772 `ObjType.getAttribute(AVOIDDAMAGETYPES)` — the damage type a magic field inflicts
@@ -1110,7 +1102,7 @@ fn apply_xml_attribute(item: &mut ItemType, key: &str, value: &str, item_id: u16
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::item_abilities::{combat_absorb_index, CONDITION_DRUNK, STAT_MAGICPOINTS};
+    use crate::item_abilities::{CONDITION_DRUNK, STAT_MAGICPOINTS, combat_absorb_index};
     use std::fs;
     use tfs_rust_common::enums::{CombatType, Skill};
 

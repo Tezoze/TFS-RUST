@@ -4,7 +4,7 @@
 use sqlx::Row;
 use tfs_rust_common::error::{Result, TfsRustError};
 
-use crate::password::{hash_bcrypt_async, needs_upgrade, verify_password, PasswordHashConfig};
+use crate::password::{PasswordHashConfig, hash_bcrypt_async, needs_upgrade, verify_password};
 use crate::pool::DbPool;
 
 async fn load_character_names(pool: &DbPool, account_id: i32) -> Result<Vec<String>> {

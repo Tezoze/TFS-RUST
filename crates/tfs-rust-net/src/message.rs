@@ -1,11 +1,11 @@
 use bytes::{BufMut, BytesMut};
+use flate2::Compression;
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
-use flate2::Compression;
 use std::io::{Read, Write};
 use tfs_rust_common::{
-    error::{Result, TfsRustError},
     Position,
+    error::{Result, TfsRustError},
 };
 
 pub struct NetworkMessage {

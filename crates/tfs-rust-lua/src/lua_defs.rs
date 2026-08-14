@@ -194,13 +194,15 @@ pub fn snapshot_lua_defs(runtime: &LuaRuntime) -> Result<LuaDefsSnapshot, mlua::
 
     for (class, chunk) in CTOR_PROBES {
         if let Ok(Value::Table(table)) = lua.load(*chunk).set_name(*class).eval::<Value>() {
-            let entry = classes.entry((*class).to_string()).or_insert_with(|| ClassDef {
-                base: None,
-                callable: true,
-                methods: BTreeSet::new(),
-                table_functions: BTreeSet::new(),
-                fields: BTreeSet::new(),
-            });
+            let entry = classes
+                .entry((*class).to_string())
+                .or_insert_with(|| ClassDef {
+                    base: None,
+                    callable: true,
+                    methods: BTreeSet::new(),
+                    table_functions: BTreeSet::new(),
+                    fields: BTreeSet::new(),
+                });
             collect_function_keys(&table, &mut entry.methods)?;
         }
     }
@@ -455,7 +457,13 @@ fn emit_engine(snapshot: &LuaDefsSnapshot) -> String {
     let mut names: Vec<&String> = snapshot.classes.keys().collect();
     names.sort_by_key(|n| {
         (
-            usize::from(snapshot.classes.get(*n).and_then(|c| c.base.as_ref()).is_some()),
+            usize::from(
+                snapshot
+                    .classes
+                    .get(*n)
+                    .and_then(|c| c.base.as_ref())
+                    .is_some(),
+            ),
             *n,
         )
     });

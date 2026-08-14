@@ -4,19 +4,19 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use tfs_rust_common::enums::{ConditionType, Direction};
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::{ConditionType, Direction};
 use tfs_rust_content::items::ItemDatabase;
 use tfs_rust_content::npc_import::{lower_npc, parse_npc_file};
 use tfs_rust_content::npcs::{
-    validate_pending_definitions, DialogueAction, DialogueExpr, DialoguePolicy, DialoguePredicate,
-    DialogueProgram, DialogueRule, DialogueSituation, ExprOp, NpcAppearance, NpcDatabase,
-    NpcMovement, PendingNpcDefinition, SessionVar, SourceSpan,
+    DialogueAction, DialogueExpr, DialoguePolicy, DialoguePredicate, DialogueProgram, DialogueRule,
+    DialogueSituation, ExprOp, NpcAppearance, NpcDatabase, NpcMovement, PendingNpcDefinition,
+    SessionVar, SourceSpan, validate_pending_definitions,
 };
 use tfs_rust_content::otb::ItemType;
 
 use super::events::{DialogueEvent, DialogueSituationKind, DialogueTrace, MutateOp, QueueOp};
-use super::expr::{format_npc_response, EvalContext, PlayerVocationKind};
+use super::expr::{EvalContext, PlayerVocationKind, format_npc_response};
 use super::match_rule::match_dialogue_rule;
 use super::words::{search_for_number, search_for_word};
 use crate::condition::{ActiveCondition, ConditionData};
@@ -276,18 +276,22 @@ fn greeting_farewell_trace() {
     let mut trace = DialogueTrace::default();
     world.npc_talk_stimulus(npc, p1, "hi", &mut trace);
 
-    assert!(trace
-        .events
-        .iter()
-        .any(|e| matches!(e, DialogueEvent::Situation { name: "ADDRESS" })));
+    assert!(
+        trace
+            .events
+            .iter()
+            .any(|e| matches!(e, DialogueEvent::Situation { name: "ADDRESS" }))
+    );
     assert!(trace.events.iter().any(|e| matches!(
         e,
         DialogueEvent::Say { text, .. } if text.contains("Welcome, adventurer Hero!")
     )));
-    assert!(trace
-        .events
-        .iter()
-        .any(|e| matches!(e, DialogueEvent::TurnTo { player } if *player == p1)));
+    assert!(
+        trace
+            .events
+            .iter()
+            .any(|e| matches!(e, DialogueEvent::TurnTo { player } if *player == p1))
+    );
     assert!(trace.events.iter().any(|e| matches!(
         e,
         DialogueEvent::Set {
@@ -303,10 +307,12 @@ fn greeting_farewell_trace() {
 
     let mut trace2 = DialogueTrace::default();
     world.npc_talk_stimulus(npc, p1, "bye", &mut trace2);
-    assert!(trace2
-        .events
-        .iter()
-        .any(|e| matches!(e, DialogueEvent::Situation { name: "DEFAULT" })));
+    assert!(
+        trace2
+            .events
+            .iter()
+            .any(|e| matches!(e, DialogueEvent::Situation { name: "DEFAULT" }))
+    );
     assert!(trace2.events.iter().any(|e| matches!(
         e,
         DialogueEvent::Say { text, .. } if text == "Good bye, Hero!"
@@ -357,10 +363,11 @@ fn two_player_busy_queue_and_timeout() {
 
     let mut t2 = DialogueTrace::default();
     world.npc_talk_stimulus(npc, p2, "hi", &mut t2);
-    assert!(t2
-        .events
-        .iter()
-        .any(|e| matches!(e, DialogueEvent::Situation { name: "BUSY" })));
+    assert!(
+        t2.events
+            .iter()
+            .any(|e| matches!(e, DialogueEvent::Situation { name: "BUSY" }))
+    );
     assert!(t2.events.iter().any(|e| matches!(
         e,
         DialogueEvent::Queue {
@@ -377,10 +384,11 @@ fn two_player_busy_queue_and_timeout() {
     world.round_nr = 837;
     let mut t3 = DialogueTrace::default();
     world.npc_idle_stimulus(npc, &mut t3);
-    assert!(t3
-        .events
-        .iter()
-        .any(|e| matches!(e, DialogueEvent::Situation { name: "VANISH" })));
+    assert!(
+        t3.events
+            .iter()
+            .any(|e| matches!(e, DialogueEvent::Situation { name: "VANISH" }))
+    );
     assert!(t3.events.iter().any(|e| matches!(
         e,
         DialogueEvent::Situation {
@@ -691,7 +699,10 @@ fn quentin_heal_clears_poison_and_effect() {
         0,
         0,
         ConditionType::Poison,
-        ConditionData::Damage { total_rank: 5, factor_percent: 50 },
+        ConditionData::Damage {
+            total_rank: 5,
+            factor_percent: 50,
+        },
         Some(5),
     ));
     let p1 = insert_player(&mut world, hero);
@@ -1011,10 +1022,11 @@ fn idle_sleep_when_no_players_nearby() {
         world.creatures.get(npc),
         Some(CreatureKind::Npc(n)) if n.runtime.activity == NpcActivity::Sleeping
     ));
-    assert!(t
-        .events
-        .iter()
-        .any(|e| matches!(e, DialogueEvent::State { value: "sleeping" })));
+    assert!(
+        t.events
+            .iter()
+            .any(|e| matches!(e, DialogueEvent::State { value: "sleeping" }))
+    );
 }
 
 #[test]
@@ -1042,10 +1054,11 @@ fn sleep_wakes_on_player_move() {
         world.creatures.get(npc),
         Some(CreatureKind::Npc(n)) if n.runtime.activity == NpcActivity::Idle
     ));
-    assert!(t
-        .events
-        .iter()
-        .any(|e| matches!(e, DialogueEvent::State { value: "idle" })));
+    assert!(
+        t.events
+            .iter()
+            .any(|e| matches!(e, DialogueEvent::State { value: "idle" }))
+    );
 }
 
 #[test]
@@ -1213,7 +1226,7 @@ fn multi_reply_delay_accounting_tom_job() {
 
 #[test]
 fn custom_predicate_host_selects_rule() {
-    use super::match_rule::{match_dialogue_rule_with_custom, CustomPredicateHost};
+    use super::match_rule::{CustomPredicateHost, match_dialogue_rule_with_custom};
     use tfs_rust_content::npcs::NpcCallbackId;
 
     struct AlwaysTrue;
@@ -1285,50 +1298,42 @@ fn custom_predicate_host_selects_rule() {
         tuning: NpcTuning::classic_772(),
     };
     let _ = money;
-    assert!(match_dialogue_rule_with_custom(
-        &program,
-        "hi",
-        DialogueSituationKind::Default,
-        &mut ctx,
-        &mut AlwaysTrue,
-    )
-    .is_some());
-    assert!(match_dialogue_rule_with_custom(
-        &program,
-        "hi",
-        DialogueSituationKind::Default,
-        &mut ctx,
-        &mut AlwaysFalse,
-    )
-    .is_none());
+    assert!(
+        match_dialogue_rule_with_custom(
+            &program,
+            "hi",
+            DialogueSituationKind::Default,
+            &mut ctx,
+            &mut AlwaysTrue,
+        )
+        .is_some()
+    );
+    assert!(
+        match_dialogue_rule_with_custom(
+            &program,
+            "hi",
+            DialogueSituationKind::Default,
+            &mut ctx,
+            &mut AlwaysFalse,
+        )
+        .is_none()
+    );
 }
 
 #[test]
 fn custom_action_host_records_mutate() {
     use super::actions::NpcActionHost;
-    use super::react::{apply_dialogue_plan, ReactMeta};
+    use super::react::{ReactMeta, apply_dialogue_plan};
     use tfs_rust_content::npcs::NpcCallbackId;
 
     struct StubHost {
         called: bool,
     }
     impl NpcActionHost for StubHost {
-        fn create_item(
-            &mut self,
-            _: CreatureId,
-            _: i32,
-            _: i32,
-            _: i32,
-        ) -> Result<(), String> {
+        fn create_item(&mut self, _: CreatureId, _: i32, _: i32, _: i32) -> Result<(), String> {
             Ok(())
         }
-        fn delete_item(
-            &mut self,
-            _: CreatureId,
-            _: i32,
-            _: i32,
-            _: i32,
-        ) -> Result<(), String> {
+        fn delete_item(&mut self, _: CreatureId, _: i32, _: i32, _: i32) -> Result<(), String> {
             Ok(())
         }
         fn create_money(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
@@ -1473,7 +1478,7 @@ fn custom_action_host_records_mutate() {
 
 #[test]
 fn npc_immune_to_combat_damage_and_conditions() {
-    use crate::combat::{apply_condition, CombatDamage, CombatParams};
+    use crate::combat::{CombatDamage, CombatParams, apply_condition};
     use crate::sim_harness::insert_npc;
     use tfs_rust_common::enums::CombatType;
 
@@ -1505,10 +1510,13 @@ fn npc_immune_to_combat_damage_and_conditions() {
             id: 1,
             sub_id: 0,
             ctype: ConditionType::Poison,
-            data: ConditionData::Damage { total_rank: 40, factor_percent: 50 },
+            data: ConditionData::Damage {
+                total_rank: 40,
+                factor_percent: 50,
+            },
             timer_rounds_left: None,
-        skill_count: 0,
-        skill_max_count: 0,
+            skill_count: 0,
+            skill_max_count: 0,
         },
     );
     assert!(
@@ -1986,7 +1994,7 @@ fn say_reply_over_255_bytes_dropped() {
     use super::actions::NpcActionHost;
     use super::events::DialogueSituationKind;
     use super::match_rule::RuleMatch;
-    use super::react::{apply_dialogue_plan, ReactMeta};
+    use super::react::{ReactMeta, apply_dialogue_plan};
 
     struct NullHost;
     impl NpcActionHost for NullHost {
@@ -2099,8 +2107,15 @@ fn say_reply_over_255_bytes_dropped() {
         &meta,
         &mut trace,
     );
-    assert_eq!(plan.replies.len(), 1, "only the under-256-byte reply is kept");
-    assert_eq!(plan.replies[0].text, "fine", "the short reply after the long one is scheduled");
+    assert_eq!(
+        plan.replies.len(),
+        1,
+        "only the under-256-byte reply is kept"
+    );
+    assert_eq!(
+        plan.replies[0].text, "fine",
+        "the short reply after the long one is scheduled"
+    );
 }
 
 #[test]
@@ -2168,22 +2183,10 @@ fn delete_failure_aborts_remaining_actions() {
 
     struct FailingHost;
     impl NpcActionHost for FailingHost {
-        fn create_item(
-            &mut self,
-            _: CreatureId,
-            _: i32,
-            _: i32,
-            _: i32,
-        ) -> Result<(), String> {
+        fn create_item(&mut self, _: CreatureId, _: i32, _: i32, _: i32) -> Result<(), String> {
             Ok(())
         }
-        fn delete_item(
-            &mut self,
-            _: CreatureId,
-            _: i32,
-            _: i32,
-            _: i32,
-        ) -> Result<(), String> {
+        fn delete_item(&mut self, _: CreatureId, _: i32, _: i32, _: i32) -> Result<(), String> {
             Err("not enough items".into())
         }
         fn create_money(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
@@ -2286,7 +2289,10 @@ fn delete_failure_aborts_remaining_actions() {
         &meta,
         &mut trace,
     );
-    assert!(plan.replies.is_empty(), "Say after failing Delete must be skipped");
+    assert!(
+        plan.replies.is_empty(),
+        "Say after failing Delete must be skipped"
+    );
     assert!(!plan.start_todo, "No reply means no StartToDo");
 }
 
@@ -2299,22 +2305,10 @@ fn idle_address_queue_no_trailing_starttodo() {
 
     struct NullHost;
     impl NpcActionHost for NullHost {
-        fn create_item(
-            &mut self,
-            _: CreatureId,
-            _: i32,
-            _: i32,
-            _: i32,
-        ) -> Result<(), String> {
+        fn create_item(&mut self, _: CreatureId, _: i32, _: i32, _: i32) -> Result<(), String> {
             Ok(())
         }
-        fn delete_item(
-            &mut self,
-            _: CreatureId,
-            _: i32,
-            _: i32,
-            _: i32,
-        ) -> Result<(), String> {
+        fn delete_item(&mut self, _: CreatureId, _: i32, _: i32, _: i32) -> Result<(), String> {
             Ok(())
         }
         fn create_money(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
@@ -2407,7 +2401,10 @@ fn idle_address_queue_no_trailing_starttodo() {
         &meta,
         &mut trace,
     );
-    assert!(plan.go_idle, "Idle action under ADDRESSQUEUE goes idle immediately");
+    assert!(
+        plan.go_idle,
+        "Idle action under ADDRESSQUEUE goes idle immediately"
+    );
     assert!(!plan.start_todo, "C++ skips StartToDo under ADDRESSQUEUE");
     assert_eq!(plan.final_talk_delay_ms, 0);
 }
