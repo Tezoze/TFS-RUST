@@ -2,7 +2,8 @@
 #   docker compose pull && docker compose up      # GHCR image (after a main push)
 #   docker compose up --build                     # compile locally
 #
-# Login 7171 / game 7172. Stop a host `./scripts/run_server.sh` first (same ports).
+# Login 7171 / game 7172. Account `1` / password `1` (God + four vocations, seeded after migrations).
+# Stop a host `./scripts/run_server.sh` first (same ports).
 # Clients on this machine: TFS_PUBLIC_IP=127.0.0.1 (default). LAN: set your host IP.
 
 services:
@@ -45,6 +46,24 @@ services:
     # volumes:
     #   - ./config.lua:/srv/config.lua:ro
     #   - ./data:/srv/data:ro
+
+  seed:
+    image: mariadb:11
+    depends_on:
+      db:
+        condition: service_healthy
+      tfs:
+        condition: service_started
+    environment:
+      MARIADB_USER: forgottenserver
+      MARIADB_PASSWORD: ${MYSQL_PASSWORD:-forgottenserver}
+      MARIADB_DATABASE: forgottenserver
+      TFS_DB_WAIT_HOST: db
+    volumes:
+      - ./docker/seed_dev_account.sql:/seed.sql:ro
+      - ./docker/seed-dev-account.sh:/seed.sh:ro
+    entrypoint: ["/bin/sh", "/seed.sh"]
+    restart: "no"
 
 volumes:
   tfs-mariadb:

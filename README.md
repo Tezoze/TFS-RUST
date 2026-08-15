@@ -47,6 +47,8 @@ docker compose pull && docker compose up
 # or, compile in Docker: docker compose up --build
 ```
 
+Client: login port **7171**, account **`1`**, password **`1`**. Characters: **God**, **Master Sorcerer**, **Elder Druid**, **Royal Paladin**, **Elite Knight**.
+
 See [docs/COMPILING.md](docs/COMPILING.md#11-docker).
 
 ---

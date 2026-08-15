@@ -366,3 +366,5 @@ Stop a host `./scripts/run_server.sh` first — it binds the same ports. MariaDB
 LAN clients: set `TFS_PUBLIC_IP` in `.env` to the host’s LAN IP. The container already binds `0.0.0.0` when `bindOnlyGlobalAddress` is false (`config.lua.dist`).
 
 Rebuild after Rust/datapack changes: `docker compose up --build`. Optional bind-mounts for live `config.lua` / `data/` are commented in `docker-compose.yml`.
+
+**Game account:** Compose creates the MariaDB user only. A one-shot `seed` service waits for SQLx migrations, then inserts account **`1`** / password **`1`** with **God** (group 6) plus level-100 **Master Sorcerer**, **Elder Druid**, **Royal Paladin**, and **Elite Knight** (`docker/seed_dev_account.sql`, SHA1 then bcrypt on first login). Idempotent — existing rows are left alone.
