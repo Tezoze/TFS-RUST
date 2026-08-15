@@ -4,7 +4,7 @@
 //! and manages script registry and global function registration.
 
 use mlua::{Lua, RegistryKey, Value};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
@@ -17,8 +17,11 @@ use std::rc::Rc;
 /// whole process — no ticks, no packets, no saves. This turns a total outage
 /// into one failed script call. Generous enough for large loot loops and
 /// map-wide iteration; override from `config.lua` via `luaMemoryLimit` (MB).
-/// No JIT impact (unlike the instruction-count hook, which is still gated).
+/// No JIT impact (the instruction-count hook is separate and does force
+/// LuaJIT interpreter fallback while enabled).
 pub const DEFAULT_LUA_MEMORY_LIMIT_BYTES: usize = 512 * 1024 * 1024;
+
+pub use crate::instruction_budget::DEFAULT_LUA_INSTRUCTION_BUDGET;
 
 use crate::constants::register_constants;
 use crate::context::{CreatureRef, ItemRef};
@@ -74,6 +77,9 @@ pub struct LuaRuntime {
     /// NPC-1: custom predicate/action callbacks keyed by opaque [`tfs_rust_content::npcs::NpcCallbackId`].
     /// Content defs store the id; RegistryKeys stay here (!Send, game thread).
     pub(crate) npc_callbacks: HashMap<tfs_rust_content::npcs::NpcCallbackId, RegistryKey>,
+    /// Per-invocation instruction budget (pillar 4). Synced to the game-thread
+    /// local used by [`crate::instruction_budget::with_lua_instruction_budget`].
+    instruction_budget: Cell<u32>,
 }
 
 /// Pending channel definition from Lua Channel:register().
@@ -139,6 +145,10 @@ impl LuaRuntime {
         // `luaMemoryLimit` (MB) in `run_server.rs`. No JIT impact.
         lua.set_memory_limit(DEFAULT_LUA_MEMORY_LIMIT_BYTES)
             .map_err(LuaError::Registration)?;
+
+        // Instruction budget is armed per Rust→Lua entry (not as a lifetime
+        // counter). The thread-local is what combat/timer helpers read.
+        crate::instruction_budget::set_thread_instruction_budget(DEFAULT_LUA_INSTRUCTION_BUDGET);
 
         // Register minimal global functions via RegisterLuaFunctions
         let registrar = MinimalGlobalFunctions;
@@ -242,6 +252,7 @@ impl LuaRuntime {
             spell_callbacks: HashMap::new(),
             weapon_callbacks: HashMap::new(),
             npc_callbacks: HashMap::new(),
+            instruction_budget: Cell::new(DEFAULT_LUA_INSTRUCTION_BUDGET),
         })
     }
 
@@ -252,8 +263,7 @@ impl LuaRuntime {
     /// [`LuaRuntime::new`]; this lets `run_server.rs` override it from
     /// `config.lua` (`luaMemoryLimit`, in MB). Once an allocation would pass
     /// the limit, mlua raises `Error::MemoryError` instead of OOM-killing the
-    /// process. No JIT impact (unlike the instruction-count hook, which is
-    /// still gated on Gaps 1-6 + a JIT-cost measurement).
+    /// process. No JIT impact (the instruction-count hook is separate).
     ///
     /// # Errors
     ///
@@ -265,6 +275,37 @@ impl LuaRuntime {
             .map_err(LuaError::Registration)
     }
 
+    /// Set the per-invocation Lua instruction budget. Returns the previous budget.
+    ///
+    /// VM hardening pillar 4 — `tasks/tools-actions/vm-hardening.md`. `0` disables
+    /// the count hook and re-enables LuaJIT. Aborting a script does **not** roll
+    /// back mutations already applied in the same callback (failure isolation,
+    /// not atomicity — `TFS-lua-boundaries` Mutation Path).
+    pub fn set_instruction_budget(&self, budget: u32) -> u32 {
+        let prev = self.instruction_budget.replace(budget);
+        crate::instruction_budget::set_thread_instruction_budget(budget);
+        if budget == 0 {
+            self.lua.remove_hook();
+            crate::instruction_budget::restore_luajit(&self.lua);
+        }
+        prev
+    }
+
+    fn sync_instruction_budget(&self) {
+        crate::instruction_budget::set_thread_instruction_budget(self.instruction_budget.get());
+    }
+
+    /// Invoke a Lua function under the per-invocation instruction budget.
+    pub(crate) fn call_lua<R: mlua::FromLuaMulti>(
+        &self,
+        function: &mlua::Function,
+        args: impl mlua::IntoLuaMulti,
+    ) -> Result<R, LuaError> {
+        self.sync_instruction_budget();
+        crate::instruction_budget::with_lua_instruction_budget(&self.lua, || function.call(args))
+            .map_err(LuaError::Init)
+    }
+
     /// Load and compile a Lua script file.
     ///
     /// # Errors
@@ -274,11 +315,7 @@ impl LuaRuntime {
         let full_path = Path::new(path);
         let chunk = std::fs::read_to_string(full_path)
             .map_err(|e| LuaError::ScriptIo(full_path.display().to_string(), e.to_string()))?;
-        self.lua
-            .load(&chunk)
-            .set_name(path)
-            .exec()
-            .map_err(LuaError::Init)?;
+        self.exec_chunk(path, &chunk)?;
 
         let key = self.lua.create_registry_value(true)?;
         Ok(CallbackRef(key))
@@ -304,11 +341,7 @@ impl LuaRuntime {
             .set("_pending_channels", self.lua.create_table()?)?;
 
         // Execute the script
-        self.lua
-            .load(&chunk)
-            .set_name(path)
-            .exec()
-            .map_err(LuaError::Init)?;
+        self.exec_chunk(path, &chunk)?;
 
         // Drain pending channels into our buffer
         let pending: mlua::Table = self.lua.globals().get("_pending_channels")?;
@@ -384,11 +417,7 @@ impl LuaRuntime {
             .set("_pending_talkactions", self.lua.create_table()?)?;
 
         // Execute the script
-        self.lua
-            .load(&chunk)
-            .set_name(path)
-            .exec()
-            .map_err(LuaError::Init)?;
+        self.exec_chunk(path, &chunk)?;
 
         // Drain pending talkactions into our buffer
         let pending: mlua::Table = self.lua.globals().get("_pending_talkactions")?;
@@ -436,11 +465,7 @@ impl LuaRuntime {
             .globals()
             .set("_pending_actions", self.lua.create_table()?)?;
 
-        self.lua
-            .load(&chunk)
-            .set_name(path)
-            .exec()
-            .map_err(LuaError::Init)?;
+        self.exec_chunk(path, &chunk)?;
 
         let pending: mlua::Table = self.lua.globals().get("_pending_actions")?;
         for i in 1..=pending.len()? {
@@ -500,11 +525,7 @@ impl LuaRuntime {
             .globals()
             .set("_pending_move_events", self.lua.create_table()?)?;
 
-        self.lua
-            .load(&chunk)
-            .set_name(path)
-            .exec()
-            .map_err(LuaError::Init)?;
+        self.exec_chunk(path, &chunk)?;
 
         let pending: mlua::Table = self.lua.globals().get("_pending_move_events")?;
         for i in 1..=pending.len()? {
@@ -624,9 +645,7 @@ impl LuaRuntime {
             Value::Nil
         };
 
-        function
-            .call::<bool>((player_ud, item_ud, from_ud, target, to_ud))
-            .map_err(LuaError::Init)
+        self.call_lua(&function, (player_ud, item_ud, from_ud, target, to_ud))
     }
 
     /// Call a talkaction `onSay` hook — `(player, words, param) -> bool`.
@@ -650,9 +669,7 @@ impl LuaRuntime {
         // C++ `executeSay` pushes (player, words, param, type). The /i script
         // only uses (player, words, param) — `type` is ignored by all active
         // scripts. Pass 0 (TALKTYPE_SAY) as the type.
-        let result = function
-            .call::<bool>((player_ud, words, param, 0i32))
-            .map_err(LuaError::Init);
+        let result = self.call_lua(&function, (player_ud, words, param, 0i32));
         tracing::info!(
             player,
             words,
@@ -662,13 +679,16 @@ impl LuaRuntime {
         result
     }
 
-    /// Execute a Lua chunk (bootstrap globals, compat stubs).
+    /// Execute a Lua chunk (bootstrap globals, compat stubs, data-pack files).
+    ///
+    /// Runs under the per-invocation instruction budget. Abort does not roll
+    /// back Lua globals or world mutations already applied in this chunk.
     pub fn exec_chunk(&self, name: &str, chunk: &str) -> Result<(), LuaError> {
-        self.lua
-            .load(chunk)
-            .set_name(name)
-            .exec()
-            .map_err(LuaError::Init)
+        self.sync_instruction_budget();
+        crate::instruction_budget::with_lua_instruction_budget(&self.lua, || {
+            self.lua.load(chunk).set_name(name).exec()
+        })
+        .map_err(LuaError::Init)
     }
 
     pub fn register_callback(
@@ -699,7 +719,7 @@ impl LuaRuntime {
             .lua
             .create_userdata(CreatureRef(creature))
             .map_err(LuaError::Init)?;
-        function.call::<bool>(player).map_err(LuaError::Init)
+        self.call_lua(&function, player)
     }
 
     /// Execute a fired `addEvent` timer callback.
@@ -709,6 +729,7 @@ impl LuaRuntime {
     /// Returns `Ok(true)` if the event was found and executed, `Ok(false)` if it was
     /// already cancelled.
     pub fn execute_timer_event(&self, event_id: u64) -> Result<bool, LuaError> {
+        self.sync_instruction_budget();
         execute_timer_event(&self.lua, &self.timer_events, event_id).map_err(LuaError::Init)
     }
 
@@ -754,9 +775,7 @@ impl LuaRuntime {
             .lua
             .create_userdata(ItemRef(item))
             .map_err(LuaError::Init)?;
-        function
-            .call::<()>((player_ud, item_ud, slot, equip))
-            .map_err(LuaError::Init)
+        self.call_lua(&function, (player_ud, item_ud, slot, equip))
     }
 
     /// TFS `MoveEvent::executeEquip` — `(player, item, slot, isCheck)`.
@@ -780,9 +799,7 @@ impl LuaRuntime {
             .lua
             .create_userdata(ItemRef(item))
             .map_err(LuaError::Init)?;
-        function
-            .call::<bool>((player_ud, item_ud, slot, is_check))
-            .map_err(LuaError::Init)
+        self.call_lua(&function, (player_ud, item_ud, slot, is_check))
     }
 
     /// TFS `MoveEvent::executeAddItem` — `(player, item, fromPosition, toPosition) -> bool`.
@@ -822,9 +839,7 @@ impl LuaRuntime {
                 z: to.z,
             })
             .map_err(LuaError::Init)?;
-        function
-            .call::<bool>((player_ud, item_ud, from_ud, to_ud))
-            .map_err(LuaError::Init)
+        self.call_lua(&function, (player_ud, item_ud, from_ud, to_ud))
     }
 
     /// TFS `MoveEvent::executeStep` — `(creature, item, position, fromPosition) -> bool`.
@@ -864,9 +879,7 @@ impl LuaRuntime {
                 z: from_pos.z,
             })
             .map_err(LuaError::Init)?;
-        function
-            .call::<bool>((creature_ud, item_ud, pos_ud, from_ud))
-            .map_err(LuaError::Init)
+        self.call_lua(&function, (creature_ud, item_ud, pos_ud, from_ud))
     }
 
     /// Call a channel `canJoin` hook — `(player) -> bool`.
@@ -882,7 +895,7 @@ impl LuaRuntime {
             .lua
             .create_userdata(CreatureRef(player))
             .map_err(LuaError::Init)?;
-        function.call::<bool>(player_ud).map_err(LuaError::Init)
+        self.call_lua(&function, player_ud)
     }
 
     /// Call a channel `onSpeak` hook — `(player, type, message) -> type|bool`.
@@ -900,9 +913,7 @@ impl LuaRuntime {
             .lua
             .create_userdata(CreatureRef(player))
             .map_err(LuaError::Init)?;
-        function
-            .call::<mlua::Value>((player_ud, speak_type, message))
-            .map_err(LuaError::Init)
+        self.call_lua(&function, (player_ud, speak_type, message))
     }
 
     /// Call a channel `onJoin` hook — `(player)`.
@@ -918,7 +929,7 @@ impl LuaRuntime {
             .lua
             .create_userdata(CreatureRef(player))
             .map_err(LuaError::Init)?;
-        function.call::<()>(player_ud).map_err(LuaError::Init)
+        self.call_lua(&function, player_ud)
     }
 
     /// Call a channel `onLeave` hook — `(player)`.
@@ -934,7 +945,7 @@ impl LuaRuntime {
             .lua
             .create_userdata(CreatureRef(player))
             .map_err(LuaError::Init)?;
-        function.call::<()>(player_ud).map_err(LuaError::Init)
+        self.call_lua(&function, player_ud)
     }
 
     /// Invoke a spell's `onCastSpell` Lua callback.
@@ -1001,9 +1012,7 @@ impl LuaRuntime {
             .create_userdata(CreatureRef(creature))
             .map_err(LuaError::Init)?;
         let variant = build_cast_variant_spec(&self.lua, creature, spec)?;
-        function
-            .call::<bool>((creature_ud, variant))
-            .map_err(LuaError::Init)
+        self.call_lua(&function, (creature_ud, variant))
     }
 
     /// PC-3a: Register a spell callback keyed by spell words.
@@ -1054,9 +1063,7 @@ impl LuaRuntime {
         };
         let variant = build_cast_variant_spec(&self.lua, creature, spec)?;
         // Always pass `hit` as 3rd arg — 2-arg scripts ignore it (Lua).
-        let result: Value = function
-            .call((creature_ud, variant, hit))
-            .map_err(LuaError::Init)?;
+        let result: Value = self.call_lua(&function, (creature_ud, variant, hit))?;
         Ok(match result {
             Value::Boolean(b) => b,
             Value::Nil => true,
@@ -2377,5 +2384,38 @@ mod tests {
             msg.contains("memory") || msg.contains("not enough"),
             "expected a memory error, got: {msg}"
         );
+    }
+
+    /// VM hardening pillar 4 — instruction budget through `LuaRuntime::exec_chunk`.
+    /// A lifetime-counter hook would fail the second call; per-invocation reset
+    /// is the contract. Abort is isolation, not rollback (`x` stays set).
+    #[test]
+    fn instruction_budget_default_applied_and_enforced() {
+        let runtime = LuaRuntime::new().expect("runtime");
+        let prev = runtime.set_instruction_budget(DEFAULT_LUA_INSTRUCTION_BUDGET);
+        assert_eq!(
+            prev, DEFAULT_LUA_INSTRUCTION_BUDGET,
+            "LuaRuntime::new must apply DEFAULT_LUA_INSTRUCTION_BUDGET"
+        );
+
+        runtime.set_instruction_budget(10_000);
+        let err = runtime
+            .exec_chunk("runaway", "x = 1; while true do end")
+            .expect_err("runaway loop must error, not hang the game thread");
+        assert!(
+            err.to_string()
+                .contains(crate::instruction_budget::INSTRUCTION_BUDGET_EXCEEDED),
+            "expected instruction-budget error, got: {err}"
+        );
+        let x: i64 = runtime.lua.globals().get("x").expect("x");
+        assert_eq!(x, 1, "abort does not roll back prior Lua assignments");
+
+        runtime.set_instruction_budget(50_000);
+        runtime
+            .exec_chunk("ok", "local n = 0; for i = 1, 1000 do n = n + 1 end")
+            .expect("first legitimate chunk");
+        runtime
+            .exec_chunk("ok2", "local n = 0; for i = 1, 1000 do n = n + 1 end")
+            .expect("second chunk must get a fresh budget");
     }
 }

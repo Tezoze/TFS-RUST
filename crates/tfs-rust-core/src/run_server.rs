@@ -216,6 +216,23 @@ pub async fn run() -> anyhow::Result<()> {
                 }
             }
 
+            // VM hardening pillar 4 — per-invocation instruction budget.
+            // `0` disables the count hook and keeps LuaJIT. Abort does not roll
+            // back mutations already applied in the callback.
+            if let Ok(n) = config.get_i64("luaInstructionBudget") {
+                if n < 0 {
+                    tracing::warn!("luaInstructionBudget < 0 ignored (keeping default)");
+                } else {
+                    let budget = u32::try_from(n).unwrap_or(u32::MAX);
+                    let prev = lua_runtime.set_instruction_budget(budget);
+                    tracing::info!(
+                        lua_instruction_budget = budget,
+                        previous_budget = prev,
+                        "Lua VM instruction budget overridden from config.lua"
+                    );
+                }
+            }
+
             // Load chat channels from Lua scripts (CH-4)
             let chat_channels = match load_chat_channel_scripts(&mut lua_runtime, &data_path) {
                 Ok(channels) => {
@@ -571,9 +588,13 @@ pub async fn run() -> anyhow::Result<()> {
     let adv_ip = std::env::var("TFS_PUBLIC_IP").unwrap_or_else(|_| net_cfg.ip.clone());
     info!(advertise = %format!("{adv_ip}:{game_port}"), "character list game address");
 
-    let server_name = std::env::var("TFS_SERVER_NAME").unwrap_or_else(|_| "Australis".to_string());
+    let server_name = std::env::var("TFS_SERVER_NAME").unwrap_or_else(|_| {
+        config
+            .get_string("serverName")
+            .unwrap_or_else(|_| "Australis".to_string())
+    });
     let public_ip = std::env::var("TFS_PUBLIC_IP").unwrap_or_else(|_| net_cfg.ip.clone());
-    let motd = std::env::var("TFS_MOTD").unwrap_or_default();
+    let motd = std::env::var("TFS_MOTD").unwrap_or_else(|_| config.get_string("motd").unwrap_or_default());
     let motd_num: u32 = std::env::var("TFS_MOTD_NUM")
         .ok()
         .and_then(|s| s.parse().ok())

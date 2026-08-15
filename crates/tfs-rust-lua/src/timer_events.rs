@@ -230,7 +230,8 @@ pub fn execute_timer_event(
     }
 
     // Call the function (C++ `callFunction(parameters.size())`).
-    let result = function.call::<()>(args);
+    let result =
+        crate::instruction_budget::with_lua_instruction_budget(lua, || function.call::<()>(args));
 
     // Free resources — `RegistryKey`s drop here (C++ `luaL_unref` for function + params).
     drop(desc);

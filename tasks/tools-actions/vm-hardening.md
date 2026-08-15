@@ -25,11 +25,15 @@ Both exist in mlua 0.12.0; `set_hook` is available on non-Luau builds (our LuaJI
 
 **Why it matters here:** game simulation is single-threaded (`TFS-threading`). One `while true do end` anywhere in `data/scripts/**` hangs the whole server — no ticks, no packets, no saves, recoverable only by `kill -9`, every player losing state since last save. A runaway allocation OOMs the process. No attacker required; an accidental loop in a quest script is the normal case. The guard turns a total outage into one failed script call.
 
-**Two caveats to decide, not skip:**
-- **No rollback.** Mutations apply immediately so scripts can read them back mid-callback (`TFS-lua-boundaries`, Mutation Path). Aborting mid-script leaves *partially applied* effects — failure isolation, not atomicity. Document the semantic per callback.
-- **LuaJIT + active hooks probably forces interpreter fallback** (LuaJIT does not call count hooks from compiled traces), which cuts against choosing LuaJIT for speed. **Measure before enabling globally.** Fallbacks: generous budget; hooks on content-stage scripts only; or ship `set_memory_limit` alone first (no JIT impact).
+✅ **`set_memory_limit` done 2026-08-10.** `DEFAULT_LUA_MEMORY_LIMIT_BYTES` (512 MiB) in `LuaRuntime::new`; `config.lua` `luaMemoryLimit` (MB).
 
-Choose the budget by measuring the heaviest legitimate callback (large loot loops, map-wide iteration), then ~10×.
+✅ **Instruction hook done 2026-08-15.** Per-invocation count hook in `instruction_budget.rs` (`DEFAULT_LUA_INSTRUCTION_BUDGET` = 10_000_000, ~10× a 500×20 loot-style loop — `default_budget_covers_heavy_loot_loop_with_headroom`). Armed at every Rust→Lua entry (`exec_chunk`, `call_*`, timers, combat value/event callbacks, NPC callbacks). Nested Lua→Rust→Lua shares the outer budget. `config.lua` `luaInstructionBudget`; `0` disables the hook and re-enables LuaJIT.
+
+**Caveats (decided, not skipped):**
+- **No rollback.** Mutations apply immediately so scripts can read them back mid-callback (`TFS-lua-boundaries`, Mutation Path). Aborting mid-script leaves *partially applied* effects — failure isolation, not atomicity. Same semantic for every callback: the dispatcher logs the error and continues; world/Lua state already written stays written (`abort_does_not_roll_back_prior_lua_side_effects`).
+- **LuaJIT compiled traces skip count hooks** (mlua's own test calls `jit.off()`). While the budget is > 0 we `jit.off()` on first armed entry so the hook actually fires. Operators who need JIT back set `luaInstructionBudget = 0` (and accept that a runaway script can hang the game thread).
+
+A lifetime hook (install once in `LuaRuntime::new`) would spend the budget across the whole process and then start killing legitimate scripts. The hook is therefore re-armed at each outermost invocation (`budget_resets_per_invocation`).
 
 ### Pillar 5 — typed contracts (LuaLS)
 
@@ -69,7 +73,7 @@ So: **two runtime call sites** become a `tfs.appendLog(kind, text)` capability c
 |---|---|---|
 | 4 — `set_memory_limit` | ✅ done (2026-08-10) — independent of everything else | none; no JIT impact |
 | 5 — LuaLS generation | ✅ done (2026-08-14) — `emit-lua-defs` + committed `lua-defs/` + CI `--check` | needs `register_class` as single owner + `__index` chains so method resolution is faithful |
-| 4 — instruction hook | After Gaps 1-6 (tools running end-to-end); **before any production or third-party exposure** | needs a JIT-cost measurement + a chosen budget |
+| 4 — instruction hook | ✅ done (2026-08-15) — per-invocation `set_hook` + `jit.off()` while budget > 0 | Gaps 1-6 done; budget = 10× loot-loop measurement; `luaInstructionBudget = 0` restores JIT |
 | 1 — stdlib allowlist | After Gaps 1-6, alongside or after the instruction hook | needs the `tfs.appendLog` capability first |
 
 Rationale for the ordering: the memory limit is free and prevents a whole-process kill. LuaLS is gated on Gap 7a+7b (both done) and pays for itself immediately by replacing hand-maintained inventories. The instruction hook needs a real measurement first, so it should not block the tools work. The allowlist is cheap but addresses a threat we may not have yet.

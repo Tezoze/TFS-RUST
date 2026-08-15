@@ -10,6 +10,7 @@ pub mod combat_enums;
 pub mod combat_scripts;
 pub mod constants;
 pub mod context;
+mod instruction_budget;
 pub mod lua_defs;
 pub mod lua_mutation;
 pub mod move_events;
@@ -32,6 +33,7 @@ pub use constants::register_constants;
 pub use context::{
     CreatureData, CreatureId, ItemData, ItemId, ItemRef, LuaContext, with_lua_context,
 };
+pub use instruction_budget::DEFAULT_LUA_INSTRUCTION_BUDGET;
 pub use lua_mutation::{
     CombatExecuteRequest, ConditionApplySpec, LuaMoveDestination, LuaMutation, call_combat_execute,
     call_do_challenge_creature, call_do_target_combat_health, call_lua_add_condition,
@@ -53,8 +55,8 @@ pub use move_events::{
 pub use npc_dialogue::{NpcDialogueProgram, register_npc_dialogue};
 pub use npc_type::{NpcTypeBuilder, PendingNpc, register_npc_type};
 pub use runtime::{
-    CallbackRef, LuaError, LuaRuntime, PendingAction, PendingChatChannel, PendingMoveEvent,
-    PendingTalkAction, RegisterLuaFunctions,
+    CallbackRef, DEFAULT_LUA_MEMORY_LIMIT_BYTES, LuaError, LuaRuntime, PendingAction,
+    PendingChatChannel, PendingMoveEvent, PendingTalkAction, RegisterLuaFunctions,
 };
 pub use script_loader::{CreatureEventType, LoadError, PlayerEventType, ScriptLoader};
 pub use talkactions::{TalkActionDef, load_talkaction_scripts};

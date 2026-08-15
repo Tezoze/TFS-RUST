@@ -22,6 +22,7 @@ use mlua::{Lua, MetaMethod, UserData, UserDataMethods, Value};
 use tfs_rust_common::enums::CombatType;
 
 use crate::context::{CURRENT_CTX, CreatureRef};
+use crate::instruction_budget::with_lua_instruction_budget;
 use crate::lua_mutation::{CombatExecuteRequest, call_combat_execute};
 use crate::userdata::position::PositionRef;
 
@@ -918,26 +919,29 @@ fn invoke_value_callback(
     // `Player:` methods bridged onto `CreatureRef` via the `__index` fallback.
     let player_ud = lua.create_userdata(CreatureRef(caster_id))?;
 
-    let (min, max): (f64, f64) = if callback.param == CALLBACK_PARAM_LEVELMAGICVALUE {
-        // `fn(player, level, magic_level) → (min, max)`
-        // C++ `ValueCallback::getMinMaxValues` — `combat.cpp:1134-1147`.
-        let (level, magic) = read_caster_level_magic(caster_id)?;
-        func.call::<(f64, f64)>((player_ud, level, magic))
-    } else {
-        // `fn(player, skill, attack, factor) → (min, max)`
-        // C++ `ValueCallback::getMinMaxValues` — `combat.cpp:1155-1163`:
-        // `player->getWeaponSkill()`, `player->getWeapon()->getAttack()`,
-        // `player->getAttackFactor()`.
-        let params = CURRENT_CTX.with(|c| {
-            let ptr = (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
-            if ptr.is_null() {
-                return Err(mlua::Error::runtime("LuaContext not set"));
-            }
-            let ctx = unsafe { &*ptr };
-            Ok(ctx.get_player_weapon_combat_params(caster_id))
-        })?;
-        func.call::<(f64, f64)>((player_ud, params.skill, params.attack, params.attack_factor))
-    }?;
+    let (min, max): (f64, f64) = with_lua_instruction_budget(lua, || {
+        if callback.param == CALLBACK_PARAM_LEVELMAGICVALUE {
+            // `fn(player, level, magic_level) → (min, max)`
+            // C++ `ValueCallback::getMinMaxValues` — `combat.cpp:1134-1147`.
+            let (level, magic) = read_caster_level_magic(caster_id)?;
+            func.call::<(f64, f64)>((player_ud, level, magic))
+        } else {
+            // `fn(player, skill, attack, factor) → (min, max)`
+            // C++ `ValueCallback::getMinMaxValues` — `combat.cpp:1155-1163`:
+            // `player->getWeaponSkill()`, `player->getWeapon()->getAttack()`,
+            // `player->getAttackFactor()`.
+            let params = CURRENT_CTX.with(|c| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.get_player_weapon_combat_params(caster_id))
+            })?;
+            func.call::<(f64, f64)>((player_ud, params.skill, params.attack, params.attack_factor))
+        }
+    })?;
 
     Ok((min as i32, max as i32))
 }
@@ -956,6 +960,28 @@ fn resolve_callback_function(lua: &Lua, cb: &CombatCallback) -> Option<mlua::Fun
 /// C++ `TargetCallback::onTargetCombat` / `TileCallback::onTileCombat` —
 /// `combat.cpp:1223,1193`.
 fn invoke_event_callbacks(
+    lua: &Lua,
+    combat: &CombatDef,
+    caster_id: u64,
+    center_x: u16,
+    center_y: u16,
+    center_z: u8,
+    area_offsets: &[(i32, i32)],
+) -> Result<(), mlua::Error> {
+    with_lua_instruction_budget(lua, || {
+        invoke_event_callbacks_inner(
+            lua,
+            combat,
+            caster_id,
+            center_x,
+            center_y,
+            center_z,
+            area_offsets,
+        )
+    })
+}
+
+fn invoke_event_callbacks_inner(
     lua: &Lua,
     combat: &CombatDef,
     caster_id: u64,

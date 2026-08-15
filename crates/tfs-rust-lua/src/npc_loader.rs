@@ -92,10 +92,7 @@ impl LuaRuntime {
             let path_str = path.display().to_string();
             let source = std::fs::read_to_string(path)
                 .map_err(|e| format!("failed to read NPC definition {path_str}: {e}"))?;
-            self.lua
-                .load(&source)
-                .set_name(&path_str)
-                .exec()
+            self.exec_chunk(&path_str, &source)
                 .map_err(|e| format!("failed to load NPC definition {path_str}: {e}"))?;
         }
 
@@ -298,11 +295,11 @@ impl LuaRuntime {
             .lua
             .create_userdata(crate::userdata::NpcRef(npc))
             .map_err(LuaError::Init)?;
-        match function.call::<mlua::Value>(npc_ud) {
+        match self.call_lua(&function, npc_ud) {
             Ok(mlua::Value::Boolean(b)) => Ok(b),
             Ok(mlua::Value::Nil) => Ok(true),
             Ok(_) => Ok(true),
-            Err(e) => Err(LuaError::Init(e)),
+            Err(e) => Err(e),
         }
     }
 
@@ -324,11 +321,11 @@ impl LuaRuntime {
             .lua
             .create_userdata(CreatureRef(player))
             .map_err(LuaError::Init)?;
-        match function.call::<mlua::Value>((npc_ud, player_ud)) {
+        match self.call_lua(&function, (npc_ud, player_ud)) {
             Ok(mlua::Value::Boolean(b)) => Ok(b),
             Ok(mlua::Value::Nil) => Ok(true),
             Ok(_) => Ok(true),
-            Err(e) => Err(LuaError::Init(e)),
+            Err(e) => Err(e),
         }
     }
 
@@ -351,11 +348,11 @@ impl LuaRuntime {
             .lua
             .create_userdata(CreatureRef(speaker))
             .map_err(LuaError::Init)?;
-        match function.call::<mlua::Value>((npc_ud, speaker_ud, text)) {
+        match self.call_lua(&function, (npc_ud, speaker_ud, text)) {
             Ok(mlua::Value::Boolean(b)) => Ok(b),
             Ok(mlua::Value::Nil) => Ok(true),
             Ok(_) => Ok(true),
-            Err(e) => Err(LuaError::Init(e)),
+            Err(e) => Err(e),
         }
     }
 
@@ -373,11 +370,11 @@ impl LuaRuntime {
             .lua
             .create_userdata(crate::userdata::NpcRef(npc))
             .map_err(LuaError::Init)?;
-        match function.call::<mlua::Value>((npc_ud, interval_ms)) {
+        match self.call_lua(&function, (npc_ud, interval_ms)) {
             Ok(mlua::Value::Boolean(b)) => Ok(b),
             Ok(mlua::Value::Nil) => Ok(true),
             Ok(_) => Ok(true),
-            Err(e) => Err(LuaError::Init(e)),
+            Err(e) => Err(e),
         }
     }
 
@@ -412,11 +409,11 @@ impl LuaRuntime {
                 z: to.2,
             })
             .map_err(LuaError::Init)?;
-        match function.call::<mlua::Value>((npc_ud, from_ud, to_ud)) {
+        match self.call_lua(&function, (npc_ud, from_ud, to_ud)) {
             Ok(mlua::Value::Boolean(b)) => Ok(b),
             Ok(mlua::Value::Nil) => Ok(true),
             Ok(_) => Ok(true),
-            Err(e) => Err(LuaError::Init(e)),
+            Err(e) => Err(e),
         }
     }
 }

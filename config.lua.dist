@@ -1,23 +1,46 @@
--- Combat settings
--- NOTE: valid values for worldType are: "pvp", "no-pvp" and "pvp-enforced"
-worldType = "pvp"
-hotkeyAimbotEnabled = true
+-- TFS Rust `config.lua` template. Copy to `config.lua` (gitignored).
+-- Keys here are ones the Rust server actually reads. C++ TFS leftovers
+-- (houses/market/status protocol, Windows process priority, script converter,
+-- TFS-only skull ladders, unused item-use knobs) are omitted — they were no-ops.
+
+-- Protocol (772 = 7.72 default, 1098 = 10.98). Override: TFS_PROTOCOL_VERSION.
+clientVersion = 772
+
+-- Network. TFS_LOGIN_ADDR / TFS_GAME_ADDR override binds; TFS_PUBLIC_IP /
+-- TFS_GAME_PORT override what the character list advertises.
+worldType = "pvp" -- "pvp" | "no-pvp" | "pvp-enforced"
+ip = "127.0.0.1"
+bindOnlyGlobalAddress = false
+loginProtocolPort = 7171
+gameProtocolPort = 7172
+statusProtocolPort = 7171
+-- Login MOTD / world name. TFS_MOTD / TFS_SERVER_NAME override when set.
+serverName = "Forgotten"
+motd = "Welcome to The Forgotten Server!"
+
+-- MySQL. DATABASE_URL overrides the mysql* URL (not pool size).
+mysqlHost = "127.0.0.1"
+mysqlUser = "forgottenserver"
+mysqlPass = ""
+mysqlDatabase = "forgottenserver"
+mysqlPort = 3306
+mysqlSock = ""
+mysqlConnectionPoolSize = 1
+mysqlConnectionMaxPoolSize = 5
+mysqlConnectionTimeout = 300
+mysqlConnectionAcquireTimeout = 10
+
+-- Auth. 40-hex SHA1 hashes upgrade to bcrypt on successful login.
+legacySha1Enabled = true
+passwordHashCost = 12
+
+-- PvP / logout lock. 772 CheckPlayerkilling uses the day/week/month windows
+-- below, not TFS killsToRedSkull / killsToBlackSkull / timeToDecreaseFrags.
 protectionLevel = 1
--- TFS single-threshold frags (ignored by 772 CheckPlayerkilling path):
-killsToRedSkull = 3
-killsToBlackSkull = 6
-timeToDecreaseFrags = 24 * 60 * 60
--- Combat logout / PZ lock (ms). ~1 RoundNr per second → default 60000 ≡ 772 BlockLogout(60).
-pzLocked = 60000
-removeChargesFromRunes = true
-removeChargesFromPotions = true
-removeWeaponAmmunition = true
-removeWeaponCharges = true
--- Unjustified PvP / white-skull lock (seconds). Default 900 ≡ 772 BlockLogout(900).
-whiteSkullTime = 15 * 60
--- 772 multi-window unjust kills (crplayer.cc:1551–1584). Ban defaults are decompile 6/10/20.
+pzLocked = 60000 -- ms; 60000 ≡ 772 BlockLogout(60)
+whiteSkullTime = 15 * 60 -- seconds; ≡ 772 BlockLogout(900)
 redSkullDuration = 30 * 24 * 60 * 60
-unjustDaySeconds = 86000
+unjustDaySeconds = 86000 -- 772 day window is 86000, not 86400
 unjustWeekSeconds = 7 * 24 * 60 * 60
 unjustMonthSeconds = 30 * 24 * 60 * 60
 killsDayRedSkull = 3
@@ -27,118 +50,14 @@ killsDayBanishment = 6
 killsWeekBanishment = 10
 killsMonthBanishment = 20
 banDaysLength = 30
-stairJumpExhaustion = 2000
-experienceByKillingPlayers = false
-expFromPlayersLevelRange = 75
 
--- Connection Config
--- NOTE: maxPlayers set to 0 means no limit
--- NOTE: allowWalkthrough is only applicable to players
--- Tibia client protocol version (772 = 7.72 default, 1098 = 10.98). Override: TFS_PROTOCOL_VERSION.
-clientVersion = 772
-ip = "127.0.0.1"
-bindOnlyGlobalAddress = false
-loginProtocolPort = 7171
-gameProtocolPort = 7172
-statusProtocolPort = 7171
-maxPlayers = 0
-motd = "Welcome to The Forgotten Server!"
-onePlayerOnlinePerAccount = true
-allowClones = false
-allowWalkthrough = true
-serverName = "Forgotten"
-statusTimeout = 5000
-replaceKickOnLogin = true
-maxPacketsPerSecond = 25
-
--- Deaths
--- NOTE: Leave deathLosePercent as -1 if you want to use the default
--- death penalty formula. For the old formula, set it to 10. For
--- no skill/experience loss, set it to 0.
-deathLosePercent = -1
-
--- Houses
--- NOTE: set housePriceEachSQM to -1 to disable the ingame buy house functionality
--- NOTE: valid values for houseRentPeriod are: "daily", "weekly", "monthly", "yearly"
--- use any other value to disable the rent system
-housePriceEachSQM = 1000
-houseRentPeriod = "never"
-houseOwnedByAccount = false
-houseDoorShowPrice = true
-onlyInvitedCanMoveHouseItems = true
-
--- Item Usage
-timeBetweenActions = 200
-timeBetweenExActions = 1000
-
--- Map
--- NOTE: set mapName WITHOUT .otbm at the end
-mapName = "forgotten"
-mapAuthor = "Komic"
-
--- Market
-marketOfferDuration = 30 * 24 * 60 * 60
-premiumToCreateMarketOffer = true
-checkExpiredMarketOffersEachMinutes = 60
-maxMarketOffersAtATimePerPlayer = 100
-
--- MySQL
-mysqlHost = "127.0.0.1"
-mysqlUser = "forgottenserver"
-mysqlPass = ""
-mysqlDatabase = "forgottenserver"
-mysqlPort = 3306
-mysqlSock = ""
-
--- Misc.
--- NOTE: classicAttackSpeed set to true makes players constantly attack at regular
--- intervals regardless of other actions such as item (potion) use. This setting
--- may cause high CPU usage with many players and potentially affect performance!
--- NOTE: forceMonsterTypesOnLoad loads all monster types on startup to validate them.
--- You can disable it to save some memory if you don't see any errors at startup.
-allowChangeOutfit = true
--- When true, every account is treated as premium (login list + gameplay gates).
--- When false, premium comes from accounts.premium_ends_at (and isalwayspremium group flag).
-freePremium = false
-kickIdlePlayerAfterMinutes = 15
-maxMessageBuffer = 4
-emoteSpells = false
-classicAttackSpeed = false
-showScriptsLogInConsole = false
-showOnlineStatusInCharlist = false
-yellMinimumLevel = 2
-yellAlwaysAllowPremium = false
-forceMonsterTypesOnLoad = true
-cleanProtectionZones = false
-luaItemDesc = false
-showPlayerLogInConsole = true
-
--- VIP and Depot limits
--- NOTE: you can set custom limits per group in data/XML/groups.xml
-vipFreeLimit = 20
-vipPremiumLimit = 100
-depotFreeLimit = 2000
-depotPremiumLimit = 10000
-
--- World Light
--- NOTE: if defaultWorldLight is set to true the world light algorithm will
--- be handled in the sources. set it to false to avoid conflicts if you wish
--- to make use of the function setWorldLight(level, color)
-defaultWorldLight = true
-
--- Server Save
--- NOTE: serverSaveNotifyDuration in minutes
-serverSaveNotifyMessage = true
-serverSaveNotifyDuration = 5
-serverSaveCleanMap = false
-serverSaveClose = false
-serverSaveShutdown = true
-
--- Experience stages
--- NOTE: to use a flat experience multiplier, set experienceStages to nil
--- minlevel and multiplier are MANDATORY
--- maxlevel is OPTIONAL, but is considered infinite by default
--- to disable stages, create a stage with minlevel 1 and no maxlevel
+-- Rates. expStages = false → flat rateExp. true → experienceStages table.
+rateExp = 5
+rateSkill = 3
+rateLoot = 2
+rateMagic = 3
+rateSpawn = 1
+expStages = false
 experienceStages = {
 	{ minlevel = 1, maxlevel = 8, multiplier = 7 },
 	{ minlevel = 9, maxlevel = 20, multiplier = 6 },
@@ -147,39 +66,34 @@ experienceStages = {
 	{ minlevel = 101, multiplier = 3 }
 }
 
--- Rates
--- NOTE: rateExp is not used if you have enabled stages above
-rateExp = 5
-rateSkill = 3
-rateLoot = 2
-rateMagic = 3
-rateSpawn = 1
+-- Death: -1 = default formula; 0..100 = fixed percent; 0 = no skill/exp loss.
+deathLosePercent = -1
 
--- Monster Despawn Config
--- despawnRange is the amount of floors a monster can be from its spawn position
--- despawnRadius is how many tiles away it can be from its spawn position
--- removeOnDespawn will remove the monster if true or teleport it back to its spawn position if false
--- walkToSpawnRadius is the allowed distance that the monster will stay away from spawn position when left with no targets, 0 to disable
+-- World
+allowChangeOutfit = true
+freePremium = false -- true = every account is premium
+kickIdlePlayerAfterMinutes = 15
+maxMessageBuffer = 4
+yellMinimumLevel = 2
+yellAlwaysAllowPremium = false
+depotFreeLimit = 2000
+depotPremiumLimit = 10000
+defaultWorldLight = true -- false lets Lua setWorldLight win
+itemsDecayInsideDepots = false
+
+-- Monster despawn / walk-back
 deSpawnRange = 2
 deSpawnRadius = 50
 removeOnDespawn = true
 walkToSpawnRadius = 15
 
--- Stamina
-staminaSystem = true
+-- Lua VM (tasks/tools-actions/vm-hardening.md pillar 4).
+-- luaMemoryLimit: MB. Runaway allocation errors the script instead of OOM.
+luaMemoryLimit = 512
+-- luaInstructionBudget: VM instructions per script invocation. 0 disables the
+-- hook and keeps LuaJIT (a runaway script can then hang the game thread).
+-- Abort does not roll back mutations already applied in that callback.
+luaInstructionBudget = 10000000
 
--- Scripts
-warnUnsafeScripts = true
-convertUnsafeScripts = true
-
--- Startup
--- NOTE: defaultPriority only works on Windows and sets process
--- priority, valid values are: "normal", "above-normal", "high"
-defaultPriority = "high"
-startupDatabaseOptimization = false
-
--- Status Server Information
-ownerName = ""
-ownerEmail = ""
-url = "https://otland.net/"
-location = "Sweden"
+-- Map file is TFS_MAP_OTBM under TFS_DATA_DIR (default data/world/forgotten.otbm),
+-- not a config.lua key.

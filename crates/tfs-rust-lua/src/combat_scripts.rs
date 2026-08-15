@@ -58,12 +58,10 @@ impl LuaRuntime {
 
         for path in &lua_files {
             let path_str = path.display().to_string();
-            if let Err(e) = self
-                .lua
-                .load(&std::fs::read_to_string(path).map_err(|e| e.to_string())?)
-                .set_name(&path_str)
-                .exec()
-            {
+            if let Err(e) = self.exec_chunk(
+                &path_str,
+                &std::fs::read_to_string(path).map_err(|e| e.to_string())?,
+            ) {
                 tracing::warn!("Failed to load weapon script {}: {}", path_str, e);
             }
         }
@@ -197,12 +195,10 @@ impl LuaRuntime {
         let areas_path = spells_dir.join("areas.lua");
         if areas_path.exists() {
             let path_str = areas_path.display().to_string();
-            if let Err(e) = self
-                .lua
-                .load(&std::fs::read_to_string(&areas_path).map_err(|e| e.to_string())?)
-                .set_name(&path_str)
-                .exec()
-            {
+            if let Err(e) = self.exec_chunk(
+                &path_str,
+                &std::fs::read_to_string(&areas_path).map_err(|e| e.to_string())?,
+            ) {
                 tracing::warn!("Failed to load areas.lua: {}", e);
             }
         }
@@ -229,12 +225,10 @@ impl LuaRuntime {
 
         for path in &lua_files {
             let path_str = path.display().to_string();
-            if let Err(e) = self
-                .lua
-                .load(&std::fs::read_to_string(path).map_err(|e| e.to_string())?)
-                .set_name(&path_str)
-                .exec()
-            {
+            if let Err(e) = self.exec_chunk(
+                &path_str,
+                &std::fs::read_to_string(path).map_err(|e| e.to_string())?,
+            ) {
                 eprintln!("DBG Failed: {} — {}", path_str, e);
                 tracing::warn!("Failed to load spell script {}: {}", path_str, e);
             }

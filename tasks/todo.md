@@ -1,3 +1,12 @@
+# Pillar 4: Lua instruction budget — 2026-08-15
+
+Memory limit is already on. Remaining: count hook so a `while true do end` in `data/scripts/**` cannot hang the game thread (`TFS-threading`). LuaJIT compiled traces skip count hooks (mlua tests `jit.off()`), so the hook is per-invocation + interpreter fallback while the budget is enabled. `0` restores JIT.
+
+- [x] `instruction_budget.rs` — `with_lua_instruction_budget`, default ~10× heavy loot loop, `jit.off()` while armed
+- [x] Wrap Rust→Lua entries (`exec_chunk` / `call_*` / timers / combat / NPC)
+- [x] `config.lua` `luaInstructionBudget`; tests: abort, no-rollback, per-call reset, 10× loot headroom
+- [x] Docs: vm-hardening, lua-boundaries, lessons
+
 # GHCR image for other users — 2026-08-14
 
 Push `tfs-rust` to `ghcr.io/<owner>/tfs-rust` on `main` so others can `docker compose pull` instead of compiling. PRs only build the image when Docker files change (no push). Package must be set **public** once in the GitHub UI.
