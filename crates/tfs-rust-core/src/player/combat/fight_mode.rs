@@ -6,7 +6,9 @@
 //! - `TCombat::SetSecureMode` — `crcombat.cc:348-355` (DISABLED/ENABLED only).
 //! - `TCreature::BlockLogout` — `crmain.cc:433-453` (sets `EarliestLogoutRound` +
 //!   `EarliestProtectionZoneRound`).
-//! - `TPlayer::AttackStimulus` — `crplayer.cc:407-410` (`BlockLogout(60, false)` on being targeted).
+//! - `TPlayer::AttackStimulus` / `DamageStimulus` — `crplayer.cc:382-410`
+//!   (`BlockLogout(60, false)` on being targeted or taking `Damage()`, including
+//!   field collision with `Attacker == NULL`).
 //! - `TCombat::SetAttackDest` !Follow arm — `crcombat.cc:432-437` (AttackStimulus + Master BlockLogout).
 //! - Secure-mode gate — `crcombat.cc:374-381` (`SetAttackDest` `!Follow`) + `:563-568` (`Attack`).
 //!
@@ -114,11 +116,10 @@ impl GameWorld {
         self.player_block_logout(cid, delay, block_pz);
     }
 
-    /// 772 `TPlayer::AttackStimulus` — `crplayer.cc:407-410`.
+    /// 772 `TPlayer::AttackStimulus` / `DamageStimulus` — `crplayer.cc:382-410`.
     ///
-    /// Fired by `SetAttackDest(!Follow)` on the **target** (`crcombat.cc:433`) when
-    /// `AttackDest` changes — for monsters, that is the idle walk prelude
-    /// (`crnonpl.cc:2784`), not strategy `Target = …`. No-op for non-players / dead.
+    /// `SetAttackDest(!Follow)` on the **target** (`crcombat.cc:433`), and `Damage()`
+    /// including field collision with `Attacker == NULL`. No-op for non-players / dead.
     pub(crate) fn player_attack_stimulus(&mut self, cid: CreatureId) {
         let alive_player = self
             .creatures

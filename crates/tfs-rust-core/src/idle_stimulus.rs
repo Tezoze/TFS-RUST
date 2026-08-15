@@ -260,9 +260,10 @@ impl GameWorld {
     /// mana shield (`SKILL_MANASHIELD`) are handled here as well.
     /// M2 — Returns the real `Damage` scalar (C++ `Damage` return value,
     /// `crmain.cc:536-765`). This is the amount actually dealt to HP (after mana shield
-    /// spill), or to mana (mana drain / full mana-shield absorb). Callers use this for
-    /// `ActivateLearning` (`DamageDone > 0`) and damage text / health bar notify, instead
-    /// of deriving `damage_done` from the HP delta (which is 0 when mana absorbs everything).
+    /// spill, **clamped to remaining hitpoints** — `crmain.cc:690-693`), or to mana (mana
+    /// drain / full mana-shield absorb). Callers use this for `ActivateLearning`
+    /// (`DamageDone > 0`) and damage text / health bar notify, instead of deriving
+    /// `damage_done` from the HP delta (which is 0 when mana absorbs everything).
     /// Returns 0 for immune / invulnerable / poff paths.
     pub(crate) fn combat_execute_with_stimulus(
         &mut self,
@@ -457,11 +458,23 @@ impl GameWorld {
         }
 
         let stimulus_damage = (-(reduced_damage.primary.1 + reduced_damage.secondary.1)).max(0);
-        if let Some(attacker_id) = attacker
-            && stimulus_damage > 0
-        {
-            // C++ `DamageStimulus` runs before HP apply — `crmain.cc:631`, `694`.
-            self.monster_damage_stimulus(target, attacker_id, stimulus_damage);
+        // 772 `if (Damage > HitPoints) Damage = HitPoints` — `crmain.cc:690-693`.
+        // `DamageStimulus` uses the unclamped amount (`crmain.cc:632`, before this clamp).
+        // `TextualEffect` / `"You lose X"` / `return Damage` all use the clamped scalar.
+        let hp_now = self
+            .creatures
+            .get(target)
+            .map(|k| k.base().health.max(0))
+            .unwrap_or(0);
+        let hp_damage = stimulus_damage.min(hp_now);
+        if stimulus_damage > 0 {
+            if let Some(attacker_id) = attacker {
+                // C++ `DamageStimulus` runs before HP apply — `crmain.cc:632`.
+                self.monster_damage_stimulus(target, attacker_id, stimulus_damage);
+            }
+            // 772 `TPlayer::DamageStimulus` (`crplayer.cc:382-385`): `BlockLogout(60, false)`
+            // even when `Attacker` is NULL (field `initdamage` / traps).
+            self.player_attack_stimulus(target);
         }
         let applied = {
             let responsible = attacker.and_then(|aid| {
@@ -534,15 +547,11 @@ impl GameWorld {
                 self.apply_creature_death(target);
             }
         }
-        // M2 — Return the real `Damage` scalar (C++ `return Damage`, `crmain.cc:695`).
-        // When HP damage was dealt, return `stimulus_damage` (the post-mana-shield HP delta,
-        // clamped to HP by `execute_with_credit`). When mana shield fully absorbed, return
-        // `mana_absorbed` so callers fire `ActivateLearning` and show the damage text.
-        if applied {
-            stimulus_damage
-        } else {
-            mana_absorbed
-        }
+        // M2 — Return the real `Damage` scalar (C++ `return Damage`, `crmain.cc:875`).
+        // When HP damage was dealt, return `hp_damage` (post-mana-shield, clamped to remaining
+        // hitpoints). When mana shield fully absorbed, return `mana_absorbed` so callers fire
+        // `ActivateLearning` and show the mana-hit text.
+        if applied { hp_damage } else { mana_absorbed }
     }
 
     /// 772 `DAMAGE_*_PERIODIC` arms — `crmain.cc:582-613`.
@@ -672,14 +681,16 @@ impl GameWorld {
             self.on_condition_started(target, ctype);
         }
 
-        // DamageStimulus — same as normal path (`crmain.cc:594/603/612`).
+        // 772 `TPlayer::DamageStimulus` (`crplayer.cc:382-385`, `crmain.cc:592/601/611`):
+        // `BlockLogout(60, false)` even when `Attacker` is NULL. Field collision is
+        // `Damage(field, creature, PERIODIC, …)` with a non-creature Obj1 (`moveuse.dat`).
+        self.player_attack_stimulus(target);
         if let Some(attacker_id) = attacker {
             self.monster_damage_stimulus(target, attacker_id, strength);
             let target_is_player =
                 matches!(self.creatures.get(target), Some(CreatureKind::Player(_)));
             self.player_block_logout_infight(attacker_id, target_is_player);
             if target_is_player {
-                self.player_block_logout_infight(target, false);
                 if let Some(resp) = self.player_responsible_for_attack(attacker_id) {
                     self.player_record_attack(resp, target);
                 }

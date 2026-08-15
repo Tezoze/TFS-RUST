@@ -1,13 +1,10 @@
-# E8–E9: drunk stack + `getFormattedWorldTime` — 2026-08-15
+# Field step-in battle sign — 2026-08-16
 
-From [other-actions-plan.md](other-actions-plan.md). **Done.**
+Walking on poison/fire/energy fields does not show the swords icon. 772 `TPlayer::DamageStimulus` (`crplayer.cc:382-385`) always `BlockLogout(60, false)` for a living player, including field collision with `Attacker == NULL` (`moveuse.dat` `Damage(Obj1,Obj2,32,100)`). Rust gated victim infight on `attacker: Some`.
 
-## E8 Drunk stack + `fluids.lua`
-- [x] Beer/wine: if Cycle `< 5` then `+1`; Count=MaxCount=120; `base.drunkenness` = Cycle
-- [x] `ProcessSkills`: Count--; on 0, Cycle toward 0, Count=MaxCount; at 0 remove
-- [x] Spell-drunk stays Power-gated; uses Duration as MaxCount
-- [x] Rewrite `fluids.lua` to `UseLiquidContainer`
+## Work
 
-## E9 `getFormattedWorldTime`
-- [x] Inject from `data/global.lua` (no full `dofile`)
-- [x] `watch.lua`: pendulum 1728–1731, watch 2036, cuckoo 1873–1877 and 1881; drop 3900
+- [x] Call victim `DamageStimulus` (Infight) from periodic arm even when attacker is None
+- [x] Same on the HP path for field `initdamage` (fire 20 / energy 30)
+- [x] Test: poison field under player applies `CONDITION_INFIGHT`
+- [x] Lesson

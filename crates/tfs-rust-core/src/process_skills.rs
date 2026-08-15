@@ -1263,7 +1263,8 @@ mod tests {
         it.xml_attributes.insert("field".into(), "fire".into());
         it.xml_attributes
             .insert("field.initdamage".into(), "0".into());
-        it.xml_attributes.insert("field.cycles".into(), "2".into());
+        // Damage 20 → Cycle 2 (`SetTimer(SKILL_BURNING, Damage/10)`).
+        it.xml_attributes.insert("field.cycles".into(), "20".into());
         it.xml_attributes
             .insert("replacemagicfields".into(), "true".into());
         db.items.insert(1487, it);
@@ -1346,7 +1347,8 @@ mod tests {
         it.xml_attributes.insert("field".into(), "fire".into());
         it.xml_attributes
             .insert("field.initdamage".into(), "0".into());
-        it.xml_attributes.insert("field.cycles".into(), "2".into());
+        // Damage 20 → Cycle 2 (`SetTimer(SKILL_BURNING, Damage/10)`).
+        it.xml_attributes.insert("field.cycles".into(), "20".into());
         it.xml_attributes
             .insert("replacemagicfields".into(), "true".into());
         db.items.insert(1487, it);
@@ -1402,6 +1404,112 @@ mod tests {
         assert!(
             expired,
             "fire DoT must expire after the field is removed (no re-extension)"
+        );
+    }
+
+    /// Stock energy field `cycles=25` is the 772 `Damage` argument (`crmain.cc:610`
+    /// `SetTimer(SKILL_ENERGY, Damage/20)`), not 25 Events. Cycle must be 1.
+    #[test]
+    fn energy_field_cycles_25_is_one_event_not_twenty_five() {
+        use std::sync::Arc;
+        use tfs_rust_content::otb::ItemType;
+
+        let mut world = beat_driven_test_world();
+        let mut db = (*world.items_db).clone();
+        let mut it = ItemType::default();
+        it.server_id = 1491;
+        it.type_tag = 6;
+        it.xml_attributes.insert("field".into(), "energy".into());
+        it.xml_attributes
+            .insert("field.initdamage".into(), "0".into());
+        it.xml_attributes.insert("field.cycles".into(), "25".into());
+        it.xml_attributes
+            .insert("replacemagicfields".into(), "true".into());
+        db.items.insert(1491, it);
+        world.items_db = Arc::new(db);
+
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let mut p = test_player("Volt", pos);
+        p.base.health = 10000;
+        p.base.max_health = 10000;
+        let player = insert_player(&mut world, p);
+        world.map.register_creature_at(pos, player);
+
+        let iid = world.items.insert(crate::item::Item::new_single(1491));
+        world
+            .internal_add_item_to_tile(pos, iid, crate::cylinder::CylinderFlags::NONE)
+            .expect("place energy field");
+
+        let cycle = world
+            .creatures
+            .get(player)
+            .unwrap()
+            .base()
+            .active_conditions
+            .iter()
+            .find(|c| c.ctype == ConditionType::Energy)
+            .and_then(|c| c.timer_rounds_left)
+            .expect("energy condition armed");
+        assert_eq!(
+            cycle, 1,
+            "cycles=25 must arm Cycle=1 (Damage/20), not 25 Events"
+        );
+    }
+
+    /// After the energy field is gone, the DoT expires after its one Event
+    /// (`crskill.cc:186-193`). Must not keep ticking like cycles-as-Event-count.
+    #[test]
+    fn energy_dot_expires_after_leaving_field() {
+        use std::sync::Arc;
+        use tfs_rust_content::otb::ItemType;
+
+        let mut world = beat_driven_test_world();
+        let mut db = (*world.items_db).clone();
+        let mut it = ItemType::default();
+        it.server_id = 1491;
+        it.type_tag = 6;
+        it.xml_attributes.insert("field".into(), "energy".into());
+        it.xml_attributes
+            .insert("field.initdamage".into(), "0".into());
+        it.xml_attributes.insert("field.cycles".into(), "25".into());
+        it.xml_attributes
+            .insert("replacemagicfields".into(), "true".into());
+        db.items.insert(1491, it);
+        world.items_db = Arc::new(db);
+
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let mut p = test_player("Volt", pos);
+        p.base.health = 10000;
+        p.base.max_health = 10000;
+        let player = insert_player(&mut world, p);
+        world.map.register_creature_at(pos, player);
+
+        let iid = world.items.insert(crate::item::Item::new_single(1491));
+        world
+            .internal_add_item_to_tile(pos, iid, crate::cylinder::CylinderFlags::NONE)
+            .expect("place energy field");
+
+        let _ = world.internal_remove_item_from_tile(pos, iid, u16::MAX);
+
+        let mut expired = false;
+        for _ in 0..40 {
+            world.process_skills();
+            let still = world.creatures.get(player).is_some_and(|k| {
+                k.base()
+                    .active_conditions
+                    .iter()
+                    .any(|c| c.ctype == ConditionType::Energy)
+            });
+            if !still {
+                expired = true;
+                break;
+            }
+        }
+        assert!(
+            expired,
+            "energy DoT must expire after the field is removed (Cycle=1, no re-extension)"
         );
     }
 
@@ -1508,6 +1616,47 @@ mod tests {
         assert!(
             still_poisoned,
             "poison condition must persist while standing on a poison field (C2 re-extension)"
+        );
+    }
+
+    /// 772 `TPlayer::DamageStimulus` (`crplayer.cc:382-385`): stepping on a field
+    /// calls `Damage(NULL, PERIODIC, …)` then `BlockLogout(60, false)` — swords icon.
+    #[test]
+    fn stepping_on_poison_field_applies_infight() {
+        use tfs_rust_content::otb::ItemType;
+
+        let mut world = beat_driven_test_world();
+        let mut db = (*world.items_db).clone();
+        let mut it = ItemType::default();
+        it.server_id = 1490;
+        it.type_tag = 6;
+        it.xml_attributes.insert("field".into(), "poison".into());
+        it.xml_attributes
+            .insert("field.initdamage".into(), "0".into());
+        it.xml_attributes.insert("field.cycles".into(), "100".into());
+        db.items.insert(1490, it);
+        world.items_db = Arc::new(db);
+
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let player = insert_player(&mut world, test_player("Walker", pos));
+        world.register_conn_mapping(tfs_rust_common::ConnId(1), player);
+        world.map.register_creature_at(pos, player);
+
+        let iid = world.items.insert(crate::item::Item::new_single(1490));
+        world
+            .internal_add_item_to_tile(pos, iid, crate::cylinder::CylinderFlags::NONE)
+            .expect("place poison field");
+
+        let has_infight = world.creatures.get(player).is_some_and(|k| {
+            k.base()
+                .active_conditions
+                .iter()
+                .any(|c| c.ctype == ConditionType::Infight)
+        });
+        assert!(
+            has_infight,
+            "field step-in must apply Infight (swords) even with no field owner"
         );
     }
 

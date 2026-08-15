@@ -2396,6 +2396,37 @@ fn test_combat_execute_pvp_halves_damage_before_absorb() {
     assert_eq!(hp2 - hp3, 20, "periodic/DoT with no attacker must not half");
 }
 
+/// 772 `TCreature::Damage` clamps the returned/displayed scalar to remaining HP
+/// (`crmain.cc:690-693`). A 50 hit into 15 HP must return 15, not 50.
+#[test]
+fn test_combat_execute_overkill_clamps_to_remaining_hp() {
+    let (mut world, player, _conn) = setup_player_world_with_conn();
+    let mpos = Position::new(101, 100, 7);
+    let monster = insert_monster(&mut world, "Rat", mpos, 200);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.base.health = 15;
+        m.base.max_health = 15;
+    }
+
+    let applied = world.combat_execute_with_stimulus(
+        Some(player),
+        monster,
+        &CombatDamage {
+            primary: (CombatType::Physical, -50),
+            secondary: (CombatType::Physical, 0),
+        },
+        &CombatParams::default(),
+    );
+    assert_eq!(
+        applied, 15,
+        "overkill must return remaining hitpoints, not the rolled hit"
+    );
+    assert!(
+        !world.creatures.contains_key(monster),
+        "target must die from the overkill hit"
+    );
+}
+
 /// C++ `%5` case 2/3 map to North/South dest tiles — `crnonpl.cc:2817-2818`.
 #[test]
 fn test_772_dance_dir_order_matches_cpp() {

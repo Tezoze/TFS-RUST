@@ -186,8 +186,9 @@ impl GameWorld {
             },
         );
         // M2 — `combat_execute_with_stimulus` returns the real `Damage` scalar (C++ `return
-        // Damage`), including mana-shield absorb. Use it for `ActivateLearning` and damage
-        // text instead of the HP delta (which is 0 when mana absorbs everything).
+        // Damage`), including mana-shield absorb and the remaining-HP clamp (`crmain.cc:690-693`).
+        // Use it for `ActivateLearning` and damage text instead of the HP delta (which is 0 when
+        // mana absorbs everything).
         let damage_done = damage_scalar;
         // `combat_execute_with_stimulus` calls `apply_creature_death` when HP ≤ 0, which
         // removes the target from `world.creatures`. So a missing key means the target died
@@ -609,6 +610,89 @@ mod tests {
         assert!(
             pkts.iter().any(|b| !b.is_empty() && b[0] == 0x84),
             "killing blow must send animated damage text (0x84) even after target death"
+        );
+    }
+
+    /// 772 `TextualEffect` uses Damage after `if (Damage > HitPoints) Damage = HitPoints`
+    /// (`crmain.cc:690-765`). A huge melee roll into 15 HP must float "15", not the roll.
+    #[test]
+    fn strike_killing_blow_damage_text_is_remaining_hp() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(
+            &mut world.map,
+            pos,
+            crate::sim_harness::TEST_SYNTHETIC_GROUND_WP,
+        );
+        ensure_walkable_tile(
+            &mut world.map,
+            adjacent_pos(pos),
+            crate::sim_harness::TEST_SYNTHETIC_GROUND_WP,
+        );
+        let conn = ConnId(1);
+        let mut player = sim_hero_player("Hero", pos);
+        player.skills.fist = 100;
+        player.sim_melee_attack = 5000;
+        player.vocation_profile.formula.melee_damage = 1.0;
+        let pid = insert_spectator_player(&mut world, conn, player);
+        let mut cfg = MonsterAiConfig::default();
+        cfg.defense = 0;
+        cfg.armor = 0;
+        let target = insert_monster_with_config(&mut world, "Rat", adjacent_pos(pos), 15, cfg);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(target) {
+            m.base.health = 15;
+            m.base.max_health = 15;
+        }
+        world.server_ms = 1000;
+        world.pending_outgoing.clear();
+        let mut killing_text_hp: Option<i32> = None;
+        for i in 0..20 {
+            if !world.creatures.contains_key(target) {
+                break;
+            }
+            let remaining = world
+                .creatures
+                .get(target)
+                .map(|k| k.base().health)
+                .unwrap_or(0);
+            world.server_ms = i * 3000;
+            world.pending_outgoing.clear();
+            world.player_close_attack_strike(pid, target);
+            if !world.creatures.contains_key(target) {
+                killing_text_hp = Some(remaining);
+                break;
+            }
+        }
+        let remaining = killing_text_hp.expect("target should die within 20 strikes");
+
+        let pkts = world
+            .pending_outgoing
+            .get(&conn)
+            .expect("must have outgoing packets for the attacker");
+        let texts: Vec<String> = pkts
+            .iter()
+            .filter_map(|p| {
+                // 772 `sendAnimatedText` (`0x84`): pos(5) + color + u16 len + text.
+                if p.len() < 10 || p[0] != 0x84 {
+                    return None;
+                }
+                let len = u16::from_le_bytes([p[7], p[8]]) as usize;
+                if p.len() < 9 + len {
+                    return None;
+                }
+                Some(String::from_utf8_lossy(&p[9..9 + len]).into_owned())
+            })
+            .collect();
+        let expected = remaining.to_string();
+        assert!(
+            texts.iter().any(|t| t == &expected),
+            "killing-blow animated text must be remaining HP ({remaining}), got {texts:?}"
+        );
+        assert!(
+            texts
+                .iter()
+                .all(|t| t.parse::<i32>().is_ok_and(|n| n <= remaining)),
+            "no animated damage text may exceed remaining HP ({remaining}), got {texts:?}"
         );
     }
 

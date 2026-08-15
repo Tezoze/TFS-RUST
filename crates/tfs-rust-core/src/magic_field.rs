@@ -71,8 +71,7 @@ impl GameWorld {
     /// TFS `MagicField::onStepInField` — `combat.cpp:1443`.
     ///
     /// Instant `initdamage` (items.xml) then 772 `DAMAGE_*_PERIODIC` arm (`crmain.cc:582-613`).
-    /// Fire/energy Cycle derives from xml `cycles` (or profile interval); poison uses `cycles`
-    /// as strength (`SetTimer(SKILL_POISON, Damage, 3, 3, -1)`).
+    /// `field.cycles` is the 772 `Damage` argument (fire `/10`, energy `/20`, poison pool).
     pub(crate) fn apply_magic_field_to_creature(
         &mut self,
         target: CreatureId,
@@ -126,16 +125,30 @@ impl GameWorld {
             return;
         }
 
+        // items.xml `field.cycles` is the 772 `Damage` argument to `DAMAGE_*_PERIODIC`
+        // (`crmain.cc:600,610`): fire `SetTimer(SKILL_BURNING, Damage/10)`, energy
+        // `SetTimer(SKILL_ENERGY, Damage/20)`, poison `SetTimer(SKILL_POISON, Damage)`.
+        // Stock pack: fire 70 → Cycle 7, energy 25 → Cycle 1, poison 100 → pool 100.
+        // Do **not** multiply fire/energy by 10/20 — that treated cycles as Event count
+        // and made energy tick 25 times (~4 min) instead of once.
         let (periodic, strength) = match field_kind {
             FieldDamageType::Fire => {
                 let interval = self.mechanics.profile.conditions.fire.ticks.max(1);
-                let cycle = if cycles > 0 { cycles } else { interval };
-                (CombatType::FirePeriodic, cycle.saturating_mul(10).max(10))
+                let damage = if cycles > 0 {
+                    cycles
+                } else {
+                    interval.saturating_mul(10).max(10)
+                };
+                (CombatType::FirePeriodic, damage)
             }
             FieldDamageType::Energy => {
                 let interval = self.mechanics.profile.conditions.energy.ticks.max(1);
-                let cycle = if cycles > 0 { cycles } else { interval };
-                (CombatType::EnergyPeriodic, cycle.saturating_mul(20).max(20))
+                let damage = if cycles > 0 {
+                    cycles
+                } else {
+                    interval.saturating_mul(20).max(20)
+                };
+                (CombatType::EnergyPeriodic, damage)
             }
             FieldDamageType::Poison => {
                 let rank = if cycles > 0 { cycles } else { 1 };
