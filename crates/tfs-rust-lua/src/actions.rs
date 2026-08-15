@@ -32,12 +32,13 @@ impl From<PendingAction> for ActionDef {
     }
 }
 
-/// Inject `actionIds` + door ID tables + `table.contains` from `data/global.lua`
-/// without loading `lib.lua` / compat (bootstrap deliberately skips full
-/// `global.lua`). TVP defines `actionIds` in `global.lua`, not `actionids.lua`.
+/// Inject `actionIds` + door ID tables + `table.contains` + `getFormattedWorldTime`
+/// from `data/global.lua` without loading `lib.lua` / compat (bootstrap
+/// deliberately skips full `global.lua`). TVP defines `actionIds` in
+/// `global.lua`, not `actionids.lua`.
 ///
-/// Enables [`doors.lua`](data/scripts/actions/other/doors.lua) and tools scripts
-/// that read `actionIds.*` to register at load time.
+/// Enables [`doors.lua`](data/scripts/actions/other/doors.lua), tools scripts
+/// that read `actionIds.*`, and [`watch.lua`](data/scripts/actions/other/watch.lua).
 pub fn inject_door_tables_from_global(
     runtime: &LuaRuntime,
     data_dir: &Path,
@@ -80,7 +81,23 @@ pub fn inject_door_tables_from_global(
     })?;
     let contains = &contains_rest[..=contains_end + 3];
 
-    let chunk = format!("{tables}\n\n{contains}\n");
+    // E9: `getFormattedWorldTime` only — do not `dofile` `global.lua` (it loads `lib.lua`).
+    let time_start = text.find("function getFormattedWorldTime").ok_or_else(|| {
+        LuaError::ScriptIo(
+            path.display().to_string(),
+            "missing getFormattedWorldTime in global.lua".into(),
+        )
+    })?;
+    let time_rest = &text[time_start..];
+    let time_end = time_rest.find("\nend\n").ok_or_else(|| {
+        LuaError::ScriptIo(
+            path.display().to_string(),
+            "unterminated getFormattedWorldTime in global.lua".into(),
+        )
+    })?;
+    let formatted_time = &time_rest[..=time_end + 3];
+
+    let chunk = format!("{tables}\n\n{contains}\n\n{formatted_time}\n");
     runtime.exec_chunk("door_tables_from_global", &chunk)
 }
 
@@ -1283,6 +1300,71 @@ mod tests {
             !src.contains("Put the construction kit"),
             "772 has no floor message"
         );
+    }
+
+    /// E9: inject `getFormattedWorldTime` from `global.lua`; watch ids include cuckoo, drop sundial.
+    #[test]
+    fn e9_get_formatted_world_time_and_watch_ids() {
+        let data_root = workspace_data_root();
+        let runtime = LuaRuntime::new().expect("runtime init");
+        inject_door_tables_from_global(&runtime, &data_root).expect("door tables");
+
+        let lua = &runtime.lua;
+        lua.globals()
+            .set(
+                "getWorldTime",
+                lua.create_function(|_, ()| Ok(65i32)).expect("stub"),
+            )
+            .expect("override getWorldTime");
+        let formatted: String = lua
+            .load("return getFormattedWorldTime()")
+            .eval()
+            .expect("getFormattedWorldTime");
+        assert_eq!(formatted, "1:05");
+
+        lua.globals()
+            .set(
+                "getWorldTime",
+                lua.create_function(|_, ()| Ok(9i32)).expect("stub"),
+            )
+            .expect("override getWorldTime");
+        let padded: String = lua
+            .load("return getFormattedWorldTime()")
+            .eval()
+            .expect("padded minutes");
+        assert_eq!(padded, "0:09");
+
+        let src = std::fs::read_to_string(data_root.join("scripts/actions/other/watch.lua"))
+            .expect("watch.lua");
+        assert!(src.contains("getFormattedWorldTime()"), "E9 time helper");
+        assert!(src.contains("1877"), "cuckoo 1877");
+        assert!(src.contains("1881"), "cuckoo 1881");
+        assert!(!src.contains("3900"), "no sundial 3900");
+    }
+
+    /// E8: fluids.lua drink numbers/messages; engine stack is `addCondition` only.
+    #[test]
+    fn e8_fluids_drink_numbers_and_messages() {
+        let src =
+            std::fs::read_to_string(workspace_data_root().join("scripts/actions/other/fluids.lua"))
+                .expect("fluids.lua");
+        assert!(src.contains("math.random(50, 150)"), "772 mana 50..=150");
+        assert!(src.contains("math.random(25, 75)"), "772 life 25..=75");
+        assert!(src.contains("\"Mmmh.\""), "lemonade");
+        assert!(src.contains("\"Gulp.\""), "milk/default");
+        assert!(src.contains("\"Aah...\""), "beer/wine");
+        assert!(
+            src.contains("player:addCondition(drunk)"),
+            "E8 stack via addCondition"
+        );
+        assert!(!src.contains("setEarliestSpellTime"), "no potion exhaust");
+        assert!(!src.contains("CONST_ME_MAGIC_BLUE"), "no magic-blue");
+        assert!(
+            !src.contains("CONDITION_PARAM_DRUNKENNESS"),
+            "E8 ignores drunkenness param"
+        );
+        assert!(!src.contains("queryAdd"), "no TFS queryAdd");
+        assert!(src.contains("Game.createItem(2016"), "spill 2016");
     }
 
     /// E6: `GetSpellbook` format — learned Light Healing, Berserk `4*Level`, no ML groups.

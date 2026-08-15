@@ -1235,8 +1235,24 @@ impl GameWorld {
         let cid = self
             .resolve_creature_u64(creature_u64)
             .ok_or_else(|| "creature not found".to_string())?;
+        let ctype = condition_type_from_lua(spec.ctype);
+        if ctype == ConditionType::Drunk {
+            // E8: beer/wine stack — ignore Lua ticks / drunkenness (`moveuse.cc:1776-1782`).
+            let changed = if let Some(kind) = self.creatures.get_mut(cid) {
+                let base = kind.base_mut();
+                crate::condition::apply_drink_drunk_stack(
+                    &mut base.active_conditions,
+                    &mut base.drunkenness,
+                )
+            } else {
+                false
+            };
+            if changed {
+                self.on_condition_started(cid, ConditionType::Drunk);
+            }
+            return Ok(());
+        }
         let cond = active_condition_from_apply_spec(&spec);
-        let ctype = cond.ctype;
         apply_condition(&mut self.creatures, cid, cond);
         self.on_condition_started(cid, ctype);
         Ok(())
@@ -1794,6 +1810,56 @@ mod apply_spec_tests {
     fn maps_dispel_flag_poison() {
         assert_eq!(condition_type_from_lua(1), ConditionType::Poison);
         assert_eq!(condition_type_from_lua(32), ConditionType::Paralyze);
+    }
+
+    /// E8: Lua `addCondition(CONDITION_DRUNK)` stacks Cycle 1–5, Count=120.
+    #[test]
+    fn e8_lua_add_condition_drunk_stacks_cycle() {
+        use crate::condition::DRINK_DRUNK_INTERVAL;
+        use crate::sim_harness::{
+            beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
+        };
+        use slotmap::Key;
+        use tfs_rust_common::Position;
+
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let cid = insert_player(&mut world, test_player("Wine", pos));
+        let id = cid.data().as_ffi();
+        let spec = ConditionApplySpec {
+            ctype: 2048, // CONDITION_DRUNK
+            ticks: 60_000,
+            ..Default::default()
+        };
+
+        world
+            .lua_script_player_add_condition(id, spec.clone())
+            .expect("beer 1");
+        let (level, count) = match world.creatures.get(cid) {
+            Some(kind) => {
+                let b = kind.base();
+                let c = b
+                    .active_conditions
+                    .iter()
+                    .find(|c| c.ctype == ConditionType::Drunk)
+                    .expect("drunk cond");
+                (b.drunkenness, c.skill_count)
+            }
+            None => panic!("player"),
+        };
+        assert_eq!(level, 1);
+        assert_eq!(count, DRINK_DRUNK_INTERVAL);
+
+        world
+            .lua_script_player_add_condition(id, spec)
+            .expect("beer 2");
+        let level = world
+            .creatures
+            .get(cid)
+            .map(|k| k.base().drunkenness)
+            .unwrap_or(0);
+        assert_eq!(level, 2);
     }
 
     #[test]

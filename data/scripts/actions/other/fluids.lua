@@ -1,6 +1,6 @@
-local config = {
-	createEmptyVial = true,
-}
+-- 772 UseLiquidContainer (`moveuse.cc:1692-1818`).
+-- Fill LIQUIDSOURCE → pour empty dest container → drink iff dest is self → else spill 2016.
+-- Drink: beer/wine stack drunk; slime POISON_PERIODIC 200/3/3; mana 50–150; life 25–75.
 
 local items = {
 	1775, 2005, 2006, 2007, 2008, 2009,
@@ -10,138 +10,83 @@ local items = {
 }
 
 local drunk = Condition(CONDITION_DRUNK)
-drunk:setParameter(CONDITION_PARAM_TICKS, 60000)
-drunk:setParameter(CONDITION_PARAM_DRUNKENNESS, 50)
 
 local poison = Condition(CONDITION_POISON)
 poison:setParameter(CONDITION_PARAM_CYCLE, 200)
 poison:setParameter(CONDITION_PARAM_COUNT, 3)
 poison:setParameter(CONDITION_PARAM_MAX_COUNT, 3)
 
-local fluidMessage = {
-	[FLUID_URINE] = "Urgh!",
-	[FLUID_MILK] = "Mmmh.",
-	[FLUID_MANAFLUID] = "Aaaah...",
-	[FLUID_LIFEFLUID] = "Aaaah...",
-	[FLUID_SLIME] = "Urgh!",
-	[FLUID_BEER] = "Aah...",
-	[FLUID_WINE] = "Aah...",
-}
+local function destIsSelf(player, target, toPosition)
+	if type(target.isCreature) == "function" and target:isCreature() then
+		return target:getId() == player:getId()
+	end
+	local tile = Tile(toPosition)
+	if not tile then
+		return false
+	end
+	local creature = tile:getBottomCreature()
+	return creature ~= nil and creature:getId() == player:getId()
+end
 
 local action = Action()
 
-function action.onUse(player, item, fromPosition, target, toPosition)
-	if toPosition == player:getPosition() then
-        local tile = Tile(toPosition)
-        local creature = tile:getBottomCreature()
-        if tile:getItemById(384) or tile:getItemById(418) or tile:getItemById(1386) or tile:getItemById(3678) then
-            target = player
-        elseif creature then
-            target = creature
-        end
-    end
-	
-	if target == player and item.type == FLUID_NONE then
+function action.onUse(player, item, fromPosition, target, toPosition, isHotkey)
+	local fluidType = item:getFluidType()
+
+	if target.itemid and target.itemid >= 100 then
+		local destType = ItemType(target.itemid)
+		if destType:getFluidSource() ~= FLUID_NONE and fluidType == FLUID_NONE then
+			item:transform(item:getId(), destType:getFluidSource())
+			return true
+		end
+		if fluidType ~= FLUID_NONE and target:getFluidType() == FLUID_NONE and destType:isFluidContainer() then
+			target:transform(target:getId(), fluidType)
+			item:transform(item:getId(), FLUID_NONE)
+			return true
+		end
+	end
+
+	if destIsSelf(player, target, toPosition) or isHotkey then
+		if fluidType == FLUID_NONE then
+			return true
+		end
+		if fluidType == FLUID_BEER or fluidType == FLUID_WINE then
+			player:addCondition(drunk)
+			player:say("Aah...", TALKTYPE_SAY)
+		elseif fluidType == FLUID_SLIME then
+			player:addCondition(poison)
+			player:say("Urgh!", TALKTYPE_SAY)
+		elseif fluidType == FLUID_URINE then
+			player:say("Urgh!", TALKTYPE_SAY)
+		elseif fluidType == FLUID_MANAFLUID then
+			player:addMana(math.random(50, 150))
+			player:say("Aaaah...", TALKTYPE_SAY)
+		elseif fluidType == FLUID_LIFEFLUID then
+			player:addHealth(math.random(25, 75))
+			player:say("Aaaah...", TALKTYPE_SAY)
+		elseif fluidType == FLUID_LEMONADE then
+			player:say("Mmmh.", TALKTYPE_SAY)
+		else
+			player:say("Gulp.", TALKTYPE_SAY)
+		end
+		item:transform(item:getId(), FLUID_NONE)
 		return true
 	end
 
-	if target.itemid == 1 and target:isPlayer() and target.uid == player.uid then
-		-- only allow potions use on-self
-		if target.uid == player.uid then
-			if table.contains({FLUID_WINE, FLUID_BEER}, item.type) then
-				player:addCondition(drunk)
-			elseif item.type == FLUID_SLIME then
-				player:addCondition(poison)
-			elseif item.type == FLUID_MANAFLUID then
-				target:setEarliestSpellTime(1000)
-				target:addMana(math.random(25, 100))
-				toPosition:sendMagicEffect(CONST_ME_MAGIC_BLUE)
-			elseif item.type == FLUID_LIFEFLUID then
-				target:addHealth(math.random(25, 50))
-				toPosition:sendMagicEffect(CONST_ME_MAGIC_BLUE)
-			end
-		
-			player:say(fluidMessage[item.type] or "Gulp.", TALKTYPE_SAY)
-		else
-			Game.createItem(2016, item.type, toPosition):decay()
-		end
-		
-		if configManager.getBoolean(configKeys.REMOVE_POTION_CHARGES) then
-			if config.createEmptyVial then
-				item:transform(item:getId(), FLUID_NONE)
-			else
-				item:remove(1)
-			end
-		end
-		return true
-	end
-	
-	local targetItemType = ItemType(target.itemid)
-	if targetItemType:getGroup() == ITEM_GROUP_SPLASH then
-		local tile = Tile(toPosition)
-		if tile then
-			target = tile:getGround()
-			targetItemType = ItemType(target.itemid)
-		end
-		
-	end
-	
-	if targetItemType and target.itemid >= 100 then
-		if targetItemType:getFluidSource() ~= FLUID_NONE and item:getFluidType() == FLUID_NONE then
-			item:transform(item:getId(), targetItemType:getFluidSource())
-			return true
-		end
-
-		if item:getFluidType() ~= FLUID_NONE and target:getFluidType() == FLUID_NONE and targetItemType:isFluidContainer() then
-			target:transform(target:getId(), item:getFluidType())
-			item:transform(item:getId(), FLUID_NONE)
-			return true
-		end
-
-		if targetItemType:isGroundTile() and targetItemType:getFluidSource() ~= FLUID_NONE and targetItemType:getMagicEffect() ~= CONST_ME_NONE then
-			item:transform(item:getId(), FLUID_NONE)
-			target:getPosition():sendMagicEffect(targetItemType:getMagicEffect())
-			return true
-		end
-
-		if toPosition.x ~= CONTAINER_POSITION then
-			local tile = Tile(toPosition)
-			if tile and tile:queryAdd(item) == RETURNVALUE_NOTENOUGHROOM then
-				player:sendCancelMessage(Game.getReturnMessage(RETURNVALUE_NOTENOUGHROOM))
-				return true
-			end
-		end
+	if fluidType == FLUID_NONE then
+		return false
 	end
 
-	if item:getFluidType() ~= FLUID_NONE then
-		if toPosition.x == CONTAINER_POSITION then
-			toPosition = player:getPosition()
-		end
-
-		local splash = Game.createItem(2016, item.type)
-		local tile = Tile(toPosition)
-		if tile and tile:queryAdd(splash) == RETURNVALUE_NOTENOUGHROOM and target.type == FLUID_NONE or tile and tile:hasFlag(TILESTATE_FLOORCHANGE) then
-			item:transform(item:getId(), FLUID_NONE)
-			player:sendCancelMessage(Game.getReturnMessage(RETURNVALUE_NOTENOUGHROOM))
-			return true
-		end
-
-		if not tile:getItemByType(ITEM_TYPE_TRASHHOLDER) and tile:addItemEx(splash) == RETURNVALUE_NOERROR then
-			splash:decay()
-		else
-			player:sendCancelMessage(Game.getReturnMessage(RETURNVALUE_NOTENOUGHROOM))
-			splash:remove()
-		end
-		
-		if config.createEmptyVial then
-			item:transform(item:getId(), FLUID_NONE)
-		else
-			item:remove(1)
-		end
-
-		return true
+	local spillPos = toPosition
+	if spillPos.x == 0xFFFF then
+		spillPos = player:getPosition()
 	end
-	return false
+	local splash = Game.createItem(2016, fluidType, spillPos)
+	if splash then
+		splash:decay()
+	end
+	item:transform(item:getId(), FLUID_NONE)
+	return true
 end
 
 for _, id in ipairs(items) do

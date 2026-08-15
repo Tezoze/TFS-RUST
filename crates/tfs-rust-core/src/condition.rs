@@ -1,5 +1,7 @@
 //! Active conditions and merge rules (TFS `Condition::addCondition` / `updateCondition` simplified).
-// C++ reference: `condition.h`, `condition.cpp`.
+//!
+//! C++ reference: `condition.h`, `condition.cpp`.
+//! 772 drunk stack: `moveuse.cc:1776-1782` beer/wine `SetTimer`; `crskill.cc:176-193` Process.
 
 use tfs_rust_common::enums::ConditionType;
 
@@ -202,6 +204,74 @@ fn merge_into(existing: &mut ActiveCondition, incoming: &ActiveCondition) {
     }
 }
 
+/// 772 beer/wine cap — `moveuse.cc:1780` `DrunkLevel < 5`.
+pub const DRINK_DRUNK_MAX_LEVEL: u32 = 5;
+/// 772 beer/wine `SetTimer` Count/MaxCount — `moveuse.cc:1781`.
+pub const DRINK_DRUNK_INTERVAL: i32 = 120;
+
+/// 772 beer/wine `SetTimer(SKILL_DRUNKEN, DrunkLevel+1, 120, 120, -1)` (`moveuse.cc:1776-1782`).
+///
+/// Lua `addCondition(CONDITION_DRUNK)` uses this stack. Ignores `CONDITION_PARAM_DRUNKENNESS`
+/// / ticks. Spell-drunk stays Power-gated in `idle_stimulus` (`magic.cc:283-285`).
+/// Returns whether Cycle increased.
+pub fn apply_drink_drunk_stack(list: &mut Vec<ActiveCondition>, drunkenness: &mut u32) -> bool {
+    if *drunkenness >= DRINK_DRUNK_MAX_LEVEL {
+        return false;
+    }
+    *drunkenness += 1;
+    let cycle = *drunkenness as i32;
+    if let Some(cond) = list.iter_mut().find(|c| c.ctype == ConditionType::Drunk) {
+        cond.skill_count = DRINK_DRUNK_INTERVAL;
+        cond.skill_max_count = DRINK_DRUNK_INTERVAL;
+        cond.timer_rounds_left = Some(cycle);
+    } else {
+        list.push(
+            ActiveCondition::new(
+                0,
+                0,
+                ConditionType::Drunk,
+                ConditionData::Generic { ticks: 0 },
+                Some(cycle),
+            )
+            .with_skill_timer(DRINK_DRUNK_INTERVAL, DRINK_DRUNK_INTERVAL),
+        );
+    }
+    true
+}
+
+/// One `ProcessSkills` round for `SKILL_DRUNKEN` (`crskill.cc:176-193`).
+///
+/// Count--; on 0, Cycle (`drunkenness`) steps toward 0 and Count = MaxCount.
+/// Returns `true` when Cycle hits 0 (caller removes the condition).
+///
+/// Beer uses MaxCount=120; spell-drunk uses Duration as MaxCount. Legacy blobs
+/// with `skill_max_count == 0` still expire via `timer_rounds_left`.
+pub fn tick_drunk_skill(drunkenness: &mut u32, cond: &mut ActiveCondition) -> bool {
+    if cond.skill_max_count > 0 {
+        if cond.skill_count > 0 {
+            cond.skill_count -= 1;
+        }
+        if cond.skill_count == 0 {
+            cond.skill_count = cond.skill_max_count;
+            *drunkenness = drunkenness.saturating_sub(1);
+            cond.timer_rounds_left = Some(*drunkenness as i32);
+            return *drunkenness == 0;
+        }
+        false
+    } else if let Some(left) = cond.timer_rounds_left.as_mut() {
+        if *left <= 1 {
+            *left = 0;
+            *drunkenness = 0;
+            true
+        } else {
+            *left -= 1;
+            false
+        }
+    } else {
+        false
+    }
+}
+
 /// Per-tick DoT damage for an elemental field condition (B4.6), profile-driven.
 ///
 /// Maps a fire/energy [`ConditionType`] to its `(Event damage, MaxCount interval)` from the
@@ -278,5 +348,49 @@ mod tests {
             dot_tick_for_condition(&m.profile, &m.hooks, ConditionType::Pz, 0),
             None
         );
+    }
+
+    #[test]
+    fn drink_drunk_stack_levels_count_and_cap() {
+        let mut list = Vec::new();
+        let mut level = 0u32;
+        assert!(apply_drink_drunk_stack(&mut list, &mut level));
+        assert_eq!(level, 1);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].skill_count, DRINK_DRUNK_INTERVAL);
+        assert_eq!(list[0].skill_max_count, DRINK_DRUNK_INTERVAL);
+
+        assert!(apply_drink_drunk_stack(&mut list, &mut level));
+        assert_eq!(level, 2);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].skill_count, DRINK_DRUNK_INTERVAL);
+
+        for _ in 2..DRINK_DRUNK_MAX_LEVEL {
+            assert!(apply_drink_drunk_stack(&mut list, &mut level));
+        }
+        assert_eq!(level, DRINK_DRUNK_MAX_LEVEL);
+        list[0].skill_count = 40;
+        assert!(!apply_drink_drunk_stack(&mut list, &mut level));
+        assert_eq!(level, DRINK_DRUNK_MAX_LEVEL);
+        assert_eq!(list[0].skill_count, 40, "cap 5 does not refresh Count");
+    }
+
+    #[test]
+    fn tick_drunk_skill_steps_cycle_after_interval() {
+        let mut list = Vec::new();
+        let mut level = 0u32;
+        apply_drink_drunk_stack(&mut list, &mut level);
+        apply_drink_drunk_stack(&mut list, &mut level);
+        assert_eq!(level, 2);
+
+        for _ in 0..DRINK_DRUNK_INTERVAL - 1 {
+            assert!(!tick_drunk_skill(&mut level, &mut list[0]));
+        }
+        assert_eq!(level, 2);
+        assert_eq!(list[0].skill_count, 1);
+
+        assert!(!tick_drunk_skill(&mut level, &mut list[0]));
+        assert_eq!(level, 1, "after 120 rounds level −1");
+        assert_eq!(list[0].skill_count, DRINK_DRUNK_INTERVAL);
     }
 }

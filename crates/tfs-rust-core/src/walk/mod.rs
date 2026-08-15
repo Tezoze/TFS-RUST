@@ -206,8 +206,8 @@ fn has_drunk_condition(base: &crate::creature::CreatureBase) -> bool {
 /// 772 drunk stagger — `cract.cc:392-413`: `DrunkLevel = Skills[SKILL_DRUNKEN]->TimerValue()`,
 /// `StaggerChance = max(7 - DrunkLevel, 1)`, `rand() % StaggerChance == 0` → random cardinal.
 ///
-/// `DrunkLevel` maps to `base.drunkenness` (set by `SpellImpact::Drunk`). The CipSoft
-/// `Get() == 0` skill-level check is implicitly true (no CipSoft skill system in Rust).
+/// `DrunkLevel` maps to `base.drunkenness` (772 `TSkill::TimerValue` / Cycle from beer
+/// stack or spell Power). The `Get() == 0` suppression check is the dwarven-ring path.
 /// Returns `Some(dir)` when the step should be replaced with a random cardinal stagger.
 fn try_drunk_walk_direction(base: &crate::creature::CreatureBase) -> Option<Direction> {
     if !has_drunk_condition(base) {

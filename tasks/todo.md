@@ -1,20 +1,13 @@
-# E5–E7: `say` / spellbook / `getHouse` — 2026-08-15
+# E8–E9: drunk stack + `getFormattedWorldTime` — 2026-08-15
 
 From [other-actions-plan.md](other-actions-plan.md). **Done.**
 
-## E5 `Player:say(text[, type])`
-- [x] `LuaMutation::PlayerSay` → `broadcast_creature_say_viewport` (not `player_say`)
-- [x] Default `TALKTYPE_SAY` (1). 772 `Talk`; TFS `luaCreatureSay` / `luaPlayerSay`
-- [x] `CreatureRef:say` userdata + `lua_defs`
+## E8 Drunk stack + `fluids.lua`
+- [x] Beer/wine: if Cycle `< 5` then `+1`; Count=MaxCount=120; `base.drunkenness` = Cycle
+- [x] `ProcessSkills`: Count--; on 0, Cycle toward 0, Count=MaxCount; at 0 remove
+- [x] Spell-drunk stays Power-gated; uses Duration as MaxCount
+- [x] Rewrite `fluids.lua` to `UseLiquidContainer`
 
-## E6 `showTextDialog` + learned-spell list + `spellbook.lua`
-- [x] `Player:showTextDialog(itemId, text)` → `send_text_window_simple_item` (`0x96`)
-- [x] `Player:hasLearnedSpell(name)` from `persist.spells` (`SpellKnown`)
-- [x] `Game.getInstantSpells()` = all **instant** defs (not TFS `canCast`)
-- [x] Rewrite `spellbook.lua` to `GetSpellbook` (`magic.cc:3830-3901`)
-- [x] Tests: Light Healing `exura - Light Healing: 25`; Berserk `4*Level`; no ML groups; `lua_defs`
-
-## E7 `Tile:getHouse()`
-- [x] `nil` or House userdata; **never `0`**. 772 `IsHouse(Obj1)`
-- [x] Rewrite `construction_kits.lua`: house → transform + effect 3; else effect 4, no text
-- [x] `lua_defs` `getHouse`
+## E9 `getFormattedWorldTime`
+- [x] Inject from `data/global.lua` (no full `dofile`)
+- [x] `watch.lua`: pendulum 1728–1731, watch 2036, cuckoo 1873–1877 and 1881; drop 3900

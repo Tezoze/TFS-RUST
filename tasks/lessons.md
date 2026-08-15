@@ -702,3 +702,9 @@
     - **`Tile:getHouse()` is `nil` or House userdata, never `0`.** Lua `0` is truthy, so a numeric miss would unpack kits on the street. 772 `IsHouse` is `GetHouseID != 0`. House tile: `transform` + effect 3; else effect 4, no text.
     - **Lua mutation tests cannot capture with closures.** `LuaMutationApplier` is `fn` (`OnceLock`); capturing closures do not coerce. Lua-crate tests use a thread-local applier override plus a non-capturing `fn` that writes a `thread_local` cell. *(August 2026)*
 
+330. **E8–E9 drunk stack vs TFS ticks; inject `getFormattedWorldTime` not full `global.lua`** (`condition.rs` `apply_drink_drunk_stack` / `tick_drunk_skill`; `process_skills.rs`; `fluids.lua`; `actions.rs` inject; `watch.lua`; 772 `moveuse.cc:1776-1782`, `crskill.cc:176-193`):
+    - **Beer/wine is Cycle 1–5 × Count=120, not TFS 60s + `CONDITION_PARAM_DRUNKENNESS`.** Lua `addCondition(CONDITION_DRUNK)` ignores ticks and param 55. If Cycle `< 5`, `SetTimer(level+1, 120, 120)`. At cap 5, Count is **not** refreshed. `base.drunkenness` is Cycle (`TimerValue`). Each ProcessSkills: Count--; on 0, Cycle toward 0, Count=MaxCount; at 0 remove. Plan/test is 120 rounds to step (decrement-then-Event), not C++'s extra tick where Event runs when Count is already 0 at tick start.
+    - **Spell-drunk stays Power-gated** (`idle_stimulus` `Power >= TimerValue`). Same `TSkill::Process`; Duration is MaxCount so Cycle steps down every Duration seconds (not TFS snap-to-zero when ticks elapse).
+    - **`fluids.lua` is `UseLiquidContainer`.** Fill → pour → drink iff dest is self (or hotkey) → else spill `2016`. Mana `50..=150`, life `25..=75`. No magic-blue, no exhaust, no `queryAdd`.
+    - **E9 injects `getFormattedWorldTime` only.** Full `dofile('data/global.lua')` would double-load `lib.lua`. Watch ids: pendulum 1728–1731, 2036, cuckoo 1873–1877 and 1881; drop sundial 3900. *(August 2026)*
+

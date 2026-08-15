@@ -5,7 +5,7 @@
 use tfs_rust_common::enums::{CombatType, ConditionType};
 
 use crate::combat::{CombatDamage, CombatParams};
-use crate::condition::{ConditionData, dot_tick_for_condition};
+use crate::condition::{ConditionData, dot_tick_for_condition, tick_drunk_skill};
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
@@ -215,7 +215,6 @@ impl GameWorld {
                     ConditionType::Light
                     | ConditionType::Invisible
                     | ConditionType::Outfit
-                    | ConditionType::Drunk
                     | ConditionType::ManaShield
                     | ConditionType::Infight => {
                         if let Some(left) = cond.timer_rounds_left {
@@ -304,6 +303,8 @@ impl GameWorld {
                 }
             }
             // Decrement timers and apply poison decay after damage pass.
+            let mut drunkenness = base.drunkenness;
+            let mut drunk_expired = false;
             for cond in base.active_conditions.iter_mut() {
                 match cond.ctype {
                     ConditionType::Fire | ConditionType::Energy => {
@@ -381,7 +382,6 @@ impl GameWorld {
                     | ConditionType::ChannelMutedTicks
                     | ConditionType::Invisible
                     | ConditionType::Outfit
-                    | ConditionType::Drunk
                     | ConditionType::ManaShield
                     | ConditionType::Light
                     | ConditionType::Infight => {
@@ -391,8 +391,18 @@ impl GameWorld {
                             *ticks = (*ticks).saturating_sub(1000);
                         }
                     }
+                    ConditionType::Drunk => {
+                        // 772 `TSkill::Process` Count/Cycle (`crskill.cc:176-193`).
+                        drunk_expired |= tick_drunk_skill(&mut drunkenness, cond);
+                    }
                     _ => {}
                 }
+            }
+            base.drunkenness = drunkenness;
+            if drunk_expired {
+                base.active_conditions
+                    .retain(|c| c.ctype != ConditionType::Drunk);
+                ended_ctypes.push(ConditionType::Drunk);
             }
             // Remove expired `ConditionGeneric` (YellTicks, Muted, ChannelMutedTicks) conditions after tick-down.
             base.active_conditions.retain(|c| {
@@ -550,7 +560,10 @@ mod tests {
     use tfs_rust_content::vocations::{VocationDef, VocationRegistry};
 
     use crate::combat::{CombatParams, apply_condition};
-    use crate::condition::{ActiveCondition, ConditionData, add_condition_merge};
+    use crate::condition::{
+        ActiveCondition, ConditionData, DRINK_DRUNK_INTERVAL, add_condition_merge,
+        apply_drink_drunk_stack,
+    };
     use crate::creature::CreatureKind;
     use crate::map::Map;
     use crate::test_world::support::{
@@ -1495,6 +1508,82 @@ mod tests {
         assert!(
             still_poisoned,
             "poison condition must persist while standing on a poison field (C2 re-extension)"
+        );
+    }
+
+    /// E8: beer stack Cycle 1–5 × Count=120; after 120 ProcessSkills rounds, level −1.
+    /// 772 `moveuse.cc:1776-1782`, `crskill.cc:176-193`.
+    #[test]
+    fn e8_drink_drunk_stack_and_process_skills_interval() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let player = insert_player(&mut world, test_player("Beer", pos));
+
+        let drunk_state = |world: &crate::game_world::GameWorld| {
+            world.creatures.get(player).map(|k| {
+                let b = k.base();
+                let cond = b
+                    .active_conditions
+                    .iter()
+                    .find(|c| c.ctype == ConditionType::Drunk);
+                (
+                    b.drunkenness,
+                    cond.map(|c| (c.skill_count, c.skill_max_count)),
+                )
+            })
+        };
+
+        if let Some(kind) = world.creatures.get_mut(player) {
+            let base = kind.base_mut();
+            apply_drink_drunk_stack(&mut base.active_conditions, &mut base.drunkenness);
+        }
+        assert_eq!(drunk_state(&world), Some((1, Some((120, 120)))));
+
+        if let Some(kind) = world.creatures.get_mut(player) {
+            let base = kind.base_mut();
+            apply_drink_drunk_stack(&mut base.active_conditions, &mut base.drunkenness);
+        }
+        assert_eq!(drunk_state(&world), Some((2, Some((120, 120)))));
+
+        for _ in 0..4 {
+            if let Some(kind) = world.creatures.get_mut(player) {
+                let base = kind.base_mut();
+                apply_drink_drunk_stack(&mut base.active_conditions, &mut base.drunkenness);
+            }
+        }
+        assert_eq!(drunk_state(&world).map(|s| s.0), Some(5));
+        if let Some(kind) = world.creatures.get_mut(player) {
+            let base = kind.base_mut();
+            assert!(!apply_drink_drunk_stack(
+                &mut base.active_conditions,
+                &mut base.drunkenness
+            ));
+        }
+        assert_eq!(drunk_state(&world).map(|s| s.0), Some(5));
+
+        // Reset to level 2 / Count=120 for the interval assertion.
+        if let Some(kind) = world.creatures.get_mut(player) {
+            let base = kind.base_mut();
+            base.drunkenness = 0;
+            base.active_conditions.clear();
+            apply_drink_drunk_stack(&mut base.active_conditions, &mut base.drunkenness);
+            apply_drink_drunk_stack(&mut base.active_conditions, &mut base.drunkenness);
+        }
+
+        for _ in 0..DRINK_DRUNK_INTERVAL - 1 {
+            world.process_skills();
+        }
+        assert_eq!(
+            drunk_state(&world),
+            Some((2, Some((1, 120)))),
+            "119 rounds leave Count=1"
+        );
+        world.process_skills();
+        assert_eq!(
+            drunk_state(&world),
+            Some((1, Some((120, 120)))),
+            "after 120 rounds level −1"
         );
     }
 }

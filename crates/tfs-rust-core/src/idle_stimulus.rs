@@ -1990,14 +1990,15 @@ impl GameWorld {
                         if let Some(kind) = self.creatures.get_mut(target_id) {
                             kind.base_mut().drunkenness = power;
                         }
+                        let rounds = duration_ms_to_rounds(*duration).unwrap_or(1).max(1);
                         let cond = ActiveCondition {
                             id: 0,
                             sub_id: 0,
                             ctype: ConditionType::Drunk,
                             data: ConditionData::Generic { ticks: *duration },
-                            timer_rounds_left: duration_ms_to_rounds(*duration),
-                            skill_count: 0,
-                            skill_max_count: 0,
+                            timer_rounds_left: Some(power as i32),
+                            skill_count: rounds,
+                            skill_max_count: rounds,
                         };
                         let params = CombatParams {
                             primary_type: CombatType::Physical,

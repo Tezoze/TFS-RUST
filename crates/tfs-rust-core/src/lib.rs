@@ -128,7 +128,10 @@ pub use combat::{
     apply_condition, can_player_attack_player, execute, execute_with_credit, is_in_pvp_zone,
     is_protected,
 };
-pub use condition::{ActiveCondition, ConditionData, add_condition_merge};
+pub use condition::{
+    ActiveCondition, ConditionData, DRINK_DRUNK_INTERVAL, DRINK_DRUNK_MAX_LEVEL,
+    add_condition_merge, apply_drink_drunk_stack, tick_drunk_skill,
+};
 pub use config::ConfigManager;
 pub use container::{Container, ContainerError, ContainerRegistry, ContainerType, OpenContainer};
 pub use creature::{
