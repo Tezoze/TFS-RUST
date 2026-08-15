@@ -87,6 +87,7 @@ function onUseQuest(player, item, chest)
 end
 
 function destroyItem(player, target, toPosition)
+	-- 772 UseWeapon (`moveuse.cc`): always poff; random(1,3)==1 then Empty + Change.
 	if type(target) ~= "userdata" or not target:isItem() then
 		return false
 	end
@@ -105,13 +106,8 @@ function destroyItem(player, target, toPosition)
 		return false
 	end
 
-	if math.random(7) == 1 then
-		local item = Game.createItem(destroyId, 1, toPosition)
-		if item then
-			item:decay()
-		end
-
-		-- Move items outside the container
+	toPosition:sendMagicEffect(CONST_ME_POFF)
+	if math.random(1, 3) == 1 then
 		if target:isContainer() then
 			for i = target:getSize() - 1, 0, -1 do
 				local containerItem = target:getItem(i)
@@ -120,11 +116,8 @@ function destroyItem(player, target, toPosition)
 				end
 			end
 		end
-
-		target:remove(1)
+		target:transform(destroyId)
 	end
-
-	toPosition:sendMagicEffect(CONST_ME_POFF)
 	return true
 end
 

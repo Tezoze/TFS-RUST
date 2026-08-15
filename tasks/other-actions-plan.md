@@ -13,7 +13,7 @@ Do **not** port `moveuse.dat` as an engine. Pattern: `food.lua` (772 numbers + c
 
 1. ~~**E1** constants + tests + `emit-lua-defs --check`~~ — **done** (`42b9457`). Fluids / music / birdcage / used_lamp / create_bread / change_gold load.
 2. ~~**E2** zero-thing target + `isHotkey`~~ — **done**. Stops no-target crashes.
-3. **E3** `ItemType:getDestroyId` / `getFluidSource` + **`destroyItem` 1/3 `transform`**.
+3. ~~**E3** `ItemType:getDestroyId` / `getFluidSource` + **`destroyItem` 1/3 `transform`**.~~ — **done**.
 4. **E4** `addHealth` + **E5** `say` + **E8** drunk stack + **rewrite `fluids.lua`**.
 5. **Script pass** — food `>`, birdcage, waterpipe, music, create_bread, used_lamp, construction (**E7**), teleport, watch/cuckoo, change_gold gate, `formulas.otherActions`.
 6. **E6** `showTextDialog` + learned-spell list + **rewrite `spellbook.lua`** (`GetSpellbook`).
@@ -28,7 +28,7 @@ Do **not** port `moveuse.dat` as an engine. Pattern: `food.lua` (772 numbers + c
 |---|---|---|
 | **E1** ✅ | `FLUID_NONE…LEMONADE` 0–12 (`const.h:94-106`); `TALKTYPE_SAY` **1** / `MONSTER_SAY` **0x11** (`const.h:62,76`); `CONST_ME_SOUND_YELLOW/PURPLE/BLUE/WHITE` 22–25 (`const.h:32-35`). `CONDITION_PARAM_DRUNKENNESS` **55** (`enums.h:275`) so leftover `setParameter` does not fail load (E8 ignores the value). `ITEM_GOLD/PLATINUM/CRYSTAL_COIN` 2148/2152/2160 (`const.h:451`) — 1098 change-gold + `data/lib`. Sequential 772 fluids, not TFS colour-mapped subtypes. | `constants.rs`, `combat_enums.rs`. Shipped `42b9457`. |
 | **E2** ✅ | No-target → TFS zero-thing table (`uid/itemid/actionid/type = 0`); pass `isHotkey` as 6th arg (`Action::executeUse` `callFunction(6)`). Hotkey pos is client `(0xFFFF,0,0)`. | `runtime.rs`, `lua_scope.rs`. |
-| **E3** | `getDestroyId` / `getFluidSource` from `items.xml` `destroyto` / `fluidsource`. | `script_context.rs`, `game_world_script.rs`, `userdata/item_type.rs`. |
+| **E3** ✅ | `getDestroyId` / `getFluidSource` from `items.xml` `destroyto` / `fluidsource`. | `script_context.rs`, `game_world_script.rs`, `userdata/item_type.rs`. |
 | **E4** | `Player:addHealth(n)` — HP clamp, same shape as `addMana`. | `LuaMutation` + applier. 772 `Heal` in `DrinkPotion`. |
 | **E5** | `Player:say(text[, type])` → `broadcast_creature_say_viewport`, **not** `player_say` (that parses spells). | 772 `Talk` (`TALK_SAY=1`); TFS `luaPlayerSay`. |
 | **E6** | `Player:showTextDialog(itemId, text)` → existing `send_text_window_item` (`0x96`). `hasLearnedSpell(name)` + list of **instant** defs (incl. rune-conjure instants). **Do not** implement TFS `getInstantSpells` = `canCast` (vocation dump). | 772 `SendEditText` → `GetSpellbook`. |
@@ -94,7 +94,7 @@ Load probe 2026-08-15 (post-E1): **20/20 load**. 772 column is decompile match, 
 | `create_bread.lua` | ✅ | ⚠️ | E2 + step 5 |
 | `used_lamp.lua` | ✅ | ⚠️ | E2 + step 5 |
 | `construction_kits.lua` | ✅ | ⚠️ | E7 + step 5 |
-| `destroy.lua` | ✅ | ❌ 1/7 vs 1/3 | E3 |
+| `destroy.lua` | ✅ | ⚠️ helper 1/3 | E3 shipped; script pass unchanged |
 | `spellbook.lua` | ✅ | ❌ filter/format | E6 |
 | `fluids.lua` | ✅ | ❌ | E3–E5, E8 + rewrite |
 | `change_gold.lua` | ✅ | ❌ still registers | step 5: do not register on 772 |
@@ -124,8 +124,8 @@ Load probe 2026-08-15 (post-E1): **20/20 load**. 772 column is decompile match, 
 - `other_scripts_load_and_register` — 20 files load; 772 does **not** register gold coins; ids 2095 / 2175 / 486 registered; 2217 **not** on spellbook; 3900 **not** on watch; 1877/1881 **are**.
 - E1 ✅: `FLUID_WATER==1`, `TALKTYPE_SAY==1`, `CONST_ME_SOUND_YELLOW==22`, `ITEM_GOLD_COIN==2148` (`e1_other_action_constants_unblock_fluids_and_change_gold_load` + `lua_defs` snapshot).
 - Zero-thing: `target.uid==0 and target.itemid==0`; `isHotkey` boolean. ✅ `e2_no_target_is_zero_thing_table_and_is_hotkey_boolean`
-- `getDestroyId` / `getFluidSource` against known `items.xml` rows.
-- `destroyItem` 1/3 uses `transform`.
+- `getDestroyId` / `getFluidSource` against known `items.xml` rows. ✅ `destroyto_and_fluidsource_match_items_xml_rows` + `e3_get_destroy_id_and_fluid_source_from_known_xml_rows`
+- `destroyItem` 1/3 uses `transform`. ✅ `e3_destroy_item_uses_one_in_three_transform`
 - Drunk: beer → level 1; second → 2 and count 120; cap 5; after 120 rounds level −1.
 - Mana 50..=150, life 25..=75. Lemonade `"Mmmh."`, milk `"Gulp."`.
 - Food: remaining 1188 + blueberry (1×12) allowed (sum == 1200); remaining 1189 + blueberry rejected.
@@ -161,7 +161,7 @@ E2 (nil `target`) and E3 (`getDestroyId`) already unblock quest kits and crowbar
 
 **Already bound — do not treat as remaining:** `doRelocate` (injected), `doTargetCombatHealth`, `Game.createItem`/`createMonster`, lib `Game.isItemInPosition` / `removeItemInPosition` / `transformItemInPosition` / `sendMagicEffect`, `item:transform`/`decay()`/`remove`/`moveTo`, `player:teleportTo`/`sendTextMessage`/`getItemCount`/`removeItem`/`addSkillTries`/`getEffectiveSkillLevel`/`isPzLocked`/`getFreeCapacity`/`hasFlag`, `Tile:getGround`/`getItemById`/`getBottomCreature`/`relocateTo`, `Position:moveUpstairs`, `Container:addItem`.
 
-**`other/`-only remaining (E2–E9, not map/quests/tools):** `addHealth`, `say`, `getHouse`, `showTextDialog`, `getFormattedWorldTime`, `getFluidSource`, `Item:decay(id)`. **E1 shipped:** `FLUID_*`, `CONST_ME_SOUND_YELLOW…WHITE`, `TALKTYPE_SAY`/`MONSTER_SAY`, `ITEM_*_COIN`, `CONDITION_PARAM_DRUNKENNESS`.
+**`other/`-only remaining (E4–E9, not map/quests/tools):** `addHealth`, `say`, `getHouse`, `showTextDialog`, `getFormattedWorldTime`, `Item:decay(id)`. **E1 shipped:** `FLUID_*`, `CONST_ME_SOUND_YELLOW…WHITE`, `TALKTYPE_SAY`/`MONSTER_SAY`, `ITEM_*_COIN`, `CONDITION_PARAM_DRUNKENNESS`. **E3 shipped:** `getDestroyId`, `getFluidSource`.
 
 ---
 

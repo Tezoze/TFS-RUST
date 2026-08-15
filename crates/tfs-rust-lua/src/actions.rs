@@ -798,6 +798,36 @@ mod tests {
         );
     }
 
+    /// E3: 772 `UseWeapon` (`moveuse.cc`) is `random(1,3)==1` then `Change` in place,
+    /// not TFS `math.random(7)` + `Game.createItem` + `remove`.
+    #[test]
+    fn e3_destroy_item_uses_one_in_three_transform() {
+        let src = std::fs::read_to_string(workspace_data_root().join("scripts/functions.lua"))
+            .expect("functions.lua");
+        let start = src
+            .find("function destroyItem")
+            .expect("destroyItem helper");
+        let rest = &src[start..];
+        let end = rest.find("\nfunction ").unwrap_or(rest.len());
+        let body = &rest[..end];
+        assert!(
+            body.contains("math.random(1, 3)"),
+            "772 UseWeapon random(1,3): {body}"
+        );
+        assert!(
+            body.contains("target:transform(destroyId)"),
+            "772 Change via transform: {body}"
+        );
+        assert!(
+            !body.contains("math.random(7)"),
+            "TFS 1/7 must not remain: {body}"
+        );
+        assert!(
+            !body.contains("Game.createItem(destroyId"),
+            "TFS create+remove must not remain: {body}"
+        );
+    }
+
     /// E2: no-target is TFS `pushThing(nullptr)` (`uid/itemid/actionid/type = 0`),
     /// not nil; `isHotkey` is the 6th boolean (`Action::executeUse` `callFunction(6)`).
     #[test]

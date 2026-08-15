@@ -5,7 +5,8 @@
 //!
 //! **Phase 3 (abilities):** all keys in the `ItemParseAttributesMap` abilities block (equipment `speed`, skills, absorb, suppress, elements, …) are parsed into [crate::item_abilities::ItemAbilities] on [crate::otb::ItemType::abilities] — see [crate::item_abilities::apply_ability_attribute].
 //! **Decay (typed on `ItemType`):** `duration` → `decay_time`, `decayto` → `decay_to`, `stopduration` → `stop_time`, `showduration` → `show_duration` (still mirrored in `xml_attributes`).
-//! **Phase 2 (still `xml_attributes` + typed `ItemType` where noted):** `fluidsource`, `transformto` / `destroyto` / equip transforms, `maletransformto` / `femaletransformto`, `shoottype`, `effect`, `corpsetype`, `field` (+ nested), `supply`, `showcharges`, `showattributes`, `leveldoor`, `partnerdirection`, `writeonceitemid`, `runespellname`, 772 pack keys `forceuse` / `replacemagicfields` / `specialfieldblockpath` / `poisondamagecycles` / `blockpathfind`, … — keep this list in sync. Details: `tasks/items-parsing-audit.md` (Phase 2–3).
+//! **Destroy / fluid source (typed on `ItemType`):** `destroyto` → `destroy_to`, `fluidsource` → `fluid_source` (772 sequential `FLUID_*`).
+//! **Phase 2 (still `xml_attributes` + typed `ItemType` where noted):** `transformto` / equip transforms, `maletransformto` / `femaletransformto`, `shoottype`, `effect`, `corpsetype`, `field` (+ nested), `supply`, `showcharges`, `showattributes`, `leveldoor`, `partnerdirection`, `writeonceitemid`, `runespellname`, 772 pack keys `forceuse` / `replacemagicfields` / `specialfieldblockpath` / `poisondamagecycles` / `blockpathfind`, … — keep this list in sync. Details: `tasks/items-parsing-audit.md` (Phase 2–3).
 
 /// Sorted for binary search — keep alphabetical when adding keys.
 const KNOWN_XML_KEYS: &[&str] = &[

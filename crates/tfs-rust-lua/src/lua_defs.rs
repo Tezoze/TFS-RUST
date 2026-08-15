@@ -563,6 +563,16 @@ mod tests {
             "Tile:getGround is a native method"
         );
 
+        let item_type = snap.classes.get("ItemType").expect("ItemType");
+        assert!(
+            item_type.methods.contains("getDestroyId"),
+            "ItemType:getDestroyId is a native method"
+        );
+        assert!(
+            item_type.methods.contains("getFluidSource"),
+            "ItemType:getFluidSource is a native method"
+        );
+
         let game = snap.classes.get("Game").expect("Game");
         assert!(
             game.table_functions.contains("createItem"),

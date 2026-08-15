@@ -170,6 +170,8 @@ function Item:transform(...) end
 ItemType = {}
 
 function ItemType:getCharges(...) end
+function ItemType:getDestroyId(...) end
+function ItemType:getFluidSource(...) end
 function ItemType:getId(...) end
 function ItemType:getName(...) end
 function ItemType:isCorpse(...) end

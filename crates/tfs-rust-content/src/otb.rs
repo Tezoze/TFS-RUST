@@ -119,6 +119,13 @@ pub struct ItemType {
     pub stop_time: bool,
     /// C++ `ItemType::showDuration` — `src/items.h`; XML `showduration`. Default `false`.
     pub show_duration: bool,
+    /// C++ `ItemType::destroyTo` — `src/items.h`; XML `destroyto`. Default `0`.
+    /// 772 `DESTROYTARGET` (`UseWeapon` `Change` in `moveuse.cc`).
+    pub destroy_to: u16,
+    /// C++ `ItemType::fluidSource` — `src/items.h`; XML `fluidsource`.
+    /// 772 sequential `FLUID_*` (`const.h:94-106`), not TFS colour-mapped subtypes.
+    /// Default `0` (`FLUID_NONE`).
+    pub fluid_source: u8,
     /// C++ `ItemType::runeSpellName` — `src/items.h`; XML `runespellname`.
     pub rune_spell_name: String,
     /// C++ `ItemType::runeLevel` — patched on rune `spell:register()` (`luascript.cpp:15893`).
@@ -203,6 +210,8 @@ impl Default for ItemType {
             decay_to: -1,
             stop_time: false,
             show_duration: false,
+            destroy_to: 0,
+            fluid_source: 0,
             rune_spell_name: String::new(),
             rune_level: 0,
             rune_mag_level: 0,

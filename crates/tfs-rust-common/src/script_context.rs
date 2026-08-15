@@ -389,6 +389,20 @@ pub trait ScriptContext {
         0
     }
 
+    /// `ItemType:getDestroyId()` — `ItemType::destroyTo` (`src/items.h`).
+    /// XML `destroyto`; 772 `DESTROYTARGET`. Defaults to `0`.
+    fn get_item_type_destroy_id(&self, item_type: u16) -> u16 {
+        let _ = item_type;
+        0
+    }
+
+    /// `ItemType:getFluidSource()` — `ItemType::fluidSource` (`src/items.h`).
+    /// XML `fluidsource` as 772 sequential `FLUID_*`. Defaults to `0` (`FLUID_NONE`).
+    fn get_item_type_fluid_source(&self, item_type: u16) -> u8 {
+        let _ = item_type;
+        0
+    }
+
     /// `item:hasAttribute(key)` — `ItemAttributes::hasAttribute`
     /// (`src/item.h`). `attr_bits` is a Lua `itemAttrTypes` bitflag
     /// (`ITEM_ATTRIBUTE_*`). Defaults to `false`.

@@ -694,6 +694,28 @@ fn parse_shoot_type(value: &str) -> Option<u8> {
     })
 }
 
+/// C++ `FluidTypesMap` names (`src/items.cpp` ~182) mapped to **772 sequential**
+/// `FLUID_*` (`const.h:94-106`), not TFS 1.4.2 colour-mapped subtypes.
+/// Unknown names leave `FLUID_NONE` (C++ warns in `ITEM_PARSE_FLUIDSOURCE`).
+fn parse_fluid_source(value: &str) -> Option<u8> {
+    Some(match value.trim().to_ascii_lowercase().as_str() {
+        "none" => 0,                // FLUID_NONE
+        "water" => 1,               // FLUID_WATER
+        "wine" => 2,                // FLUID_WINE
+        "beer" => 3,                // FLUID_BEER
+        "mud" => 4,                 // FLUID_MUD
+        "blood" => 5,               // FLUID_BLOOD
+        "slime" => 6,               // FLUID_SLIME
+        "oil" => 7,                 // FLUID_OIL
+        "urine" => 8,               // FLUID_URINE
+        "milk" => 9,                // FLUID_MILK
+        "mana" | "manafluid" => 10, // FLUID_MANAFLUID
+        "life" | "lifefluid" => 11, // FLUID_LIFEFLUID
+        "lemonade" => 12,           // FLUID_LEMONADE
+        _ => return None,
+    })
+}
+
 fn apply_nested_xml_attribute(item: &mut ItemType, parent_key: &str, key: &str, value: &str) {
     let composite = format!(
         "{}.{}",
@@ -1066,6 +1088,24 @@ fn apply_xml_attribute(item: &mut ItemType, key: &str, value: &str, item_id: u16
         "showduration" => {
             item.show_duration = parse_xml_bool(value).unwrap_or(false);
         }
+        // C++ `ITEM_PARSE_DESTROYTO` — `src/items.cpp` (~1299); `ItemType::destroyTo`.
+        "destroyto" => {
+            if let Ok(v) = value.parse::<u16>() {
+                item.destroy_to = v;
+            }
+        }
+        // C++ `ITEM_PARSE_FLUIDSOURCE` — `src/items.cpp` (~697); names → 772 sequential fluids.
+        "fluidsource" => match parse_fluid_source(value) {
+            Some(v) => item.fluid_source = v,
+            None => {
+                warn!(
+                    target: "tfs_rust_content::items",
+                    item_id,
+                    value,
+                    "unknown fluidSource in items.xml (C++ Items::parseItemNode warning)"
+                );
+            }
+        },
         // C++ `ITEM_PARSE_RUNESPELLNAME` — `src/items.cpp` (~602); look text `("words")`.
         "runespellname" => {
             item.rune_spell_name = value.to_string();
@@ -1215,6 +1255,56 @@ mod tests {
         assert_eq!(it.decay_to, -1);
         assert!(!it.stop_time);
         assert!(!it.show_duration);
+        assert_eq!(it.destroy_to, 0);
+        assert_eq!(it.fluid_source, 0);
+    }
+
+    /// E3: XML `destroyto` / `fluidsource` land on typed fields.
+    /// Domain: `ITEM_PARSE_DESTROYTO` / `ITEM_PARSE_FLUIDSOURCE` (`src/items.cpp`).
+    /// Outcomes: 772 sequential `FLUID_*` (`const.h:94-106`), not TFS colour-mapped ids.
+    #[test]
+    fn destroyto_and_fluidsource_xml_to_itemtype() {
+        let mut statue = ItemType {
+            id: 1442,
+            ..ItemType::default()
+        };
+        apply_xml_attribute(&mut statue, "destroyto", "2256", 1442);
+        assert_eq!(statue.destroy_to, 2256);
+
+        let mut mud = ItemType {
+            id: 355,
+            ..ItemType::default()
+        };
+        apply_xml_attribute(&mut mud, "fluidsource", "mud", 355);
+        assert_eq!(mud.fluid_source, 4); // FLUID_MUD
+
+        let mut water = ItemType::default();
+        apply_xml_attribute(&mut water, "fluidsource", "water", 1771);
+        assert_eq!(water.fluid_source, 1); // FLUID_WATER
+
+        let mut lemonade = ItemType::default();
+        apply_xml_attribute(&mut lemonade, "fluidsource", "lemonade", 1772);
+        assert_eq!(lemonade.fluid_source, 12); // FLUID_LEMONADE
+
+        let mut wine = ItemType::default();
+        apply_xml_attribute(&mut wine, "fluidsource", "wine", 1773);
+        assert_eq!(wine.fluid_source, 2); // FLUID_WINE
+
+        let mut beer = ItemType::default();
+        apply_xml_attribute(&mut beer, "fluidsource", "beer", 1776);
+        assert_eq!(beer.fluid_source, 3); // FLUID_BEER
+
+        let mut blood = ItemType::default();
+        apply_xml_attribute(&mut blood, "fluidsource", "blood", 1);
+        assert_eq!(blood.fluid_source, 5); // FLUID_BLOOD
+
+        let mut slime = ItemType::default();
+        apply_xml_attribute(&mut slime, "fluidsource", "slime", 1);
+        assert_eq!(slime.fluid_source, 6); // FLUID_SLIME
+
+        let mut unknown = ItemType::default();
+        apply_xml_attribute(&mut unknown, "fluidsource", "coconut", 1);
+        assert_eq!(unknown.fluid_source, 0);
     }
 
     #[test]
@@ -1681,5 +1771,37 @@ mod tests {
             sand_wp > grass_wp && grass_wp > dirt_wp,
             "relative ordering: dirt fastest, grass mid, sand slow (grass={grass_wp}, dirt={dirt_wp}, sand={sand_wp})"
         );
+    }
+
+    /// E3: known `items.xml` rows for `destroyto` / `fluidsource`.
+    #[test]
+    fn destroyto_and_fluidsource_match_items_xml_rows() {
+        use std::path::Path;
+
+        let otb = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.otb");
+        let xml = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.xml");
+        let db = ItemDatabase::load(&otb, &xml).expect("items load");
+
+        let statue = db.items.get(&1442).expect("statue 1442");
+        assert_eq!(statue.destroy_to, 2256);
+
+        let mud = db.items.get(&355).expect("muddy floor 355");
+        assert_eq!(mud.fluid_source, 4); // FLUID_MUD
+
+        let water_cask = db.items.get(&1771).expect("water cask 1771");
+        assert_eq!(water_cask.fluid_source, 1); // FLUID_WATER
+
+        let lemonade_cask = db.items.get(&1772).expect("lemonade cask 1772");
+        assert_eq!(lemonade_cask.fluid_source, 12); // FLUID_LEMONADE
+
+        let wine_cask = db.items.get(&1773).expect("wine cask 1773");
+        assert_eq!(wine_cask.fluid_source, 2); // FLUID_WINE
+
+        let beer_cask = db.items.get(&1776).expect("beer cask 1776");
+        assert_eq!(beer_cask.fluid_source, 3); // FLUID_BEER
+
+        let grass = db.items.get(&102).expect("grass 102");
+        assert_eq!(grass.destroy_to, 0);
+        assert_eq!(grass.fluid_source, 0);
     }
 }

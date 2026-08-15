@@ -1,9 +1,10 @@
-# E2: zero-thing target + `isHotkey` — 2026-08-15
+# E3: `getDestroyId` / `getFluidSource` + `destroyItem` 1/3 `transform` — 2026-08-15
 
-From [other-actions-plan.md](other-actions-plan.md). TFS `Action::executeUse` `callFunction(6)`; `pushThing(nullptr)` is a table, not nil.
+From [other-actions-plan.md](other-actions-plan.md). TFS `luaItemTypeGetDestroyId` / `GetFluidSource`; 772 `UseWeapon` (`moveuse.cc`) always poff, `random(1,3)==1` then Empty + `Change`.
 
-- [x] `runtime.rs` — no-target → `{uid,itemid,actionid,type=0}`; 6th arg `isHotkey`
-- [x] `lua_scope.rs` / dispatcher — thread `is_hotkey`; TFS `(0xFFFF,0,0)` from client pos
-- [x] `pumpkinhead.lua` / `used_lamp.lua` — `type(target) ~= "userdata"` guard
-- [x] Test: `target.uid==0 and target.itemid==0`; `isHotkey` boolean
-- [x] `emit-lua-defs --check`; lessons
+- [x] `otb.rs` — typed `destroy_to` / `fluid_source` (defaults 0 / `FLUID_NONE`)
+- [x] `items.rs` — parse `destroyto` + `fluidsource` names → 772 sequential `FLUID_*`
+- [x] `script_context.rs` + `game_world_script.rs` + `userdata/item_type.rs`
+- [x] `functions.lua` `destroyItem` — 1/3 + `transform` (not TFS 1/7 create+remove)
+- [x] Tests: known `items.xml` rows; Lua bindings; `destroyItem` source; `emit-lua-defs --check`
+- [x] `tasks/lessons.md`

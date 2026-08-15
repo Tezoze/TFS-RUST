@@ -455,6 +455,24 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             .unwrap_or(0)
     }
 
+    /// `ItemType:getDestroyId()` — `ItemType::destroyTo` (`src/items.h`).
+    fn get_item_type_destroy_id(&self, item_type: u16) -> u16 {
+        self.items_db
+            .items
+            .get(&item_type)
+            .map(|t| t.destroy_to)
+            .unwrap_or(0)
+    }
+
+    /// `ItemType:getFluidSource()` — `ItemType::fluidSource` (`src/items.h`).
+    fn get_item_type_fluid_source(&self, item_type: u16) -> u8 {
+        self.items_db
+            .items
+            .get(&item_type)
+            .map(|t| t.fluid_source)
+            .unwrap_or(0)
+    }
+
     /// `item:hasAttribute(key)` — `ItemAttributes::hasAttribute` (`src/item.h`).
     /// PC-3a Phase 5: `conjureItem` checks `ITEM_ATTRIBUTE_DURATION`.
     fn item_has_attribute(&self, item_id: tfs_rust_common::ScriptItemId, attr_bits: u32) -> bool {
