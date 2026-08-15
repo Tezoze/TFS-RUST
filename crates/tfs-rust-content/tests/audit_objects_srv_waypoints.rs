@@ -100,7 +100,13 @@ fn audit_objects_srv_waypoints_vs_otb() {
     let objects = objects_srv_path(&root);
     let otb_path = root.join(ITEMS_OTB);
     let items_xml = root.join("data/items/items.xml");
-    assert!(objects.is_file(), "missing {}", objects.display());
+    if !objects.is_file() {
+        eprintln!(
+            "skip: objects.srv not present (local 772 reference tree): {}",
+            objects.display()
+        );
+        return;
+    }
     assert!(otb_path.is_file(), "missing {ITEMS_OTB}");
 
     let srv = parse_objects_srv(&objects);

@@ -244,14 +244,6 @@ Run: `cargo test -p tfs-rust-content audit_objects_srv_waypoints -- --nocapture`
 | Blocked BANK (`Unpass` or `Waypoints == 0`) | **364** |
 | OTB ground types with `speed > 0` | **899** |
 
-Flag correlation: `cargo test -p tfs-rust-content audit_objects_srv_flag_correlation -- --nocapture`
-
-| Flag mapping | Match |
-|--------------|-------|
-| `Bank` → `isGroundTile()` | group mismatches remain (Clip/etc. as OTB ground) |
-| `Unpass` → `blockSolid` | **1985 / 0** after `patch-otb-waypoints --flags-only` (was ~942 / 1043) |
-| `Unmove` → `!moveable` | still ~835 mismatches — not patched yet |
-
 Re-patch after `objects.srv` changes: `scripts/patch_otb_waypoints.sh` or `patch-otb-waypoints`
 (default: BANK speeds + Unpass→`FLAG_BLOCK_SOLID`; `--flags-only` / `--walkable-only` as needed).
 
@@ -278,7 +270,5 @@ See also: [`crates/tfs-rust-content/src/otb_patch.rs`](../crates/tfs-rust-conten
 
 - [`772_OBJECTS_SRV_TO_OTB_LOOKUP.md`](772_OBJECTS_SRV_TO_OTB_LOOKUP.md) — practical TypeID lookup, `.sec` stacks, name-mismatch table, map ASCII
 - [`scripts/audit_objects_srv_waypoints_vs_otb.py`](../scripts/audit_objects_srv_waypoints_vs_otb.py) — Waypoints audit wrapper
-- [`scripts/audit_otb_objects_srv_flags.py`](../scripts/audit_otb_objects_srv_flags.py) — flag correlation wrapper
 - [`crates/tfs-rust-content/tests/audit_objects_srv_waypoints.rs`](../crates/tfs-rust-content/tests/audit_objects_srv_waypoints.rs)
-- [`crates/tfs-rust-content/tests/audit_objects_srv_flag_correlation.rs`](../crates/tfs-rust-content/tests/audit_objects_srv_flag_correlation.rs)
 - [`docs/PROTOCOL_VERSIONING.md`](PROTOCOL_VERSIONING.md) — wire vs mechanics axes
