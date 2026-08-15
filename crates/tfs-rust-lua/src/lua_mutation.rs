@@ -138,6 +138,13 @@ pub enum LuaMutation {
         creature_id: u64,
         mana_change: i32,
     },
+    /// `creature:addHealth(healthChange)` — TFS `luaCreatureAddHealth`.
+    /// E4: HP clamp like `addMana` (not `combatChangeHealth`). 772 `Heal`
+    /// in `DrinkPotion` (`magic.cc:2086`, `crskill.cc:58` `TSkill::Change`).
+    PlayerAddHealth {
+        creature_id: u64,
+        health_change: i32,
+    },
     /// `player:addManaSpent(amount)` — `luascript.cpp` `luaPlayerAddManaSpent`.
     /// PC-3a Phase 5: advances magic level via `Player::magic_increase`.
     PlayerAddManaSpent {
@@ -653,6 +660,15 @@ pub fn call_lua_add_mana(creature_id: u64, mana_change: i32) -> Result<(), Strin
     apply_mutation(LuaMutation::PlayerAddMana {
         creature_id,
         mana_change,
+    })
+}
+
+/// `creature:addHealth(healthChange)` — E4. Clamps HP to `[0, max]`.
+/// Domain: TFS `luaCreatureAddHealth`. Outcomes: 772 `Heal` (`magic.cc:2086`).
+pub fn call_lua_add_health(creature_id: u64, health_change: i32) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerAddHealth {
+        creature_id,
+        health_change,
     })
 }
 

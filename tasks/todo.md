@@ -1,10 +1,10 @@
-# E3: `getDestroyId` / `getFluidSource` + `destroyItem` 1/3 `transform` — 2026-08-15
+# E4: `Player:addHealth(n)` — 2026-08-15
 
-From [other-actions-plan.md](other-actions-plan.md). TFS `luaItemTypeGetDestroyId` / `GetFluidSource`; 772 `UseWeapon` (`moveuse.cc`) always poff, `random(1,3)==1` then Empty + `Change`.
+From [other-actions-plan.md](other-actions-plan.md). TFS `luaCreatureAddHealth`; 772 `Heal` in `DrinkPotion` (`magic.cc`) via `TSkill::Change` clamp to Max.
 
-- [x] `otb.rs` — typed `destroy_to` / `fluid_source` (defaults 0 / `FLUID_NONE`)
-- [x] `items.rs` — parse `destroyto` + `fluidsource` names → 772 sequential `FLUID_*`
-- [x] `script_context.rs` + `game_world_script.rs` + `userdata/item_type.rs`
-- [x] `functions.lua` `destroyItem` — 1/3 + `transform` (not TFS 1/7 create+remove)
-- [x] Tests: known `items.xml` rows; Lua bindings; `destroyItem` source; `emit-lua-defs --check`
+- [x] `LuaMutation::PlayerAddHealth` + `call_lua_add_health` (same shape as `addMana`)
+- [x] `lua_scope.rs` applier + `lua_script_player_add_health`
+- [x] `CreatureRef:addHealth` userdata
+- [x] Clamp `[0, effective_max_health]`; 772 Heal no-op when HP is already 0; health-bar notify on gain
+- [x] Tests: clamp / floor-0 skip; `lua_defs` `addHealth`; `emit-lua-defs --check`
 - [x] `tasks/lessons.md`

@@ -563,6 +563,12 @@ mod tests {
             "Tile:getGround is a native method"
         );
 
+        let creature = snap.classes.get("Creature").expect("Creature");
+        assert!(
+            creature.methods.contains("addHealth"),
+            "Creature:addHealth is a native method (E4)"
+        );
+
         let item_type = snap.classes.get("ItemType").expect("ItemType");
         assert!(
             item_type.methods.contains("getDestroyId"),

@@ -38,6 +38,7 @@ function Condition:setTicks(...) end
 Creature = {}
 
 function Creature:addCondition(...) end
+function Creature:addHealth(...) end
 function Creature:addItem(...) end
 function Creature:addMana(...) end
 function Creature:addManaSpent(...) end

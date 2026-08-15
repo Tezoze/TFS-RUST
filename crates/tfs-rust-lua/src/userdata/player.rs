@@ -7,10 +7,11 @@ use std::cell::RefCell;
 
 use crate::context::{CURRENT_CTX, CreatureData, CreatureRef, ItemRef, LuaContext};
 use crate::lua_mutation::{
-    call_lua_add_condition, call_lua_add_item, call_lua_add_item_full, call_lua_add_mana,
-    call_lua_add_mana_spent, call_lua_add_skill_tries, call_lua_feed, call_lua_get_depot_chest,
-    call_lua_get_depot_locker, call_lua_get_inbox, call_lua_remove_condition, call_lua_remove_item,
-    call_lua_send_cancel_message, call_lua_set_in_fight,
+    call_lua_add_condition, call_lua_add_health, call_lua_add_item, call_lua_add_item_full,
+    call_lua_add_mana, call_lua_add_mana_spent, call_lua_add_skill_tries, call_lua_feed,
+    call_lua_get_depot_chest, call_lua_get_depot_locker, call_lua_get_inbox,
+    call_lua_remove_condition, call_lua_remove_item, call_lua_send_cancel_message,
+    call_lua_set_in_fight,
 };
 use crate::userdata::container::ContainerRef;
 use crate::userdata::group::GroupRef;
@@ -251,6 +252,13 @@ impl UserData for CreatureRef {
         // PC-3a Phase 5: `conjureItem` deducts mana for dual-hand second conjure.
         methods.add_method("addMana", |_, this, mana_change: i32| {
             call_lua_add_mana(this.0, mana_change).map_err(mlua::Error::runtime)?;
+            Ok(true)
+        });
+
+        // `creature:addHealth(healthChange)` — TFS `luaCreatureAddHealth`.
+        // E4: HP clamp like `addMana`. 772 `Heal` in `DrinkPotion` (`magic.cc:2086`).
+        methods.add_method("addHealth", |_, this, health_change: i32| {
+            call_lua_add_health(this.0, health_change).map_err(mlua::Error::runtime)?;
             Ok(true)
         });
 

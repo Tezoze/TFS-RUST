@@ -665,6 +665,45 @@ impl GameWorld {
         Ok(())
     }
 
+    /// Lua `creature:addHealth(healthChange)` — TFS `luaCreatureAddHealth`.
+    /// E4: HP clamp like `addMana` (not `combatChangeHealth` / death).
+    /// 772 `Heal` in `DrinkPotion` (`magic.cc:2086`) → `TSkill::Change`
+    /// (`crskill.cc:58`) clamps Act to Max; no-op when hitpoints are already 0.
+    pub fn lua_script_player_add_health(
+        &mut self,
+        creature_u64: u64,
+        health_change: i32,
+    ) -> Result<(), String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "creature not found".to_string())?;
+        let (before, after) = {
+            let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
+                return Err("not a player".into());
+            };
+            // 772 `Heal` (`magic.cc:2107`): `if(HitPoints->Get() > 0)` then Change.
+            if p.base.health <= 0 && health_change > 0 {
+                return Ok(());
+            }
+            let max_hp = p.effective_max_health();
+            let before = p.base.health;
+            let after = (p.base.health + health_change).clamp(0, max_hp);
+            p.base.health = after;
+            (before, after)
+        };
+        if after > before {
+            // 772 `THealingImpact` (`magic.cc:191`) — health bar, no animated text.
+            if let Some(snap) = self.combat_notify_snapshot(cid) {
+                self.notify_creature_healed(cid, snap);
+            } else {
+                self.send_player_stats(cid);
+            }
+        } else {
+            self.send_player_stats(cid);
+        }
+        Ok(())
+    }
+
     /// Lua `player:addManaSpent(amount)` — `luascript.cpp` `luaPlayerAddManaSpent`.
     /// PC-3a Phase 5: advances magic level via `Player::magic_increase`.
     pub fn lua_script_player_add_mana_spent(
@@ -1725,5 +1764,73 @@ mod look_tests {
             .lua_script_remove_item(cid.data().as_ffi(), 3976, 1, -1, false)
             .expect("player exists");
         assert!(!ok, "missing worms must be false, not an error");
+    }
+}
+
+#[cfg(test)]
+mod add_health_tests {
+    use super::*;
+    use crate::sim_harness::{insert_player, minimal_world, test_player};
+    use slotmap::Key;
+    use tfs_rust_common::Position;
+    use tfs_rust_content::item_abilities::STAT_MAXHITPOINTS;
+
+    fn player_health(world: &GameWorld, cid: crate::ids::CreatureId) -> i32 {
+        match world.creatures.get(cid).expect("player") {
+            CreatureKind::Player(p) => p.base.health,
+            _ => panic!("not a player"),
+        }
+    }
+
+    /// E4: `addHealth` clamps like `addMana`; 772 `Heal` (`magic.cc:2086`)
+    /// `TSkill::Change` (`crskill.cc:58`) caps Act at Max.
+    #[test]
+    fn e4_add_health_clamps_to_effective_max_and_zero() {
+        let mut world = minimal_world();
+        let pos = Position::new(50, 50, 7);
+        let mut player = test_player("Healed", pos);
+        player.base.health = 40;
+        player.base.max_health = 100;
+        let cid = insert_player(&mut world, player);
+        let id = cid.data().as_ffi();
+
+        world.lua_script_player_add_health(id, 25).expect("heal");
+        assert_eq!(player_health(&world, cid), 65);
+
+        world
+            .lua_script_player_add_health(id, 1000)
+            .expect("overheal");
+        assert_eq!(player_health(&world, cid), 100);
+
+        world.lua_script_player_add_health(id, -30).expect("hurt");
+        assert_eq!(player_health(&world, cid), 70);
+
+        world
+            .lua_script_player_add_health(id, -10_000)
+            .expect("floor");
+        assert_eq!(player_health(&world, cid), 0);
+
+        // 772 `Heal` (`magic.cc:2107`) no-ops when hitpoints are already 0.
+        world
+            .lua_script_player_add_health(id, 50)
+            .expect("dead skip");
+        assert_eq!(player_health(&world, cid), 0);
+    }
+
+    /// Clamp uses `effective_max_health` (equipment `STAT_MAXHITPOINTS`), not
+    /// base `max_health` — TFS `getMaxHealth` / 772 `TSkill::Max` + DAct.
+    #[test]
+    fn e4_add_health_clamps_to_equipment_bonus_max() {
+        let mut world = minimal_world();
+        let pos = Position::new(50, 50, 7);
+        let mut player = test_player("Ring", pos);
+        player.base.health = 100;
+        player.base.max_health = 100;
+        player.var_stats[STAT_MAXHITPOINTS] = 20;
+        let cid = insert_player(&mut world, player);
+        world
+            .lua_script_player_add_health(cid.data().as_ffi(), 50)
+            .expect("heal");
+        assert_eq!(player_health(&world, cid), 120);
     }
 }

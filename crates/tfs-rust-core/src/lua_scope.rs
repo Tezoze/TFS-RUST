@@ -189,6 +189,10 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             creature_id,
             mana_change,
         } => unsafe { &mut *world }.lua_script_player_add_mana(creature_id, mana_change),
+        LuaMutation::PlayerAddHealth {
+            creature_id,
+            health_change,
+        } => unsafe { &mut *world }.lua_script_player_add_health(creature_id, health_change),
         LuaMutation::PlayerAddManaSpent {
             creature_id,
             amount,
