@@ -1279,4 +1279,110 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         };
         GameWorld::player_is_premium(self, cid)
     }
+
+    fn player_has_learned_spell(&self, creature_id: ScriptCreatureId, name: &str) -> bool {
+        let Some(cid) = self.resolve_creature_u64(creature_id) else {
+            return false;
+        };
+        self.creatures
+            .get(cid)
+            .and_then(|k| match k {
+                CreatureKind::Player(p) => p.persist.as_ref(),
+                _ => None,
+            })
+            .is_some_and(|b| b.spells.iter().any(|s| s.eq_ignore_ascii_case(name)))
+    }
+
+    fn list_instant_spells(&self) -> Vec<tfs_rust_common::ScriptInstantSpell> {
+        let mut out: Vec<tfs_rust_common::ScriptInstantSpell> = self
+            .spells
+            .instant_by_name
+            .values()
+            .map(|d| tfs_rust_common::ScriptInstantSpell {
+                name: d.name.clone(),
+                words: d.words.clone(),
+                level: d.level,
+                magic_level: d.magic_level,
+                mana: d.mana,
+                mana_percent: d.mana_percent,
+            })
+            .collect();
+        out.sort_by(|a, b| a.level.cmp(&b.level).then(a.name.cmp(&b.name)));
+        out
+    }
+
+    fn tile_get_house_id(&self, x: u16, y: u16, z: u8) -> Option<u32> {
+        let pos = tfs_rust_common::Position { x, y, z };
+        match self.map.get_tile(pos)? {
+            crate::tile::Tile::House(h) if h.house_id != 0 => Some(h.house_id),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod e5_e6_e7_script_tests {
+    use super::*;
+    use crate::sim_harness::{insert_player, minimal_world, test_player};
+    use crate::tile::{HouseTile, Tile, TileBody};
+    use slotmap::Key;
+    use tfs_rust_common::Position;
+    use tfs_rust_common::ScriptContext;
+    use tfs_rust_common::enums::ZoneType;
+
+    #[test]
+    fn e5_lua_say_does_not_parse_spells() {
+        let mut world = minimal_world();
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("Talker", pos));
+        let id = cid.data().as_ffi();
+        world
+            .lua_script_player_say(id, "exura".into(), 1)
+            .expect("say");
+        let mana = match world.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.mana,
+            _ => panic!("player"),
+        };
+        assert_eq!(mana, 50, "say must not consume spell mana");
+    }
+
+    #[test]
+    fn e6_has_learned_spell_reads_persist_names() {
+        let mut world = minimal_world();
+        let pos = Position::new(50, 50, 7);
+        let mut player = test_player("Mage", pos);
+        if let Some(b) = player.persist.as_mut() {
+            b.spells.push("Light Healing".into());
+        }
+        let cid = insert_player(&mut world, player);
+        let id = cid.data().as_ffi();
+        assert!(world.player_has_learned_spell(id, "light healing"));
+        assert!(!world.player_has_learned_spell(id, "Berserk"));
+    }
+
+    #[test]
+    fn e7_tile_get_house_id_none_or_nonzero() {
+        let mut world = minimal_world();
+        let house = Position::new(10, 10, 7);
+        let street = Position::new(11, 10, 7);
+        world.map.insert_tile(
+            house,
+            Tile::House(HouseTile {
+                inner: TileBody {
+                    ground: Some(1),
+                    ground_item: None,
+                    down_items: Vec::new(),
+                    top_items: Vec::new(),
+                    creatures: Vec::new(),
+                    flags: 0,
+                    zone: ZoneType::Normal,
+                },
+                house_id: 7,
+            }),
+        );
+        world.map.insert_tile(street, Tile::empty_normal());
+        assert_eq!(world.tile_get_house_id(10, 10, 7), Some(7));
+        assert_eq!(world.tile_get_house_id(11, 10, 7), None);
+        assert_eq!(world.tile_get_house_id(99, 99, 7), None);
+    }
 }

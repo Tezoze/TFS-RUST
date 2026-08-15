@@ -28,7 +28,7 @@ use crate::userdata::monster_type::MonsterTypeRef;
 use crate::userdata::npc::NpcRef;
 use crate::userdata::position::PositionRef;
 use crate::userdata::spell::{PendingSpell, SpellBuilder};
-use crate::userdata::tile::TileRef;
+use crate::userdata::tile::{HouseRef, TileRef};
 use crate::userdata::vocation::VocationRef;
 use crate::userdata::weapon::{PendingWeapon, WeaponBuilder};
 use std::cell::RefCell;
@@ -321,6 +321,7 @@ fn check_file(dir: &Path, name: &str, expected: &str) -> Result<(), String> {
 
 fn populate_native_members(lua: &Lua) -> Result<(), mlua::Error> {
     let _ = lua.create_userdata(TileRef { x: 0, y: 0, z: 0 })?;
+    let _ = lua.create_userdata(HouseRef(0))?;
     let _ = lua.create_userdata(ItemRef(0))?;
     let _ = lua.create_userdata(CreatureRef(0))?;
     let _ = lua.create_userdata(ContainerRef(0))?;
@@ -562,11 +563,43 @@ mod tests {
             tile.methods.contains("getGround"),
             "Tile:getGround is a native method"
         );
+        assert!(
+            tile.methods.contains("getHouse"),
+            "Tile:getHouse is a native method (E7)"
+        );
+
+        let house = snap.classes.get("House").expect("House");
+        assert!(
+            house.methods.contains("getId"),
+            "House:getId is a native method (E7)"
+        );
 
         let creature = snap.classes.get("Creature").expect("Creature");
         assert!(
             creature.methods.contains("addHealth"),
             "Creature:addHealth is a native method (E4)"
+        );
+        assert!(
+            creature.methods.contains("say"),
+            "Creature:say is a native method (E5)"
+        );
+        assert!(
+            creature.methods.contains("showTextDialog"),
+            "Creature:showTextDialog is a native method (E6)"
+        );
+        assert!(
+            creature.methods.contains("hasLearnedSpell"),
+            "Creature:hasLearnedSpell is a native method (E6)"
+        );
+
+        let game = snap.classes.get("Game").expect("Game");
+        assert!(
+            game.table_functions.contains("createItem"),
+            "Game.createItem is a class-table function"
+        );
+        assert!(
+            game.table_functions.contains("getInstantSpells"),
+            "Game.getInstantSpells lists instant defs (E6)"
         );
 
         let item_type = snap.classes.get("ItemType").expect("ItemType");
@@ -577,12 +610,6 @@ mod tests {
         assert!(
             item_type.methods.contains("getFluidSource"),
             "ItemType:getFluidSource is a native method"
-        );
-
-        let game = snap.classes.get("Game").expect("Game");
-        assert!(
-            game.table_functions.contains("createItem"),
-            "Game.createItem is a class-table function"
         );
 
         let action = snap.classes.get("Action").expect("Action");

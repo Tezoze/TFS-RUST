@@ -145,6 +145,8 @@ pub struct GameWorld {
     pub weapons: Arc<tfs_rust_content::weapons::WeaponRegistry>,
     /// C++ `ProtocolGame::sendCreatureSay` static `statementId` (`src/protocolgame.cpp` ~2432).
     pub next_statement_id: u32,
+    /// TFS `Player::windowTextId` — incremented per `showTextDialog` / `sendTextWindow`.
+    pub next_window_text_id: u32,
     /// C++ `Monster::monsterAutoID` — auto-incrementing wire id for monsters/npcs
     /// (`monster.h:43-46`, `monster.cpp:18`). Starts at `0x40000000`, never reused.
     /// Prevents wire-id collisions when SlotMap slots are recycled.
@@ -392,6 +394,7 @@ impl GameWorld {
             spells: Arc::new(tfs_rust_content::spells::SpellRegistry::default()),
             weapons: Arc::new(tfs_rust_content::weapons::WeaponRegistry::default()),
             next_statement_id: 0,
+            next_window_text_id: 0,
             next_monster_wire_id: 0x4000_0000,
             todo_queue: crate::todo_queue::ToDoQueue::default(),
             server_ms: 0,

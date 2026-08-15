@@ -9,9 +9,9 @@ use crate::context::{CURRENT_CTX, CreatureData, CreatureRef, ItemRef, LuaContext
 use crate::lua_mutation::{
     call_lua_add_condition, call_lua_add_health, call_lua_add_item, call_lua_add_item_full,
     call_lua_add_mana, call_lua_add_mana_spent, call_lua_add_skill_tries, call_lua_feed,
-    call_lua_get_depot_chest, call_lua_get_depot_locker, call_lua_get_inbox,
+    call_lua_get_depot_chest, call_lua_get_depot_locker, call_lua_get_inbox, call_lua_player_say,
     call_lua_remove_condition, call_lua_remove_item, call_lua_send_cancel_message,
-    call_lua_set_in_fight,
+    call_lua_set_in_fight, call_lua_show_text_dialog,
 };
 use crate::userdata::container::ContainerRef;
 use crate::userdata::group::GroupRef;
@@ -260,6 +260,33 @@ impl UserData for CreatureRef {
         methods.add_method("addHealth", |_, this, health_change: i32| {
             call_lua_add_health(this.0, health_change).map_err(mlua::Error::runtime)?;
             Ok(true)
+        });
+
+        // `creature:say(text[, type])` — E5. Viewport broadcast; does **not**
+        // parse spells. Default `TALKTYPE_SAY` (1). 772 `Talk`; TFS `luaCreatureSay`.
+        methods.add_method(
+            "say",
+            |_, this, (text, speak_type): (String, Option<u8>)| {
+                let speak_type = speak_type.unwrap_or(1);
+                call_lua_player_say(this.0, text, speak_type).map_err(mlua::Error::runtime)?;
+                Ok(true)
+            },
+        );
+
+        // `player:showTextDialog(itemId, text)` — E6. `0x96` window.
+        // TFS `luaPlayerShowTextDialog`; 772 `SendEditText`.
+        methods.add_method(
+            "showTextDialog",
+            |_, this, (item_id, text): (u16, String)| {
+                call_lua_show_text_dialog(this.0, item_id, text).map_err(mlua::Error::runtime)?;
+                Ok(true)
+            },
+        );
+
+        // `player:hasLearnedSpell(name)` — E6. TFS `luaPlayerHasLearnedSpell`;
+        // 772 `SpellKnown` (`crplayer.cc:1130`) via `player_spells`.
+        methods.add_method("hasLearnedSpell", |_, this, name: String| {
+            with_ctx(|ctx| Ok(ctx.player_has_learned_spell(this.0, &name)))
         });
 
         // `player:addManaSpent(amount)` — `luascript.cpp` `luaPlayerAddManaSpent`.
@@ -976,6 +1003,10 @@ mod tests {
             id == GM_CID && flag == GM_FLAG
         }
 
+        fn player_has_learned_spell(&self, id: ScriptCreatureId, name: &str) -> bool {
+            id == GM_CID && name.eq_ignore_ascii_case("Light Healing")
+        }
+
         // The remaining trait methods keep their default-`None`/`false`/empty
         // implementations; the test only exercises the four overrides above.
         // Suppress unused-import warnings for the types the defaults reference.
@@ -1055,7 +1086,77 @@ mod tests {
                 .eval()
                 .expect("hasFlag(1<<0)");
             assert!(!has_other, "GM should not have flag bit 0");
+
+            let learned: bool = lua
+                .load("return player:hasLearnedSpell('Light Healing')")
+                .eval()
+                .expect("hasLearnedSpell known");
+            assert!(learned);
+            let unlearned: bool = lua
+                .load("return player:hasLearnedSpell('Berserk')")
+                .eval()
+                .expect("hasLearnedSpell unknown");
+            assert!(!unlearned);
         });
+    }
+
+    thread_local! {
+        static CAPTURED_SAY: std::cell::RefCell<Option<(u64, String, u8)>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    fn capture_say_applier(
+        _: *mut (),
+        mutation: crate::lua_mutation::LuaMutation,
+    ) -> Result<(), String> {
+        if let crate::lua_mutation::LuaMutation::PlayerSay {
+            creature_id,
+            text,
+            speak_type,
+        } = mutation
+        {
+            CAPTURED_SAY.with(|c| *c.borrow_mut() = Some((creature_id, text, speak_type)));
+        }
+        Ok(())
+    }
+
+    /// E5: `player:say` broadcasts via mutation; does not go through `player_say`.
+    #[test]
+    fn e5_player_say_emits_viewport_say_mutation() {
+        CAPTURED_SAY.with(|c| *c.borrow_mut() = None);
+        crate::lua_mutation::register_lua_mutation_applier(capture_say_applier);
+
+        let lua = Lua::new();
+        crate::userdata::register_creature_metatable(&lua).expect("creature");
+        crate::lua_mutation::with_lua_mutation_scope(std::ptr::without_provenance_mut(1), || {
+            with_lua_context(&GmPlayerCtx, || {
+                let ud = lua.create_userdata(CreatureRef(GM_CID)).expect("ud");
+                lua.globals().set("player", ud).unwrap();
+                let ok: bool = lua
+                    .load("return player:say('Mmmh.')")
+                    .eval()
+                    .expect("say default");
+                assert!(ok);
+            });
+        });
+        let (cid, text, speak) = CAPTURED_SAY.with(|c| c.borrow().clone()).expect("mutation");
+        assert_eq!(cid, GM_CID);
+        assert_eq!(text, "Mmmh.");
+        assert_eq!(speak, 1, "default TALKTYPE_SAY");
+
+        CAPTURED_SAY.with(|c| *c.borrow_mut() = None);
+        crate::lua_mutation::with_lua_mutation_scope(std::ptr::without_provenance_mut(1), || {
+            with_lua_context(&GmPlayerCtx, || {
+                let _: bool = lua
+                    .load("return player:say('Urgh!', 17)")
+                    .eval()
+                    .expect("say type");
+            });
+        });
+        assert_eq!(
+            CAPTURED_SAY.with(|c| c.borrow().as_ref().map(|t| t.2)),
+            Some(17)
+        );
     }
 
     /// Doors Phase 4: `getStorageValue` reads via ScriptContext; reserved

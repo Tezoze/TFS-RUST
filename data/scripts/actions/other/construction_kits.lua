@@ -1,3 +1,6 @@
+-- 772 Furniture Parcels: `IsHouse(Obj1)` (`moveuse.cc:313-318`).
+-- House tile: `Change` + effect 3 (poff). Else effect 4 (blockhit), no text.
+
 local constructionKits = {
 	[3901] = 1666, [3902] = 1670, [3903] = 1652, [3904] = 1674, [3905] = 1658,
 	[3906] = 3813, [3907] = 3817, [3908] = 1619, [3909] = 1616, [3910] = 12799,
@@ -6,13 +9,13 @@ local constructionKits = {
 	[3921] = 3832, [3922] = 2095, [3923] = 2098, [3924] = 2064, [3925] = 2582,
 	[3926] = 2117, [3927] = 1728, [3928] = 1442, [3929] = 1446, [3930] = 1447,
 	[3931] = 2034, [3932] = 2604, [3933] = 2080, [3934] = 2084, [3935] = 3821,
-	[3936] = 3811, [3937] = 2101, [3938] = 2105, [5086] = 5046, [5087] = 5055, 
+	[3936] = 3811, [3937] = 2101, [3938] = 2105, [5086] = 5046, [5087] = 5055,
 	[5088] = 5056,
 }
 
 local action = Action()
 
-function action.onUse(player, item, fromPosition, target, toPosition)
+function action.onUse(player, item, fromPosition, target, toPosition, isHotkey)
 	local kit = constructionKits[item.itemid]
 	if not kit then
 		return false
@@ -20,14 +23,10 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 
 	local tile = Tile(item:getPosition())
 	if tile and tile:getHouse() then
-		if fromPosition.x ~= CONTAINER_POSITION then
-			item:transform(kit)
-			fromPosition:sendMagicEffect(CONST_ME_POFF)
-		else
-			player:sendTextMessage(MESSAGE_STATUS_SMALL, "Put the construction kit on the floor first.")
-		end
+		item:transform(kit)
+		fromPosition:sendMagicEffect(CONST_ME_POFF)
 	else
-		player:sendTextMessage(MESSAGE_STATUS_SMALL, "You may construct this only inside a house.")
+		player:getPosition():sendMagicEffect(CONST_ME_BLOCKHIT)
 	end
 	return true
 end

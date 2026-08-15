@@ -456,7 +456,7 @@ pub async fn run() -> anyhow::Result<()> {
         map,
         items,
         events,
-        config,
+        Rc::clone(&config),
         db.clone(),
         spawns,
         items_db,
@@ -594,7 +594,8 @@ pub async fn run() -> anyhow::Result<()> {
             .unwrap_or_else(|_| "Australis".to_string())
     });
     let public_ip = std::env::var("TFS_PUBLIC_IP").unwrap_or_else(|_| net_cfg.ip.clone());
-    let motd = std::env::var("TFS_MOTD").unwrap_or_else(|_| config.get_string("motd").unwrap_or_default());
+    let motd =
+        std::env::var("TFS_MOTD").unwrap_or_else(|_| config.get_string("motd").unwrap_or_default());
     let motd_num: u32 = std::env::var("TFS_MOTD_NUM")
         .ok()
         .and_then(|s| s.parse().ok())

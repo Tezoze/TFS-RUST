@@ -1968,6 +1968,28 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
             },
         )?,
     )?;
+    // E6: all instant defs (incl. rune-conjure instants). **Not** TFS
+    // `player:getInstantSpells` = `canCast` vocation dump.
+    // 772 `GetSpellbook` (`magic.cc:3830`) filters with `SpellKnown`.
+    game.set(
+        "getInstantSpells",
+        lua.create_function(|lua, ()| {
+            let spells =
+                crate::context::current_ctx(|ctx| ctx.list_instant_spells()).unwrap_or_default();
+            let t = lua.create_table_with_capacity(spells.len(), 0)?;
+            for (i, spell) in spells.into_iter().enumerate() {
+                let row = lua.create_table_with_capacity(0, 6)?;
+                row.set("name", spell.name)?;
+                row.set("words", spell.words)?;
+                row.set("level", spell.level)?;
+                row.set("mlevel", spell.magic_level)?;
+                row.set("mana", spell.mana)?;
+                row.set("manapercent", spell.mana_percent)?;
+                t.set(i + 1, row)?;
+            }
+            Ok(t)
+        })?,
+    )?;
     // 772 `ClearField` — shove creatures/items off a door tile before close.
     game.set(
         "clearField",

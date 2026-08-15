@@ -1,59 +1,71 @@
+-- 772 `UseAnnouncer` case 4 → `SendEditText` / `GetSpellbook`
+-- (`moveuse.cc:1947-1948`, `sending.cc:1102-1112`, `magic.cc:3830-3901`).
+-- Learned instants only (`SpellKnown` / `player_spells`); not TFS `canCast`.
+-- OTB 2175 only — 2217 is fontsize-1 stored text, not a spellbook.
+
+local function spellbookWords(words)
+	local parts = {}
+	for part in string.gmatch(words, "[^,]+") do
+		parts[#parts + 1] = part:match("^%s*(.-)%s*$") or part
+	end
+	if #parts == 0 then
+		return words
+	end
+	local glued = (parts[1] or "") .. (parts[2] or "")
+	for i = 3, #parts do
+		glued = glued .. " " .. parts[i]
+	end
+	return glued
+end
+
+local function spellbookMana(spell)
+	local name = spell.name
+	if name == "Summon Creature" or name == "Convince Creature" then
+		return "var"
+	end
+	if name == "Berserk" then
+		return "4*Level"
+	end
+	return tostring(spell.mana)
+end
+
 local spellbook = Action()
 
 function spellbook.onUse(player, item, fromPosition, target, toPosition, isHotkey)
+	local byLevel = {}
+	local maxLevel = 0
+	for _, spell in ipairs(Game.getInstantSpells()) do
+		if spell.level > 0 and player:hasLearnedSpell(spell.name) then
+			local level = spell.level
+			local group = byLevel[level]
+			if not group then
+				group = {}
+				byLevel[level] = group
+			end
+			group[#group + 1] = spell
+			if level > maxLevel then
+				maxLevel = level
+			end
+		end
+	end
+
 	local text = ""
-	local tlvl = {}
-	local tml = {}
-
-	for _, spell in ipairs(player:getInstantSpells()) do
-		if spell.level ~= 0 or spell.mlevel ~= 0 then
-			if spell.manapercent > 0 then
-				spell.mana = spell.manapercent .. "%"
+	for level = 1, maxLevel do
+		local group = byLevel[level]
+		if group then
+			text = text .. "Spells for Level " .. level .. "\n"
+			for _, spell in ipairs(group) do
+				text = text
+					.. "  "
+					.. spellbookWords(spell.words)
+					.. " - "
+					.. spell.name
+					.. ": "
+					.. spellbookMana(spell)
+					.. "\n"
 			end
-			if spell.level > 0 then
-				tlvl[#tlvl + 1] = spell
-			elseif spell.mlevel > 0 then
-				tml[#tml + 1] = spell
-			end
+			text = text .. "\n"
 		end
-	end
-
-	table.sort(
-		tlvl,
-		function(a, b)
-			return a.level < b.level
-		end
-	)
-	local prevLevel = -1
-	for i, spell in ipairs(tlvl) do
-		local line = ""
-		if prevLevel ~= spell.level then
-			if i ~= 1 then
-				line = "\n"
-			end
-			line = line .. "Spells for Level " .. spell.level .. "\n"
-			prevLevel = spell.level
-		end
-		text = text .. line .. "  " .. spell.words .. " - " .. spell.name .. " : " .. spell.mana .. "\n"
-	end
-	text = text .. "\n"
-	table.sort(
-		tml,
-		function(a, b)
-			return a.mlevel < b.mlevel
-		end
-	)
-	local prevmLevel = -1
-	for i, spell in ipairs(tml) do
-		local line = ""
-		if prevLevel ~= spell.mlevel then
-			if i ~= 1 then
-				line = "\n"
-			end
-			line = line .. "Spells for Magic Level " .. spell.mlevel .. "\n"
-			prevmLevel = spell.mlevel
-		end
-		text = text .. line .. "  " .. spell.words .. " - " .. spell.name .. " : " .. spell.mana .. "\n"
 	end
 
 	player:showTextDialog(item:getId(), text)

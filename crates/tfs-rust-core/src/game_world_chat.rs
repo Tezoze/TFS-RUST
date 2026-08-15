@@ -57,6 +57,22 @@ const TALKTYPE_CHANNEL_O: u8 = 12;
 const TALKTYPE_CHANNEL_R2: u8 = 14;
 
 impl GameWorld {
+    /// `creature:say(text[, type])` — E5. Viewport broadcast only.
+    /// Must not call [`Self::player_say`] (that path parses spells).
+    /// TFS `luaCreatureSay` → `Game::internalCreatureSay`; 772 `Talk` (`TALK_SAY=1`).
+    pub fn lua_script_player_say(
+        &mut self,
+        creature_u64: u64,
+        text: String,
+        speak_type: u8,
+    ) -> Result<(), String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "say: creature not found".to_string())?;
+        self.broadcast_creature_say_viewport(cid, speak_type, &text);
+        Ok(())
+    }
+
     /// TFS `Game::playerSay` — `gameserver/src/game.cpp:3208-3281`.
     ///
     /// Top-level chat dispatch: idle reset → spell/talkaction check → mute check →

@@ -1,10 +1,20 @@
-# E4: `Player:addHealth(n)` — 2026-08-15
+# E5–E7: `say` / spellbook / `getHouse` — 2026-08-15
 
-From [other-actions-plan.md](other-actions-plan.md). TFS `luaCreatureAddHealth`; 772 `Heal` in `DrinkPotion` (`magic.cc`) via `TSkill::Change` clamp to Max.
+From [other-actions-plan.md](other-actions-plan.md). **Done.**
 
-- [x] `LuaMutation::PlayerAddHealth` + `call_lua_add_health` (same shape as `addMana`)
-- [x] `lua_scope.rs` applier + `lua_script_player_add_health`
-- [x] `CreatureRef:addHealth` userdata
-- [x] Clamp `[0, effective_max_health]`; 772 Heal no-op when HP is already 0; health-bar notify on gain
-- [x] Tests: clamp / floor-0 skip; `lua_defs` `addHealth`; `emit-lua-defs --check`
-- [x] `tasks/lessons.md`
+## E5 `Player:say(text[, type])`
+- [x] `LuaMutation::PlayerSay` → `broadcast_creature_say_viewport` (not `player_say`)
+- [x] Default `TALKTYPE_SAY` (1). 772 `Talk`; TFS `luaCreatureSay` / `luaPlayerSay`
+- [x] `CreatureRef:say` userdata + `lua_defs`
+
+## E6 `showTextDialog` + learned-spell list + `spellbook.lua`
+- [x] `Player:showTextDialog(itemId, text)` → `send_text_window_simple_item` (`0x96`)
+- [x] `Player:hasLearnedSpell(name)` from `persist.spells` (`SpellKnown`)
+- [x] `Game.getInstantSpells()` = all **instant** defs (not TFS `canCast`)
+- [x] Rewrite `spellbook.lua` to `GetSpellbook` (`magic.cc:3830-3901`)
+- [x] Tests: Light Healing `exura - Light Healing: 25`; Berserk `4*Level`; no ML groups; `lua_defs`
+
+## E7 `Tile:getHouse()`
+- [x] `nil` or House userdata; **never `0`**. 772 `IsHouse(Obj1)`
+- [x] Rewrite `construction_kits.lua`: house → transform + effect 3; else effect 4, no text
+- [x] `lua_defs` `getHouse`

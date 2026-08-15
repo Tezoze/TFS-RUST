@@ -19,6 +19,22 @@ pub struct TileRef {
     pub z: u8,
 }
 
+/// House handle for `tile:getHouse()` — TFS `luaTileGetHouse`.
+/// Truthy userdata (never `0`). E7; 772 `IsHouse` (`map.cc:2474`).
+#[derive(Clone, Copy, Debug)]
+pub struct HouseRef(pub u32);
+
+impl UserData for HouseRef {
+    fn register(registry: &mut mlua::UserDataRegistry<Self>) {
+        crate::class_registry::register_with_recording(registry, "House");
+    }
+
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        // `house:getId()` — TFS `luaHouseGetId`.
+        methods.add_method("getId", |_, this, ()| Ok(this.0));
+    }
+}
+
 impl UserData for TileRef {
     fn register(registry: &mut mlua::UserDataRegistry<Self>) {
         crate::class_registry::register_with_recording(registry, "Tile");
@@ -366,6 +382,27 @@ impl UserData for TileRef {
             },
         );
 
+        // `tile:getHouse()` — TFS `luaTileGetHouse`. `nil` or House userdata.
+        // Never `0` (Lua 0 is truthy). 772 `IsHouse(Obj1)` (`moveuse.cc:313-318`).
+        methods.add_method("getHouse", |lua, this, ()| {
+            let house_id = CURRENT_CTX.with(|c| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.tile_get_house_id(this.x, this.y, this.z))
+            })?;
+            match house_id {
+                Some(id) if id != 0 => {
+                    let ud = lua.create_userdata(HouseRef(id))?;
+                    Ok(Value::UserData(ud))
+                }
+                _ => Ok(Value::Nil),
+            }
+        });
+
         // Gap 7b — `__index` fallback so `tile:relocateTo(pos)` /
         // `tile:isCreature()` resolve methods defined as
         // `function Tile.relocateTo(self, ...)` in `data/lib/core/tile.lua`.
@@ -452,6 +489,8 @@ fn parse_tile_args(args: mlua::MultiValue) -> Result<(u16, u16, u8), mlua::Error
 /// `__call` ctor. Gap 7a — C++ `LuaScriptInterface::registerClass`.
 pub fn register_tile_constructor(lua: &mlua::Lua) -> Result<(), mlua::Error> {
     lua.register_userdata_type::<TileRef>(|_registry| {})?;
+    lua.register_userdata_type::<HouseRef>(|_registry| {})?;
+    crate::class_registry::register_class(lua, "House", None)?;
     let tile_new = lua.create_function(|lua, args: mlua::MultiValue| {
         let (x, y, z) = parse_tile_args(args)?;
         let exists = CURRENT_CTX.with(|c| {
@@ -520,6 +559,13 @@ mod tests {
         fn tile_get_creatures(&self, _: u16, _: u16, _: u8) -> Vec<ScriptCreatureId> {
             vec![7, 8]
         }
+        fn tile_get_house_id(&self, x: u16, y: u16, z: u8) -> Option<u32> {
+            if x == 1 && y == 1 && z == 7 {
+                Some(42)
+            } else {
+                None
+            }
+        }
     }
 
     #[test]
@@ -546,6 +592,38 @@ mod tests {
                 .eval()
                 .unwrap();
             assert_eq!(name, "Bottom");
+        });
+    }
+
+    /// E7: house tile returns House userdata (truthy); non-house returns nil, never 0.
+    #[test]
+    fn e7_get_house_is_nil_or_userdata_never_zero() {
+        let lua = Lua::new();
+        register_tile_constructor(&lua).expect("tile");
+
+        with_lua_context(&TileCtx, || {
+            let house_tile = lua
+                .create_userdata(TileRef { x: 1, y: 1, z: 7 })
+                .expect("house tile");
+            lua.globals().set("h", house_tile).unwrap();
+            let kind: String = lua.load("return type(h:getHouse())").eval().unwrap();
+            assert_eq!(kind, "userdata");
+            let id: u32 = lua.load("return h:getHouse():getId()").eval().unwrap();
+            assert_eq!(id, 42);
+            let truthy: bool = lua
+                .load("return h:getHouse() and true or false")
+                .eval()
+                .unwrap();
+            assert!(truthy);
+
+            let other = lua
+                .create_userdata(TileRef { x: 2, y: 2, z: 7 })
+                .expect("other");
+            lua.globals().set("n", other).unwrap();
+            let is_nil: bool = lua.load("return n:getHouse() == nil").eval().unwrap();
+            assert!(is_nil, "non-house must be nil, not 0");
+            let not_zero: bool = lua.load("return n:getHouse() ~= 0").eval().unwrap();
+            assert!(not_zero);
         });
     }
 }

@@ -84,6 +84,7 @@ function Creature:getSummons(...) end
 function Creature:getType(...) end
 function Creature:getVocation(...) end
 function Creature:hasFlag(...) end
+function Creature:hasLearnedSpell(...) end
 function Creature:isCreature(...) end
 function Creature:isInGhostMode(...) end
 function Creature:isItem(...) end
@@ -94,11 +95,13 @@ function Creature:isPzLocked(...) end
 function Creature:move(...) end
 function Creature:removeCondition(...) end
 function Creature:removeItem(...) end
+function Creature:say(...) end
 function Creature:sendCancelMessage(...) end
 function Creature:sendTextMessage(...) end
 function Creature:setInFight(...) end
 function Creature:setPremiumEndsAt(...) end
 function Creature:setStorageValue(...) end
+function Creature:showTextDialog(...) end
 function Creature:teleportTo(...) end
 function Creature:withdrawMoney(...) end
 
@@ -114,6 +117,7 @@ Game = {}
 function Game.clearField(...) end
 function Game.createItem(...) end
 function Game.createMonster(...) end
+function Game.getInstantSpells(...) end
 function Game.getWorldType(...) end
 
 ---@class GlobalEvent
@@ -133,6 +137,11 @@ function Group:getMaxDepotItems(...) end
 function Group:getMaxVipEntries(...) end
 function Group:getName(...) end
 function Group:hasFlag(...) end
+
+---@class House
+House = {}
+
+function House:getId(...) end
 
 ---@class Item
 ---@field actionid any
@@ -310,6 +319,7 @@ function Tile:getBottomCreature(...) end
 function Tile:getCreatureCount(...) end
 function Tile:getCreatures(...) end
 function Tile:getGround(...) end
+function Tile:getHouse(...) end
 function Tile:getItemByGroup(...) end
 function Tile:getItemById(...) end
 function Tile:getItemByType(...) end

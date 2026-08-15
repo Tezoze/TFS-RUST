@@ -1013,6 +1013,38 @@ impl GameWorld {
         Ok(())
     }
 
+    /// `player:showTextDialog(itemId, text)` — E6. TFS `luaPlayerShowTextDialog`
+    /// → `sendTextWindow`; 772 `SendEditText` (`sending.cc:1088`, opcode `0x96`).
+    pub fn lua_script_show_text_dialog(
+        &mut self,
+        creature_u64: u64,
+        item_type: u16,
+        text: String,
+    ) -> Result<(), String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "showTextDialog: creature not found".to_string())?;
+        let Some(conn) = self.conn_for_creature(cid) else {
+            return Ok(());
+        };
+        self.next_window_text_id = self.next_window_text_id.wrapping_add(1);
+        let window_text_id = self.next_window_text_id;
+        let client_id = self.items_db.client_id_for_server(item_type);
+        let client_id = if client_id == 0 { item_type } else { client_id };
+        let msg = tfs_rust_net::outgoing_extra::send_text_window_simple_item(
+            window_text_id,
+            client_id,
+            1,
+            false,
+            false,
+            false,
+            false,
+            &text,
+        );
+        self.enqueue_outgoing(conn, msg.into_bytes());
+        Ok(())
+    }
+
     /// C++ `Map::placeCreature` tile search (`map.cpp` ~183); TVP uses `searchSpawnField` /
     /// `searchFreeField` within spawn radius (`gameserver/src/game.cpp`, `spawn.cpp`).
     pub(crate) fn find_and_place_creature_tfs(

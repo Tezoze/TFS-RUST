@@ -62,6 +62,7 @@ pub(crate) const REQUIRED_CLASS_GLOBALS: &[&str] = &[
     "Condition",
     "CreatureEvent",
     "GlobalEvent",
+    "House",
     "MonsterType",
     "MoveEvent",
     "TalkAction",

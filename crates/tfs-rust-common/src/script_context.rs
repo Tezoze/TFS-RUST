@@ -820,6 +820,38 @@ pub trait ScriptContext {
     fn get_world_light(&self) -> (u8, u8) {
         (0xFF, 0xD7)
     }
+
+    /// `player:hasLearnedSpell(name)` — TFS `luaPlayerHasLearnedSpell` /
+    /// `Player::hasLearnedInstantSpell`. 772 `TPlayer::SpellKnown` (`crplayer.cc:1130`).
+    fn player_has_learned_spell(&self, creature_id: ScriptCreatureId, name: &str) -> bool {
+        let _ = (creature_id, name);
+        false
+    }
+
+    /// All instant spell defs (incl. rune-conjure instants). **Not** TFS
+    /// `getInstantSpells` = `canCast` vocation dump.
+    fn list_instant_spells(&self) -> Vec<ScriptInstantSpell> {
+        Vec::new()
+    }
+
+    /// `tile:getHouse()` — TFS `luaTileGetHouse`. `Some(house_id)` when the tile
+    /// is a house (`house_id != 0`); `None` otherwise. Never `Some(0)` — Lua `0`
+    /// is truthy. 772 `IsHouse` (`map.cc:2474`) is `GetHouseID != 0`.
+    fn tile_get_house_id(&self, x: u16, y: u16, z: u8) -> Option<u32> {
+        let _ = (x, y, z);
+        None
+    }
+}
+
+/// Instant spell snapshot for Lua `Game.getInstantSpells()` (E6).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScriptInstantSpell {
+    pub name: String,
+    pub words: String,
+    pub level: u32,
+    pub magic_level: u32,
+    pub mana: u32,
+    pub mana_percent: u32,
 }
 
 /// Weapon-derived inputs for the SKILL value callback (`combat.cpp:1155-1163`).

@@ -348,6 +348,24 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data")
     }
 
+    thread_local! {
+        static CAPTURED_TEXT_DIALOG: std::cell::RefCell<Option<(u16, String)>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    fn capture_text_dialog_applier(
+        _: *mut (),
+        mutation: crate::lua_mutation::LuaMutation,
+    ) -> Result<(), String> {
+        if let crate::lua_mutation::LuaMutation::PlayerShowTextDialog {
+            item_type, text, ..
+        } = mutation
+        {
+            CAPTURED_TEXT_DIALOG.with(|c| *c.borrow_mut() = Some((item_type, text)));
+        }
+        Ok(())
+    }
+
     /// Scratch data pack for Gap 5a policy tests. Removed on drop so a panic
     /// still cleans up.
     struct TempDataPack(PathBuf);
@@ -1245,5 +1263,170 @@ mod tests {
             .eval()
             .expect("Vocation getId call");
         assert_eq!(got, 5, "native Vocation:getId must win over Lua override");
+    }
+
+    /// E7: construction kits drop floor/house messages; house → transform + poff.
+    #[test]
+    fn e7_construction_kits_house_poff_else_blockhit_no_text() {
+        let src = std::fs::read_to_string(
+            workspace_data_root().join("scripts/actions/other/construction_kits.lua"),
+        )
+        .expect("construction_kits.lua");
+        assert!(src.contains("tile:getHouse()"), "E7 getHouse");
+        assert!(src.contains("CONST_ME_POFF"), "house effect 3");
+        assert!(src.contains("CONST_ME_BLOCKHIT"), "else effect 4");
+        assert!(
+            !src.contains("You may construct"),
+            "772 has no house message"
+        );
+        assert!(
+            !src.contains("Put the construction kit"),
+            "772 has no floor message"
+        );
+    }
+
+    /// E6: `GetSpellbook` format — learned Light Healing, Berserk `4*Level`, no ML groups.
+    #[test]
+    fn e6_spellbook_learned_filter_and_getspellbook_format() {
+        use tfs_rust_common::{
+            ScriptContext, ScriptCreatureData, ScriptCreatureId, ScriptInstantSpell,
+            ScriptItemData, ScriptItemId, ScriptItemRef,
+        };
+
+        struct SpellbookCtx;
+        impl ScriptContext for SpellbookCtx {
+            fn get_creature(&self, id: ScriptCreatureId) -> Option<ScriptCreatureData> {
+                (id == 1).then_some(ScriptCreatureData {
+                    name: "Mage".into(),
+                    guid: 1,
+                })
+            }
+            fn get_item(&self, id: ScriptItemId) -> Option<ScriptItemRef> {
+                Some(ScriptItemRef(id))
+            }
+            fn get_config_string(&self, _: &str) -> Option<String> {
+                None
+            }
+            fn get_item_data(&self, id: ScriptItemId) -> Option<ScriptItemData> {
+                (id == 1).then_some(ScriptItemData {
+                    item_type: 2175,
+                    count: 1,
+                    weight: 0,
+                    name: "spellbook".into(),
+                    action_id: 0,
+                    unique_id: 0,
+                    is_store_item: false,
+                    fluid_type: 0,
+                })
+            }
+            fn player_has_learned_spell(&self, id: ScriptCreatureId, name: &str) -> bool {
+                id == 1
+                    && (name.eq_ignore_ascii_case("Light Healing")
+                        || name.eq_ignore_ascii_case("Berserk"))
+            }
+            fn list_instant_spells(&self) -> Vec<ScriptInstantSpell> {
+                vec![
+                    ScriptInstantSpell {
+                        name: "Light Healing".into(),
+                        words: "ex,ura".into(),
+                        level: 9,
+                        magic_level: 0,
+                        mana: 25,
+                        mana_percent: 0,
+                    },
+                    ScriptInstantSpell {
+                        name: "Berserk".into(),
+                        words: "ex,ori".into(),
+                        level: 35,
+                        magic_level: 0,
+                        mana: 0,
+                        mana_percent: 80,
+                    },
+                    ScriptInstantSpell {
+                        name: "Intense Healing".into(),
+                        words: "ex,ura, gran".into(),
+                        level: 11,
+                        magic_level: 0,
+                        mana: 40,
+                        mana_percent: 0,
+                    },
+                    ScriptInstantSpell {
+                        name: "Invite Guests".into(),
+                        words: "aleta sio".into(),
+                        level: 0,
+                        magic_level: 0,
+                        mana: 0,
+                        mana_percent: 0,
+                    },
+                ]
+            }
+        }
+
+        CAPTURED_TEXT_DIALOG.with(|c| *c.borrow_mut() = None);
+        crate::lua_mutation::register_lua_mutation_applier(capture_text_dialog_applier);
+
+        let path = workspace_data_root().join("scripts/actions/other/spellbook.lua");
+        if !path.exists() {
+            eprintln!("spellbook.lua not found — skipping");
+            return;
+        }
+
+        let mut runtime = LuaRuntime::new().expect("runtime");
+        runtime
+            .load_action_script(&path.display().to_string())
+            .expect("load spellbook");
+        let pending = runtime.drain_pending_actions();
+        let action = pending
+            .iter()
+            .find(|p| p.item_ids.contains(&2175))
+            .expect("2175 registered");
+        assert!(
+            !pending.iter().any(|p| p.item_ids.contains(&2217)),
+            "2217 is not GetSpellbook"
+        );
+        let on_use = action.on_use.as_ref().expect("onUse");
+
+        crate::lua_mutation::with_lua_mutation_scope(std::ptr::without_provenance_mut(1), || {
+            crate::context::with_lua_context(&SpellbookCtx, || {
+                runtime
+                    .call_action_on_use(
+                        on_use,
+                        1,
+                        1,
+                        (100, 100, 7),
+                        None,
+                        None,
+                        (100, 100, 7),
+                        false,
+                    )
+                    .expect("onUse");
+            });
+        });
+
+        let (item_type, text) = CAPTURED_TEXT_DIALOG
+            .with(|c| c.borrow().clone())
+            .expect("showTextDialog");
+        assert_eq!(item_type, 2175);
+        assert!(
+            text.contains("Spells for Level 9\n  exura - Light Healing: 25\n"),
+            "Light Healing line: {text:?}"
+        );
+        assert!(
+            text.contains("Spells for Level 35\n  exori - Berserk: 4*Level\n"),
+            "Berserk 4*Level: {text:?}"
+        );
+        assert!(
+            !text.contains("Intense Healing"),
+            "unlearned absent: {text:?}"
+        );
+        assert!(!text.contains("Invite Guests"), "level-0 skipped: {text:?}");
+        assert!(
+            !text.contains("Spells for Magic Level"),
+            "no ML groups: {text:?}"
+        );
+        assert!(
+            !text.contains("80%"),
+            "Berserk is not manapercent: {text:?}"
+        );
     }
 }

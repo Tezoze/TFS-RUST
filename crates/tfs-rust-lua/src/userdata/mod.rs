@@ -26,6 +26,6 @@ pub use npc::{NpcRef, register_npc_metatable};
 pub use player::register_creature_metatable;
 pub use position::{PositionRef, register_position_metatable};
 pub use spell::{PendingSpell, SpellBuilder, register_spell_metatable};
-pub use tile::{TileRef, register_tile_constructor};
+pub use tile::{HouseRef, TileRef, register_tile_constructor};
 pub use vocation::{VocationRef, register_vocation_metatable};
 pub use weapon::{PendingWeapon, WeaponBuilder, register_weapon_metatable};

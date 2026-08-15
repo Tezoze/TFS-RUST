@@ -14,9 +14,9 @@ Do **not** port `moveuse.dat` as an engine. Pattern: `food.lua` (772 numbers + c
 1. ~~**E1** constants + tests + `emit-lua-defs --check`~~ — **done** (`42b9457`). Fluids / music / birdcage / used_lamp / create_bread / change_gold load.
 2. ~~**E2** zero-thing target + `isHotkey`~~ — **done**. Stops no-target crashes.
 3. ~~**E3** `ItemType:getDestroyId` / `getFluidSource` + **`destroyItem` 1/3 `transform`**.~~ — **done**.
-4. ~~**E4** `addHealth`~~ + **E5** `say` + **E8** drunk stack + **rewrite `fluids.lua`**.
-5. **Script pass** — food `>`, birdcage, waterpipe, music, create_bread, used_lamp, construction (**E7**), teleport, watch/cuckoo, change_gold gate, `formulas.otherActions`.
-6. **E6** `showTextDialog` + learned-spell list + **rewrite `spellbook.lua`** (`GetSpellbook`).
+4. ~~**E4** `addHealth`~~ ~~**E5** `say`~~ + **E8** drunk stack + **rewrite `fluids.lua`**.
+5. **Script pass** — food `>`, birdcage, waterpipe, music, create_bread, used_lamp, teleport, watch/cuckoo, change_gold gate, `formulas.otherActions`.
+6. ~~**E6** `showTextDialog` + learned-spell list + **rewrite `spellbook.lua`** (`GetSpellbook`).~~ **done.** ~~**E7** `getHouse` + `construction_kits.lua`.~~ **done.**
 7. **E9** `getFormattedWorldTime` — `watch.lua` (can land earlier).
 8. **After this folder** — remaining actions APIs **R1–R5** (map chests + mintwallin `createTile`). E3 already covers tool `destroyItem`. Then G10 `decay(id)`, G12.
 
@@ -30,9 +30,9 @@ Do **not** port `moveuse.dat` as an engine. Pattern: `food.lua` (772 numbers + c
 | **E2** ✅ | No-target → TFS zero-thing table (`uid/itemid/actionid/type = 0`); pass `isHotkey` as 6th arg (`Action::executeUse` `callFunction(6)`). Hotkey pos is client `(0xFFFF,0,0)`. | `runtime.rs`, `lua_scope.rs`. |
 | **E3** ✅ | `getDestroyId` / `getFluidSource` from `items.xml` `destroyto` / `fluidsource`. | `script_context.rs`, `game_world_script.rs`, `userdata/item_type.rs`. |
 | **E4** ✅ | `Player:addHealth(n)` — HP clamp, same shape as `addMana`. | `LuaMutation` + applier. 772 `Heal` in `DrinkPotion`. |
-| **E5** | `Player:say(text[, type])` → `broadcast_creature_say_viewport`, **not** `player_say` (that parses spells). | 772 `Talk` (`TALK_SAY=1`); TFS `luaPlayerSay`. |
-| **E6** | `Player:showTextDialog(itemId, text)` → existing `send_text_window_item` (`0x96`). `hasLearnedSpell(name)` + list of **instant** defs (incl. rune-conjure instants). **Do not** implement TFS `getInstantSpells` = `canCast` (vocation dump). | 772 `SendEditText` → `GetSpellbook`. |
-| **E7** | `Tile:getHouse()` → `nil` or truthy. **Never return `0`**. | `userdata/tile.rs`. 772 `IsHouse(Obj1)`. |
+| **E5** ✅ | `Player:say(text[, type])` → `broadcast_creature_say_viewport`, **not** `player_say` (that parses spells). | 772 `Talk` (`TALK_SAY=1`); TFS `luaPlayerSay`. |
+| **E6** ✅ | `Player:showTextDialog(itemId, text)` → existing `send_text_window_item` (`0x96`). `hasLearnedSpell(name)` + list of **instant** defs (incl. rune-conjure instants). **Do not** implement TFS `getInstantSpells` = `canCast` (vocation dump). | 772 `SendEditText` → `GetSpellbook`. |
+| **E7** ✅ | `Tile:getHouse()` → `nil` or truthy. **Never return `0`**. | `userdata/tile.rs`. 772 `IsHouse(Obj1)`. |
 | **E8** | Drunk stack: if level `< 5` then `level+1`; Count=MaxCount=120; `base.drunkenness` = Cycle 1–5. Each ProcessSkills second: Count--; on 0, Cycle toward 0, Count=120; at 0 remove. Stagger already uses `max(7-level,1)`. Spell-drunk (`idle_stimulus`) stays Power-gated; beer/wine uses this stack. | `condition.rs`, `process_skills.rs`. `moveuse.cc:1776-1782`, `crskill.cc:176-193`. |
 | **E9** | Inject `getFormattedWorldTime` from `data/global.lua` (`getWorldTime` already bound). **Do not** full-`dofile` `global.lua` this pass — it `dofile`s `lib.lua` and would double-load. | `actions.rs` inject chunk. |
 
@@ -93,10 +93,10 @@ Load probe 2026-08-15 (post-E1): **20/20 load**. 772 column is decompile match, 
 | `music.lua` | ✅ | ❌ didgeridoo/cornucopia/extras | step 5 |
 | `create_bread.lua` | ✅ | ⚠️ | E2 + step 5 |
 | `used_lamp.lua` | ✅ | ⚠️ | E2 + step 5 |
-| `construction_kits.lua` | ✅ | ⚠️ | E7 + step 5 |
+| `construction_kits.lua` | ✅ | ✅ | E7 |
 | `destroy.lua` | ✅ | ⚠️ helper 1/3 | E3 shipped; script pass unchanged |
-| `spellbook.lua` | ✅ | ❌ filter/format | E6 |
-| `fluids.lua` | ✅ | ❌ | E3–E5, E8 + rewrite |
+| `spellbook.lua` | ✅ | ✅ | E6 |
+| `fluids.lua` | ✅ | ❌ | E4–E5 engine ready; E8 + rewrite |
 | `change_gold.lua` | ✅ | ❌ still registers | step 5: do not register on 772 |
 
 ---
@@ -130,7 +130,7 @@ Load probe 2026-08-15 (post-E1): **20/20 load**. 772 column is decompile match, 
 - Drunk: beer → level 1; second → 2 and count 120; cap 5; after 120 rounds level −1.
 - Mana 50..=150, life 25..=75. Lemonade `"Mmmh."`, milk `"Gulp."`.
 - Food: remaining 1188 + blueberry (1×12) allowed (sum == 1200); remaining 1189 + blueberry rejected.
-- Spellbook: learned Light Healing under `Spells for Level 9` as `exura - Light Healing: 25`; unlearned Berserk absent; learned Berserk shows `4*Level`; no `Spells for Magic Level`.
+- Spellbook: learned Light Healing under `Spells for Level 9` as `exura - Light Healing: 25`; unlearned Berserk absent; learned Berserk shows `4*Level`; no `Spells for Magic Level`. ✅ `e6_spellbook_learned_filter_and_getspellbook_format`
 - `emit-lua-defs --check` green.
 
 ```sh
@@ -162,7 +162,7 @@ E2 (nil `target`) and E3 (`getDestroyId`) already unblock quest kits and crowbar
 
 **Already bound — do not treat as remaining:** `doRelocate` (injected), `doTargetCombatHealth`, `Game.createItem`/`createMonster`, lib `Game.isItemInPosition` / `removeItemInPosition` / `transformItemInPosition` / `sendMagicEffect`, `item:transform`/`decay()`/`remove`/`moveTo`, `player:teleportTo`/`sendTextMessage`/`getItemCount`/`removeItem`/`addSkillTries`/`getEffectiveSkillLevel`/`isPzLocked`/`getFreeCapacity`/`hasFlag`, `Tile:getGround`/`getItemById`/`getBottomCreature`/`relocateTo`, `Position:moveUpstairs`, `Container:addItem`.
 
-**`other/`-only remaining (E5–E9, not map/quests/tools):** `say`, `getHouse`, `showTextDialog`, `getFormattedWorldTime`, `Item:decay(id)`. **E1 shipped:** `FLUID_*`, `CONST_ME_SOUND_YELLOW…WHITE`, `TALKTYPE_SAY`/`MONSTER_SAY`, `ITEM_*_COIN`, `CONDITION_PARAM_DRUNKENNESS`. **E3 shipped:** `getDestroyId`, `getFluidSource`. **E4 shipped:** `addHealth`.
+**`other/`-only remaining (E8–E9, not map/quests/tools):** `getFormattedWorldTime`, `Item:decay(id)`, drunk stack. **E1 shipped:** `FLUID_*`, `CONST_ME_SOUND_YELLOW…WHITE`, `TALKTYPE_SAY`/`MONSTER_SAY`, `ITEM_*_COIN`, `CONDITION_PARAM_DRUNKENNESS`. **E3 shipped:** `getDestroyId`, `getFluidSource`. **E4 shipped:** `addHealth`. **E5 shipped:** `say`. **E6 shipped:** `showTextDialog` / `hasLearnedSpell` / `Game.getInstantSpells` / `spellbook.lua`. **E7 shipped:** `getHouse` / `construction_kits.lua`.
 
 ---
 

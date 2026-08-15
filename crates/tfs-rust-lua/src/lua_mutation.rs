@@ -288,6 +288,20 @@ pub enum LuaMutation {
         damage_max: i32,
         effect: i32,
     },
+    /// `creature:say(text[, type])` — E5. Viewport broadcast only; does **not**
+    /// parse spells (`player_say`). 772 `Talk` (`TALK_SAY=1`); TFS `luaCreatureSay`.
+    PlayerSay {
+        creature_id: u64,
+        text: String,
+        speak_type: u8,
+    },
+    /// `player:showTextDialog(itemId, text)` — E6. `0x96` text window.
+    /// TFS `luaPlayerShowTextDialog`; 772 `SendEditText` (`sending.cc:1088`).
+    PlayerShowTextDialog {
+        creature_id: u64,
+        item_type: u16,
+        text: String,
+    },
 }
 
 /// Snapshot of a Lua `ConditionBuilder` for the mutation / combat-execute seam.
@@ -386,8 +400,17 @@ thread_local! {
     static MUTATION_ITEM_RESULT: Cell<Option<u64>> = const { Cell::new(None) };
 }
 
+// Per-test override — `OnceLock` cannot replace an applier, and tests in this
+// crate run in parallel. Production still uses `MUTATION_APPLIER`.
+#[cfg(test)]
+thread_local! {
+    static TEST_APPLIER: Cell<Option<LuaMutationApplier>> = const { Cell::new(None) };
+}
+
 /// Register the core handler that applies mutations (called once at startup).
 pub fn register_lua_mutation_applier(applier: LuaMutationApplier) {
+    #[cfg(test)]
+    TEST_APPLIER.with(|c| c.set(Some(applier)));
     let _ = MUTATION_APPLIER.set(applier);
 }
 
@@ -430,6 +453,10 @@ fn apply_mutation(mutation: LuaMutation) -> Result<(), String> {
     let world = MUTATION_WORLD.get();
     if world.is_null() {
         return Err("Lua mutation scope not active".into());
+    }
+    #[cfg(test)]
+    if let Some(applier) = TEST_APPLIER.with(|c| c.get()) {
+        return applier(world, mutation);
     }
     let applier = MUTATION_APPLIER
         .get()
@@ -851,6 +878,28 @@ pub fn call_lua_add_skill_tries(
         tries,
     })?;
     Ok(take_mutation_bool_result())
+}
+
+/// `creature:say(text[, type])` — E5. Viewport say; no spell parser.
+pub fn call_lua_player_say(creature_id: u64, text: String, speak_type: u8) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerSay {
+        creature_id,
+        text,
+        speak_type,
+    })
+}
+
+/// `player:showTextDialog(itemId, text)` — E6. Read-only `0x96` window.
+pub fn call_lua_show_text_dialog(
+    creature_id: u64,
+    item_type: u16,
+    text: String,
+) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerShowTextDialog {
+        creature_id,
+        item_type,
+        text,
+    })
 }
 
 /// `tile:addItem(itemId[, count[, flags]])` — `luaTileAddItem`.

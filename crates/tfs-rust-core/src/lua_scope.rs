@@ -392,6 +392,16 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             set_mutation_bool_result(ok);
             Ok(())
         }
+        LuaMutation::PlayerSay {
+            creature_id,
+            text,
+            speak_type,
+        } => unsafe { &mut *world }.lua_script_player_say(creature_id, text, speak_type),
+        LuaMutation::PlayerShowTextDialog {
+            creature_id,
+            item_type,
+            text,
+        } => unsafe { &mut *world }.lua_script_show_text_dialog(creature_id, item_type, text),
     }
 }
 
