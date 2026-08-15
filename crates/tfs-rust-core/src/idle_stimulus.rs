@@ -4016,7 +4016,7 @@ impl GameWorld {
         let item_id = self.resolve_use_object(cid, obj1.pos, obj1.stack_pos, obj1.sprite_id);
         if let Some(item_id) = item_id {
             if let Some(o2) = obj2 {
-                return self.player_use_item_ex_core(conn_id, cid, item_id, o2);
+                return self.player_use_item_ex_core(conn_id, cid, item_id, o2, obj1.pos);
             }
             let preferred_cid = if matches!(
                 self.mechanics.profile.container_window_alloc,

@@ -720,8 +720,16 @@ impl GameWorld {
         } else {
             self.script_item_position(item_id).unwrap_or(pos)
         };
-        if crate::lua_scope::fire_on_use_action(self, cid, item_id, from, Some(item_id), None, from)
-        {
+        if crate::lua_scope::fire_on_use_action(
+            self,
+            cid,
+            item_id,
+            from,
+            Some(item_id),
+            None,
+            from,
+            crate::lua_scope::is_hotkey_use_position(pos),
+        ) {
             return Ok(());
         }
 
@@ -780,6 +788,7 @@ impl GameWorld {
         cid: CreatureId,
         item_id: ItemId,
         target: crate::creature_todo::ActionObjectRef,
+        source_pos: Position,
     ) -> Result<(), ReturnValue> {
         let item_type = self.items.get(item_id).map(|i| i.item_type).unwrap_or(0);
         if let Some(rune) = self.spells.runes_by_id.get(&item_type).cloned() {
@@ -806,6 +815,7 @@ impl GameWorld {
             target_item,
             target_creature,
             to,
+            crate::lua_scope::is_hotkey_use_position(source_pos),
         ) {
             self.player_apply_multiuse_exhaust(cid);
             return Ok(());

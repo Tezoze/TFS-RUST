@@ -501,6 +501,7 @@ impl EventDispatcher for LuaEventDispatcher {
         target_item: Option<ItemId>,
         target_creature: Option<CreatureId>,
         to: Position,
+        is_hotkey: bool,
     ) -> bool {
         let Some(entry) = self.actions.get(item_type, action_id) else {
             return false;
@@ -513,6 +514,7 @@ impl EventDispatcher for LuaEventDispatcher {
             target_item.map(|i| i.data().as_ffi()),
             target_creature.map(|c| c.data().as_ffi()),
             (to.x, to.y, to.z),
+            is_hotkey,
         ) {
             Ok(handled) => handled,
             Err(e) => {

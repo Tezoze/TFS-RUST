@@ -221,6 +221,7 @@ pub trait EventDispatcher {
     ///
     /// Returns `true` if a script handled the use (skip native fallthrough).
     /// `item_type` / `action_id` drive `Actions::getAction` lookup (aid then type).
+    /// `is_hotkey` is the 6th Lua arg (`callFunction(6)`).
     #[allow(clippy::too_many_arguments)]
     fn dispatch_on_use_action(
         &self,
@@ -232,6 +233,7 @@ pub trait EventDispatcher {
         _target_item: Option<ItemId>,
         _target_creature: Option<CreatureId>,
         _to: Position,
+        _is_hotkey: bool,
     ) -> bool {
         false
     }

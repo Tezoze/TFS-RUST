@@ -593,10 +593,12 @@ impl LuaRuntime {
         std::mem::take(&mut self.pending_move_events)
     }
 
-    /// Call an action `onUse` hook — `(player, item, fromPos, target, toPos) -> bool`.
+    /// Call an action `onUse` hook — `(player, item, fromPos, target, toPos, isHotkey) -> bool`.
     ///
     /// Returns `true` = handled (skip native fallthrough), `false` = not handled.
-    /// C++ reference: `actions.cpp` `Action::executeUse` / `callFunction(6)` (no `isHotkey`).
+    /// No-target is TFS `pushThing(nullptr)`: a table `{uid,itemid,actionid,type=0}`, not nil.
+    /// C++ reference: `actions.cpp` `Action::executeUse` / `callFunction(6)`;
+    /// `luascript.cpp` `LuaScriptInterface::pushThing`.
     #[allow(clippy::too_many_arguments)]
     pub fn call_action_on_use(
         &self,
@@ -607,6 +609,7 @@ impl LuaRuntime {
         target_item: Option<crate::context::ItemId>,
         target_creature: Option<crate::context::CreatureId>,
         to_pos: (u16, u16, u8),
+        is_hotkey: bool,
     ) -> Result<bool, LuaError> {
         let function: mlua::Function = self.lua.registry_value(callback).map_err(LuaError::Init)?;
         let player_ud = self
@@ -647,10 +650,23 @@ impl LuaRuntime {
                     .map_err(LuaError::Init)?,
             )
         } else {
-            Value::Nil
+            self.zero_thing_table()?
         };
 
-        self.call_lua(&function, (player_ud, item_ud, from_ud, target, to_ud))
+        self.call_lua(
+            &function,
+            (player_ud, item_ud, from_ud, target, to_ud, is_hotkey),
+        )
+    }
+
+    /// TFS `LuaScriptInterface::pushThing` nullptr branch (`luascript.cpp`).
+    fn zero_thing_table(&self) -> Result<Value, LuaError> {
+        let t = self.lua.create_table().map_err(LuaError::Init)?;
+        t.set("uid", 0).map_err(LuaError::Init)?;
+        t.set("itemid", 0).map_err(LuaError::Init)?;
+        t.set("actionid", 0).map_err(LuaError::Init)?;
+        t.set("type", 0).map_err(LuaError::Init)?;
+        Ok(Value::Table(t))
     }
 
     /// Call a talkaction `onSay` hook — `(player, words, param) -> bool`.

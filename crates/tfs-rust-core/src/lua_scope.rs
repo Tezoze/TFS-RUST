@@ -499,9 +499,17 @@ pub fn fire_on_cast_rune(
     })
 }
 
+/// TFS `Game::playerUseItem` / `playerUseItemEx` — hotkey uses send `(0xFFFF, 0, 0)`.
+#[inline]
+pub fn is_hotkey_use_position(pos: tfs_rust_common::Position) -> bool {
+    pos.x == 0xFFFF && pos.y == 0 && pos.z == 0
+}
+
 /// TFS `Action::executeUse` — fire Lua `onUse` if registered for this item.
 ///
 /// Returns `true` when Lua handled the use (skip native container/teleport).
+/// `is_hotkey` is the 6th Lua arg (`callFunction(6)`).
+#[allow(clippy::too_many_arguments)]
 pub fn fire_on_use_action(
     world: &mut GameWorld,
     player: CreatureId,
@@ -510,6 +518,7 @@ pub fn fire_on_use_action(
     target_item: Option<ItemId>,
     target_creature: Option<CreatureId>,
     to: tfs_rust_common::Position,
+    is_hotkey: bool,
 ) -> bool {
     let item_type = world.items.get(item).map(|i| i.item_type).unwrap_or(0);
     let action_id = world.items.get(item).map(|i| i.action_id()).unwrap_or(0);
@@ -527,6 +536,7 @@ pub fn fire_on_use_action(
                 target_item,
                 target_creature,
                 to,
+                is_hotkey,
             )
         })
     })
@@ -752,4 +762,17 @@ pub fn fire_npc_custom_action(
     with_npc_mutation_scope(world, |world| {
         world.events.on_npc_custom_action(npc, player, callback)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_hotkey_use_position;
+    use tfs_rust_common::Position;
+
+    #[test]
+    fn hotkey_use_position_is_ffff_0_0() {
+        assert!(is_hotkey_use_position(Position::new(0xFFFF, 0, 0)));
+        assert!(!is_hotkey_use_position(Position::new(0xFFFF, 1, 0)));
+        assert!(!is_hotkey_use_position(Position::new(100, 100, 7)));
+    }
 }

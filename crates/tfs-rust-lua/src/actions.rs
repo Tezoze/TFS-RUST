@@ -798,6 +798,96 @@ mod tests {
         );
     }
 
+    /// E2: no-target is TFS `pushThing(nullptr)` (`uid/itemid/actionid/type = 0`),
+    /// not nil; `isHotkey` is the 6th boolean (`Action::executeUse` `callFunction(6)`).
+    #[test]
+    fn e2_no_target_is_zero_thing_table_and_is_hotkey_boolean() {
+        let runtime = LuaRuntime::new().expect("runtime init");
+        let probe: mlua::Function = runtime
+            .lua
+            .load(
+                r#"
+                function(player, item, fromPosition, target, toPosition, isHotkey)
+                    return type(target) == "table"
+                        and target.uid == 0
+                        and target.itemid == 0
+                        and target.actionid == 0
+                        and target.type == 0
+                        and type(isHotkey) == "boolean"
+                        and isHotkey == true
+                end
+                "#,
+            )
+            .eval()
+            .expect("probe");
+        let key = runtime.lua.create_registry_value(probe).expect("registry");
+        let ok = runtime
+            .call_action_on_use(&key, 1, 1, (100, 100, 7), None, None, (100, 100, 7), true)
+            .expect("call");
+        assert!(ok, "zero-thing table + isHotkey true");
+
+        let probe_false: mlua::Function = runtime
+            .lua
+            .load(
+                r#"
+                function(player, item, fromPosition, target, toPosition, isHotkey)
+                    return target.itemid == 0 and isHotkey == false
+                end
+                "#,
+            )
+            .eval()
+            .expect("probe false");
+        let key_false = runtime
+            .lua
+            .create_registry_value(probe_false)
+            .expect("registry");
+        let ok = runtime
+            .call_action_on_use(
+                &key_false,
+                1,
+                1,
+                (100, 100, 7),
+                None,
+                None,
+                (100, 100, 7),
+                false,
+            )
+            .expect("call false");
+        assert!(
+            ok,
+            "isHotkey false + target.itemid field access must not error"
+        );
+
+        let probe_item: mlua::Function = runtime
+            .lua
+            .load(
+                r#"
+                function(player, item, fromPosition, target, toPosition, isHotkey)
+                    return type(target) == "userdata" and type(isHotkey) == "boolean"
+                end
+                "#,
+            )
+            .eval()
+            .expect("probe item");
+        let key_item = runtime
+            .lua
+            .create_registry_value(probe_item)
+            .expect("registry");
+        let ok = runtime
+            .call_action_on_use(
+                &key_item,
+                1,
+                1,
+                (100, 100, 7),
+                Some(1),
+                None,
+                (100, 100, 7),
+                false,
+            )
+            .expect("call item");
+        assert!(ok, "item target stays userdata");
+    }
+
     /// Gap 3: engine verbs used by tools scripts are registered on the shipped VM.
     #[test]
     fn gap3_tool_lua_verbs_are_registered() {

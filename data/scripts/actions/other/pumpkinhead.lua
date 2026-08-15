@@ -1,7 +1,8 @@
 local action = Action()
 
-function action.onUse(player, item, fromPosition, target, toPosition)
-	if not target:isItem() then
+-- 772 Fun MultiUse 2977+2917; E2: zero-thing is a table, not Item userdata.
+function action.onUse(player, item, fromPosition, target, toPosition, isHotkey)
+	if type(target) ~= "userdata" or not target:isItem() then
 		return false
 	end
 	
