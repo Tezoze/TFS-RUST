@@ -1,6 +1,20 @@
 use proptest::prelude::*;
 use tfs_rust_common::{PropStream, PropWriteStream};
 
+#[test]
+fn latin1_inverted_exclamation_round_trips() {
+    let mut writer = PropWriteStream::new();
+    writer.write_string("¡");
+    let bytes = writer.finish();
+    assert_eq!(
+        bytes,
+        vec![1, 0, 0xA1],
+        "¡ is U+00A1 — one Latin-1 byte, not UTF-8 C2 A1"
+    );
+    let mut reader = PropStream::new(&bytes);
+    assert_eq!(reader.read_string().unwrap(), "¡");
+}
+
 proptest! {
     #[test]
     fn prop_stream_round_trip(
@@ -8,7 +22,7 @@ proptest! {
         u16_val in any::<u16>(),
         u32_val in any::<u32>(),
         u64_val in any::<u64>(),
-        str_val in ".*" // Generate random strings
+        str_val in "[\\x00-\\xFF]*"
     ) {
         let mut writer = PropWriteStream::new();
         writer.write_u8(u8_val);

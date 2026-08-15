@@ -53,10 +53,20 @@ impl PropWriteStream {
         self.buf.extend_from_slice(&v.to_le_bytes());
     }
 
+    /// C++ `PropWriteStream::writeString` — length prefix + raw `std::string` bytes.
+    /// Pair with [`PropStream::read_string`]: ISO-8859-1 (`U+00xx` per byte), not UTF-8.
+    /// Code points above `U+00FF` are stored as `?` (cannot exist in TFS `std::string` Latin-1).
     pub fn write_string(&mut self, s: &str) {
-        let len = s.len() as u16;
-        self.write_u16(len);
-        self.buf.extend_from_slice(s.as_bytes());
+        let bytes: Vec<u8> = s
+            .chars()
+            .map(|c| u8::try_from(u32::from(c)).unwrap_or(b'?'))
+            .collect();
+        if bytes.len() > u16::MAX as usize {
+            self.write_u16(0);
+            return;
+        }
+        self.write_u16(bytes.len() as u16);
+        self.buf.extend_from_slice(&bytes);
     }
 
     pub fn finish(self) -> Vec<u8> {
