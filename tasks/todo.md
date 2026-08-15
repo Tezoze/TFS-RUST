@@ -1,3 +1,12 @@
+# E1: other-actions Lua constants — 2026-08-15
+
+Register 772 sequential `FLUID_NONE…LEMONADE` (0–12), `TALKTYPE_SAY`/`MONSTER_SAY`, `CONST_ME_SOUND_YELLOW…WHITE` 22–25, `CONDITION_PARAM_DRUNKENNESS` 55, and `ITEM_GOLD/PLATINUM/CRYSTAL_COIN` so `fluids.lua` / `change_gold.lua` / music / birdcage / used_lamp / create_bread load. From [other-actions-plan.md](other-actions-plan.md).
+
+- [x] `constants.rs` — `TALKTYPE_SAY=1`, `TALKTYPE_MONSTER_SAY=0x11`, `FLUID_*` 0–12 (`gameserver/src/const.h:62,76,94-106`)
+- [x] `combat_enums.rs` — sound effects 22–25; `CONDITION_PARAM_DRUNKENNESS=55`; coin item ids 2148/2152/2160
+- [x] Tests: E1 values + fluids/change_gold/music/birdcage/used_lamp/create_bread load
+- [x] `emit-lua-defs` regenerate `lua-defs/constants.d.lua`
+
 # Pillar 1: Lua stdlib allowlist — 2026-08-15
 
 Replace `Lua::new()` (`ALL_SAFE`: `io`/`os`/`package`) with an explicit allowlist so a data-pack file cannot `os.execute`, `os.remove`, or `package.loadlib`. Gate was `tfs.appendLog(kind, text)` under `data/logs/` first; then drop `io` and shrink `os` to `time`/`date`/`clock`.

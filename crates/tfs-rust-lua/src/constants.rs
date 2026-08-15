@@ -34,6 +34,7 @@ pub fn register_constants(lua: &Lua) -> Result<(), mlua::Error> {
 
     register_account_types(&globals)?;
     register_talk_types(&globals)?;
+    register_fluids(&globals)?;
     register_player_flags(&globals)?;
     register_vocations(&globals)?;
     register_conditions(&globals)?;
@@ -69,11 +70,37 @@ fn register_account_types(globals: &mlua::Table) -> Result<(), mlua::Error> {
 // values is `game_world_chat.rs`'s local `const`s, which match these exactly.
 
 fn register_talk_types(globals: &mlua::Table) -> Result<(), mlua::Error> {
-    // const.h:62-76 — channel scripts reference CHANNEL_Y/O/R1/R2.
+    // const.h:62-76 — 772 `SpeakClasses`. TFS 1.4.2 `TALKTYPE_MONSTER_SAY` is 36.
+    globals.set("TALKTYPE_SAY", 1i32)?; // const.h:62
     globals.set("TALKTYPE_CHANNEL_Y", 5i32)?; // const.h:66 — Yellow
     globals.set("TALKTYPE_CHANNEL_R1", 10i32)?; // const.h:71 — Red (#c text)
     globals.set("TALKTYPE_CHANNEL_O", 12i32)?; // const.h:73 — orange
     globals.set("TALKTYPE_CHANNEL_R2", 14i32)?; // const.h:74 — red anonymous (#d text)
+    globals.set("TALKTYPE_MONSTER_SAY", 0x11i32)?; // const.h:76
+    Ok(())
+}
+
+// --- FLUID_* (const.h:94-106, 772 sequential) ---
+//
+// TVP `FluidTypes_t` is 0..=12, not TFS 1.4.2's colour-mapped `FluidTypes_t`
+// (`FLUID_OIL = BROWN+8`, `FLUID_MANA` vs `FLUID_MANAFLUID`). Scripts in
+// `data/scripts/actions/other/` use the 772 names (`FLUID_MANAFLUID`,
+// `FLUID_LIFEFLUID`, `FLUID_OIL` = 7).
+
+fn register_fluids(globals: &mlua::Table) -> Result<(), mlua::Error> {
+    globals.set("FLUID_NONE", 0i32)?; // const.h:94
+    globals.set("FLUID_WATER", 1i32)?; // const.h:95
+    globals.set("FLUID_WINE", 2i32)?; // const.h:96
+    globals.set("FLUID_BEER", 3i32)?; // const.h:97
+    globals.set("FLUID_MUD", 4i32)?; // const.h:98
+    globals.set("FLUID_BLOOD", 5i32)?; // const.h:99
+    globals.set("FLUID_SLIME", 6i32)?; // const.h:100
+    globals.set("FLUID_OIL", 7i32)?; // const.h:101
+    globals.set("FLUID_URINE", 8i32)?; // const.h:102
+    globals.set("FLUID_MILK", 9i32)?; // const.h:103
+    globals.set("FLUID_MANAFLUID", 10i32)?; // const.h:104
+    globals.set("FLUID_LIFEFLUID", 11i32)?; // const.h:105
+    globals.set("FLUID_LEMONADE", 12i32)?; // const.h:106
     Ok(())
 }
 
@@ -320,11 +347,28 @@ mod tests {
         assert_eq!(get("ACCOUNT_TYPE_COMMUNITYMANAGER"), 5);
         assert_eq!(get("ACCOUNT_TYPE_GOD"), 6);
 
-        // TALKTYPE_* (const.h:66,71,73,74 — 772 values)
+        // TALKTYPE_* (const.h:62-76 — 772 values)
+        assert_eq!(get("TALKTYPE_SAY"), 1);
         assert_eq!(get("TALKTYPE_CHANNEL_Y"), 5);
         assert_eq!(get("TALKTYPE_CHANNEL_R1"), 10);
         assert_eq!(get("TALKTYPE_CHANNEL_O"), 12);
         assert_eq!(get("TALKTYPE_CHANNEL_R2"), 14);
+        assert_eq!(get("TALKTYPE_MONSTER_SAY"), 0x11);
+
+        // FLUID_* (const.h:94-106 — 772 sequential)
+        assert_eq!(get("FLUID_NONE"), 0);
+        assert_eq!(get("FLUID_WATER"), 1);
+        assert_eq!(get("FLUID_WINE"), 2);
+        assert_eq!(get("FLUID_BEER"), 3);
+        assert_eq!(get("FLUID_MUD"), 4);
+        assert_eq!(get("FLUID_BLOOD"), 5);
+        assert_eq!(get("FLUID_SLIME"), 6);
+        assert_eq!(get("FLUID_OIL"), 7);
+        assert_eq!(get("FLUID_URINE"), 8);
+        assert_eq!(get("FLUID_MILK"), 9);
+        assert_eq!(get("FLUID_MANAFLUID"), 10);
+        assert_eq!(get("FLUID_LIFEFLUID"), 11);
+        assert_eq!(get("FLUID_LEMONADE"), 12);
 
         // PlayerFlag_* (const.h:264-266, 506, 516)
         assert_eq!(get("PlayerFlag_CanTalkRedPrivate"), 1 << 21);

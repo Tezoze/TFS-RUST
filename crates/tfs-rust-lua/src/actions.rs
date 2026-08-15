@@ -747,6 +747,57 @@ mod tests {
         );
     }
 
+    /// E1: `FLUID_*` / `TALKTYPE_SAY` / `CONST_ME_SOUND_*` / `ITEM_*_COIN` /
+    /// `CONDITION_PARAM_DRUNKENNESS` so `fluids.lua` and `change_gold.lua`
+    /// load (they previously failed on nil globals at table-build time).
+    #[test]
+    fn e1_other_action_constants_unblock_fluids_and_change_gold_load() {
+        let data_root = workspace_data_root();
+        let other_dir = data_root.join("scripts/actions/other");
+        if !other_dir.exists() {
+            eprintln!("other actions dir not found — skipping");
+            return;
+        }
+
+        let mut runtime = LuaRuntime::new().expect("runtime init");
+        inject_door_tables_from_global(&runtime, &data_root).expect("door tables");
+        load_data_lib(&runtime, &data_root).expect("data lib");
+        inject_era_formulas(&runtime, &data_root, 772).expect("era formulas");
+
+        let globals = runtime.lua.globals();
+        let get = |name: &str| {
+            globals
+                .get::<i32>(name)
+                .unwrap_or_else(|_| panic!("{name}"))
+        };
+        assert_eq!(get("FLUID_WATER"), 1);
+        assert_eq!(get("TALKTYPE_SAY"), 1);
+        assert_eq!(get("CONST_ME_SOUND_YELLOW"), 22);
+        assert_eq!(get("ITEM_GOLD_COIN"), 2148);
+        assert_eq!(get("CONDITION_PARAM_DRUNKENNESS"), 55);
+        assert_eq!(get("TALKTYPE_MONSTER_SAY"), 0x11);
+
+        let mut errors = Vec::new();
+        for name in [
+            "fluids.lua",
+            "change_gold.lua",
+            "music.lua",
+            "birdcage.lua",
+            "used_lamp.lua",
+            "create_bread.lua",
+        ] {
+            let path = other_dir.join(name);
+            let path_string = path.display().to_string();
+            if let Err(e) = runtime.load_action_script(&path_string) {
+                errors.push((path_string, e.to_string()));
+            }
+        }
+        assert!(
+            errors.is_empty(),
+            "E1 must unblock other-action script load: {errors:?}"
+        );
+    }
+
     /// Gap 3: engine verbs used by tools scripts are registered on the shipped VM.
     #[test]
     fn gap3_tool_lua_verbs_are_registered() {

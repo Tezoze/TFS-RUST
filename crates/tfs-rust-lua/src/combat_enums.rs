@@ -194,6 +194,9 @@ fn register_condition_params(globals: &mlua::Table) -> Result<(), mlua::Error> {
     globals.set("CONDITION_PARAM_SKILL_FISHINGPERCENT", 43i32)?; // enums.h:177
     globals.set("CONDITION_PARAM_BUFF_SPELL", 44i32)?; // enums.h:178
     globals.set("CONDITION_PARAM_SUBID", 45i32)?; // enums.h:179
+    // TFS `enums.h:275` — leftover `fluids.lua` `setParameter` must not fail
+    // load. E8 drunk stack ignores this value (`moveuse.cc:1776-1782`).
+    globals.set("CONDITION_PARAM_DRUNKENNESS", 55i32)?;
     // enums.h:190-195 — 772-specific condition params used by spell scripts
     // (e.g. soulfire_rune.lua sets CONDITION_PARAM_CYCLE/COUNT/MAX_COUNT/OWNERGUID).
     globals.set("CONDITION_PARAM_CYCLE", 56i32)?; // enums.h:190
@@ -273,6 +276,10 @@ fn register_text_effects(globals: &mlua::Table) -> Result<(), mlua::Error> {
     globals.set("CONST_ME_SOUND_GREEN", 19i32)?; // const.h:29
     globals.set("CONST_ME_SOUND_RED", 20i32)?; // const.h:30
     globals.set("CONST_ME_POISONAREA", 21i32)?; // const.h:31
+    globals.set("CONST_ME_SOUND_YELLOW", 22i32)?; // const.h:32
+    globals.set("CONST_ME_SOUND_PURPLE", 23i32)?; // const.h:33
+    globals.set("CONST_ME_SOUND_BLUE", 24i32)?; // const.h:34
+    globals.set("CONST_ME_SOUND_WHITE", 25i32)?; // const.h:35
     Ok(())
 }
 
@@ -351,6 +358,10 @@ fn register_item_constants(globals: &mlua::Table) -> Result<(), mlua::Error> {
     globals.set("ITEM_WILDGROWTH", 1499i32)?; // const.h:215
     globals.set("ITEM_WILDGROWTH_PERSISTENT", 2721i32)?; // const.h:216
     globals.set("ITEM_WILDGROWTH_NOPVP", 20670i32)?; // const.h:217
+    // const.h:451-453 — 1098 `change_gold.lua` + `data/lib/core/player.lua`.
+    globals.set("ITEM_GOLD_COIN", 2148i32)?;
+    globals.set("ITEM_PLATINUM_COIN", 2152i32)?;
+    globals.set("ITEM_CRYSTAL_COIN", 2160i32)?;
     Ok(())
 }
 
@@ -494,6 +505,17 @@ mod tests {
         assert_eq!(globals.get::<i32>("WEAPON_WAND").unwrap(), 6);
         assert_eq!(globals.get::<i32>("SPELL_INSTANT").unwrap(), 1);
         assert_eq!(globals.get::<i32>("CONST_ME_HITAREA").unwrap(), 10);
+        assert_eq!(globals.get::<i32>("CONST_ME_SOUND_YELLOW").unwrap(), 22);
+        assert_eq!(globals.get::<i32>("CONST_ME_SOUND_PURPLE").unwrap(), 23);
+        assert_eq!(globals.get::<i32>("CONST_ME_SOUND_BLUE").unwrap(), 24);
+        assert_eq!(globals.get::<i32>("CONST_ME_SOUND_WHITE").unwrap(), 25);
+        assert_eq!(
+            globals.get::<i32>("CONDITION_PARAM_DRUNKENNESS").unwrap(),
+            55
+        );
+        assert_eq!(globals.get::<i32>("ITEM_GOLD_COIN").unwrap(), 2148);
+        assert_eq!(globals.get::<i32>("ITEM_PLATINUM_COIN").unwrap(), 2152);
+        assert_eq!(globals.get::<i32>("ITEM_CRYSTAL_COIN").unwrap(), 2160);
         assert_eq!(globals.get::<i32>("CONST_ANI_BURSTARROW").unwrap(), 7);
         assert_eq!(globals.get::<i32>("SKULL_RED").unwrap(), 4);
         assert_eq!(globals.get::<i32>("CONST_SLOT_LEFT").unwrap(), 6);

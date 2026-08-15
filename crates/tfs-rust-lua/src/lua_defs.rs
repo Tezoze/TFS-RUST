@@ -583,6 +583,36 @@ mod tests {
             "SKILL_FISHING must be generated as a constant"
         );
 
+        // E1 — `other-actions-plan.md`: 772 sequential fluids, talk, sound, coins.
+        assert!(
+            matches!(
+                snap.constants.get("FLUID_WATER"),
+                Some(ConstantValue::Integer(1))
+            ),
+            "FLUID_WATER must be 1 (const.h:95)"
+        );
+        assert!(
+            matches!(
+                snap.constants.get("TALKTYPE_SAY"),
+                Some(ConstantValue::Integer(1))
+            ),
+            "TALKTYPE_SAY must be 1 (const.h:62)"
+        );
+        assert!(
+            matches!(
+                snap.constants.get("CONST_ME_SOUND_YELLOW"),
+                Some(ConstantValue::Integer(22))
+            ),
+            "CONST_ME_SOUND_YELLOW must be 22 (const.h:32)"
+        );
+        assert!(
+            matches!(
+                snap.constants.get("ITEM_GOLD_COIN"),
+                Some(ConstantValue::Integer(2148))
+            ),
+            "ITEM_GOLD_COIN must be 2148 (const.h:451)"
+        );
+
         assert!(
             snap.functions.contains("doTargetCombatHealth"),
             "doTargetCombatHealth is a free function"
