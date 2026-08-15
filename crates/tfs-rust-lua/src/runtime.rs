@@ -137,7 +137,12 @@ impl LuaRuntime {
     ///
     /// Returns an error if VM initialization or lib loading fails.
     pub fn new() -> Result<Self, LuaError> {
-        let lua = Lua::new();
+        // VM hardening pillar 1 — stdlib allowlist
+        // (tasks/tools-actions/vm-hardening.md). Not `Lua::new()` / `ALL_SAFE`:
+        // that would ship `io` / `os.execute` / `package.loadlib`. `tfs.appendLog`
+        // is registered here, before any data-pack load.
+        let lua =
+            crate::stdlib_allowlist::create_allowlisted_lua().map_err(LuaError::Registration)?;
 
         // VM hardening pillar 4 — `set_memory_limit`
         // (tasks/tools-actions/vm-hardening.md). Applied before any data-pack allocation so a runaway script
@@ -268,7 +273,7 @@ impl LuaRuntime {
     /// # Errors
     ///
     /// Returns [`LuaError::Registration`] if memory control is unavailable on
-    /// this Lua state (should not happen with our `Lua::new()` LuaJIT build).
+    /// this Lua state (should not happen with our LuaJIT build).
     pub fn set_memory_limit(&self, limit_bytes: usize) -> Result<usize, LuaError> {
         self.lua
             .set_memory_limit(limit_bytes)
@@ -2417,5 +2422,26 @@ mod tests {
         runtime
             .exec_chunk("ok2", "local n = 0; for i = 1, 1000 do n = n + 1 end")
             .expect("second chunk must get a fresh budget");
+    }
+
+    /// VM hardening pillar 1 — stdlib allowlist through the shipped init path.
+    #[test]
+    fn stdlib_allowlist_applied_in_new() {
+        let runtime = LuaRuntime::new().expect("runtime");
+        let denied: bool = runtime
+            .lua
+            .load("return io == nil and package == nil and loadstring == nil and os.execute == nil")
+            .eval()
+            .expect("probe");
+        assert!(
+            denied,
+            "LuaRuntime::new must not ship io/package/loadstring/os.execute"
+        );
+        let allowed: bool = runtime
+            .lua
+            .load("return type(os.time) == 'function' and type(tfs.appendLog) == 'function'")
+            .eval()
+            .expect("shim");
+        assert!(allowed, "os.time and tfs.appendLog must remain");
     }
 }

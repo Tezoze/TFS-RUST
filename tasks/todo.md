@@ -1,3 +1,13 @@
+# Pillar 1: Lua stdlib allowlist — 2026-08-15
+
+Replace `Lua::new()` (`ALL_SAFE`: `io`/`os`/`package`) with an explicit allowlist so a data-pack file cannot `os.execute`, `os.remove`, or `package.loadlib`. Gate was `tfs.appendLog(kind, text)` under `data/logs/` first; then drop `io` and shrink `os` to `time`/`date`/`clock`.
+
+- [x] `stdlib_allowlist.rs` — `Lua::new_with(STRING|TABLE|MATH|BIT|JIT|OS)`, OS shrunk to time/date/clock, strip `io`/`package`/`require`/`loadstring`/`loadfile`/`load`
+- [x] `tfs.appendLog(kind, text)` — append-only, kind is a relative path under `data/logs/` (no `..`, no absolute)
+- [x] `functions.lua` `logCommand` + `default_onReportBug.lua` use `tfs.appendLog` (migrations stay out of the game VM)
+- [x] `LuaRuntime::new` uses the allowlisted constructor; tests: denied globals, os shim, path jail, call-site migration
+- [x] Docs: vm-hardening, lua-boundaries, README, lessons; regenerate `lua-defs/`
+
 # Pillar 4: Lua instruction budget — 2026-08-15
 
 Memory limit is already on. Remaining: count hook so a `while true do end` in `data/scripts/**` cannot hang the game thread (`TFS-threading`). LuaJIT compiled traces skip count hooks (mlua tests `jit.off()`), so the hook is per-invocation + interpreter fallback while the budget is enabled. `0` restores JIT.

@@ -8,7 +8,7 @@ Index: [README.md](README.md)
 |---|---|---|
 | 4. Resource limits (instruction + memory) | No | **Adopt** |
 | 5. Typed contracts (LuaLS) | No | **Adopt** |
-| 1. Stdlib allowlist | Barely — 2 runtime call sites | **Adopt** |
+| 1. Stdlib allowlist | Barely — 2 runtime call sites | ✅ **Adopt** (done 2026-08-15) |
 | 2. Per-script `_ENV` | Yes — contract *is* shared globals | Reject |
 | 3. Modules / returned descriptors | Yes — replaces `Action():register()` | Reject |
 
@@ -45,27 +45,39 @@ Generate the **union** of two sources: methods registered from Rust (enabled by 
 
 ### Pillar 1 — stdlib allowlist (isolation)
 
-Replace `Lua::new()` (mlua `ALL_SAFE`, which includes `io`, `os`, `package`) with an explicit `Lua::new_with(StdLib::STRING | TABLE | MATH | BIT | COROUTINE, …)`. Probed current VM — all of these are live today:
+✅ **done 2026-08-15.** `stdlib_allowlist.rs` builds the game VM with `Lua::new_with(STRING | TABLE | MATH | BIT | JIT | OS)` — not `Lua::new()` / `ALL_SAFE`. `OS` is loaded only so LuaJIT's `os.time` / `os.date` / `os.clock` stay exact (strftime, `*t` tables, `os.time{year=…}`); the table is then replaced with those three functions. `io`, `package`, `require`, `loadstring`, `loadfile`, `load` are nil. `JIT` stays so `luaInstructionBudget = 0` can still `jit.on()`. LuaJIT has no `StdLib::COROUTINE` flag — `coroutine` is in the base library.
+
+`tfs.appendLog(kind, text)` is the only script write path, rooted at `data/logs/`. `kind` is a relative filename (no `..`, no absolute, `[A-Za-z0-9._\- ]` per path component). Returns `false` on rejection or IO error (same as the old `if not file then return`).
+
+**Call sites:**
+
+| Old | New |
+|---|---|
+| `functions.lua` `io.open("data/logs/" .. name .. " commands.log")` | `tfs.appendLog(name .. " commands.log", line)` — same path |
+| `default_onReportBug.lua` `io.open("data/reports/bugs/" .. name .. " report.txt")` | `tfs.appendLog("bugs/" .. name .. " report.txt", text)` — now `data/logs/bugs/` |
+| `data/migrations/11.lua` / `14.lua` | not loaded on the game VM (SQLx migrations); leftover C++ tooling |
+
+`dofile` stays for the TFS `global.lua` load chain. Nothing uses `require` / `loadstring` / `package`.
+
+Probed before the change — all of these were live on `ALL_SAFE`:
 
 ```
 io.open = function   os.execute = function   os.remove = function
 package.loadlib = function   loadstring = function   debug = nil
 ```
 
-Any data-pack file can shell out, delete files, or load a native `.so`.
+Any data-pack file could shell out, delete files, or load a native `.so`.
 
 **Measured cost across the whole data pack:**
 
 | Symbol | Uses | Where |
 |---|---|---|
-| `io.*` | 14 | `functions.lua:287-294` (command log), `default_onReportBug.lua`, `migrations/11.lua`, `migrations/14.lua` |
+| `io.*` | 14 | `functions.lua` (command log), `default_onReportBug.lua`, `migrations/11.lua`, `migrations/14.lua` |
 | `os.time` / `os.date` | 52 | pure time reads |
 | `require` | 0 | (2 hits are the English word in NPC dialogue) |
 | `loadstring`, `package.*` | 0 | — |
 
-So: **two runtime call sites** become a `tfs.appendLog(kind, text)` capability constrained to `data/logs/`; migrations are one-off tooling and can run in a separate unrestricted VM; keep a minimal `os` shim with `time`/`date`/`clock`. Nothing uses `require`/`loadstring`/`package`, so those drop free.
-
-**Value depends on threat model.** If we are the only script authors, `os.execute` is not a vulnerability — we already have a shell. It becomes real with community scripts, outside content contributions, or hosting shards for others. Cheap enough to do on principle, but lowest urgency of the three.
+**Value depends on threat model.** If we are the only script authors, `os.execute` is not a vulnerability — we already have a shell. It becomes real with community scripts, outside content contributions, or hosting shards for others. Done on principle now that the instruction hook landed.
 
 ### When to implement
 
@@ -74,6 +86,6 @@ So: **two runtime call sites** become a `tfs.appendLog(kind, text)` capability c
 | 4 — `set_memory_limit` | ✅ done (2026-08-10) — independent of everything else | none; no JIT impact |
 | 5 — LuaLS generation | ✅ done (2026-08-14) — `emit-lua-defs` + committed `lua-defs/` + CI `--check` | needs `register_class` as single owner + `__index` chains so method resolution is faithful |
 | 4 — instruction hook | ✅ done (2026-08-15) — per-invocation `set_hook` + `jit.off()` while budget > 0 | Gaps 1-6 done; budget = 10× loot-loop measurement; `luaInstructionBudget = 0` restores JIT |
-| 1 — stdlib allowlist | After Gaps 1-6, alongside or after the instruction hook | needs the `tfs.appendLog` capability first |
+| 1 — stdlib allowlist | ✅ done (2026-08-15) — `new_with` allowlist + `tfs.appendLog` + os time shim | Gaps 1-6 done; `tfs.appendLog` first; instruction hook already landed |
 
-Rationale for the ordering: the memory limit is free and prevents a whole-process kill. LuaLS is gated on Gap 7a+7b (both done) and pays for itself immediately by replacing hand-maintained inventories. The instruction hook needs a real measurement first, so it should not block the tools work. The allowlist is cheap but addresses a threat we may not have yet.
+Rationale for the ordering: the memory limit is free and prevents a whole-process kill. LuaLS is gated on Gap 7a+7b (both done) and pays for itself immediately by replacing hand-maintained inventories. The instruction hook needs a real measurement first, so it should not block the tools work. The allowlist is cheap and closes `os.execute` / `io.open` / `package.loadlib` on the game VM now that Gaps 1-6 and the instruction hook are done.

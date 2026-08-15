@@ -19,6 +19,7 @@ pub mod npc_loader;
 pub mod npc_type;
 pub mod runtime;
 pub mod script_loader;
+mod stdlib_allowlist;
 pub mod talkactions;
 pub mod timer_events;
 pub mod userdata;

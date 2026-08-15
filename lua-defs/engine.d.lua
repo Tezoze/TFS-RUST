@@ -351,6 +351,11 @@ function configManager.getBoolean(...) end
 function configManager.getNumber(...) end
 function configManager.getString(...) end
 
+---@class tfs
+tfs = {}
+
+function tfs.appendLog(...) end
+
 ---@class Container : Item
 Container = {}
 

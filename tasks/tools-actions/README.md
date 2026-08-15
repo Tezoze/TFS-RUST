@@ -21,6 +21,8 @@
 | **Gap 7c — revscript ctor globals** | ✅ done 2026-08-13 — [gap7-class-globals.md](gap7-class-globals.md) |
 | VM hardening pillar 4 (memory limit) | ✅ done 2026-08-10 — [vm-hardening.md](vm-hardening.md) |
 | VM hardening pillar 5 (LuaLS) | ✅ done 2026-08-14 — [vm-hardening.md](vm-hardening.md) |
+| VM hardening pillar 4 (instruction hook) | ✅ done 2026-08-15 — [vm-hardening.md](vm-hardening.md) |
+| VM hardening pillar 1 (stdlib allowlist) | ✅ done 2026-08-15 — [vm-hardening.md](vm-hardening.md) |
 
 ## This folder
 
@@ -104,7 +106,7 @@ All 9 scripts register at load (Gap 1 closed `fishing_rod.lua`). All 9 still mis
 10. **Gap 6** ✅ done 2026-08-14 — pick / fishing numbers in `data/formulas/{772,1098}.lua` + `MechanicsProfile`; scripts read `formulas.*`. 772 fishing is Probe(80,50), not TFS 0.597.
 11. **`global.lua` via dofile** — optional cleanup once 3-5 land: delete `inject_door_tables_from_global`, the inline `string.trim` chunk, and the `data/lib/core` scan. Pure deletion, no behavior change.
 12. **LuaLS type definitions from the class registry** ✅ done 2026-08-14 — `emit-lua-defs` writes committed `lua-defs/*.d.lua`; `.luarc.json` + CI `lua-language-server --check=.`. See [*VM hardening*](vm-hardening.md) pillar 5.
-13. **[VM hardening](vm-hardening.md)** — pillar 4 ✅ **DONE** — `set_memory_limit` (2026-08-10, 512 MiB / `luaMemoryLimit`) + instruction-budget hook (2026-08-15, `DEFAULT_LUA_INSTRUCTION_BUDGET` = 10_000_000 / `luaInstructionBudget`). Hook is per Rust→Lua entry (`instruction_budget.rs`); LuaJIT `jit.off()` while budget > 0 so count hooks fire; `0` restores JIT. Abort does not roll back mutations. Stdlib allowlist still gated on `tfs.appendLog`. See [*VM hardening*](vm-hardening.md).
+13. **[VM hardening](vm-hardening.md)** — pillar 4 ✅ **DONE** — `set_memory_limit` (2026-08-10, 512 MiB / `luaMemoryLimit`) + instruction-budget hook (2026-08-15, `DEFAULT_LUA_INSTRUCTION_BUDGET` = 10_000_000 / `luaInstructionBudget`). Hook is per Rust→Lua entry (`instruction_budget.rs`); LuaJIT `jit.off()` while budget > 0 so count hooks fire; `0` restores JIT. Abort does not roll back mutations. Pillar 1 ✅ **DONE** 2026-08-15 — stdlib allowlist + `tfs.appendLog` under `data/logs/`; `os` is time/date/clock only. See [*VM hardening*](vm-hardening.md).
 
 Dependency summary (updated 2026-08-14): 7a+7b+**7c**+**5a**+**Gap 1**+**Gap 4**+**Gap 3**+**Gap 6**+**pillar 5 (LuaLS)** ✅ done → `new_for_test()`; 11 is last and optional — and note 11 must **replace** the `data/lib/core` scan, not coexist with it, since `core.lua` currently double-loads 15 core files (5a skips `core.lua` in the scan, so the double-load is already gone until step 11 switches to the dofile chain).
 
@@ -137,7 +139,7 @@ Target-architecture tests (add as the corresponding step lands):
 | `scripts_lib_files_load_with_zero_failures` | the `data/scripts/lib/**` stage loads clean | 3c ✅ |
 | `lua_methods_callable_through_userdata` | a Lua-defined method on each class table resolves through a live userdata instance; native Rust methods still take priority | 3b ✅ (`gap7b_lua_class_method_callable_via_userdata` + `gap7b_native_method_wins_over_lua_override`) |
 | `lib_stage_loads_with_zero_failures` | Phase 2 returns `Ok` — replaces the 10-name allowlist as the primary guard | 4 ✅ |
-| `lua_defs_snapshot_covers_engine_surface` | live-VM stubs include every `register_class` name plus `SKILL_FISHING` / `Tile:getGround` / `Game.createItem` / `Action.allowFarUse` / `doTargetCombatHealth` | 12 ✅ |
+| `lua_defs_snapshot_covers_engine_surface` | live-VM stubs include every `register_class` name plus `SKILL_FISHING` / `Tile:getGround` / `Game.createItem` / `Action.allowFarUse` / `doTargetCombatHealth` / `tfs.appendLog` | 12 ✅ |
 | `lua_defs_committed_files_are_current` | committed `lua-defs/` matches `emit-lua-defs` | 12 ✅ |
 | `gap6_era_formulas_supply_pick_and_fishing_numbers` | 772 Probe(80,50) + TVP pick 40/−50; 1098 linear 0.597 | 10 ✅ |
 | tests use `LuaRuntime::new_for_test()` | tests exercise the shipped init path, not a hand-assembled subset | 5 |

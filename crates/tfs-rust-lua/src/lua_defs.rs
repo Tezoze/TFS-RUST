@@ -592,6 +592,12 @@ mod tests {
         assert_eq!(player.base.as_deref(), Some("Creature"));
         let container = snap.classes.get("Container").expect("Container");
         assert_eq!(container.base.as_deref(), Some("Item"));
+
+        let tfs = snap.classes.get("tfs").expect("tfs");
+        assert!(
+            tfs.table_functions.contains("appendLog"),
+            "tfs.appendLog is the stdlib-allowlist write capability"
+        );
     }
 
     #[test]
