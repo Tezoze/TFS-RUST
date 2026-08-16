@@ -1508,10 +1508,7 @@ mod tests {
         assert!(bed.is_bed());
         assert_eq!(bed.bed_partner_dir, 2);
         assert_eq!(bed.transform_to_on_use[1], 1762);
-        assert_eq!(
-            db.items.get(&1762).map(|t| t.transform_to_free),
-            Some(1754)
-        );
+        assert_eq!(db.items.get(&1762).map(|t| t.transform_to_free), Some(1754));
     }
 
     #[test]

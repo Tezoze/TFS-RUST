@@ -15,6 +15,21 @@ const WEAPON_NONE: u8 = 0;
 const WEAPON_DISTANCE: u8 = 5;
 const WEAPON_AMMO: u8 = 7;
 
+/// GM/God look extras — TFS `default_onLook.lua` Item ID / Action ID / Unique ID + XYZ.
+/// UniqueID is the OTBM `ATTR_UNIQUE_ID` used by movements/actions (`uid` in the map editor).
+pub fn format_gm_item_look_suffix(
+    item_type: u16,
+    client_id: u16,
+    action_id: u16,
+    unique_id: u16,
+    pos: Position,
+) -> String {
+    format!(
+        "ItemID: {item_type} | ClientID: {client_id} | ActionID: {action_id} | UniqueID: {unique_id} | XYZ: {} {} {}",
+        pos.x, pos.y, pos.z
+    )
+}
+
 /// `Game::playerLookAt` look distance — `game.cpp` ~3177–3185.
 pub fn look_distance_tfs(player_pos: Position, thing_pos: Position) -> i32 {
     let dx = (player_pos.x as i32 - thing_pos.x as i32).abs();
@@ -719,6 +734,19 @@ mod tests {
     }
 
     #[test]
+    fn gm_look_suffix_includes_action_and_unique_id() {
+        let pos = Position::new(32098, 32203, 8);
+        assert_eq!(
+            format_gm_item_look_suffix(4798, 4787, 0, 0, pos),
+            "ItemID: 4798 | ClientID: 4787 | ActionID: 0 | UniqueID: 0 | XYZ: 32098 32203 8"
+        );
+        assert_eq!(
+            format_gm_item_look_suffix(1945, 1945, 1001, 2001, pos),
+            "ItemID: 1945 | ClientID: 1945 | ActionID: 1001 | UniqueID: 2001 | XYZ: 32098 32203 8"
+        );
+    }
+
+    #[test]
     fn weight_format_matches_item_cpp() {
         assert_eq!(format_weight_oz_tfs(8000), "80.00");
         assert_eq!(format_weight_oz_tfs(5), "0.05");
@@ -978,7 +1006,10 @@ It can only be wielded properly by players of level 120 or higher."
             .insert("corpsetype".into(), "blood".into());
         let item = Item::new(it.id, 1);
         let s = item_get_description_cpp(&item, &it, 6300, 1, None, None, None, None);
-        assert!(s.contains("It weighs 63.00 oz."), "weight without FLAG_PICKUPABLE: {s}");
+        assert!(
+            s.contains("It weighs 63.00 oz."),
+            "weight without FLAG_PICKUPABLE: {s}"
+        );
     }
 
     #[test]

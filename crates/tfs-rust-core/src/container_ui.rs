@@ -1558,6 +1558,9 @@ mod tests {
             .player_write_item(cid, 1, "hello".into())
             .expect("write");
         assert_eq!(world.items.get(paper).map(|i| i.item_type), Some(1954));
-        assert_eq!(world.items.get(paper).map(|i| i.text().to_string()), Some("hello".into()));
+        assert_eq!(
+            world.items.get(paper).map(|i| i.text().to_string()),
+            Some("hello".into())
+        );
     }
 }

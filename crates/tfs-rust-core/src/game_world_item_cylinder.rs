@@ -608,6 +608,7 @@ impl GameWorld {
         // and ladder both order 2: server appends splash after ladder, client inserts splash
         // before ladder → remove at server stackpos deletes the ladder on the client).
         let item_type_info = self.items_db.items.get(&item_type);
+        let is_ground = item_type_info.map(|t| t.is_ground_tile()).unwrap_or(false);
         let is_magic_field = item_type_info.map(|t| t.is_magic_field()).unwrap_or(false);
         let always_on_top = item_type_info.map(|t| t.always_on_top()).unwrap_or(false);
         let new_order = item_type_info.map(|t| t.always_on_top_order).unwrap_or(0);
@@ -615,6 +616,12 @@ impl GameWorld {
         // TFS `Tile::addThing` magic-field replace (`tile.cpp:917-938`) / 772 `CreateField`.
         if is_magic_field {
             self.remove_replaceable_magic_fields_on_tile(pos);
+        }
+
+        // TFS `Tile::addThing` ground arm (`tile.cpp` ~852–867): `isGroundTile` before
+        // always-on-top / down stack. Empty bank → setGround; occupied → replace.
+        if is_ground {
+            return self.add_ground_item_to_tile(pos, item_id, item_type);
         }
 
         {
@@ -662,6 +669,78 @@ impl GameWorld {
         } else {
             let _ = self.events.on_step_in(None, item_id, item_type, pos, pos);
         }
+        self.start_decay(item_id);
+        self.apply_tile_item_specials(pos, item_id);
+        Ok(item_id)
+    }
+
+    /// TFS `Tile::addThing` when `item->isGroundTile()` (`tile.cpp` ~852–867).
+    ///
+    /// Dirt overlays (4797/4799) are OTB group NONE + always-on-top, so they stay on the
+    /// top stack and do not take this path.
+    fn add_ground_item_to_tile(
+        &mut self,
+        pos: Position,
+        item_id: ItemId,
+        item_type: u16,
+    ) -> Result<ItemId, ReturnValue> {
+        let old_ground = self
+            .map
+            .get_tile(pos)
+            .and_then(|t| t.body().ground_item)
+            .filter(|&old_id| old_id != item_id);
+
+        if let Some(old_id) = old_ground {
+            let old_type = self.items.get(old_id).map(|i| i.item_type);
+            if let Some(old_type) = old_type
+                && let Some(old_it) = self.items_db.items.get(&old_type).cloned()
+                && let Some(tile) = self.map.get_tile(pos)
+            {
+                let rem = crate::map::tile_remaining_props(
+                    tile.body(),
+                    &self.items,
+                    &self.items_db,
+                    old_id,
+                );
+                if let Some(tile) = self.map.get_tile_mut(pos) {
+                    crate::map::reset_item_tile_flags(
+                        tile.body_mut(),
+                        &old_it,
+                        &rem,
+                        &self.items_db,
+                    );
+                }
+            }
+        }
+
+        {
+            let tile = self.map.get_tile_mut(pos).ok_or(ReturnValue::NotPossible)?;
+            tile.set_ground(item_id, item_type);
+            if let Some(it) = self.items_db.items.get(&item_type) {
+                crate::map::apply_item_tile_flags(tile.body_mut(), it, &self.items_db);
+            }
+        }
+
+        if let Some(item) = self.items.get_mut(item_id) {
+            item.parent = Some(crate::cylinder::Cylinder::Tile { pos });
+        }
+
+        let (tvp_stack, cip_stack) = self.item_stack_pos_pair(pos, item_id);
+        if old_ground.is_some() {
+            self.broadcast_tile_item_update(pos, item_id, tvp_stack, cip_stack);
+        } else {
+            self.broadcast_tile_item_add(pos, item_id, tvp_stack, cip_stack);
+        }
+
+        if let Some(old_id) = old_ground {
+            if let Some(item) = self.items.get_mut(old_id) {
+                item.parent = None;
+            }
+            self.cancel_item_decay(old_id);
+            self.items.remove(old_id);
+        }
+
+        let _ = self.events.on_step_in(None, item_id, item_type, pos, pos);
         self.start_decay(item_id);
         self.apply_tile_item_specials(pos, item_id);
         Ok(item_id)

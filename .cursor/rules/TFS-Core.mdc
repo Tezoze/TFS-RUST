@@ -1,7 +1,6 @@
 ---
-trigger: always_on
-description: >
-globs:
+description: "772 outcomes + TFS-style domain (data pack) + idiomatic Rust. Primary always-on project rule."
+alwaysApply: true
 ---
 
 **CRITICAL ALWAYS-APPLIED RULE** — This document is injected into every conversation. You MUST follow every point below for ALL responses and code changes in this repository. Never deviate without explicit user approval.
@@ -95,6 +94,8 @@ If a nicer Rust approach would change any observable result **or** break the dat
 4. **Verification** — `cargo check`, `cargo clippy`, `cargo test`, logic equivalence vs 772, and that `data/` / Lua contracts still hold (1098 regression when shared paths change).
 5. **Capture Lessons** — Update `tasks/lessons.md` with Rust-specific or decompile-vs-TFS insights.
 
+Sub-agents: `@.cursor/rules/TFS-subagents.mdc` (always-on — spawn `Task` for analysis / tests / verify).
+
 **Memory & Safety**
 - Strictly no `unsafe` unless user-approved for a profiled FFI or bottleneck.
 - Prefer `slotmap::SlotMap` for all entity references.
@@ -128,31 +129,4 @@ Full inventory and rename phases: `docs/CIP_CIPSOFT_NAMING_AUDIT.md`.
 
 **When editing legacy code** that still uses vendor names, rename per the audit phases — do not add new `cipsoft_*` / `CIPSOFT_*` identifiers.
 
-<!-- RTK — highest priority for all shell/terminal work -->
-## RTK (mandatory — use before everything else in the shell)
-
-**IMPORTANT: Prefix terminal commands with `rtk` whenever RTK supports the underlying tool.**
-
-# RTK Optimization Rules
-When executing heavy or high-volume terminal commands via the Bash tool, explicitly prefix the execution string with the absolute path to RTK to ensure it bypasses GUI environment constraints and optimizes LLM token consumption by 80-90%.
-- Safe Prefix: `/home/jessec/.local/bin/rtk`
-
-### Always use RTK for
-
-| Instead of | Use |
-| ---------- | --- |
-| `cargo build` / `check` / `test` / `clippy` | `rtk cargo build` / `check` / `test` / `clippy` |
-| `git status` / `diff` / `log` | `rtk git status` / `diff` / `log` |
-| `grep …` / `rg …` | `rtk grep …` |
-| `find …` | `rtk find …` |
-| raw `diff` | `rtk diff …` |
-| `ls` / `tree` | `rtk ls` / `tree` |
-
-### Do NOT prefix
-
-Ultra-lightweight one-offs: `mkdir`, `touch`, `chmod`, `cd`, heredocs, or commands RTK has no proxy for (e.g. `python3 -c`, MCP invocations).
-
-### Agent discipline
-
-- Default to `rtk` for **every** Shell tool call unless you have a specific reason not to.
-- If a command fails under RTK, retry once without `rtk` only to capture full diagnostics — then report both outcomes.
+RTK: `@.cursor/rules/TFS-rtk.mdc` (always-on — prefix `cargo`/`git`/`grep`/`ls` with `rtk`).

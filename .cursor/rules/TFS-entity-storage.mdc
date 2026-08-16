@@ -1,7 +1,7 @@
 ---
-trigger: model_decision
-description: SlotMap-based entity storage patterns and ID type usage for safe, generational references.
+description: "SlotMap entity storage and typed ID usage for safe generational references."
 globs: ["crates/tfs-rust-core/**/*.rs"]
+alwaysApply: false
 ---
 
 # Entity Storage (SlotMap and ID Types)

@@ -22,8 +22,8 @@ use crate::creature::{ChaseMode, CreatureKind};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::player_flags::{
-    PLAYER_FLAG_CANNOT_BE_ATTACKED, PLAYER_FLAG_CANNOT_USE_COMBAT,
-    PLAYER_FLAG_CANNOT_ATTACK_MONSTER, PLAYER_FLAG_CANNOT_ATTACK_PLAYER, has_player_flag,
+    PLAYER_FLAG_CANNOT_ATTACK_MONSTER, PLAYER_FLAG_CANNOT_ATTACK_PLAYER,
+    PLAYER_FLAG_CANNOT_BE_ATTACKED, PLAYER_FLAG_CANNOT_USE_COMBAT, has_player_flag,
 };
 
 impl GameWorld {

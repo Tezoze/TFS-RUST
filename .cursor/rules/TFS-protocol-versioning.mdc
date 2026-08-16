@@ -1,7 +1,7 @@
 ---
-trigger: model_decision
-description: Two-axis versioning (wire vs mechanics) and where new versioned code goes. Era source-of-truth table and conflict rule live in TFS-Core — not repeated here.
+description: "Two-axis versioning (wire vs mechanics) and where new versioned code goes. 772 primary."
 globs: ["crates/tfs-rust-net/**/*.rs", "crates/tfs-rust-core/**/*.rs", "data/formulas/**"]
+alwaysApply: false
 ---
 
 # Protocol & Mechanics Versioning

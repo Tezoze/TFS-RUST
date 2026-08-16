@@ -1,7 +1,6 @@
 ---
-trigger: always_on
-description: Code hygiene — deduplication, naming, dead-code removal, and reuse of existing helpers.
-globs:
+description: "Deduplication, helper naming, dead-code removal, and reuse of existing helpers."
+alwaysApply: true
 ---
 
 # Code Hygiene (Mandatory)

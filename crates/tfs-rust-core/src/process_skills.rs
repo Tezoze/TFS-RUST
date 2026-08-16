@@ -1633,7 +1633,8 @@ mod tests {
         it.xml_attributes.insert("field".into(), "poison".into());
         it.xml_attributes
             .insert("field.initdamage".into(), "0".into());
-        it.xml_attributes.insert("field.cycles".into(), "100".into());
+        it.xml_attributes
+            .insert("field.cycles".into(), "100".into());
         db.items.insert(1490, it);
         world.items_db = Arc::new(db);
 

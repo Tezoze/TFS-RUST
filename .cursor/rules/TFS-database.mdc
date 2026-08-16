@@ -1,7 +1,7 @@
 ---
-trigger: model_decision
-description: SQLx patterns, transaction rules, and shared DB schema (not era-forked; auth may differ 772 vs 1098).
+description: "SQLx/MariaDB patterns, transactions, and shared TFS schema (not era-forked)."
 globs: ["crates/tfs-rust-db/**/*.rs"]
+alwaysApply: false
 ---
 
 # Database Operations (SQLx and MariaDB)

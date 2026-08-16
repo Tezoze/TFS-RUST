@@ -1,7 +1,6 @@
 ---
-trigger: always_on
-description: >
-globs:
+description: "Cite decompile outcomes + TFS domain shape on every substantial port."
+alwaysApply: true
 ---
 
 # C++ Source Tracing (Mandatory)

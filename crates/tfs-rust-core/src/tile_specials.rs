@@ -14,11 +14,7 @@ use crate::walk::internal_teleport_player;
 impl GameWorld {
     /// After an item is on a tile — trash consume or teleport dest (`Tile::addThing` specials).
     pub(crate) fn apply_tile_item_specials(&mut self, pos: Position, item_id: ItemId) {
-        let flags = self
-            .map
-            .get_tile(pos)
-            .map(|t| t.body().flags)
-            .unwrap_or(0);
+        let flags = self.map.get_tile(pos).map(|t| t.body().flags).unwrap_or(0);
         if flags & tilestate::TRASHHOLDER != 0 {
             self.apply_trashholder_consume(pos, item_id);
             return;
@@ -29,12 +25,12 @@ impl GameWorld {
     }
 
     /// After a creature lands on a tile — TFS `Teleport::addThing` creature arm.
-    pub(crate) fn apply_tile_creature_specials(&mut self, cid: crate::ids::CreatureId, pos: Position) {
-        let flags = self
-            .map
-            .get_tile(pos)
-            .map(|t| t.body().flags)
-            .unwrap_or(0);
+    pub(crate) fn apply_tile_creature_specials(
+        &mut self,
+        cid: crate::ids::CreatureId,
+        pos: Position,
+    ) {
+        let flags = self.map.get_tile(pos).map(|t| t.body().flags).unwrap_or(0);
         if flags & tilestate::TELEPORT == 0 {
             return;
         }
@@ -63,6 +59,12 @@ impl GameWorld {
             return;
         };
         if it.is_trashholder() {
+            return;
+        }
+        // TFS `TrashHolder::addThing` — `!item->hasProperty(CONST_PROP_MOVEABLE)` (`trashholder.cpp`).
+        // `CONST_PROP_MOVEABLE` is `it.moveable && !uniqueId` (`item.cpp` hasProperty).
+        // Immovable floor/borders (dirt 4797/4799 on water) must stay; splash is for thrown loot.
+        if !it.moveable() || item.unique_id() != 0 {
             return;
         }
         if it.is_hangable() {
@@ -181,6 +183,7 @@ mod tests {
             ItemType {
                 id: 3031,
                 server_id: 3031,
+                flags: 1 << 6, // FLAG_MOVEABLE — trashholder only eats moveable
                 ..ItemType::default()
             },
         );
@@ -202,6 +205,49 @@ mod tests {
         assert!(
             world.items.get(gold).is_none(),
             "trashholder must remove the dropped item"
+        );
+    }
+
+    #[test]
+    fn trashholder_does_not_consume_immovable_floor() {
+        let mut world = beat_driven_test_world();
+        let mut db = (*world.items_db).clone();
+        db.items.insert(
+            493,
+            ItemType {
+                id: 493,
+                server_id: 493,
+                type_tag: ITEM_TYPE_TRASHHOLDER,
+                magic_effect: 2, // bluebubble
+                ..ItemType::default()
+            },
+        );
+        db.items.insert(
+            4799,
+            ItemType {
+                id: 4799,
+                server_id: 4799,
+                ..ItemType::default()
+            },
+        );
+        world.items_db = Arc::new(db);
+
+        let pos = Position::new(80, 80, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+        if let Some(t) = world.map.get_tile_mut(pos) {
+            t.body_mut().flags |= tile_flags::TRASHHOLDER;
+        }
+        let water = world.items.insert(Item::new_single(493));
+        world
+            .internal_add_item_to_tile(pos, water, CylinderFlags::NO_LIMIT)
+            .expect("place water");
+        let dirt = world.items.insert(Item::new_single(4799));
+        world
+            .internal_add_item_to_tile(pos, dirt, CylinderFlags::NO_LIMIT)
+            .expect("place dirt border");
+        assert!(
+            world.items.get(dirt).is_some(),
+            "immovable dirt floor must not be swallowed by water trashholder"
         );
     }
 }

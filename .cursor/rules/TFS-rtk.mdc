@@ -1,0 +1,15 @@
+---
+description: "Prefix cargo/git/grep/find/ls with rtk. Mandatory for every Shell tool call."
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# RTK (Mandatory)
+
+Prefix terminal commands with `/home/jessec/.local/bin/rtk` whenever RTK supports the tool. Bypasses GUI env limits and cuts token use.
+
+**Always prefix:** `cargo` (build/check/test/clippy), `git` (status/diff/log), `grep`/`rg`, `find`, `diff`, `ls`/`tree`.
+
+**Do not prefix:** `mkdir`, `touch`, `chmod`, `cd`, heredocs, `python3 -c`, MCP calls, or anything RTK has no proxy for.
+
+Default to `rtk` on every Shell call. If it fails, retry once without `rtk` for diagnostics, then report both outcomes.

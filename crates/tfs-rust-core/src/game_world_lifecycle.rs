@@ -663,9 +663,8 @@ impl GameWorld {
             CreatureKind::Player(p) => p.base.last_hit_by,
             _ => None,
         });
-        let killer_name = last_hit.and_then(|kid| {
-            self.creatures.get(kid).map(|k| k.base().name.clone())
-        });
+        let killer_name =
+            last_hit.and_then(|kid| self.creatures.get(kid).map(|k| k.base().name.clone()));
         // Snapshot flags before borrowing the victim — `player_has_flag` also
         // reads `self.creatures`.
         let keep_inventory =
@@ -895,9 +894,10 @@ mod tests {
             p
         });
         world.player_death_drop_inventory(victim);
-        let desc = world.items.iter().find_map(|(_, i)| {
-            (i.item_type == 3128).then(|| i.description().to_string())
-        });
+        let desc = world
+            .items
+            .iter()
+            .find_map(|(_, i)| (i.item_type == 3128).then(|| i.description().to_string()));
         assert_eq!(
             desc.as_deref(),
             Some("You recognize Alice. He was killed by Bob.")

@@ -1,7 +1,7 @@
 ---
-trigger: model_decision
-description: Bridge pattern, channel wiring, and code examples for the game-thread/I-O-thread boundary. Detail companion to TFS-threading — the invariant.
+description: "Bridge pattern, channel wiring, and examples for the game-thread / I/O-thread boundary."
 globs: ["crates/tfs-rust-net/**/*.rs", "crates/tfs-rust-core/**/*.rs", "crates/tfs-rust-db/**/*.rs"]
+alwaysApply: false
 ---
 
 # Threading Patterns (Game Thread vs I/O Threads)

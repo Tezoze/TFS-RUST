@@ -1,7 +1,7 @@
 ---
-trigger: always_on
-description: Exact response format and style rules for all interactions in the TFS project.
+description: "Response/output format: plan, diff, cargo verify, tests. Concise, no fluff."
 globs: ["**/*"]
+alwaysApply: true
 ---
 
 # Output Format (Always Use This Structure)

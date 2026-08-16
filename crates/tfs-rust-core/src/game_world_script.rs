@@ -675,8 +675,12 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             LookTarget::Creature(id) => {
                 Some(tfs_rust_common::ScriptThing::Creature(id.data().as_ffi()))
             }
-            // Ground is type-id only (no SlotMap Item); key/door scripts need real items.
-            LookTarget::Ground(_) => None,
+            // TFS `Tile::getTopVisibleThing` returns `ground` Item* when nothing else is visible
+            // (`tile.cpp` ~360–375). OTBM / `addThing` hydrate `ground_item`.
+            LookTarget::Ground(_) => tile
+                .body()
+                .ground_item
+                .map(|id| tfs_rust_common::ScriptThing::Item(id.data().as_ffi())),
         }
     }
 
@@ -1128,11 +1132,12 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         let body = tile.body();
         let mut idx = index as usize;
 
-        // Ground occupies index 0 when present but is type-only (no SlotMap id) —
-        // return None for that slot so indices of later things stay TFS-aligned.
+        // TFS `Tile::getThing` — ground is index 0 (`tile.cpp` ~1294–1301).
         if body.ground.is_some() {
             if idx == 0 {
-                return None;
+                return body
+                    .ground_item
+                    .map(|id| ScriptThing::Item(id.data().as_ffi()));
             }
             idx -= 1;
         }
@@ -1157,8 +1162,11 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         let pos = tfs_rust_common::Position { x, y, z };
         let tile = self.map.get_tile(pos)?;
         let body = tile.body();
-        for &iid in body.down_items.iter().chain(body.top_items.iter()) {
-            let item = self.items.get(iid)?;
+        // TFS `Game::findItemOfType` walks `getThing` — ground first (`game.cpp` ~1435).
+        for iid in body.script_stack_item_ids() {
+            let Some(item) = self.items.get(iid) else {
+                continue;
+            };
             if item.item_type == item_type {
                 return Some(iid.data().as_ffi());
             }
@@ -1173,8 +1181,10 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         let pos = tfs_rust_common::Position { x, y, z };
         let tile = self.map.get_tile(pos)?;
         let body = tile.body();
-        for &iid in body.down_items.iter().chain(body.top_items.iter()) {
-            let item = self.items.get(iid)?;
+        for iid in body.script_stack_item_ids() {
+            let Some(item) = self.items.get(iid) else {
+                continue;
+            };
             let Some(it) = self.items_db.items.get(&item.item_type) else {
                 continue;
             };
@@ -1212,8 +1222,10 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         let pos = tfs_rust_common::Position { x, y, z };
         let tile = self.map.get_tile(pos)?;
         let body = tile.body();
-        for &iid in body.down_items.iter().chain(body.top_items.iter()) {
-            let item = self.items.get(iid)?;
+        for iid in body.script_stack_item_ids() {
+            let Some(item) = self.items.get(iid) else {
+                continue;
+            };
             let tag = self
                 .items_db
                 .items
@@ -1431,6 +1443,7 @@ mod e5_e6_e7_script_tests {
     use slotmap::Key;
     use tfs_rust_common::Position;
     use tfs_rust_common::ScriptContext;
+    use tfs_rust_common::ScriptThing;
     use tfs_rust_common::enums::ZoneType;
 
     #[test]
@@ -1529,5 +1542,39 @@ mod e5_e6_e7_script_tests {
         assert_eq!(world.tile_get_house_id(10, 10, 7), Some(7));
         assert_eq!(world.tile_get_house_id(11, 10, 7), None);
         assert_eq!(world.tile_get_house_id(99, 99, 7), None);
+    }
+
+    #[test]
+    fn tile_get_item_by_id_finds_ground() {
+        use crate::item::Item;
+
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let gid = world.items.insert(Item::new_single(493));
+        world.map.insert_tile(
+            pos,
+            Tile::Normal(TileBody {
+                ground: Some(493),
+                ground_item: Some(gid),
+                down_items: Vec::new(),
+                top_items: Vec::new(),
+                creatures: Vec::new(),
+                flags: 0,
+                zone: ZoneType::Normal,
+            }),
+        );
+        assert_eq!(
+            world.tile_get_item_by_id(100, 100, 7, 493),
+            Some(gid.data().as_ffi())
+        );
+        assert_eq!(world.tile_get_item_by_id(100, 100, 7, 1284), None);
+        assert_eq!(
+            world.tile_get_thing(100, 100, 7, 0),
+            Some(ScriptThing::Item(gid.data().as_ffi()))
+        );
+        assert_eq!(
+            world.tile_get_top_visible_thing(100, 100, 7, None),
+            Some(ScriptThing::Item(gid.data().as_ffi()))
+        );
     }
 }

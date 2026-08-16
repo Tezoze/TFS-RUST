@@ -730,7 +730,7 @@ pub trait ScriptContext {
         None
     }
 
-    /// `tile:getItemById(itemId)` — first item with server type id.
+    /// `tile:getItemById(itemId)` — first matching item including ground (`findItemOfType`).
     fn tile_get_item_by_id(&self, x: u16, y: u16, z: u8, item_type: u16) -> Option<ScriptItemId> {
         let _ = (x, y, z, item_type);
         None

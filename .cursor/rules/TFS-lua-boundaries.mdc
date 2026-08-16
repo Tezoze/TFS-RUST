@@ -1,7 +1,7 @@
 ---
-trigger: model_decision
-description: Lua integration patterns using trait dispatch, mlua+LuaJIT, and scoped mutation appliers.
+description: "Lua integration: trait dispatch, mlua+LuaJIT, and scoped mutation appliers."
 globs: ["crates/tfs-rust-core/**/*.rs", "crates/tfs-rust-lua/**/*.rs"]
+alwaysApply: false
 ---
 
 # Lua Integration (Trait Dispatch + mlua + LuaJIT)
@@ -225,8 +225,9 @@ match self.runtime.call_creature_callback(callback, creature_id) {
 Game simulation is single-threaded (`TFS-threading`), so an unbounded script is an **availability bug, not a script bug**: one `while true do end` in `data/scripts/**` hangs ticks, packets, logins, and saves until `kill -9`. No attacker required.
 
 - `lua.set_memory_limit(bytes)` — turns a runaway allocation into `Error::MemoryError` instead of an OOM-killed process. No JIT cost; safe to enable unconditionally.
-- `lua.set_hook(HookTriggers::new().every_nth_instruction(n), …)` — errors out a runaway script so the server keeps ticking. **Measure first:** LuaJIT does not call count hooks from compiled traces, so an always-on hook may force interpreter fallback and negate the reason for choosing LuaJIT.
-- **Aborting a script does not roll back mutations.** Mutations apply immediately (Mutation Path above), so a killed script leaves partial effects — this is failure isolation, not atomicity. Document the semantic per callback.
+- `lua.set_hook(HookTriggers::new().every_nth_instruction(n), …)` — errors out a runaway script so the server keeps ticking. **Enabled per invocation** (`instruction_budget.rs`, default 10_000_000). LuaJIT compiled traces do not fire count hooks, so we `jit.off()` while the budget is > 0. `luaInstructionBudget = 0` restores JIT. Do not install a lifetime counter — re-arm at each Rust→Lua entry.
+- **Aborting a script does not roll back mutations.** Mutations apply immediately (Mutation Path above), so a killed script leaves partial effects — this is failure isolation, not atomicity. Same semantic for every callback (`exec_chunk`, `onUse` / `onSay` / creature events / timers / combat value+tile callbacks / NPC lifecycle): the caller logs and continues; already-applied world/Lua state stays.
+- **Stdlib allowlist** (`stdlib_allowlist.rs`) — the game VM is not mlua `ALL_SAFE`. No `io` / `package` / `require` / `loadstring` / `loadfile` / `load`; `os` is a shim of `time`/`date`/`clock` only. Script file writes go through `tfs.appendLog(kind, text)` rooted at `data/logs/`. `dofile` stays for the TFS `global.lua` load chain. `data/migrations/*.lua` are not loaded on this VM.
 
 Do not add new script entry points that can block the game thread indefinitely (unbounded loops over map/creature sets, blocking I/O in a callback).
 
@@ -276,4 +277,5 @@ let mut world = GameWorld {
 9. **Class registration:** `register_class` only — class table + `__call` + userdata `__index` chain + base chain. Never `globals().set(Name, ctor_fn)`
 10. **Verify classes through a live userdata instance** — a load test passing proves nothing about `obj:method()`
 11. **Load phases:** bootstrap fatal, lib fatal (aggregated), content warn-and-continue — never one uniform policy
-12. **Execution limits:** memory limit always on; instruction hook measured against LuaJIT cost first. An unbounded script is an availability bug
+12. **Execution limits:** memory limit always on; instruction hook per invocation (`jit.off` while armed). An unbounded script is an availability bug
+13. **Stdlib allowlist:** no `io`/`package`/`loadstring`; `os` is time/date/clock; writes via `tfs.appendLog` under `data/logs/`

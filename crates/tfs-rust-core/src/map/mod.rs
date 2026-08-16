@@ -148,13 +148,56 @@ impl Map {
     }
 }
 
+/// Apply `OTBM_ITEM` props after the u16 id — `Item::unserializeItemNode` (`item.cpp`).
+/// Shared by ground and stacked items so ActionID/UniqueID (and text, fluids, …) land.
+fn apply_otbm_item_node_attrs(
+    item: &mut Item,
+    it: Option<&tfs_rust_content::otb::ItemType>,
+    otbm_attr_blob: Option<&[u8]>,
+    pos: Position,
+    id: u16,
+) {
+    let Some(blob) = otbm_attr_blob.filter(|b| !b.is_empty()) else {
+        return;
+    };
+    let is_container = it
+        .map(|t| t.group == tfs_rust_content::otb::ItemType::GROUP_CONTAINER)
+        .unwrap_or(false);
+    // Remere OTBM attrs 23–28 (key/door) — not DB `AttrTypes_t` NAME/WEIGHT.
+    match crate::item_blob::parse_otbm_item_blob(blob, is_container) {
+        Ok(parsed) => {
+            if parsed.attrs.attribute_bits() != 0 {
+                item.attributes = Some(Box::new(parsed.attrs));
+            }
+            if let Some(st) = parsed.subtype_override {
+                let is_fluid = it.is_some_and(|t| t.is_fluid_container() || t.is_splash());
+                if is_fluid {
+                    // Fluid subtype 0 = empty; do not force count≥1 (would look like water).
+                    item.count = u16::from(st);
+                    item.set_fluid_type(u16::from(st));
+                } else {
+                    item.count = u16::from(st).max(1);
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                item_id = id,
+                ?pos,
+                error = %e,
+                "OTBM item attr unserialize failed (item placed without attrs)"
+            );
+        }
+    }
+}
+
 /// C++ `Tile::internalAddThing` for item ids (`src/tile.cpp`).
-/// Creates an Item instance and returns its ItemId.
+/// Creates an Item instance and stores it on the tile (ground, top, or down).
 ///
 /// `otbm_attr_blob`: bytes after the `u16` item id in an `OTBM_ITEM` node
 /// (`Item::unserializeItemNode` / `unserializeAttr` — `item.cpp`). Used for
-/// sign/blackboard `ATTR_TEXT`, action ids, teleports, etc. `None` for bare
-/// `OTBM_ATTR_ITEM` embeds (id only).
+/// sign/blackboard `ATTR_TEXT`, action ids, unique ids, teleports, etc. `None`
+/// for bare `OTBM_ATTR_ITEM` embeds (id only).
 fn internal_add_item_id(
     pos: Position,
     id: u16,
@@ -166,50 +209,20 @@ fn internal_add_item_id(
     let id = otbm::remap_create_item_stream_id(id);
     let it = items_db.items.get(&id);
     let is_ground = it.map(|t| t.is_ground_tile()).unwrap_or(false);
+
+    let mut item = Item::new_single(id);
+    apply_otbm_item_node_attrs(&mut item, it, otbm_attr_blob, pos, id);
+    item.parent = Some(crate::cylinder::Cylinder::Tile { pos });
+
     if is_ground && body.ground.is_none() {
         // TFS `Tile::setGround` stores a full `Item*` — create an Item instance
         // so StepIn/transform/decay can mutate the ground (e.g. pitfall 293↔294).
-        let mut ground_item = Item::new_single(id);
-        ground_item.parent = Some(crate::cylinder::Cylinder::Tile { pos });
-        let gid = items.insert(ground_item);
+        let gid = items.insert(item);
         body.ground = Some(id);
         body.ground_item = Some(gid);
         return;
     }
 
-    let mut item = Item::new_single(id);
-    if let Some(blob) = otbm_attr_blob.filter(|b| !b.is_empty()) {
-        let is_container = it
-            .map(|t| t.group == tfs_rust_content::otb::ItemType::GROUP_CONTAINER)
-            .unwrap_or(false);
-        // Remere OTBM attrs 23–28 (key/door) — not DB `AttrTypes_t` NAME/WEIGHT.
-        match crate::item_blob::parse_otbm_item_blob(blob, is_container) {
-            Ok(parsed) => {
-                if parsed.attrs.attribute_bits() != 0 {
-                    item.attributes = Some(Box::new(parsed.attrs));
-                }
-                if let Some(st) = parsed.subtype_override {
-                    let is_fluid = it.is_some_and(|t| t.is_fluid_container() || t.is_splash());
-                    if is_fluid {
-                        // Fluid subtype 0 = empty; do not force count≥1 (would look like water).
-                        item.count = u16::from(st);
-                        item.set_fluid_type(u16::from(st));
-                    } else {
-                        item.count = u16::from(st).max(1);
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::warn!(
-                    item_id = id,
-                    ?pos,
-                    error = %e,
-                    "OTBM item attr unserialize failed (item placed without attrs)"
-                );
-            }
-        }
-    }
-    item.parent = Some(crate::cylinder::Cylinder::Tile { pos });
     let item_id = items.insert(item);
 
     let always_on_top = it.map(|t| t.always_on_top()).unwrap_or(false);
@@ -689,6 +702,29 @@ mod tile_flag_tests {
         let item = items.get(item_id).expect("item");
         assert_eq!(item.item_type, SIGN);
         assert_eq!(item.text(), "Depot");
+    }
+
+    #[test]
+    fn otbm_ground_item_node_keeps_action_and_unique_id() {
+        // OTBM_ITEM props: u16 id + ATTR_ACTION_ID(4) + u16 + ATTR_UNIQUE_ID(5) + u16.
+        const GROUND: u16 = 100;
+        let mut raw = Vec::new();
+        raw.extend_from_slice(&GROUND.to_le_bytes());
+        raw.push(4); // ATTR_ACTION_ID
+        raw.extend_from_slice(&1001u16.to_le_bytes());
+        raw.push(5); // ATTR_UNIQUE_ID
+        raw.extend_from_slice(&2001u16.to_le_bytes());
+
+        let db = item_db(vec![(GROUND, ground_item_type(GROUND))]);
+        let pos = Position::new(100, 100, 7);
+        let (map, items) =
+            map_and_items_from_single_tile(pos, vec![TileThing::ItemNodeProps(raw)], &db);
+        let tile = map.get_tile(pos).expect("tile");
+        let gid = tile.body().ground_item.expect("ground_item");
+        let item = items.get(gid).expect("item");
+        assert_eq!(item.item_type, GROUND);
+        assert_eq!(item.action_id(), 1001);
+        assert_eq!(item.unique_id(), 2001);
     }
 
     #[test]

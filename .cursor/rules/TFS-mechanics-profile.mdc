@@ -1,7 +1,7 @@
 ---
-trigger: model_decision
-description: >
+description: "MechanicsProfile + formulas Lua; era-tuned outcomes with TFS domain shape."
 globs: ["crates/tfs-rust-core/**/*.rs", "data/formulas/**"]
+alwaysApply: false
 ---
 
 # Mechanics Profile (772 primary / 1098 supported)

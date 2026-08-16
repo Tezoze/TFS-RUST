@@ -1,7 +1,6 @@
 ---
-trigger: always_on
-description: Game thread vs I/O thread invariant — the single rule that must hold from any file.
-globs:
+description: "Game-thread vs I/O-thread invariant: GameWorld is !Send; no tokio::spawn on simulation."
+alwaysApply: true
 ---
 
 # Threading Model — Invariant (Mandatory)

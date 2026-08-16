@@ -1,7 +1,7 @@
 ---
-trigger: model_decision
-description: Network protocol encoding standards and zero-copy parsing patterns for Tibia protocol.
+description: "Network protocol encoding, little-endian, zero-copy parsing for Tibia protocol."
 globs: ["crates/tfs-rust-net/**/*.rs"]
+alwaysApply: false
 ---
 
 # Network Protocol Encoding (Tibia Protocol)

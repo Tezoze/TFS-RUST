@@ -307,7 +307,9 @@ fn unix_secs() -> u32 {
 mod tests {
     use super::*;
     use crate::item::Item;
-    use crate::sim_harness::{beat_driven_test_world, ensure_walkable_tile, insert_player, test_player};
+    use crate::sim_harness::{
+        beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
+    };
     use crate::tile::{HouseTile, Tile, TileBody};
     use std::sync::Arc;
     use tfs_rust_common::ConnId;
@@ -371,9 +373,7 @@ mod tests {
         world
             .internal_add_item_to_tile(pos, bed, crate::cylinder::CylinderFlags::NO_LIMIT)
             .expect("place bed");
-        world
-            .player_use_bed(ConnId(1), cid, bed)
-            .expect("sleep");
+        world.player_use_bed(ConnId(1), cid, bed).expect("sleep");
         let ty = world.items.get(bed).map(|i| i.item_type);
         assert_eq!(ty, Some(1762));
         assert_eq!(world.items.get(bed).map(|i| i.sleeper_guid()), Some(1));

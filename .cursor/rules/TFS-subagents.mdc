@@ -1,0 +1,24 @@
+---
+description: "MUST spawn Task sub-agents for C++ analysis, tests, and verification. Parent keeps todo.md and lessons."
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# Sub-Agents (Mandatory)
+
+Split discrete work onto **Task** sub-agents. Do not run C++ analysis, implementation, tests, and verification all in the parent when those slices can be fully specified.
+
+**Spawn (`Task`) for:**
+- C++ / 772 / TFS domain analysis of one system — `explore` or `generalPurpose`
+- Writing one module or a focused patch — `generalPurpose`
+- Generating tests — `generalPurpose`
+- Verifying one behavior (`cargo test` / clippy) — `shell`
+
+**Parent agent only:**
+- Write/update `tasks/todo.md`
+- Integrate sub-agent results
+- Final verification + `tasks/lessons.md`
+
+Never let a sub-agent edit `tasks/todo.md` or `tasks/lessons.md`.
+
+Skip a sub-agent only for a single-file tweak that cannot be specified without this conversation’s live context.

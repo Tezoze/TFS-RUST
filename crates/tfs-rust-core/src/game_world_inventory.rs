@@ -19,7 +19,7 @@ use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::inventory::{InventorySlot, slot_type_for_item_type};
 use crate::item::Item;
-use crate::item_look::{item_get_description_cpp, look_distance_tfs};
+use crate::item_look::{format_gm_item_look_suffix, item_get_description_cpp, look_distance_tfs};
 use crate::player_inventory_notifications::NotificationParent;
 use crate::player_inventory_util::{InventoryItemRef, ItemCylinder};
 use crate::return_value::ReturnValue;
@@ -1363,13 +1363,24 @@ impl GameWorld {
         }
         let look_d = look_distance_tfs(player_pos, thing_pos);
 
-        // Track the item type for GM/God info append (itemID + clientID).
+        // Track item ids for GM/God extras (ItemID / ClientID / ActionID / UniqueID).
         let mut gm_item_type: Option<u16> = None;
+        let mut gm_action_id: u16 = 0;
+        let mut gm_unique_id: u16 = 0;
 
         let msg = match target {
             LookTarget::Creature(target_cid) => self.player_look_description(cid, target_cid),
             LookTarget::Ground(ground_type) => {
                 gm_item_type = Some(ground_type);
+                if let Some(g) = self
+                    .map
+                    .get_tile(thing_pos)
+                    .and_then(|t| t.body().ground_item)
+                    .and_then(|gid| self.items.get(gid))
+                {
+                    gm_action_id = g.action_id();
+                    gm_unique_id = g.unique_id();
+                }
                 let ephemeral = Item::new_single(ground_type);
                 if let Some(it) = self.items_db.items.get(&ground_type) {
                     let rune_vocs = self
@@ -1403,6 +1414,8 @@ impl GameWorld {
                     return;
                 };
                 gm_item_type = Some(item.item_type);
+                gm_action_id = item.action_id();
+                gm_unique_id = item.unique_id();
                 let container_capacity = self.container_registry.get(item_id).map(|c| c.capacity);
                 let rune_vocs = self
                     .spells
@@ -1429,9 +1442,9 @@ impl GameWorld {
             }
         };
 
-        // GM/God look: append itemID, clientID, and XYZ for item targets.
-        // TFS data packs typically do this in `Player:onLook` Lua; the Rust port builds
-        // look text natively, so we append here for access players (`Group::access`).
+        // GM/God look: append ItemID / ClientID / ActionID / UniqueID / XYZ.
+        // TFS `default_onLook.lua` — UniqueID is OTBM `ATTR_UNIQUE_ID` (map-editor uid).
+        // Rust builds look text natively, so this is appended for access players.
         let msg = if let Some(item_type) = gm_item_type {
             if self.player_is_access_player(cid) {
                 let client_id = self
@@ -1441,8 +1454,14 @@ impl GameWorld {
                     .map(|it| it.client_id)
                     .unwrap_or(item_type);
                 format!(
-                    "{msg}\nItemID: {item_type} | ClientID: {client_id} | XYZ: {} {} {}",
-                    thing_pos.x, thing_pos.y, thing_pos.z
+                    "{msg}\n{}",
+                    format_gm_item_look_suffix(
+                        item_type,
+                        client_id,
+                        gm_action_id,
+                        gm_unique_id,
+                        thing_pos,
+                    )
                 )
             } else {
                 msg

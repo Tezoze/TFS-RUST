@@ -263,6 +263,17 @@ mod tests {
         world.items_db = Arc::new(db);
     }
 
+    fn register_ground_type(world: &mut GameWorld, id: u16) {
+        use tfs_rust_content::otb::ItemType;
+        let mut it = pickup_item_type(id);
+        it.id = id;
+        it.server_id = id;
+        it.group = ItemType::GROUP_GROUND;
+        let mut db = (*world.items_db).clone();
+        db.items.insert(id, it);
+        world.items_db = Arc::new(db);
+    }
+
     #[test]
     fn lua_script_add_skill_tries_advances_fishing() {
         let mut world = minimal_world();
@@ -421,10 +432,11 @@ mod tests {
     }
 
     /// R5: `Game.createTile` inserts a missing tile so `createItem` can land.
+    /// Mintwallin lever: `createTile` then `createItem(1284)` — 1284 is OTB group ground.
     #[test]
     fn r5_create_tile_get_or_create_then_create_item_lands() {
         let mut world = minimal_world();
-        register_item_type(&mut world, 1284, false);
+        register_ground_type(&mut world, 1284);
         let pos = Position::new(32426, 32201, 14);
         assert!(world.map.get_tile(pos).is_none());
         world
@@ -438,6 +450,79 @@ mod tests {
             .lua_script_game_create_item(1284, 1, Some((pos.x, pos.y, pos.z)))
             .unwrap();
         assert!(item.is_some(), "createItem after createTile must land");
+        let iid = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(item.unwrap()));
+        let body = world.map.get_tile(pos).unwrap().body();
+        assert_eq!(body.ground, Some(1284));
+        assert_eq!(body.ground_item, Some(iid));
+        assert!(
+            body.down_items.is_empty() && body.top_items.is_empty(),
+            "drawbridge must be the bank, not a stack overlay"
+        );
+    }
+
+    /// TFS `addThing` replaces an existing ground item (`tile.cpp` ~852–867).
+    #[test]
+    fn create_item_group_ground_replaces_existing_bank() {
+        let mut world = minimal_world();
+        register_ground_type(&mut world, 1284);
+        register_ground_type(&mut world, 493);
+        let pos = Position::new(50, 50, 7);
+        world
+            .lua_script_game_create_tile(pos.x, pos.y, pos.z, true)
+            .unwrap();
+        let first = world
+            .lua_script_game_create_item(1284, 1, Some((pos.x, pos.y, pos.z)))
+            .unwrap()
+            .expect("drawbridge");
+        let first_id = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(first));
+        let water = world
+            .lua_script_game_create_item(493, 1, Some((pos.x, pos.y, pos.z)))
+            .unwrap()
+            .expect("water");
+        let water_id = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(water));
+        let body = world.map.get_tile(pos).unwrap().body();
+        assert_eq!(body.ground, Some(493));
+        assert_eq!(body.ground_item, Some(water_id));
+        assert!(world.items.get(first_id).is_none(), "old ground released");
+        assert!(world.items.get(water_id).is_some());
+    }
+
+    /// Rat-bridge dirt 4799 is OTB group NONE + always-on-top — must not replace water.
+    #[test]
+    fn create_item_always_on_top_does_not_replace_ground() {
+        let mut world = minimal_world();
+        register_ground_type(&mut world, 493);
+        let mut dirt = pickup_item_type(4799);
+        dirt.id = 4799;
+        dirt.server_id = 4799;
+        dirt.flags = 1 << 13; // FLAG_ALWAYSONTOP
+        dirt.always_on_top_order = 1;
+        let mut db = (*world.items_db).clone();
+        db.items.insert(4799, dirt);
+        world.items_db = Arc::new(db);
+
+        let pos = Position::new(50, 50, 7);
+        world
+            .lua_script_game_create_tile(pos.x, pos.y, pos.z, true)
+            .unwrap();
+        let water = world
+            .lua_script_game_create_item(493, 1, Some((pos.x, pos.y, pos.z)))
+            .unwrap()
+            .expect("water");
+        let dirt_id = world
+            .lua_script_game_create_item(4799, 1, Some((pos.x, pos.y, pos.z)))
+            .unwrap()
+            .expect("dirt");
+        let water_iid = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(water));
+        let dirt_iid = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(dirt_id));
+        let body = world.map.get_tile(pos).unwrap().body();
+        assert_eq!(body.ground, Some(493));
+        assert_eq!(body.ground_item, Some(water_iid));
+        assert_eq!(body.top_items.as_slice(), &[dirt_iid]);
+        assert!(
+            world.items.get(water_iid).is_some(),
+            "water bank must survive dirt overlay"
+        );
     }
 
     #[test]

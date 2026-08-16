@@ -98,6 +98,15 @@ impl TileBody {
         }
     }
 
+    /// TFS `Tile::getThing` item walk (creatures skipped): ground, top items, down items.
+    /// Used by `tile:getItemById` / `getItemByGroup` / `getItemByType`.
+    pub fn script_stack_item_ids(&self) -> impl Iterator<Item = ItemId> + '_ {
+        self.ground_item
+            .into_iter()
+            .chain(self.top_items.iter().copied())
+            .chain(self.down_items.iter().copied())
+    }
+
     /// 772 map-container object chain — `GetFirstObject` / `getNextObject` (`map.cc:2356`, `cract.cc:89-103`, `crnonpl.cc:2185+`).
     ///
     /// `CONTENT` head is the ground BANK (when present), then items bottom→top (`down_items` stored
@@ -186,6 +195,13 @@ impl Tile {
             return true;
         }
         false
+    }
+
+    /// TFS `Tile::setGround` — bank type id + SlotMap item (`tile.cpp` `addThing` ground arm).
+    pub fn set_ground(&mut self, item_id: ItemId, type_id: u16) {
+        let body = self.body_mut();
+        body.ground = Some(type_id);
+        body.ground_item = Some(item_id);
     }
 
     /// Add an item to this tile (adds to front of down_items, matching C++ `Tile::addThing`).

@@ -234,7 +234,6 @@ data/logs/*
 !.cursor/rules/**
 .kiro/
 .windsurfrules
-AGENTS.md
 
 #############
 ## Local session notes (agent-generated scratch docs)
