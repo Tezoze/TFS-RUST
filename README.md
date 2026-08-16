@@ -49,7 +49,7 @@ docker compose pull && docker compose up
 
 Client: login port **7171**, account **`1`**, password **`1`**. Characters: **God**, **Master Sorcerer**, **Elder Druid**, **Royal Paladin**, **Elite Knight**.
 
-See [docs/COMPILING.md](docs/COMPILING.md#11-docker).
+See [docs/DOCKER.md](docs/DOCKER.md).
 
 ---
 
@@ -58,6 +58,7 @@ See [docs/COMPILING.md](docs/COMPILING.md#11-docker).
 | Doc | Contents |
 |-----|----------|
 | [docs/COMPILING.md](docs/COMPILING.md) | Build, test, first-time DB and server setup |
+| [docs/DOCKER.md](docs/DOCKER.md) | Compose, GHCR image, ports, seeded account |
 | [docs/772_OTCLIENT_PARITY.md](docs/772_OTCLIENT_PARITY.md) | 7.72 OTClient protocol parity notes |
 | [docs/WALK_772_PARITY_AUDIT.md](docs/WALK_772_PARITY_AUDIT.md) | 7.72 walk / movement parity |
 | [docs/772_MONSTER_AI_AUDIT.md](docs/772_MONSTER_AI_AUDIT.md) | 7.72 monster AI and chase parity |
