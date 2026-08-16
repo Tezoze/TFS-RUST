@@ -469,7 +469,6 @@ fn handle_player_loaded(
     data: OwnedPlayerLoad,
     output_sinks: &mut OutputSinkMap,
     out_registry: &Option<OutRegistry>,
-    pending_output_shed: &mut Vec<ConnId>,
 ) {
     if let Some(started) = login_started.remove(&conn_id) {
         world.obs.record_login_load(
@@ -510,14 +509,8 @@ fn handle_player_loaded(
         Ok(login::ApplyPlayerOutcome::Spawned(cid)) => {
             world.register_conn_mapping(conn_id, cid);
             crate::login_out::enqueue_initial_login_packets(world, conn_id, cid);
-            flush_pending_outgoing(world, output_sinks, out_registry, pending_output_shed);
-            drain_output_shed(
-                world,
-                pending_login_conns,
-                output_sinks,
-                out_registry,
-                pending_output_shed,
-            );
+            // 772 `TPlayer` ctor `FinishSendData`s only (`crplayer.cc:197-209`); `SendAll` is
+            // `AdvanceGame` (`main.cc:455`). Beat-pending `SendAll` runs *before* dispatch.
         }
         Ok(login::ApplyPlayerOutcome::TakenOver { cid, old_conn }) => {
             // 772: `CharacterID = 0` then connection `Logout` — close old TCP without
@@ -529,14 +522,7 @@ fn handle_player_loaded(
             }
             world.register_conn_mapping(conn_id, cid);
             crate::login_out::enqueue_initial_login_packets(world, conn_id, cid);
-            flush_pending_outgoing(world, output_sinks, out_registry, pending_output_shed);
-            drain_output_shed(
-                world,
-                pending_login_conns,
-                output_sinks,
-                out_registry,
-                pending_output_shed,
-            );
+            // New conn waits for beat `SendAll`, same as spawn (`crplayer.cc:765-773`).
         }
         Err(e) => {
             warn!(?e, %name, conn_id = conn_id.0, "player login apply failed");
@@ -1106,7 +1092,6 @@ fn dispatch_command(
     login_started: &mut HashMap<ConnId, Instant>,
     output_sinks: &mut OutputSinkMap,
     out_registry: &Option<OutRegistry>,
-    pending_output_shed: &mut Vec<ConnId>,
 ) -> ControlFlow<LoopExit> {
     let Some(cmd) = cmd else {
         return ControlFlow::Break(LoopExit::ChannelClosed);
@@ -1149,7 +1134,6 @@ fn dispatch_command(
                 data,
                 output_sinks,
                 out_registry,
-                pending_output_shed,
             );
             ControlFlow::Continue(())
         }
@@ -1358,6 +1342,39 @@ fn obs_advance_beats(
     );
 }
 
+/// `AdvanceGame` + `SendAll` when a beat is already due (`main.cc:493-497`).
+///
+/// Call this *before* dispatching the command that just woke the loop. Tokio
+/// `Interval` is Ready the instant the deadline passes, unlike POSIX `SIGALRM`
+/// which is usually still 0 during `ReceiveData`. SendAll-after-dispatch made
+/// `0xA3` ride the same wakeup as the NPC-attack click, so the red square died
+/// instantly instead of lasting ~Beat ms.
+#[allow(clippy::too_many_arguments)]
+fn send_all_if_beat_pending(
+    world: &mut GameWorld,
+    beat_timer: &mut tokio::time::Interval,
+    next_beat_deadline: &mut Instant,
+    beat_ms: u64,
+    pending_login_conns: &mut HashSet<ConnId>,
+    output_sinks: &mut OutputSinkMap,
+    out_registry: &Option<OutRegistry>,
+    pending_output_shed: &mut Vec<ConnId>,
+) {
+    let ready = drain_ready_beats(beat_timer);
+    if ready > 0 {
+        obs_advance_beats(
+            world,
+            next_beat_deadline,
+            beat_ms,
+            ready,
+            pending_login_conns,
+            output_sinks,
+            out_registry,
+            pending_output_shed,
+        );
+    }
+}
+
 /// Build the beat timer so the first tick waits one full beat (772 `LaunchGame` waits for
 /// the first alarm — `main.cc:484–497`). Tokio's `interval` fires immediately; `interval_at`
 /// matches the reference.
@@ -1395,6 +1412,19 @@ pub async fn run_game_loop(
             biased;
 
             cmd = recv_next_command(&mut game_rx, &mut ctrl_rx, &mut pending) => {
+                // Flush packets queued *before* this command. SendAll after dispatch
+                // raced Tokio's due Interval and dropped the red square on the click
+                // (`main.cc:488-497`; POSIX alarm is usually 0 during ReceiveData).
+                send_all_if_beat_pending(
+                    &mut world,
+                    &mut beat_timer,
+                    &mut next_beat_deadline,
+                    beat_ms,
+                    &mut pending_login_conns,
+                    &mut output_sinks,
+                    &out_registry,
+                    &mut pending_output_shed,
+                );
                 obs_note_ingress(&mut world, &game_rx, &pending);
                 match dispatch_command(
                     &mut world,
@@ -1406,7 +1436,6 @@ pub async fn run_game_loop(
                     &mut login_started,
                     &mut output_sinks,
                     &out_registry,
-                    &mut pending_output_shed,
                 ) {
                     ControlFlow::Break(LoopExit::Shutdown) => {
                         flush_online_players_to_db(&world).await?;
@@ -1432,7 +1461,6 @@ pub async fn run_game_loop(
                                 &mut login_started,
                                 &mut output_sinks,
                                 &out_registry,
-                                &mut pending_output_shed,
                             ) {
                                 ControlFlow::Break(LoopExit::Shutdown) => {
                                     flush_online_players_to_db(&world).await?;
@@ -1445,38 +1473,6 @@ pub async fn run_game_loop(
                             }
                         }
                         world.obs_record_commands(processed);
-                        // After the command budget, service ready beats so ingress cannot starve simulation.
-                        let ready = drain_ready_beats(&mut beat_timer);
-                        if ready > 0 {
-                            obs_advance_beats(
-                                &mut world,
-                                &mut next_beat_deadline,
-                                beat_ms,
-                                ready,
-                                &mut pending_login_conns,
-                                &mut output_sinks,
-                                &out_registry,
-                                &mut pending_output_shed,
-                            );
-                        } else {
-                            // Commands (Attack → BlockLogout → icons / cancel messages) must not
-                            // wait for the next beat alarm — 772 `SendAll` is per AdvanceGame, but
-                            // our command lane runs between beats; flush here so `0xA2` state and
-                            // talk failures reach the client immediately.
-                            flush_pending_outgoing(
-                                &mut world,
-                                &mut output_sinks,
-                                &out_registry,
-                                &mut pending_output_shed,
-                            );
-                            drain_output_shed(
-                                &mut world,
-                                &mut pending_login_conns,
-                                &mut output_sinks,
-                                &out_registry,
-                                &mut pending_output_shed,
-                            );
-                        }
                         world.obs_maybe_emit();
                     }
                 }
@@ -1956,7 +1952,6 @@ mod f8_s6_handler_routing_tests {
         let mut login_started = HashMap::new();
         let out_registry = None;
         let mut output_sinks = HashMap::new();
-        let mut pending_output_shed = Vec::new();
 
         let login_conn = ConnId(99);
         begin_player_login_load(
@@ -2014,7 +2009,6 @@ mod f8_s6_handler_routing_tests {
                         &mut login_started,
                         &mut output_sinks,
                         &out_registry,
-                        &mut pending_output_shed,
                     );
                     assert!(matches!(flow, ControlFlow::Continue(())));
                 }
@@ -2107,7 +2101,6 @@ mod f8_s6_handler_routing_tests {
         let mut login_started = HashMap::new();
         let out_registry = None;
         let mut output_sinks = HashMap::new();
-        let mut pending_output_shed = Vec::new();
 
         // Fill well beyond one turn's budget.
         for _ in 0..(MAX_GAME_COMMANDS_PER_TURN * 4) {
@@ -2143,7 +2136,6 @@ mod f8_s6_handler_routing_tests {
                     &mut login_started,
                     &mut output_sinks,
                     &out_registry,
-                    &mut pending_output_shed,
                 );
                 assert!(matches!(flow, ControlFlow::Continue(())));
                 processed += 1;
@@ -2179,7 +2171,6 @@ mod f8_s6_handler_routing_tests {
         let mut login_started = HashMap::new();
         let out_registry = None;
         let mut output_sinks = HashMap::new();
-        let mut pending_output_shed = Vec::new();
 
         let beat_ms = u64::from(world.mechanics.profile.beat_ms.max(1));
         let (mut beat_timer, _) = new_beat_timer(beat_ms);
@@ -2222,7 +2213,6 @@ mod f8_s6_handler_routing_tests {
                     &mut login_started,
                     &mut output_sinks,
                     &out_registry,
-                    &mut pending_output_shed,
                 );
                 assert!(matches!(flow, ControlFlow::Continue(())));
                 processed += 1;
@@ -2386,6 +2376,194 @@ mod f8_s6_handler_routing_tests {
         tokio::time::timeout(Duration::from_millis(beat_ms + 20), timer.tick())
             .await
             .expect("first beat must fire after one period");
+    }
+
+    /// 772 `LaunchGame`: `ReceiveData` without a pending alarm does not `SendAll` (`main.cc:488-497`).
+    #[tokio::test(flavor = "current_thread")]
+    async fn command_only_wakeup_does_not_send_all() {
+        use std::collections::HashSet;
+        use std::time::Duration;
+
+        use tfs_rust_common::ConnId;
+
+        use super::{new_beat_timer, send_all_if_beat_pending};
+
+        let mut world = beat_driven_test_world();
+        let conn = ConnId(1);
+        world.pending_outgoing.insert(conn, vec![vec![0xA3]]);
+        let beat_ms = u64::from(world.mechanics.profile.beat_ms.max(1));
+        let (mut beat_timer, mut deadline) = new_beat_timer(beat_ms);
+        let mut logins = HashSet::new();
+        let mut sinks = HashMap::new();
+        let mut shed = Vec::new();
+
+        send_all_if_beat_pending(
+            &mut world,
+            &mut beat_timer,
+            &mut deadline,
+            beat_ms,
+            &mut logins,
+            &mut sinks,
+            &None,
+            &mut shed,
+        );
+        assert!(
+            world
+                .pending_outgoing
+                .get(&conn)
+                .is_some_and(|pkts| pkts.iter().any(|b| b.as_slice() == [0xA3])),
+            "0xA3 must stay queued until AdvanceGame SendAll, got {:?}",
+            world.pending_outgoing.get(&conn)
+        );
+
+        tokio::time::sleep(Duration::from_millis(beat_ms + 5)).await;
+        send_all_if_beat_pending(
+            &mut world,
+            &mut beat_timer,
+            &mut deadline,
+            beat_ms,
+            &mut logins,
+            &mut sinks,
+            &None,
+            &mut shed,
+        );
+        assert!(
+            world
+                .pending_outgoing
+                .get(&conn)
+                .is_none_or(|pkts| pkts.is_empty()),
+            "SendAll on beat must drain queued 0xA3"
+        );
+    }
+
+    /// Tokio `Interval` is Ready as soon as the deadline passes. SendAll must run
+    /// *before* dispatch so a due beat does not flush this click's `0xA3`.
+    #[tokio::test(flavor = "current_thread")]
+    async fn due_beat_then_command_keeps_clear_target_queued() {
+        use std::collections::HashSet;
+        use std::time::Duration;
+
+        use tfs_rust_common::ConnId;
+
+        use super::{new_beat_timer, send_all_if_beat_pending};
+
+        let mut world = beat_driven_test_world();
+        let conn = ConnId(1);
+        let beat_ms = u64::from(world.mechanics.profile.beat_ms.max(1));
+        let (mut beat_timer, mut deadline) = new_beat_timer(beat_ms);
+        let mut logins = HashSet::new();
+        let mut sinks = HashMap::new();
+        let mut shed = Vec::new();
+
+        tokio::time::sleep(Duration::from_millis(beat_ms + 5)).await;
+        // Start of command arm: consume the due beat (nothing queued yet).
+        send_all_if_beat_pending(
+            &mut world,
+            &mut beat_timer,
+            &mut deadline,
+            beat_ms,
+            &mut logins,
+            &mut sinks,
+            &None,
+            &mut shed,
+        );
+        world.pending_outgoing.insert(conn, vec![vec![0xA3]]);
+        // End of the same arm must not SendAll — interval was already drained.
+        send_all_if_beat_pending(
+            &mut world,
+            &mut beat_timer,
+            &mut deadline,
+            beat_ms,
+            &mut logins,
+            &mut sinks,
+            &None,
+            &mut shed,
+        );
+        assert!(
+            world
+                .pending_outgoing
+                .get(&conn)
+                .is_some_and(|pkts| pkts.iter().any(|b| b.as_slice() == [0xA3])),
+            "0xA3 from this click must wait until the next beat, got {:?}",
+            world.pending_outgoing.get(&conn)
+        );
+
+        tokio::time::sleep(Duration::from_millis(beat_ms + 5)).await;
+        send_all_if_beat_pending(
+            &mut world,
+            &mut beat_timer,
+            &mut deadline,
+            beat_ms,
+            &mut logins,
+            &mut sinks,
+            &None,
+            &mut shed,
+        );
+        assert!(
+            world
+                .pending_outgoing
+                .get(&conn)
+                .is_none_or(|pkts| pkts.is_empty()),
+            "next beat SendAll must drain queued 0xA3"
+        );
+    }
+
+    /// Login burst (`0x0A` self-appear) uses the same SendAll gate as commands (`crplayer.cc:199`).
+    #[tokio::test(flavor = "current_thread")]
+    async fn login_burst_waits_for_beat_send_all() {
+        use std::collections::HashSet;
+        use std::time::Duration;
+
+        use tfs_rust_common::ConnId;
+
+        use super::{new_beat_timer, send_all_if_beat_pending};
+
+        let mut world = beat_driven_test_world();
+        let conn = ConnId(1);
+        world.pending_outgoing.insert(conn, vec![vec![0x0A]]);
+        let beat_ms = u64::from(world.mechanics.profile.beat_ms.max(1));
+        let (mut beat_timer, mut deadline) = new_beat_timer(beat_ms);
+        let mut logins = HashSet::new();
+        let mut sinks = HashMap::new();
+        let mut shed = Vec::new();
+
+        send_all_if_beat_pending(
+            &mut world,
+            &mut beat_timer,
+            &mut deadline,
+            beat_ms,
+            &mut logins,
+            &mut sinks,
+            &None,
+            &mut shed,
+        );
+        assert!(
+            world
+                .pending_outgoing
+                .get(&conn)
+                .is_some_and(|pkts| pkts.iter().any(|b| b.as_slice() == [0x0A])),
+            "login 0x0A must stay queued until AdvanceGame SendAll, got {:?}",
+            world.pending_outgoing.get(&conn)
+        );
+
+        tokio::time::sleep(Duration::from_millis(beat_ms + 5)).await;
+        send_all_if_beat_pending(
+            &mut world,
+            &mut beat_timer,
+            &mut deadline,
+            beat_ms,
+            &mut logins,
+            &mut sinks,
+            &None,
+            &mut shed,
+        );
+        assert!(
+            world
+                .pending_outgoing
+                .get(&conn)
+                .is_none_or(|pkts| pkts.is_empty()),
+            "SendAll on beat must drain queued login 0x0A"
+        );
     }
 
     // Suppress unused-import warning for `Player` (re-exported via test_player; kept for

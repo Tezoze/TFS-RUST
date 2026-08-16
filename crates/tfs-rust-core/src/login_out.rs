@@ -504,6 +504,9 @@ fn build_initial_map_packet(
 /// sends the OTCv8/10.98 preamble; 772 (`gameserver/src/protocolgame.cpp` `login` + `sendAddCreature`
 /// self branch) sends the lean 772 sequence. Mixing them desyncs the client (e.g. 1098's
 /// pending-state `0x0A` collides with 772's self-appear opcode → black screen).
+///
+/// Queues only (`FinishSendData`). 772 `TPlayer` ctor / `TakeOver` (`crplayer.cc:197-209`,
+/// `721-773`) never `SendAll`; that is `AdvanceGame` (`main.cc:455`). Callers must not flush.
 pub fn enqueue_initial_login_packets(
     world: &mut GameWorld,
     conn_id: ConnId,
