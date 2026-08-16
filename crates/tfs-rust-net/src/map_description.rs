@@ -1,4 +1,7 @@
 //! `GetMapDescription` / `GetFloorDescription` / `GetTileDescription`.
+//!
+//! 772 NotifyGo non-adjacent: `cract.cc` else → `SendFullScreen` (`sending.cc`); adjacent
+//! floors/rows stay `0x6C`/`0x6D` then `0xBE`/`0xBF` + rows.
 // C++ reference (this repo): `src/protocolgame.cpp`.
 
 use std::collections::HashSet;
@@ -1141,10 +1144,13 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
 ///
 /// Computes the **overall** `orig → dest` delta and walks it in a fixed order —
 /// z-steps first (each shifts x/y diagonally by ∓1), then x-steps, then y-steps —
-/// emitting `SendFloors` (0xBE/0xBF) / `SendRow` (0x65-0x68) per step. Non-adjacent moves
-/// (`|d| > 1` on any axis) use `SendFullScreen` (`0x64`).
+/// emitting `SendFloors` (0xBE/0xBF) / `SendRow` (0x65-0x68) per step.
 ///
-/// Leading self-packet (before floors/rows):
+/// Non-adjacent (`|d| > 1` on any axis): `NotifyGo` else branch sets pos then
+/// `SendFullScreen` only (`cract.cc:1455-1459`; `sending.cc` `SendFullScreen`) —
+/// `0x64` + dest pos + map body. No `0x6D`/`0x6C`.
+///
+/// Adjacent leading self-packet (before floors/rows):
 /// - surface→underground (`orig.z == 7 && dest.z >= 8`): `0x6C` remove — TVP
 ///   `sendMoveCreature` (`protocolgame.cpp` ~1793–1805). A `0x6D` pre-sets client z and
 ///   FloorDown then asserts `rz=-1` (bug0000013).
@@ -1169,20 +1175,9 @@ pub fn send_notify_go<F: FnMut(u32) -> bool>(
     let (ox, oy, oz) = (orig.x as i32, orig.y as i32, orig.z as i32);
     let (dx, dy, dz) = (dest.x as i32, dest.y as i32, dest.z as i32);
 
-    // Non-adjacent → SendFullScreen (`cract.cc:1457-1461`).
+    // Non-adjacent → SendFullScreen only (`cract.cc` NotifyGo else; `sending.cc` SendFullScreen).
     if (dx - ox).abs() > 1 || (dy - oy).abs() > 1 || (dz - oz).abs() > 1 {
-        // Self-packet first (decompile `AnnounceMovingCreature` → `SendMoveCreature`).
-        let mut msg = NetworkMessage::new();
-        msg.write_u8(0x6D);
-        if (0..10).contains(&old_stack_pos) {
-            msg.write_position(&orig);
-            msg.write_u8(old_stack_pos as u8);
-        } else {
-            msg.write_u16(0xFFFF);
-            msg.write_u32(creature_id);
-        }
-        msg.write_position(&dest);
-        let map_pkt = send_map_description_packet(
+        return send_map_description_packet(
             codec,
             dest,
             dest,
@@ -1191,8 +1186,6 @@ pub fn send_notify_go<F: FnMut(u32) -> bool>(
             can_see_creature,
             with_description,
         );
-        msg.write_bytes(&map_pkt.into_bytes());
-        return msg;
     }
 
     let mut msg = NetworkMessage::new();

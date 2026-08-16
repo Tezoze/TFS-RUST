@@ -1562,7 +1562,8 @@ mod v1098_floor_change {
 /// - surface→underground (`z=7`→`z≥8`): `0x6C` remove (must not `0x6D` — client FloorDown
 ///   would double-apply z and assert `rz=-1` / bug0000013)
 /// - otherwise: `0x6D` move (old+stack+new) then floor/row opcodes
-/// Non-adjacent moves use `SendFullScreen` (`0x64`) after `0x6D`.
+///
+/// Non-adjacent: `SendFullScreen` only (`0x64` + dest pos + map body; no `0x6D`/`0x6C`).
 mod v772_floor_change {
     use super::*;
 
@@ -1678,18 +1679,37 @@ mod v772_floor_change {
         );
     }
 
-    /// Non-adjacent move (dz > 1): 0x6D self-packet, then `SendFullScreen` (0x64).
+    /// Non-adjacent move (dz > 1): `SendFullScreen` only (`0x64`), no leading `0x6D`.
+    /// `cract.cc` NotifyGo else → `SendFullScreen`; `sending.cc` `SendFullScreen`.
     #[test]
-    fn non_adjacent_self_packet_then_full_screen() {
+    fn non_adjacent_full_screen_only() {
+        let dest = Position::new(100, 100, 9);
+        let b = notify_go_bytes(&codec_772(), Position::new(100, 100, 7), dest);
+        assert_eq!(
+            b[0], 0x64,
+            "non-adjacent NotifyGo must start with 0x64 (got {:#04X})",
+            b[0]
+        );
+        assert_ne!(b[0], 0x6D);
+        assert_eq!(u16::from_le_bytes([b[1], b[2]]), dest.x);
+        assert_eq!(u16::from_le_bytes([b[3], b[4]]), dest.y);
+        assert_eq!(b[5], dest.z);
+    }
+
+    /// Live crash repro (2026-08-16): (33211,31813,7)→(33211,31815,8) is |dy|=2 so
+    /// non-adjacent. Leading `0x6D` then `0x64` crashed Map.cpp 378 `rz=-1` / bug0000013.
+    #[test]
+    fn non_adjacent_live_repro_full_screen_only() {
+        let dest = Position::new(33211, 31815, 8);
         let b = notify_go_bytes(
             &codec_772(),
-            Position::new(100, 100, 7),
-            Position::new(100, 100, 9),
+            Position::new(33211, 31813, 7),
+            dest,
         );
-        let off = assert_self_move_then_stream(&b);
-        assert_eq!(
-            b[off], 0x64,
-            "non-adjacent NotifyGo uses SendFullScreen (0x64)"
-        );
+        assert_eq!(b[0], 0x64, "live repro must start with 0x64 (got {:#04X})", b[0]);
+        assert_ne!(b[0], 0x6D, "must not lead with 0x6D");
+        assert_eq!(u16::from_le_bytes([b[1], b[2]]), dest.x);
+        assert_eq!(u16::from_le_bytes([b[3], b[4]]), dest.y);
+        assert_eq!(b[5], dest.z);
     }
 }

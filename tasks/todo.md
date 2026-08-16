@@ -1,9 +1,5 @@
-# Movements Lua APIs — M3 setTown + getMaster — 2026-08-16
+# Floor-down crash — bug0000013 `rz=-1` on non-adjacent NotifyGo
 
-**Status:** M3 done. Full audit: [movements-plan.md](movements-plan.md).
+**Status:** done. Lesson 361.
 
-## M3 shipped
-- **M3a** `Player:setTown(Town)` — Town userdata only; `true` / `false` / `nil` like TFS; in-memory `town_id` only (no teleport).
-- **M3b** `Creature:getMaster()` — live summoner `CreatureRef` or `nil`.
-
-Then **M4** (772 trap/field script pass).
+Non-adjacent `send_notify_go` is `SendFullScreen` (`0x64`) only — no leading `0x6D`. Adjacent hole/stairs still `0x6C`/`0x6D` + floors (lesson 277).
