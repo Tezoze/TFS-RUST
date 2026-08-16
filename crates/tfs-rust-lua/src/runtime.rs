@@ -34,8 +34,8 @@ use crate::userdata::{
     register_creature_metatable, register_group_metatable, register_item_metatable,
     register_item_type_constructor, register_item_type_metatable,
     register_monster_type_constructor, register_npc_metatable, register_position_metatable,
-    register_spell_metatable, register_tile_constructor, register_vocation_metatable,
-    register_weapon_metatable,
+    register_spell_metatable, register_tile_constructor, register_town_constructor,
+    register_vocation_metatable, register_weapon_metatable,
 };
 use tfs_rust_common::Position;
 
@@ -179,6 +179,7 @@ impl LuaRuntime {
         register_item_type_metatable(&lua).map_err(LuaError::Registration)?;
         register_event_script_bootstrap(&lua).map_err(LuaError::Registration)?;
         register_tile_constructor(&lua).map_err(LuaError::Registration)?;
+        register_town_constructor(&lua).map_err(LuaError::Registration)?;
         register_game_api(&lua).map_err(LuaError::Registration)?;
         register_variant_constructor(&lua).map_err(LuaError::Registration)?;
         register_monster_type_constructor(&lua).map_err(LuaError::Registration)?;
@@ -1404,9 +1405,10 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
     // C++ reference: `talkaction.h` `TalkAction` / `talkaction.cpp`
     // `TalkActions::registerLuaEvent`. Default separator is `" "` (space),
     // matching C++ `TalkAction::separator = "\""` → TFS data pack uses `" "`.
-    let talkaction_constructor = lua.create_function(|lua, words: String| {
+    let talkaction_constructor = lua.create_function(|lua, words: mlua::Variadic<String>| {
         let ta = lua.create_table()?;
-        ta.set("words", words)?;
+        // TFS `TalkAction(words...)` joins with `;` (`TalkAction::setWords`).
+        ta.set("words", words.join(";"))?;
         ta.set("_separator", " ")?;
         // `talkaction:separator(sep)` fluent setter (mirrors C++
         // `TalkAction::setSeparator`).

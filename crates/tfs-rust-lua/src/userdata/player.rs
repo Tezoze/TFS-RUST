@@ -16,6 +16,7 @@ use crate::lua_mutation::{
 use crate::userdata::container::ContainerRef;
 use crate::userdata::group::GroupRef;
 use crate::userdata::position::PositionRef;
+use crate::userdata::town::TownRef;
 use crate::userdata::vocation::VocationRef;
 
 /// Register the Creature metatable in the Lua runtime.
@@ -332,6 +333,19 @@ impl UserData for CreatureRef {
                     .map(i32::from)
                     .ok_or_else(|| mlua::Error::runtime("player not found"))
             })
+        });
+
+        // `player:getTown()` — `luaPlayerGetTown`. Returns `Town` userdata
+        // wrapping `players.town_id`, or `nil` if not a player.
+        methods.add_method("getTown", |lua, this, ()| {
+            let town_id = with_ctx(|ctx| Ok(ctx.get_player_town_id(this.0)))?;
+            match town_id {
+                Some(id) if id >= 0 => {
+                    let ud = lua.create_userdata(TownRef(id as u32))?;
+                    Ok(Value::UserData(ud))
+                }
+                _ => Ok(Value::Nil),
+            }
         });
 
         // `player:getGroup()` — `Player::getGroup` (`player.h`). CH-6 talkaction

@@ -12,6 +12,7 @@ pub mod player;
 pub mod position;
 pub mod spell;
 pub mod tile;
+pub mod town;
 pub mod vocation;
 pub mod weapon;
 
@@ -27,5 +28,6 @@ pub use player::register_creature_metatable;
 pub use position::{PositionRef, register_position_metatable};
 pub use spell::{PendingSpell, SpellBuilder, register_spell_metatable};
 pub use tile::{HouseRef, TileRef, register_tile_constructor};
+pub use town::{TownRef, register_town_constructor};
 pub use vocation::{VocationRef, register_vocation_metatable};
 pub use weapon::{PendingWeapon, WeaponBuilder, register_weapon_metatable};

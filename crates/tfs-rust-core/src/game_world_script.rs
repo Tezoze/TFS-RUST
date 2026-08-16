@@ -389,10 +389,46 @@ impl tfs_rust_common::ScriptContext for GameWorld {
 
     /// `Player(name)` constructor — `luascript.cpp` `luaPlayerCreate`. LUA-4
     /// read; resolves an online player by name via `player_by_name`.
+    /// TFS `Game::getPlayerByName` is case-insensitive.
     fn get_player_by_name(&self, name: &str) -> Option<tfs_rust_common::ScriptCreatureId> {
+        if let Some(cid) = self.player_by_name.get(name) {
+            return Some(Self::creature_to_script_id(*cid));
+        }
         self.player_by_name
-            .get(name)
-            .map(|cid| Self::creature_to_script_id(*cid))
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, cid)| Self::creature_to_script_id(*cid))
+    }
+
+    fn get_player_town_id(&self, creature_id: tfs_rust_common::ScriptCreatureId) -> Option<i32> {
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        self.creatures.get(cid).and_then(|k| match k {
+            CreatureKind::Player(p) => Some(p.town_id),
+            _ => None,
+        })
+    }
+
+    fn get_town_by_id(&self, town_id: u32) -> Option<tfs_rust_common::ScriptTownData> {
+        self.map
+            .towns
+            .get(&town_id)
+            .map(|t| tfs_rust_common::ScriptTownData {
+                id: t.id,
+                name: t.name.clone(),
+                temple: t.temple_position,
+            })
+    }
+
+    fn get_town_by_name(&self, name: &str) -> Option<tfs_rust_common::ScriptTownData> {
+        self.map
+            .towns
+            .values()
+            .find(|t| t.name.eq_ignore_ascii_case(name))
+            .map(|t| tfs_rust_common::ScriptTownData {
+                id: t.id,
+                name: t.name.clone(),
+                temple: t.temple_position,
+            })
     }
 
     /// `player:getGroup():getId()` backing read — `players.group_id`.

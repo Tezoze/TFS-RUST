@@ -30,8 +30,8 @@ use crate::map::Map;
 use crate::spawn::SpawnManager;
 use tfs_rust_lua::{
     LuaRuntime, ScriptLoader, assert_required_data_globals, inject_door_tables_from_global,
-    inject_era_formulas, load_action_scripts, load_chat_channel_scripts, load_data_lib,
-    load_talkaction_scripts,
+    inject_era_formulas, load_action_scripts, load_all_talkaction_scripts,
+    load_chat_channel_scripts, load_data_lib,
 };
 
 /// Resolve PEM: `TFS_RSA_PEM` if set, else workspace-root `key.pem`, else `./key.pem`.
@@ -250,12 +250,10 @@ pub async fn run() -> anyhow::Result<()> {
                 tracing::warn!("Lua movements loading failed: {}", e);
             }
 
-            // CH-6: Load talkaction scripts from `data/scripts/talkactions/god/*.lua`.
-            // Self-registering via `TalkAction(words):register()`.
-            let talkaction_defs = match load_talkaction_scripts(&mut lua_runtime, &data_path, "god")
-            {
+            // Load `data/scripts/talkactions/**` (`TalkAction(words):register()`).
+            let talkaction_defs = match load_all_talkaction_scripts(&mut lua_runtime, &data_path) {
                 Ok(defs) => {
-                    tracing::info!("Loaded {} talkaction definitions from god/", defs.len());
+                    tracing::info!("Loaded {} talkaction definitions", defs.len());
                     defs
                 }
                 Err(e) => {

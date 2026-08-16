@@ -60,7 +60,7 @@ pub use runtime::{
     PendingChatChannel, PendingMoveEvent, PendingTalkAction, RegisterLuaFunctions,
 };
 pub use script_loader::{CreatureEventType, LoadError, PlayerEventType, ScriptLoader};
-pub use talkactions::{TalkActionDef, load_talkaction_scripts};
+pub use talkactions::{TalkActionDef, load_all_talkaction_scripts, load_talkaction_scripts};
 pub use timer_events::{
     TimerEventDesc, TimerEvents, TimerScheduler, execute_timer_event,
     register_add_event_stop_event, set_timer_scheduler,

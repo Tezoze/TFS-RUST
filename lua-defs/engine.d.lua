@@ -83,6 +83,7 @@ function Creature:getSlotItem(...) end
 function Creature:getSpellCoeff(...) end
 function Creature:getStorageValue(...) end
 function Creature:getSummons(...) end
+function Creature:getTown(...) end
 function Creature:getType(...) end
 function Creature:getVocation(...) end
 function Creature:hasFlag(...) end
@@ -341,6 +342,13 @@ function Tile:hasFlag(...) end
 function Tile:hasProperty(...) end
 function Tile:isWalkable(...) end
 function Tile:queryAdd(...) end
+
+---@class Town
+Town = {}
+
+function Town:getId(...) end
+function Town:getName(...) end
+function Town:getTemplePosition(...) end
 
 ---@class Variant
 Variant = {}

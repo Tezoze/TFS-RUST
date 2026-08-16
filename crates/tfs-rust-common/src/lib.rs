@@ -32,5 +32,5 @@ pub use protocol_version::{
 pub use script_context::{
     ScriptAttrValue, ScriptContainerData, ScriptContext, ScriptCreatureData, ScriptCreatureId,
     ScriptCreatureRef, ScriptCylinder, ScriptInstantSpell, ScriptItemData, ScriptItemId,
-    ScriptItemRef, ScriptThing, WeaponCombatParams, remere_attr,
+    ScriptItemRef, ScriptThing, ScriptTownData, WeaponCombatParams, remere_attr,
 };

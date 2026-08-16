@@ -319,6 +319,25 @@ pub trait ScriptContext {
         None
     }
 
+    /// `player:getTown()` backing read — `players.town_id` (`player.h`).
+    /// Defaults to `None` (not a player).
+    fn get_player_town_id(&self, creature_id: ScriptCreatureId) -> Option<i32> {
+        let _ = creature_id;
+        None
+    }
+
+    /// `Town(id)` / `town:getTemplePosition()` — OTBM `TownData` by id.
+    fn get_town_by_id(&self, town_id: u32) -> Option<ScriptTownData> {
+        let _ = town_id;
+        None
+    }
+
+    /// `Town(name)` — case-insensitive name match (`Towns::getTown`).
+    fn get_town_by_name(&self, name: &str) -> Option<ScriptTownData> {
+        let _ = name;
+        None
+    }
+
     /// `player:getGroup():getId()` backing read — `players.group_id`
     /// (`player.h` `Group`). CH-6 talkaction access gating; defaults to
     /// `None` (player not found).
@@ -883,6 +902,14 @@ pub trait ScriptContext {
         let _ = (x, y, z);
         None
     }
+}
+
+/// Town snapshot for Lua `Town` userdata (`luascript.cpp` `luaTownCreate`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScriptTownData {
+    pub id: u32,
+    pub name: String,
+    pub temple: Position,
 }
 
 /// Instant spell snapshot for Lua `Game.getInstantSpells()` (E6).

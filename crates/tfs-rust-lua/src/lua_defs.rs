@@ -29,6 +29,7 @@ use crate::userdata::npc::NpcRef;
 use crate::userdata::position::PositionRef;
 use crate::userdata::spell::{PendingSpell, SpellBuilder};
 use crate::userdata::tile::{HouseRef, TileRef};
+use crate::userdata::town::TownRef;
 use crate::userdata::vocation::VocationRef;
 use crate::userdata::weapon::{PendingWeapon, WeaponBuilder};
 use std::cell::RefCell;
@@ -322,6 +323,7 @@ fn check_file(dir: &Path, name: &str, expected: &str) -> Result<(), String> {
 fn populate_native_members(lua: &Lua) -> Result<(), mlua::Error> {
     let _ = lua.create_userdata(TileRef { x: 0, y: 0, z: 0 })?;
     let _ = lua.create_userdata(HouseRef(0))?;
+    let _ = lua.create_userdata(TownRef(0))?;
     let _ = lua.create_userdata(ItemRef(0))?;
     let _ = lua.create_userdata(CreatureRef(0))?;
     let _ = lua.create_userdata(ContainerRef(0))?;
@@ -578,6 +580,17 @@ mod tests {
             "House:getId is a native method (E7)"
         );
 
+        let town = snap.classes.get("Town").expect("Town");
+        assert!(town.callable, "Town(id or name) is callable");
+        assert!(
+            town.methods.contains("getTemplePosition"),
+            "Town:getTemplePosition is a native method"
+        );
+        assert!(
+            town.methods.contains("getId"),
+            "Town:getId is a native method"
+        );
+
         let creature = snap.classes.get("Creature").expect("Creature");
         assert!(
             creature.methods.contains("addHealth"),
@@ -602,6 +615,10 @@ mod tests {
         assert!(
             creature.methods.contains("getInstantSpells"),
             "Creature:getInstantSpells is a native method (spellbook)"
+        );
+        assert!(
+            creature.methods.contains("getTown"),
+            "Creature:getTown is a native method"
         );
 
         let game = snap.classes.get("Game").expect("Game");
