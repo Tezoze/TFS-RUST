@@ -178,9 +178,7 @@ impl ItemDatabase {
     /// Whether this item behaves as a container for loot nesting (`loadLootContainer` in TFS).
     /// C++ source of truth: `ItemType::isContainer()` => `group == ITEM_GROUP_CONTAINER` (`src/items.h`).
     pub fn is_container(&self, id: u16) -> bool {
-        self.items
-            .get(&id)
-            .is_some_and(|t| t.group == ItemType::GROUP_CONTAINER)
+        self.items.get(&id).is_some_and(|t| t.is_container())
     }
 
     /// C++ `ItemType::isDepot()` — `src/items.h` (`type == ITEM_TYPE_DEPOT`).
@@ -535,6 +533,7 @@ impl ItemDatabase {
             buf.clear();
         }
 
+        link_bed_transforms(items);
         Ok(())
     }
 
@@ -668,6 +667,78 @@ fn parse_xml_bool(value: &str) -> Option<bool> {
     }
 }
 
+/// C++ `getMagicEffect` names used by items.xml — 772 `CONST_ME_*` wire bytes
+/// (`tools.cpp` `magicEffectNames`; `const.h:11-35`). Names beyond the 772 client
+/// range are dropped.
+fn parse_item_magic_effect(value: &str) -> Option<u8> {
+    Some(match value.trim().to_ascii_lowercase().as_str() {
+        "redspark" => 1,
+        "bluebubble" => 2,
+        "poff" => 3,
+        "yellowspark" => 4,
+        "explosionarea" => 5,
+        "explosion" => 6,
+        "firearea" => 7,
+        "yellowbubble" => 8,
+        "greenbubble" => 9,
+        "blackspark" => 10,
+        "teleport" => 11,
+        "energy" => 12,
+        "blueshimmer" => 13,
+        "redshimmer" => 14,
+        "greenshimmer" => 15,
+        "fire" => 16,
+        "greenspark" => 17,
+        "mortarea" => 18,
+        "greennote" => 19,
+        "rednote" => 20,
+        "poison" => 21,
+        "yellownote" => 22,
+        "purplenote" => 23,
+        "bluenote" => 24,
+        "whitenote" => 25,
+        _ => return None,
+    })
+}
+
+/// C++ `getDirection` — `tools.cpp`. Unknown tokens stay `DIRECTION_NORTH` (0).
+fn parse_partner_direction(value: &str) -> u8 {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "east" => 1,
+        "south" => 2,
+        "west" => 3,
+        "southwest" | "south-west" => 4,
+        "southeast" | "south-east" => 5,
+        "northwest" | "north-west" => 6,
+        "northeast" | "north-east" => 7,
+        _ => 0,
+    }
+}
+
+/// C++ `ITEM_PARSE_MALETRANSFORMTO` / `FEMALETRANSFORMTO` other-type `transformToFree` link
+/// (`src/items.cpp`). Runs after the full XML merge so destination types exist.
+fn link_bed_transforms(items: &mut HashMap<u16, ItemType>) {
+    let links: Vec<(u16, u16, u16)> = items
+        .iter()
+        .map(|(&id, it)| (id, it.transform_to_on_use[0], it.transform_to_on_use[1]))
+        .collect();
+    for (id, female, male) in links {
+        for dest in [female, male] {
+            if dest == 0 {
+                continue;
+            }
+            let other = items.entry(dest).or_insert_with(|| ItemType {
+                id: dest,
+                server_id: dest,
+                ..ItemType::default()
+            });
+            if other.transform_to_free == 0 {
+                other.transform_to_free = id;
+            }
+        }
+    }
+}
+
 /// C++ `getShootType` — `src/items.cpp` ~846 (`ITEM_PARSE_SHOOTTYPE`).
 /// Maps `items.xml` `shoottype` string → `ShootEffect` byte (`const.h` `ShootType_t`).
 /// Returns `None` for unknown values (C++ warns and leaves `SHOOT_NONE`).
@@ -728,19 +799,12 @@ fn apply_nested_xml_attribute(item: &mut ItemType, parent_key: &str, key: &str, 
 /// C++: end of `Items::parseItemNode` — `src/items.cpp` (lines 1381–1383). Uses `xml_attributes` until
 /// `ItemType` has `type` + transform fields like C++.
 fn warn_bed_type_mismatch(item_id: u16, item: &ItemType) {
-    let is_bed = item
-        .xml_attributes
-        .get("type")
-        .is_some_and(|s| s.eq_ignore_ascii_case("bed"));
-    if is_bed {
+    if item.is_bed() {
         return;
     }
-    // C++: `transformToFree` or either `transformToOnUse` sex; `malesleeper`/`femalesleeper` alias the same cases.
-    let tfree = u16_from_xml(&item.xml_attributes, "transformto");
-    let m = u16_from_xml(&item.xml_attributes, "maletransformto")
-        .max(u16_from_xml(&item.xml_attributes, "malesleeper"));
-    let f = u16_from_xml(&item.xml_attributes, "femaletransformto")
-        .max(u16_from_xml(&item.xml_attributes, "femalesleeper"));
+    let tfree = item.transform_to_free;
+    let m = item.transform_to_on_use[1];
+    let f = item.transform_to_on_use[0];
     if tfree == 0 && m == 0 && f == 0 {
         return;
     }
@@ -749,12 +813,6 @@ fn warn_bed_type_mismatch(item_id: u16, item: &ItemType) {
         item_id,
         "item is not set as a bed-type (C++: Items::parseItemNode bed check)"
     );
-}
-
-fn u16_from_xml(map: &HashMap<String, String>, key: &str) -> u16 {
-    map.get(key)
-        .and_then(|s| s.trim().parse().ok())
-        .unwrap_or(0)
 }
 
 fn warn_unknown_xml_key_once(item_id: u16, key: &str) {
@@ -964,6 +1022,59 @@ fn apply_xml_attribute(item: &mut ItemType, key: &str, value: &str, item_id: u16
                 item.max_text_len = v;
             }
         }
+        // Pack-only: TFS has no `ITEM_PARSE_FORCEUSE`; 772 `FLAG_FORCEUSE` (`operate.cc:368`).
+        "forceuse" => {
+            item.force_use_override = parse_xml_bool(value);
+        }
+        // C++ `ITEM_PARSE_EFFECT` — `src/items.cpp` (`it.magicEffect = getMagicEffect`).
+        "effect" => {
+            if let Some(fx) = parse_item_magic_effect(value) {
+                item.magic_effect = fx;
+            } else {
+                warn!(
+                    target: "tfs_rust_content::items",
+                    item_id,
+                    key = "effect",
+                    value,
+                    "unknown effect in items.xml (C++ warns)"
+                );
+            }
+        }
+        // C++ `ITEM_PARSE_WRITEONCEITEMID` — `src/items.cpp`.
+        "writeonceitemid" => {
+            if let Ok(v) = value.parse::<u16>() {
+                item.write_once_item_id = v;
+            }
+        }
+        // C++ `ITEM_PARSE_PARTNERDIRECTION` — `src/items.cpp`.
+        "partnerdirection" => {
+            item.bed_partner_dir = parse_partner_direction(value);
+        }
+        // C++ `ITEM_PARSE_MALETRANSFORMTO` / `malesleeper` alias.
+        "maletransformto" | "malesleeper" => {
+            if let Ok(v) = value.parse::<u16>() {
+                item.transform_to_on_use[tfs_rust_common::PlayerSex::Male as usize] = v;
+                if item.transform_to_on_use[tfs_rust_common::PlayerSex::Female as usize] == 0 {
+                    item.transform_to_on_use[tfs_rust_common::PlayerSex::Female as usize] = v;
+                }
+            }
+        }
+        // C++ `ITEM_PARSE_FEMALETRANSFORMTO` / `femalesleeper` alias.
+        "femaletransformto" | "femalesleeper" => {
+            if let Ok(v) = value.parse::<u16>() {
+                item.transform_to_on_use[tfs_rust_common::PlayerSex::Female as usize] = v;
+                if item.transform_to_on_use[tfs_rust_common::PlayerSex::Male as usize] == 0 {
+                    item.transform_to_on_use[tfs_rust_common::PlayerSex::Male as usize] = v;
+                }
+            }
+        }
+        // C++ `ITEM_PARSE_TRANSFORMTO` — bed `transformToFree` (`src/items.cpp`).
+        // Equip uses `transformequipto` / `transformdeequipto`, not this key.
+        "transformto" => {
+            if let Ok(v) = value.parse::<u16>() {
+                item.transform_to_free = v;
+            }
+        }
         "containersize" => {
             if let Ok(v) = value.parse::<u16>() {
                 item.max_items = v;
@@ -1139,6 +1250,7 @@ fn apply_xml_attribute(item: &mut ItemType, key: &str, value: &str, item_id: u16
 mod tests {
     use super::*;
     use crate::item_abilities::{CONDITION_DRUNK, STAT_MAGICPOINTS, combat_absorb_index};
+    use std::collections::HashMap;
     use std::fs;
     use tfs_rust_common::enums::{CombatType, Skill};
 
@@ -1326,6 +1438,80 @@ mod tests {
         apply_xml_attribute(&mut item, "writeable", "false", 1);
         assert!(!item.can_write_text);
         assert_eq!(item.can_read_text_override, Some(false));
+    }
+
+    #[test]
+    fn forceuse_effect_writeonce_and_bed_xml_to_itemtype() {
+        let mut ladder = ItemType::default();
+        apply_xml_attribute(&mut ladder, "forceuse", "true", 1386);
+        assert_eq!(ladder.force_use_override, Some(true));
+        assert!(ladder.force_use());
+
+        let mut portal = ItemType::default();
+        apply_xml_attribute(&mut portal, "effect", "teleport", 1387);
+        assert_eq!(portal.magic_effect, 11);
+
+        let mut paper = ItemType::default();
+        apply_xml_attribute(&mut paper, "writeonceitemid", "1954", 1947);
+        assert_eq!(paper.write_once_item_id, 1954);
+
+        let mut bed = ItemType {
+            id: 1754,
+            ..ItemType::default()
+        };
+        apply_xml_attribute(&mut bed, "type", "bed", 1754);
+        apply_xml_attribute(&mut bed, "malesleeper", "1762", 1754);
+        apply_xml_attribute(&mut bed, "partnerdirection", "south", 1754);
+        assert!(bed.is_bed());
+        assert_eq!(bed.bed_partner_dir, 2);
+        assert_eq!(bed.transform_to_on_use[1], 1762);
+        assert_eq!(bed.transform_to_on_use[0], 1762);
+
+        let mut items = HashMap::new();
+        items.insert(1754, bed);
+        items.insert(
+            1762,
+            ItemType {
+                id: 1762,
+                server_id: 1762,
+                ..ItemType::default()
+            },
+        );
+        link_bed_transforms(&mut items);
+        assert_eq!(items.get(&1762).map(|t| t.transform_to_free), Some(1754));
+    }
+
+    /// Pack XML actually reaches typed fields (not only `xml_attributes`).
+    #[test]
+    fn pack_xml_wires_forceuse_effect_writeonce_and_beds() {
+        use std::path::Path;
+
+        let otb = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.otb");
+        let xml = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.xml");
+        let db = ItemDatabase::load(&otb, &xml).expect("items load");
+
+        let ladder = db.items.get(&1386).expect("1386");
+        assert!(ladder.force_use());
+
+        let portal = db.items.get(&1387).expect("1387");
+        assert!(portal.is_teleport());
+        assert_eq!(portal.magic_effect, 11);
+
+        let paper = db.items.get(&1947).expect("1947");
+        assert_eq!(paper.write_once_item_id, 1954);
+
+        let parchment = db.items.get(&1948).expect("1948");
+        assert_eq!(parchment.name, "parchment");
+        assert!(parchment.can_write_text);
+
+        let bed = db.items.get(&1754).expect("1754");
+        assert!(bed.is_bed());
+        assert_eq!(bed.bed_partner_dir, 2);
+        assert_eq!(bed.transform_to_on_use[1], 1762);
+        assert_eq!(
+            db.items.get(&1762).map(|t| t.transform_to_free),
+            Some(1754)
+        );
     }
 
     #[test]
@@ -1803,5 +1989,36 @@ mod tests {
         let grass = db.items.get(&102).expect("grass 102");
         assert_eq!(grass.destroy_to, 0);
         assert_eq!(grass.fluid_source, 0);
+    }
+
+    /// R1: known `items.xml` rows for `onUseQuest` found-text + capacity.
+    /// Domain: `ItemType::name` / `article` / `getPluralName` / `weight` / `isContainer`.
+    #[test]
+    fn r1_name_article_plural_weight_container_match_items_xml_rows() {
+        use std::path::Path;
+
+        let otb = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.otb");
+        let xml = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.xml");
+        let db = ItemDatabase::load(&otb, &xml).expect("items load");
+
+        let gold = db.items.get(&2148).expect("gold coin 2148");
+        assert_eq!(gold.name, "gold coin");
+        assert_eq!(gold.article, "a");
+        assert_eq!(gold.get_plural_name(), "gold coins");
+        assert_eq!(gold.weight, 10);
+        assert!(!gold.is_container());
+
+        let bag = db.items.get(&1987).expect("bag 1987");
+        assert_eq!(bag.name, "bag");
+        assert_eq!(bag.article, "a");
+        assert_eq!(bag.get_plural_name(), "bags");
+        assert_eq!(bag.weight, 800);
+        assert!(bag.is_container());
+
+        let grass = db.items.get(&102).expect("grass 102");
+        assert_eq!(grass.name, "grass");
+        assert!(grass.article.is_empty());
+        assert_eq!(grass.get_plural_name(), "grass");
+        assert!(!grass.is_container());
     }
 }

@@ -3425,6 +3425,7 @@
 		<attribute key="weight" value="50"/>
 		<attribute key="writeable" value="true"/>
 		<attribute key="maxtextlen" value="512"/>
+		<attribute key="writeOnceItemId" value="1954"/>
 	</item>
 	<item id="1948" article="a" name="parchment">
 		<attribute key="description" value="It is rewriteable."/>
@@ -3446,12 +3447,14 @@
 		<attribute key="weight" value="200"/>
 		<attribute key="writeable" value="true"/>
 		<attribute key="maxtextlen" value="1024"/>
+		<attribute key="writeOnceItemId" value="1953"/>
 	</item>
 	<item id="1952" article="a" name="document">
 		<attribute key="description" value="It is rewriteable."/>
 		<attribute key="weight" value="150"/>
 		<attribute key="writeable" value="true"/>
 		<attribute key="maxtextlen" value="1024"/>
+		<attribute key="writeOnceItemId" value="1968"/>
 	</item>
 	<item id="1953" article="a" name="parchment">
 		<attribute key="weight" value="200"/>
@@ -3517,26 +3520,31 @@
 		<attribute key="weight" value="1300"/>
 		<attribute key="writeable" value="true"/>
 		<attribute key="maxtextlen" value="1024"/>
+		<attribute key="writeOnceItemId" value="1950"/>
 	</item>
 	<item id="1972" article="a" name="book">
 		<attribute key="weight" value="1300"/>
 		<attribute key="writeable" value="true"/>
 		<attribute key="maxtextlen" value="1024"/>
+		<attribute key="writeOnceItemId" value="1955"/>
 	</item>
 	<item id="1973" article="a" name="book">
 		<attribute key="weight" value="1300"/>
 		<attribute key="writeable" value="true"/>
 		<attribute key="maxtextlen" value="1024"/>
+		<attribute key="writeOnceItemId" value="1958"/>
 	</item>
 	<item id="1974" article="a" name="book">
 		<attribute key="weight" value="1300"/>
 		<attribute key="writeable" value="true"/>
 		<attribute key="maxtextlen" value="1024"/>
+		<attribute key="writeOnceItemId" value="1959"/>
 	</item>
 	<item id="1975" article="a" name="book">
 		<attribute key="weight" value="1300"/>
 		<attribute key="writeable" value="true"/>
 		<attribute key="maxtextlen" value="1024"/>
+		<attribute key="writeOnceItemId" value="1960"/>
 	</item>
 	<item id="1976" article="a" name="book">
 		<attribute key="weight" value="1300"/>
@@ -3547,26 +3555,31 @@
 		<attribute key="weight" value="1300"/>
 		<attribute key="writeable" value="true"/>
 		<attribute key="maxtextlen" value="1024"/>
+		<attribute key="writeOnceItemId" value="1962"/>
 	</item>
 	<item id="1978" article="a" name="book">
 		<attribute key="weight" value="1300"/>
 		<attribute key="writeable" value="true"/>
 		<attribute key="maxtextlen" value="1024"/>
+		<attribute key="writeOnceItemId" value="1963"/>
 	</item>
 	<item id="1979" article="a" name="book">
 		<attribute key="weight" value="1300"/>
 		<attribute key="writeable" value="true"/>
 		<attribute key="maxtextlen" value="1024"/>
+		<attribute key="writeOnceItemId" value="1964"/>
 	</item>
 	<item id="1980" article="a" name="book">
 		<attribute key="weight" value="1300"/>
 		<attribute key="writeable" value="true"/>
 		<attribute key="maxtextlen" value="1024"/>
+		<attribute key="writeOnceItemId" value="1965"/>
 	</item>
 	<item id="1981" article="a" name="book">
 		<attribute key="weight" value="1300"/>
 		<attribute key="writeable" value="true"/>
 		<attribute key="maxtextlen" value="1024"/>
+		<attribute key="writeOnceItemId" value="1966"/>
 	</item>
 	<item id="1982" article="a" name="purple tome">
 		<attribute key="description" value="It's a volume of The Mystic Secrets of Tibia."/>

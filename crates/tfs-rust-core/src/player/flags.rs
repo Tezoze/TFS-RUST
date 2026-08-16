@@ -6,6 +6,12 @@ use tfs_rust_content::groups::GroupDatabase;
 /// C++ `PlayerFlag_CannotUseCombat` — `src/const.h`. 772 equivalent: `NO_ATTACK` right
 /// (`enums.hh:524`, `crcombat.cc:391,589`). Blocks all attack actions.
 pub const PLAYER_FLAG_CANNOT_USE_COMBAT: u64 = 1 << 0;
+/// C++ `PlayerFlag_CannotAttackPlayer` — `src/const.h` bit 1. Access groups (GM/God)
+/// must not initiate PvP (melee, runes, spells, AoE). No 772 `RIGHT` equivalent —
+/// TFS-domain flag; 772 GMs used `NO_ATTACK` for *all* combat.
+pub const PLAYER_FLAG_CANNOT_ATTACK_PLAYER: u64 = 1 << 1;
+/// C++ `PlayerFlag_CannotAttackMonster` — `src/const.h` bit 2.
+pub const PLAYER_FLAG_CANNOT_ATTACK_MONSTER: u64 = 1 << 2;
 /// C++ `PlayerFlag_CannotBeAttacked` — `src/const.h`. 772 equivalent: `INVULNERABLE` right
 /// (`enums.hh:517`, `crmain.cc:536-538`). Zeroes incoming damage to the target.
 pub const PLAYER_FLAG_CANNOT_BE_ATTACKED: u64 = 1 << 3;
@@ -62,6 +68,8 @@ pub const PLAYER_FLAG_KEEP_INVENTORY: u64 = 1 << 37;
 fn flag_name_to_bit(name: &str) -> Option<u64> {
     match name.to_ascii_lowercase().as_str() {
         "cannotusecombat" => Some(PLAYER_FLAG_CANNOT_USE_COMBAT),
+        "cannotattackplayer" => Some(PLAYER_FLAG_CANNOT_ATTACK_PLAYER),
+        "cannotattackmonster" => Some(PLAYER_FLAG_CANNOT_ATTACK_MONSTER),
         "cannotbeattacked" => Some(PLAYER_FLAG_CANNOT_BE_ATTACKED),
         "cannotpickupitem" => Some(PLAYER_FLAG_CANNOT_PICKUP_ITEM),
         "hasinfinitecapacity" => Some(PLAYER_FLAG_HAS_INFINITE_CAPACITY),
@@ -128,6 +136,21 @@ mod tests {
             },
         );
         GroupDatabase { groups: map }
+    }
+
+    #[test]
+    fn cannot_attack_player_flag_resolves_from_group() {
+        let groups = make_group(4, &[("cannotattackplayer", true)]);
+        let flags = flags_for_group(&groups, 4);
+        assert!(has_player_flag(flags, PLAYER_FLAG_CANNOT_ATTACK_PLAYER));
+        assert!(!has_player_flag(flags, PLAYER_FLAG_CANNOT_ATTACK_MONSTER));
+    }
+
+    #[test]
+    fn cannot_attack_monster_flag_resolves_from_group() {
+        let groups = make_group(4, &[("cannotattackmonster", true)]);
+        let flags = flags_for_group(&groups, 4);
+        assert!(has_player_flag(flags, PLAYER_FLAG_CANNOT_ATTACK_MONSTER));
     }
 
     #[test]

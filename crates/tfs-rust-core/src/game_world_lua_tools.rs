@@ -15,6 +15,7 @@ use crate::cylinder::CylinderFlags;
 use crate::game_world::GameWorld;
 use crate::item::Item;
 use crate::player::combat::SkillNr;
+use crate::return_value::ReturnValue;
 
 impl GameWorld {
     /// `player:addSkillTries(skill, tries)` — `luaPlayerAddSkillTries` → `addSkillAdvance`.
@@ -136,6 +137,21 @@ impl GameWorld {
         };
         let attacker_id = attacker_u64.and_then(|id| self.resolve_creature_u64(id));
         let combat_type = combat_type_from_lua(combat_type_lua);
+        // TFS `Combat::canDoCombat` group flags — `doTargetCombat` is the
+        // single-target back door around `Combat:execute`. Healing still applies.
+        if combat_type != CombatType::Healing
+            && let Some(attacker) = attacker_id
+            && self.player_group_blocks_attack_on(attacker, target_id)
+        {
+            if let Some(conn) = self.conn_for_creature(attacker) {
+                let rv = match self.creatures.get(target_id) {
+                    Some(CreatureKind::Player(_)) => ReturnValue::YouMayNotAttackThisPlayer,
+                    _ => ReturnValue::YouMayNotAttackThisCreature,
+                };
+                self.send_cancel_message(conn, rv);
+            }
+            return Ok(false);
+        }
         let target_pos = self
             .creatures
             .get(target_id)

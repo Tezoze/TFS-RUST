@@ -29,6 +29,7 @@ use crate::player::flags::{
     PLAYER_FLAG_HAS_NO_EXHAUSTION, PLAYER_FLAG_IGNORE_SPELL_CHECK,
 };
 use crate::return_value::ReturnValue;
+use tfs_rust_content::spells::InstantSpellDef;
 use tfs_rust_net::ChannelOpenWire;
 use tfs_rust_net::CreatePrivateChannelWire;
 use tfs_rust_net::outgoing_extra;
@@ -194,6 +195,41 @@ impl GameWorld {
         }
     }
 
+    /// TFS `InstantSpell::canCast` learn/vocation arm (`spells.cpp:617-627`).
+    /// 772 `SpellKnown` (`crplayer.cc:1130`) / GetSpellbook (`magic.cc:3830`).
+    ///
+    /// `needLearn` → `persist.spells`. Else vocation name map (empty voc list = any).
+    /// Does **not** honor `IGNORE_SPELL_CHECK` — GetSpellbook never dumps ALL_SPELLS.
+    pub(crate) fn player_knows_instant(&self, cid: CreatureId, spell: &InstantSpellDef) -> bool {
+        if spell.need_learn {
+            return self
+                .creatures
+                .get(cid)
+                .and_then(|k| match k {
+                    CreatureKind::Player(p) => p.persist.as_ref(),
+                    _ => None,
+                })
+                .is_some_and(|b| b.spells.iter().any(|s| s.eq_ignore_ascii_case(&spell.name)));
+        }
+        if spell.vocations.is_empty() {
+            return true;
+        }
+        let voc_id = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.vocation_id,
+            _ => return false,
+        };
+        let voc_name = self
+            .vocations
+            .vocations
+            .get(&(voc_id as u16))
+            .map(|v| v.name.as_str())
+            .unwrap_or("");
+        spell
+            .vocations
+            .iter()
+            .any(|v| v.eq_ignore_ascii_case(voc_name))
+    }
+
     /// TFS `Game::playerSaySpell` — `gameserver/src/game.cpp:3375-3398`.
     ///
     /// Word-based spell / talkaction dispatch. Returns `true` when the text was
@@ -261,7 +297,7 @@ impl GameWorld {
         let no_exhaustion =
             crate::player_flags::has_player_flag(flags, PLAYER_FLAG_HAS_NO_EXHAUSTION);
 
-        let (player_level, player_maglevel, player_mana, player_max_mana, player_soul, voc_id) =
+        let (player_level, player_maglevel, player_mana, player_max_mana, player_soul) =
             match self.creatures.get(cid) {
                 Some(CreatureKind::Player(p)) => (
                     p.level,
@@ -269,7 +305,6 @@ impl GameWorld {
                     p.mana,
                     p.max_mana,
                     p.economy.soul,
-                    p.vocation_id,
                 ),
                 _ => return false,
             };
@@ -278,34 +313,16 @@ impl GameWorld {
             // Learn gate before vocation — TFS `isInstant() && isLearnable()` then
             // `hasLearnedInstantSpell`; else vocation map (`spells.cpp:617-627`).
             // 772: `CheckSpellbook` → `SPELLUNKNOWN` (`magic.cc:613-621`).
-            if spell.need_learn {
-                let learned = self
-                    .creatures
-                    .get(cid)
-                    .and_then(|k| match k {
-                        CreatureKind::Player(p) => p.persist.as_ref(),
-                        _ => None,
-                    })
-                    .is_some_and(|b| b.spells.iter().any(|s| s.eq_ignore_ascii_case(&spell.name)));
-                if !learned {
-                    self.send_spell_fail(cid, ReturnValue::YouNeedToLearnThisSpell);
-                    return true;
-                }
-            } else if !spell.vocations.is_empty() {
-                let voc_name = self
-                    .vocations
-                    .vocations
-                    .get(&(voc_id as u16))
-                    .map(|v| v.name.clone())
-                    .unwrap_or_default();
-                if !spell
-                    .vocations
-                    .iter()
-                    .any(|v| v.eq_ignore_ascii_case(&voc_name))
-                {
-                    self.send_spell_fail(cid, ReturnValue::YourVocationCannotUseThisSpell);
-                    return true;
-                }
+            // IGNORE_SPELL_CHECK / ALL_SPELLS skips this for CAST only — GetSpellbook
+            // still uses `player_knows_instant` (GM dump does not fill the book).
+            if !self.player_knows_instant(cid, &spell) {
+                let fail = if spell.need_learn {
+                    ReturnValue::YouNeedToLearnThisSpell
+                } else {
+                    ReturnValue::YourVocationCannotUseThisSpell
+                };
+                self.send_spell_fail(cid, fail);
+                return true;
             }
 
             if player_level < spell.level as i32 {

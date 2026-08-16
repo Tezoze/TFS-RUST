@@ -66,6 +66,7 @@ function Creature:getGroup(...) end
 function Creature:getGuid(...) end
 function Creature:getId(...) end
 function Creature:getInbox(...) end
+function Creature:getInstantSpells(...) end
 function Creature:getItemById(...) end
 function Creature:getItemCount(...) end
 function Creature:getLevel(...) end
@@ -179,11 +180,15 @@ function Item:transform(...) end
 ---@class ItemType
 ItemType = {}
 
+function ItemType:getArticle(...) end
 function ItemType:getCharges(...) end
 function ItemType:getDestroyId(...) end
 function ItemType:getFluidSource(...) end
 function ItemType:getId(...) end
 function ItemType:getName(...) end
+function ItemType:getPluralName(...) end
+function ItemType:getWeight(...) end
+function ItemType:isContainer(...) end
 function ItemType:isCorpse(...) end
 function ItemType:isFluidContainer(...) end
 function ItemType:isGroundTile(...) end

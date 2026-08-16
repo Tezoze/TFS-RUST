@@ -663,6 +663,7 @@ impl GameWorld {
             let _ = self.events.on_step_in(None, item_id, item_type, pos, pos);
         }
         self.start_decay(item_id);
+        self.apply_tile_item_specials(pos, item_id);
         Ok(item_id)
     }
 

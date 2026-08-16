@@ -444,6 +444,10 @@ pub fn apply_loaded_player(
     };
     world.monster_notify_creature_enter_viewport(cid, placed_pos);
 
+    if let Some(bed) = world.houses.bed_sleepers.get(&guid).copied() {
+        world.bed_wake_up(bed, Some(cid));
+    }
+
     let guild_opt = world.creatures.get(cid).and_then(|k| match k {
         CreatureKind::Player(p) => p.social.guild_id,
         _ => None,

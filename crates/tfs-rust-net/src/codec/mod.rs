@@ -12,7 +12,7 @@ pub use wire::{
     AddCreatureWire, AnimatedTextWire, ChannelOpenWire, ChannelsDialogWire, CombatDamageNotifyWire,
     ContainerOpenWire, CreatePrivateChannelWire, CreatureHealthWire, CreatureSpeedWire,
     CreatureSquareWire, DistanceShootWire, ItemStack, ItemTemplateArgs, ItemWire, MagicEffectWire,
-    OutfitWire, PlayerSkillsWire, PlayerStatsWire,
+    OutfitWire, PlayerSkillsWire, PlayerStatsWire, TextWindowWire,
 };
 
 use tfs_rust_common::{Position, ProtocolCaps, ProtocolVersion};
@@ -221,6 +221,11 @@ pub trait ProtocolCodec {
     /// 1098 appends `owner_name` + `invited` name list; 772 omits them.
     /// 772: `gameserver/src/protocolgame.cpp:1273`; 1098: `src/protocolgame.cpp:1675`.
     fn encode_create_private_channel(&self, w: &wire::CreatePrivateChannelWire) -> NetworkMessage;
+
+    /// `ProtocolGame::sendTextWindow` template-item overload — `0x96`.
+    /// 772 omits the date field and uses 772 `addItem` (no MARK); 1098 writes MARK + date.
+    /// 772: `gameserver/src/protocolgame.cpp:1925`; 1098: `src/protocolgame.cpp:2999`.
+    fn encode_text_window(&self, w: &wire::TextWindowWire) -> NetworkMessage;
 
     /// Era-correct wire value for the "cancel / failure" text-message channel used by
     /// `sendCancelMessage` (1098) / `SendResult` (772).
@@ -517,6 +522,10 @@ impl ProtocolCodec for Codec1098 {
         Codec1098::encode_create_private_channel(self, w)
     }
 
+    fn encode_text_window(&self, w: &wire::TextWindowWire) -> NetworkMessage {
+        Codec1098::encode_text_window(self, w)
+    }
+
     fn failure_message_type(&self) -> u8 {
         21 // MESSAGE_STATUS_SMALL — `src/const.h:190`
     }
@@ -799,6 +808,10 @@ impl ProtocolCodec for Codec772 {
         Codec772::encode_create_private_channel(self, w)
     }
 
+    fn encode_text_window(&self, w: &wire::TextWindowWire) -> NetworkMessage {
+        Codec772::encode_text_window(self, w)
+    }
+
     fn failure_message_type(&self) -> u8 {
         23 // TALK_FAILURE_MESSAGE — `sending.cc:339`, `enums.hh:674`
     }
@@ -982,6 +995,8 @@ impl Codec {
         encode_channel_open(w: &wire::ChannelOpenWire) -> NetworkMessage;
 
         encode_create_private_channel(w: &wire::CreatePrivateChannelWire) -> NetworkMessage;
+
+        encode_text_window(w: &wire::TextWindowWire) -> NetworkMessage;
 
         failure_message_type() -> u8;
 
@@ -1261,6 +1276,10 @@ impl ProtocolCodec for Codec {
 
     fn encode_create_private_channel(&self, w: &wire::CreatePrivateChannelWire) -> NetworkMessage {
         Codec::encode_create_private_channel(self, w)
+    }
+
+    fn encode_text_window(&self, w: &wire::TextWindowWire) -> NetworkMessage {
+        Codec::encode_text_window(self, w)
     }
 
     fn failure_message_type(&self) -> u8 {

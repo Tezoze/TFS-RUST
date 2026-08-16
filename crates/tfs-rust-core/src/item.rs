@@ -90,6 +90,80 @@ impl Item {
             .set_text(value);
     }
 
+    pub fn reset_text(&mut self) {
+        if let Some(attrs) = self.attributes.as_mut() {
+            attrs.reset_text();
+        }
+    }
+
+    pub fn writer(&self) -> &str {
+        self.attributes
+            .as_deref()
+            .map(|a| a.get_writer())
+            .unwrap_or("")
+    }
+
+    pub fn set_writer(&mut self, value: impl Into<String>) {
+        self.attributes
+            .get_or_insert_with(|| Box::new(ItemAttributes::new()))
+            .set_writer(value);
+    }
+
+    pub fn reset_writer(&mut self) {
+        if let Some(attrs) = self.attributes.as_mut() {
+            attrs.reset_writer();
+        }
+    }
+
+    pub fn written_date(&self) -> i64 {
+        self.attributes
+            .as_deref()
+            .map(|a| a.get_date())
+            .unwrap_or(0)
+    }
+
+    pub fn set_written_date(&mut self, value: i64) {
+        self.attributes
+            .get_or_insert_with(|| Box::new(ItemAttributes::new()))
+            .set_date(value);
+    }
+
+    pub fn reset_written_date(&mut self) {
+        if let Some(attrs) = self.attributes.as_mut() {
+            attrs.reset_date();
+        }
+    }
+
+    pub fn sleeper_guid(&self) -> u32 {
+        self.attributes
+            .as_deref()
+            .map(|a| a.sleeper_guid())
+            .unwrap_or(0)
+    }
+
+    pub fn set_sleeper_guid(&mut self, value: u32) {
+        self.attributes
+            .get_or_insert_with(|| Box::new(ItemAttributes::new()))
+            .set_sleeper_guid(value);
+    }
+
+    pub fn sleep_start(&self) -> u32 {
+        self.attributes
+            .as_deref()
+            .map(|a| a.sleep_start())
+            .unwrap_or(0)
+    }
+
+    pub fn set_sleep_start(&mut self, value: u32) {
+        self.attributes
+            .get_or_insert_with(|| Box::new(ItemAttributes::new()))
+            .set_sleep_start(value);
+    }
+
+    pub fn tele_dest(&self) -> Option<tfs_rust_common::Position> {
+        self.attributes.as_deref().and_then(|a| a.tele_dest())
+    }
+
     pub fn description(&self) -> &str {
         self.attributes
             .as_deref()
@@ -180,6 +254,32 @@ impl Item {
     pub fn client_count(&self) -> u8 {
         // Client expects count as u8, capped at 255
         self.count.min(255) as u8
+    }
+
+    /// Stack count or fluid subtype byte for `NetworkMessage::addItem`.
+    /// Fluids/splashes may be `0` (empty); stacks are at least `1`.
+    pub fn wire_count_byte(&self, it: &ItemType) -> u8 {
+        if it.is_fluid_container() || it.is_splash() {
+            self.get_sub_type(it).min(255) as u8
+        } else {
+            self.client_count().max(1)
+        }
+    }
+
+    /// TFS `Item::setSubType` — `item.cpp` ~367–379.
+    /// Fluid/splash `0` is empty (`FLUID_NONE`); do not clamp to `1` (that is water).
+    pub fn set_sub_type(&mut self, it: &ItemType, n: u16) {
+        if it.is_fluid_container() || it.is_splash() {
+            self.set_fluid_type(n);
+            self.count = n;
+        } else if it.stackable() {
+            self.count = n.clamp(1, 100);
+        } else if it.charges != 0 {
+            self.set_charges(n);
+            self.count = n.max(1);
+        } else {
+            self.count = n.max(1);
+        }
     }
 
     pub fn total_weight_oz(&self, type_weight: u32, stackable: bool) -> u32 {
@@ -327,5 +427,21 @@ mod tests {
         assert_eq!(item.count_by_type(&it, 42), 42);
         assert_eq!(item.count_by_type(&it, 41), 0);
         assert_eq!(item.count_by_type(&it, -1), 42);
+    }
+
+    /// TFS `Item::setSubType` for fluids allows `0` (`FLUID_NONE`). Clamping to `1` is water.
+    #[test]
+    fn empty_fluid_subtype_is_zero_not_water() {
+        let it = ItemType {
+            group: ItemType::GROUP_FLUID,
+            ..ItemType::default()
+        };
+        let mut item = Item::new(2006, 10);
+        item.set_fluid_type(10);
+        item.set_sub_type(&it, 0);
+        assert_eq!(item.get_sub_type(&it), 0);
+        assert_eq!(item.wire_count_byte(&it), 0);
+        assert_eq!(item.count, 0);
+        assert_eq!(item.fluid_type(), 0);
     }
 }

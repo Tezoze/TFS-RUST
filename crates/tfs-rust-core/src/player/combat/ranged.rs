@@ -645,8 +645,8 @@ impl GameWorld {
                         ..CombatParams::default()
                     },
                 );
-                // M2 — Use the real `Damage` scalar (includes mana-shield absorb) for
-                // `ActivateLearning` and damage text instead of the HP delta.
+                // M2 — Use the real `Damage` scalar (includes mana-shield absorb and remaining-HP
+                // clamp) for `ActivateLearning` and damage text instead of the HP delta.
                 let damage_done = damage_scalar;
                 let target_alive = self.creatures.contains_key(target_id);
                 let _hp_after = if target_alive {

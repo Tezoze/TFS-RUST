@@ -215,15 +215,16 @@ fn read_one_attr(
             attrs.set_door_id(stream.read_u8()?);
         }
         x if x == AttrType::SleeperGuid as u8 => {
-            let _ = stream.read_u32()?;
+            attrs.set_sleeper_guid(stream.read_u32()?);
         }
         x if x == AttrType::SleepStart as u8 => {
-            let _ = stream.read_u32()?;
+            attrs.set_sleep_start(stream.read_u32()?);
         }
         x if x == AttrType::TeleDest as u8 => {
-            for _ in 0..5 {
-                stream.read_u8()?;
-            }
+            let x = stream.read_u16()?;
+            let y = stream.read_u16()?;
+            let z = stream.read_u8()?;
+            attrs.set_tele_dest(tfs_rust_common::Position { x, y, z });
         }
         x if x == AttrType::ContainerItems as u8 => {
             // DB only — OTBM Remere KEYNUMBER (23) handled above.
@@ -368,6 +369,23 @@ pub fn write_item_blob_with_duration(
     if !writer.is_empty() {
         w.write_u8(AttrType::WrittenBy as u8);
         w.write_string(writer);
+    }
+
+    let sleeper = attrs.sleeper_guid();
+    if sleeper != 0 {
+        w.write_u8(AttrType::SleeperGuid as u8);
+        w.write_u32(sleeper);
+    }
+    let sleep_start = attrs.sleep_start();
+    if sleep_start != 0 {
+        w.write_u8(AttrType::SleepStart as u8);
+        w.write_u32(sleep_start);
+    }
+    if let Some(dest) = attrs.tele_dest() {
+        w.write_u8(AttrType::TeleDest as u8);
+        w.write_u16(dest.x);
+        w.write_u16(dest.y);
+        w.write_u8(dest.z);
     }
 
     let desc = attrs.get_description();

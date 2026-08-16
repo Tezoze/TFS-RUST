@@ -304,6 +304,10 @@ pub mod server {
     pub const CREATE_PRIVATE_CHANNEL: u8 = 0xB2;
     /// `sendClosePrivate` — close a private channel by id. Era-identical layout.
     pub const CLOSE_PRIVATE: u8 = 0xB3;
+    /// `ProtocolGame::sendTextWindow` — read-only / writable text dialog (spellbook, letters).
+    /// 772: `gameserver/src/protocolgame.cpp:1925`; 1098: `src/protocolgame.cpp:2999`.
+    /// Layout differs (772 has no date; 772 `addItem` has no MARK); opcode is shared.
+    pub const TEXT_WINDOW: u8 = 0x96;
 
     /// Self-appear opcode (`ProtocolGame::sendAddCreature` self branch). Version-keyed:
     /// 772 = `0x0A` (`gameserver/src/protocolgame.cpp`), 1098 = `0x17` (repo-root `src/protocolgame.cpp`).

@@ -74,7 +74,7 @@ impl CombatResult {
             CombatResult::NoError => ReturnValue::NoError,
             CombatResult::TargetLost => ReturnValue::CreatureDoesNotExist,
             CombatResult::ProtectionZone => ReturnValue::ActionNotPermittedInProtectionZone,
-            CombatResult::AttackNotAllowed => ReturnValue::YouMayNotAttackThisCreature,
+            CombatResult::AttackNotAllowed => ReturnValue::YouMayNotAttackThisPlayer,
             CombatResult::SecureMode => ReturnValue::TurnSecureModeToAttackUnmarkedPlayers,
             CombatResult::OutOfAmmo => ReturnValue::NotEnoughMana,
         }
@@ -482,6 +482,16 @@ impl GameWorld {
                 );
             }
 
+            // TFS `PlayerFlag_CannotAttackPlayer` / `CannotAttackMonster`.
+            if self.player_group_blocks_attack_on(cid, target_id) {
+                return self.player_attack_abort_with_result(
+                    cid,
+                    conn_id,
+                    CombatResult::AttackNotAllowed,
+                    "player_attack_group_flag_blocked",
+                );
+            }
+
             // `CheckRight(NO_ATTACK)` → `ATTACKNOTALLOWED` (`crcombat.cc:589-593`).
             if self.player_attack_blocked_by_right(cid) {
                 return self.player_attack_abort_with_result(
@@ -681,6 +691,11 @@ impl GameWorld {
                 return CombatResult::AttackNotAllowed;
             }
 
+            // TFS `PlayerFlag_CannotAttackPlayer` / `CannotAttackMonster`.
+            if self.player_group_blocks_attack_on(cid, target_id) {
+                return CombatResult::AttackNotAllowed;
+            }
+
             // Profession NONE / `!allowPvp` vs player — `crcombat.cc:396-401`.
             if self.player_vocation_blocks_pvp_attack(cid, target_id) {
                 return CombatResult::AttackNotAllowed;
@@ -809,6 +824,7 @@ impl GameWorld {
             return Some(*cid);
         }
         self.creatures.iter().find_map(|(cid, k)| match k {
+            CreatureKind::Player(p) => (p.guid == wire_id).then_some(cid),
             CreatureKind::Monster(m) => {
                 let native = if m.wire_id != 0 {
                     m.wire_id
@@ -825,7 +841,6 @@ impl GameWorld {
                 };
                 (native == wire_id).then_some(cid)
             }
-            _ => None,
         })
     }
 }
@@ -1143,6 +1158,80 @@ mod set_attack_dest_tests {
             CombatResult::NoError
         );
     }
+
+    #[test]
+    fn vocation_with_allow_pvp_can_attack_player() {
+        let mut world = crate::sim_harness::beat_driven_test_world();
+        let apos = Position::new(100, 100, 7);
+        let bpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, apos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, bpos, TEST_SYNTHETIC_GROUND_WP);
+        let mut alice = test_player("Alice", apos);
+        alice.vocation_profile.allow_pvp = true;
+        alice.guid = 1;
+        let mut bob = test_player("Bob", bpos);
+        bob.vocation_profile.allow_pvp = true;
+        bob.guid = 2;
+        let a = insert_player(&mut world, alice);
+        let b = insert_player(&mut world, bob);
+        world.map.register_creature_at(apos, a);
+        world.map.register_creature_at(bpos, b);
+        assert_eq!(
+            world.validate_player_attack_target(a, b, false),
+            CombatResult::NoError
+        );
+    }
+
+    #[test]
+    fn gm_cannot_attack_player_flag_blocks_pvp() {
+        // Access groups: `IgnoreProtectionZone` bypasses vocation/PZ, but
+        // `CannotAttackPlayer` still denies PvP (TFS `Combat::canDoCombat`).
+        let mut world = crate::sim_harness::beat_driven_test_world();
+        let mut flags = std::collections::HashMap::new();
+        flags.insert("cannotattackplayer".into(), true);
+        flags.insert("ignoreprotectionzone".into(), true);
+        let mut groups = std::collections::HashMap::new();
+        groups.insert(
+            4u16,
+            tfs_rust_content::groups::Group {
+                id: 4,
+                name: "gamemaster".into(),
+                access: true,
+                max_depot_items: 0,
+                max_vip_entries: 0,
+                flags,
+            },
+        );
+        world.groups = std::sync::Arc::new(tfs_rust_content::groups::GroupDatabase { groups });
+        let apos = Position::new(100, 100, 7);
+        let bpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, apos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, bpos, TEST_SYNTHETIC_GROUND_WP);
+        let mut gm = test_player("GM", apos);
+        gm.group_id = 4;
+        gm.guid = 1;
+        let mut bob = test_player("Bob", bpos);
+        bob.vocation_profile.allow_pvp = true;
+        bob.guid = 2;
+        let a = insert_player(&mut world, gm);
+        let b = insert_player(&mut world, bob);
+        world.map.register_creature_at(apos, a);
+        world.map.register_creature_at(bpos, b);
+        assert_eq!(
+            world.validate_player_attack_target(a, b, false),
+            CombatResult::AttackNotAllowed
+        );
+        // Monsters remain attackable (`cannotattackmonster` unset).
+        let mpos = Position::new(100, 101, 7);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        let mon = insert_monster(&mut world, "Rat", mpos, 100);
+        world.map.register_creature_at(mpos, mon);
+        assert_eq!(
+            world.validate_player_attack_target(a, mon, false),
+            CombatResult::NoError
+        );
+    }
+
     #[test]
     fn attack_not_allowed_sends_clear_target_even_without_prior_dest() {
         // 772 `StopAttack(0)` always `SendClearTarget` (`crcombat.cc:513-518`). The client paints

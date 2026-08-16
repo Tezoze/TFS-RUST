@@ -243,5 +243,30 @@ pub struct CreatePrivateChannelWire {
     pub invited: Vec<String>,
 }
 
+/// `ProtocolGame::sendTextWindow` template-item overload (`0x96`).
+/// TFS `luaPlayerShowTextDialog` / `player:showTextDialog` (spellbook, letters).
+///
+/// - **772** (`gameserver/src/protocolgame.cpp:1925`): opcode + `u32` windowTextId +
+///   `addItem(itemId, 1)` + `u16` text.size() (read-only maxlen) + `addString(text)` +
+///   empty writer (`u16 0`). **No date field.**
+/// - **1098** (`src/protocolgame.cpp:2999`): same, plus a second empty `u16` date; item
+///   template includes MARK `0xFF` via `write_item_template`.
+///
+/// Core fills max-width fields; the 772 codec ignores `written_date`.
+#[derive(Debug, Clone)]
+pub struct TextWindowWire {
+    pub window_text_id: u32,
+    pub item: ItemTemplateArgs,
+    pub text: String,
+    /// Writer name. Empty → `u16 0` (both eras).
+    pub writer: String,
+    /// Formatted date. **1098 only** — `None` / empty writes `u16 0`. 772 omits the field.
+    pub written_date: Option<String>,
+    /// TFS `sendTextWindow` `canWrite` — when true the u16 before the string is `maxlen`.
+    pub can_write: bool,
+    /// Writable window capacity (`ItemType::maxTextLen`). Ignored when `can_write` is false.
+    pub max_text_len: u16,
+}
+
 #[deprecated(note = "use PlayerStatsWire")]
 pub type PlayerStats1098 = PlayerStatsWire;

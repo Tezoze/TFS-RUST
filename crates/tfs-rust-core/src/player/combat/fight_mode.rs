@@ -22,7 +22,8 @@ use crate::creature::{ChaseMode, CreatureKind};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::player_flags::{
-    PLAYER_FLAG_CANNOT_BE_ATTACKED, PLAYER_FLAG_CANNOT_USE_COMBAT, has_player_flag,
+    PLAYER_FLAG_CANNOT_BE_ATTACKED, PLAYER_FLAG_CANNOT_USE_COMBAT,
+    PLAYER_FLAG_CANNOT_ATTACK_MONSTER, PLAYER_FLAG_CANNOT_ATTACK_PLAYER, has_player_flag,
 };
 
 impl GameWorld {
@@ -249,6 +250,36 @@ impl GameWorld {
     pub(crate) fn player_attack_blocked_by_right(&self, cid: CreatureId) -> bool {
         let flags = self.player_group_flags(cid);
         has_player_flag(flags, PLAYER_FLAG_CANNOT_USE_COMBAT)
+    }
+
+    /// TFS `PlayerFlag_CannotAttackPlayer` — GM/God groups must not PvP.
+    pub(crate) fn player_cannot_attack_player(&self, cid: CreatureId) -> bool {
+        has_player_flag(
+            self.player_group_flags(cid),
+            PLAYER_FLAG_CANNOT_ATTACK_PLAYER,
+        )
+    }
+
+    /// TFS `PlayerFlag_CannotAttackMonster`.
+    pub(crate) fn player_cannot_attack_monster(&self, cid: CreatureId) -> bool {
+        has_player_flag(
+            self.player_group_flags(cid),
+            PLAYER_FLAG_CANNOT_ATTACK_MONSTER,
+        )
+    }
+
+    /// Group-flag PvP / PvE attack deny — TFS `Combat::canDoCombat` flag arms
+    /// (`PlayerFlag_CannotAttackPlayer` / `CannotAttackMonster`).
+    pub(crate) fn player_group_blocks_attack_on(
+        &self,
+        attacker: CreatureId,
+        target: CreatureId,
+    ) -> bool {
+        match self.creatures.get(target) {
+            Some(CreatureKind::Player(_)) => self.player_cannot_attack_player(attacker),
+            Some(CreatureKind::Monster(_)) => self.player_cannot_attack_monster(attacker),
+            _ => false,
+        }
     }
 
     /// M1 — `CheckRight(target, INVULNERABLE)` equivalent — `crmain.cc:536-538`. Returns `true`

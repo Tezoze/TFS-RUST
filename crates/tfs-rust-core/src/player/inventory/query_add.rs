@@ -458,7 +458,7 @@ impl GameWorld {
             .get(&item.item_type)
             .map(|t| t.stackable())
             .unwrap_or(false);
-        if count == 0 || (stackable && count > item.count as u32) {
+        if stackable && (count == 0 || count > item.count as u32) {
             return ReturnValue::NotPossible;
         }
         let moveable = self

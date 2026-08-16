@@ -13,7 +13,7 @@ use super::wire::{
     AnimatedTextWire, ChannelMessageWire, ChannelOpenWire, ChannelsDialogWire,
     CombatDamageNotifyWire, CreatePrivateChannelWire, CreatureHealthWire, CreatureSayWire,
     CreatureSpeedWire, CreatureSquareWire, DistanceShootWire, ItemTemplateArgs, MagicEffectWire,
-    PlayerSkillsWire, PlayerStatsWire, PrivateMessageWire, ToChannelWire,
+    PlayerSkillsWire, PlayerStatsWire, PrivateMessageWire, TextWindowWire, ToChannelWire,
 };
 
 /// Zero-sized 10.98 codec (stateless; caps from `ProtocolVersion::V1098`).
@@ -604,6 +604,26 @@ impl Codec1098 {
         for name in &w.invited {
             m.write_string(name);
         }
+        m
+    }
+
+    /// 10.98 `ProtocolGame::sendTextWindow` template-item overload — opcode `0x96`
+    /// (`src/protocolgame.cpp:2999`): `byte + u32 windowTextId + addItem(itemId, 1, otclientV8)
+    /// + u16 text.size() + addString(text) + empty writer + empty date`.
+    pub fn encode_text_window(&self, w: &TextWindowWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::TEXT_WINDOW);
+        m.write_u32(w.window_text_id);
+        self.write_item_template_args(&mut m, w.item);
+        let maxlen = if w.can_write {
+            w.max_text_len
+        } else {
+            w.text.len() as u16
+        };
+        m.write_u16(maxlen);
+        m.write_string(&w.text);
+        m.write_string(&w.writer);
+        m.write_string(w.written_date.as_deref().unwrap_or(""));
         m
     }
 }

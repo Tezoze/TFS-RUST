@@ -5,6 +5,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::ids::ItemId;
+
 /// C++ `GUEST_LIST` — `house.h`.
 pub const GUEST_LIST: u32 = 0x100;
 /// C++ `SUBOWNER_LIST` — `house.h`.
@@ -109,6 +111,8 @@ pub struct HouseManager {
     pub houses: HashMap<u32, HouseAccess>,
     /// Per-door access lists keyed by `(house_id, door_id)` — C++ `Door::accessList`.
     pub door_lists: HashMap<(u32, u8), AccessList>,
+    /// TFS `Game::bedSleepersMap` — sleeper GUID → occupied bed item (`game.cpp`).
+    pub bed_sleepers: HashMap<u32, ItemId>,
 }
 
 impl HouseManager {

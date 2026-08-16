@@ -403,6 +403,41 @@ pub trait ScriptContext {
         0
     }
 
+    /// `ItemType:getName()` — `ItemType::name` (`src/items.h`).
+    /// XML `name`; empty when the type is unknown. Defaults to `""`.
+    fn get_item_type_name(&self, item_type: u16) -> String {
+        let _ = item_type;
+        String::new()
+    }
+
+    /// `ItemType:getArticle()` — `ItemType::article` (`src/items.h`).
+    /// XML `article`; empty when unset. Defaults to `""`.
+    fn get_item_type_article(&self, item_type: u16) -> String {
+        let _ = item_type;
+        String::new()
+    }
+
+    /// `ItemType:getPluralName()` — `ItemType::getPluralName` (`src/items.h`).
+    /// XML `plural`, else `name` / `name+"s"`. Defaults to `""`.
+    fn get_item_type_plural_name(&self, item_type: u16) -> String {
+        let _ = item_type;
+        String::new()
+    }
+
+    /// `ItemType:getWeight([count])` type weight — `ItemType::weight` (`src/items.h`).
+    /// Lua multiplies by `max(1, count)`. Defaults to `0`.
+    fn get_item_type_weight(&self, item_type: u16) -> u32 {
+        let _ = item_type;
+        0
+    }
+
+    /// `ItemType:isContainer()` — `ItemType::isContainer` (`src/items.h`).
+    /// `group == ITEM_GROUP_CONTAINER`. Defaults to `false`.
+    fn get_item_type_is_container(&self, item_type: u16) -> bool {
+        let _ = item_type;
+        false
+    }
+
     /// `item:hasAttribute(key)` — `ItemAttributes::hasAttribute`
     /// (`src/item.h`). `attr_bits` is a Lua `itemAttrTypes` bitflag
     /// (`ITEM_ATTRIBUTE_*`). Defaults to `false`.
@@ -829,8 +864,15 @@ pub trait ScriptContext {
     }
 
     /// All instant spell defs (incl. rune-conjure instants). **Not** TFS
-    /// `getInstantSpells` = `canCast` vocation dump.
+    /// `player:getInstantSpells` = canCast / SpellKnown filter.
     fn list_instant_spells(&self) -> Vec<ScriptInstantSpell> {
+        Vec::new()
+    }
+
+    /// `player:getInstantSpells()` — TFS `luaPlayerGetInstantSpells` learn/vocation
+    /// arm (no IGNORE_SPELL_CHECK). 772 GetSpellbook `SpellKnown` on TFS domain.
+    fn list_player_instant_spells(&self, creature_id: ScriptCreatureId) -> Vec<ScriptInstantSpell> {
+        let _ = creature_id;
         Vec::new()
     }
 

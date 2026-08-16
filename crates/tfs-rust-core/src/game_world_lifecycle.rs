@@ -6,7 +6,7 @@
 //!   `crplayer.cc:721-775`.
 
 use slotmap::Key;
-use tfs_rust_common::enums::{ConditionType, SkullType, ZoneType};
+use tfs_rust_common::enums::{ConditionType, PlayerSex, SkullType, ZoneType};
 use tfs_rust_common::{ConnId, Position};
 
 use crate::creature::CreatureKind;
@@ -22,6 +22,23 @@ pub enum LogoutPossible {
     Ok,
     Combat,
     NoLogoutField,
+}
+
+/// 772 player-corpse look text — `crmain.cc:253-264` (`Change(Corpse, TEXTSTRING, …)`).
+/// Domain: TFS/TVP `Player::getCorpse` `setSpecialDescription` (`player.cpp:1943-1948`).
+fn player_corpse_special_description(
+    victim_name: &str,
+    sex: PlayerSex,
+    killer_name: Option<&str>,
+) -> String {
+    let pronoun = match sex {
+        PlayerSex::Female => "She",
+        PlayerSex::Male => "He",
+    };
+    match killer_name.filter(|n| !n.is_empty()) {
+        Some(killer) => format!("You recognize {victim_name}. {pronoun} was killed by {killer}."),
+        None => format!("You recognize {victim_name}."),
+    }
 }
 
 impl GameWorld {
@@ -642,20 +659,28 @@ impl GameWorld {
         const AMULET_OF_LOSS: u16 = 2173;
         const DEAD_HUMAN_CORPSE: u16 = 3128;
 
-        let (pos, exact_lethal, playerkiller_end, keep_inventory) = match self.creatures.get(victim)
-        {
-            Some(CreatureKind::Player(p)) => {
-                let keep =
-                    self.player_has_flag(victim, crate::player_flags::PLAYER_FLAG_KEEP_INVENTORY);
-                (
+        let last_hit = self.creatures.get(victim).and_then(|k| match k {
+            CreatureKind::Player(p) => p.base.last_hit_by,
+            _ => None,
+        });
+        let killer_name = last_hit.and_then(|kid| {
+            self.creatures.get(kid).map(|k| k.base().name.clone())
+        });
+        // Snapshot flags before borrowing the victim — `player_has_flag` also
+        // reads `self.creatures`.
+        let keep_inventory =
+            self.player_has_flag(victim, crate::player_flags::PLAYER_FLAG_KEEP_INVENTORY);
+        let (pos, exact_lethal, playerkiller_end, victim_name, sex) =
+            match self.creatures.get(victim) {
+                Some(CreatureKind::Player(p)) => (
                     p.base.position,
                     p.exact_lethal_blow,
                     p.playerkiller_end,
-                    keep,
-                )
-            }
-            _ => return,
-        };
+                    p.base.name.clone(),
+                    p.sex,
+                ),
+                _ => return,
+            };
 
         // M7 — Determine LoseInventory mode (`crplayer.cc:292,296-300`).
         // KEEP_INVENTORY right → NONE; red skull (PlayerkillerEnd != 0) → ALL; else SOME.
@@ -695,6 +720,13 @@ impl GameWorld {
         let corpse_id = self
             .items
             .insert(crate::item::Item::new(DEAD_HUMAN_CORPSE, 1));
+        if let Some(item) = self.items.get_mut(corpse_id) {
+            item.set_description(player_corpse_special_description(
+                &victim_name,
+                sex,
+                killer_name.as_deref(),
+            ));
+        }
         self.hydrate_container_if_needed(corpse_id);
         let decay_deadline = self
             .now_ms()
@@ -839,11 +871,36 @@ mod tests {
         world.player_death_drop_inventory(cid);
 
         // Corpse item 3128 should exist on the tile.
-        let corpse_count = world
+        let corpse = world
             .items
             .iter()
-            .filter(|(_, i)| i.item_type == 3128)
-            .count();
-        assert_eq!(corpse_count, 1, "corpse 3128 always created on death");
+            .find(|(_, i)| i.item_type == 3128)
+            .map(|(_, i)| i);
+        assert!(corpse.is_some(), "corpse 3128 always created on death");
+        assert_eq!(
+            corpse.map(|i| i.description()),
+            Some("You recognize Normal."),
+            "no murderer → recognize-only look text (`crmain.cc:255`)"
+        );
+    }
+
+    #[test]
+    fn pvp_corpse_sets_killed_by_description() {
+        // 772 `crmain.cc:253-264` — `Murderer` from last-hit attacker name.
+        let mut world = minimal_world();
+        let killer = insert_player(&mut world, test_player("Bob", Position::new(101, 100, 7)));
+        let victim = insert_player(&mut world, {
+            let mut p = test_player("Alice", Position::new(100, 100, 7));
+            p.base.last_hit_by = Some(killer);
+            p
+        });
+        world.player_death_drop_inventory(victim);
+        let desc = world.items.iter().find_map(|(_, i)| {
+            (i.item_type == 3128).then(|| i.description().to_string())
+        });
+        assert_eq!(
+            desc.as_deref(),
+            Some("You recognize Alice. He was killed by Bob.")
+        );
     }
 }

@@ -589,7 +589,8 @@ pub fn send_text_window_item(
     m
 }
 
-/// Second `sendTextWindow` overload — template item id (`src/protocolgame.cpp` ~2999).
+/// Second `sendTextWindow` overload — **1098** template item id (`src/protocolgame.cpp` ~2999).
+/// 772 clients crash on the extra MARK + date bytes. Use `ProtocolCodec::encode_text_window`.
 #[allow(clippy::too_many_arguments)] // mirrors C++ `sendTextWindow` item-template parameters (parity)
 pub fn send_text_window_simple_item(
     window_text_id: u32,

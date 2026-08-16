@@ -1,3 +1,9 @@
+-- 1098 TFS coin-exchange on use. 772 has no such action (`moveuse.dat`).
+-- Gate: `formulas.otherActions.changeGold` (false on 772).
+if not (formulas.otherActions and formulas.otherActions.changeGold) then
+	return
+end
+
 local ALLOW_AUTO_STACK = true
 local config = {
 	[ITEM_GOLD_COIN] = {changeTo = ITEM_PLATINUM_COIN},

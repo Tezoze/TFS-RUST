@@ -54,16 +54,7 @@ fn weight_description_line(it: &ItemType, total_weight_hundredths: u32, count: u
 
 /// `ItemType::getPluralName` — `src/items.h` ~268–286.
 fn type_plural_name(it: &ItemType) -> String {
-    if !it.plural_name.is_empty() {
-        return it.plural_name.clone();
-    }
-    if !it.show_count {
-        return it.name.clone();
-    }
-    if it.name.is_empty() || it.name.ends_with('s') {
-        return it.name.clone();
-    }
-    format!("{}s", it.name)
+    it.get_plural_name()
 }
 
 /// `Item::getPluralName` — `src/item.h` ~960–965.
@@ -603,7 +594,12 @@ pub fn item_get_description_cpp(
     // Paper messages 7369–7371 — `item.cpp` ~1564–1571 (text after weight/desc).
     let paper_msg = it.allow_dist_read() && (7369..=7371).contains(&it.id);
 
-    if look_distance <= 1 && total_weight_hundredths != 0 && it.pickupable() {
+    // 772 `operate.cc:2120-2129`: weight when in range 1, `TAKE`, and `GetWeight > 0`.
+    // `corpsetype` rows with XML weight still show oz if OTB omitted `FLAG_PICKUPABLE`.
+    if look_distance <= 1
+        && total_weight_hundredths != 0
+        && (it.pickupable() || it.xml_attributes.contains_key("corpsetype"))
+    {
         s.push('\n');
         s.push_str(&weight_description_line(
             it,
@@ -946,5 +942,63 @@ It can only be wielded properly by players of level 120 or higher."
         assert_eq!(near, "a blackboard.\nNothing is written on it.");
         let far = item_get_description_cpp(&item, &it, 0, 5, None, None, None, None);
         assert_eq!(far, "a blackboard.\nYou are too far away to read it.");
+    }
+
+    #[test]
+    fn corpse_look_shows_weight_and_killed_by() {
+        let mut it = ItemType {
+            id: 2813,
+            name: "dead rat".into(),
+            article: "a".into(),
+            flags: FLAG_PICKUPABLE,
+            weight: 6300,
+            max_items: 5,
+            group: ItemType::GROUP_CONTAINER,
+            ..Default::default()
+        };
+        it.xml_attributes
+            .insert("corpsetype".into(), "blood".into());
+        let item = Item::new(it.id, 1);
+        let s = item_get_description_cpp(&item, &it, 6300, 1, Some(5), None, None, None);
+        assert!(s.contains("It weighs 63.00 oz."), "weight: {s}");
+        assert!(s.contains("(Vol:5)"), "volume: {s}");
+    }
+
+    #[test]
+    fn corpse_look_shows_weight_without_otb_pickupable() {
+        let mut it = ItemType {
+            id: 2813,
+            name: "dead rat".into(),
+            article: "a".into(),
+            flags: 0,
+            weight: 6300,
+            ..Default::default()
+        };
+        it.xml_attributes
+            .insert("corpsetype".into(), "blood".into());
+        let item = Item::new(it.id, 1);
+        let s = item_get_description_cpp(&item, &it, 6300, 1, None, None, None, None);
+        assert!(s.contains("It weighs 63.00 oz."), "weight without FLAG_PICKUPABLE: {s}");
+    }
+
+    #[test]
+    fn player_corpse_look_appends_killed_by() {
+        let mut it = ItemType {
+            id: 3128,
+            name: "dead human".into(),
+            article: "a".into(),
+            max_items: 10,
+            group: ItemType::GROUP_CONTAINER,
+            ..Default::default()
+        };
+        it.xml_attributes
+            .insert("corpsetype".into(), "blood".into());
+        let mut item = Item::new(it.id, 1);
+        item.set_description("You recognize Alice. He was killed by Bob.");
+        let s = item_get_description_cpp(&item, &it, 0, 1, Some(10), None, None, None);
+        assert!(
+            s.contains("You recognize Alice. He was killed by Bob."),
+            "killed-by: {s}"
+        );
     }
 }

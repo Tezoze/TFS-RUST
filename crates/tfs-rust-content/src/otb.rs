@@ -138,6 +138,22 @@ pub struct ItemType {
     /// value summed by `GetHeight` for `HEIGHT`-flagged items. Parsed from items.xml
     /// `<attribute key="elevation" value="N"/>`. Default `0`.
     pub elevation: i32,
+    /// XML `forceuse` — OR’d into [`Self::force_use`]. TFS has no `ITEM_PARSE_FORCEUSE`;
+    /// 772 `FLAG_FORCEUSE` (`operate.cc:368` `CheckTopUseObject`). Pack ladders 1386/3678
+    /// set XML true while the OTB bit is off.
+    pub force_use_override: Option<bool>,
+    /// C++ `ItemType::magicEffect` — XML `effect` → 772 `CONST_ME_*` wire byte (`src/items.cpp`
+    /// `ITEM_PARSE_EFFECT`). `0` = `CONST_ME_NONE`.
+    pub magic_effect: u8,
+    /// C++ `ItemType::writeOnceItemId` — XML `writeonceitemid` (`src/items.cpp`).
+    pub write_once_item_id: u16,
+    /// C++ `ItemType::bedPartnerDir` — XML `partnerdirection` (`Direction` discriminant).
+    pub bed_partner_dir: u8,
+    /// C++ `ItemType::transformToOnUse[PLAYERSEX_FEMALE/MALE]` — `malesleeper` /
+    /// `femalesleeper` / `maletransformto` / `femaletransformto`.
+    pub transform_to_on_use: [u16; 2],
+    /// C++ `ItemType::transformToFree` — XML `transformto` plus the male/female link pass.
+    pub transform_to_free: u16,
 }
 
 /// `SLOTP_HAND` — `src/items.h`
@@ -217,6 +233,12 @@ impl Default for ItemType {
             rune_mag_level: 0,
             unlay: false,
             elevation: 0,
+            force_use_override: None,
+            magic_effect: 0,
+            write_once_item_id: 0,
+            bed_partner_dir: 0,
+            transform_to_on_use: [0, 0],
+            transform_to_free: 0,
         }
     }
 }
@@ -622,9 +644,11 @@ impl ItemType {
         self.flags & Self::FLAG_ANIMATION != 0
     }
 
+    /// OTB `FLAG_FORCEUSE` **or** XML `forceuse=true`. XML cannot clear the OTB bit.
+    /// 772 `CheckTopUseObject` (`operate.cc:368`).
     #[inline]
     pub fn force_use(&self) -> bool {
-        self.flags & Self::FLAG_FORCEUSE != 0
+        self.flags & Self::FLAG_FORCEUSE != 0 || self.force_use_override == Some(true)
     }
 
     /// 772 `objects.srv` `DISTUSE` flag (bit 11, `enums.hh:215`). Set by `objects.srv`
@@ -650,6 +674,27 @@ impl ItemType {
     #[inline]
     pub fn is_fluid_container(&self) -> bool {
         self.group == Self::GROUP_FLUID
+    }
+
+    /// `ItemType::isContainer()` — `group == ITEM_GROUP_CONTAINER` (`src/items.h`).
+    #[inline]
+    pub fn is_container(&self) -> bool {
+        self.group == Self::GROUP_CONTAINER
+    }
+
+    /// `ItemType::getPluralName` — `src/items.h` ~268–286.
+    /// XML `plural` wins; else `name` when `showCount` is off or `name` already ends in `s`.
+    pub fn get_plural_name(&self) -> String {
+        if !self.plural_name.is_empty() {
+            return self.plural_name.clone();
+        }
+        if !self.show_count {
+            return self.name.clone();
+        }
+        if self.name.is_empty() || self.name.ends_with('s') {
+            return self.name.clone();
+        }
+        format!("{}s", self.name)
     }
 
     /// C++ `ItemType::isDoor()` — `type == ITEM_TYPE_DOOR` (`src/items.h`).
@@ -910,5 +955,35 @@ mod tests {
             !field.is_cip_priority_bottom(),
             "magic fields must not inflate creature stackpos (bug0000017)"
         );
+    }
+
+    /// R1: `ItemType::getPluralName` (`src/items.h` ~268–286).
+    #[test]
+    fn get_plural_name_follows_items_h() {
+        let gold = super::ItemType {
+            name: "gold coin".into(),
+            plural_name: "gold coins".into(),
+            ..super::ItemType::default()
+        };
+        assert_eq!(gold.get_plural_name(), "gold coins");
+
+        let spear = super::ItemType {
+            name: "spear".into(),
+            ..super::ItemType::default()
+        };
+        assert_eq!(spear.get_plural_name(), "spears");
+
+        let grass = super::ItemType {
+            name: "grass".into(),
+            ..super::ItemType::default()
+        };
+        assert_eq!(grass.get_plural_name(), "grass");
+
+        let hidden = super::ItemType {
+            name: "cookie".into(),
+            show_count: false,
+            ..super::ItemType::default()
+        };
+        assert_eq!(hidden.get_plural_name(), "cookie");
     }
 }

@@ -2,7 +2,8 @@
 //!
 //! C++ reference: `src/luascript.cpp` — `LuaScriptInterface` ItemType userdata
 //! (`ItemType::getID`, `isStackable`, `isFluidContainer`, `getDestroyId`,
-//! `getFluidSource`, …). Wraps a server item type id; resolves name→id lookups
+//! `getFluidSource`, `getName`, `getArticle`, `getPluralName`, `getWeight`,
+//! `isContainer`, …). Wraps a server item type id; resolves name→id lookups
 //! through `ScriptContext`.
 
 use mlua::{MetaMethod, UserData, UserDataMethods, Value};
@@ -82,6 +83,42 @@ impl UserData for ItemTypeRef {
                 .ok_or_else(|| mlua::Error::runtime("LuaContext not set"))
         });
 
+        // `ItemType:getName()` — `luaItemTypeGetName` (`luascript.cpp`).
+        // `ItemType::name`; XML `name`. Empty string when the type is unknown.
+        methods.add_method("getName", |_, this, ()| {
+            crate::context::current_ctx(|ctx| ctx.get_item_type_name(this.0))
+                .ok_or_else(|| mlua::Error::runtime("LuaContext not set"))
+        });
+
+        // `ItemType:getArticle()` — `luaItemTypeGetArticle` (`luascript.cpp`).
+        // `ItemType::article`; XML `article`. Empty string when unset.
+        methods.add_method("getArticle", |_, this, ()| {
+            crate::context::current_ctx(|ctx| ctx.get_item_type_article(this.0))
+                .ok_or_else(|| mlua::Error::runtime("LuaContext not set"))
+        });
+
+        // `ItemType:getPluralName()` — `luaItemTypeGetPluralName` (`luascript.cpp`).
+        // `ItemType::getPluralName` (`items.h`): XML `plural`, else `name` / `name+"s"`.
+        methods.add_method("getPluralName", |_, this, ()| {
+            crate::context::current_ctx(|ctx| ctx.get_item_type_plural_name(this.0))
+                .ok_or_else(|| mlua::Error::runtime("LuaContext not set"))
+        });
+
+        // `ItemType:getWeight([count = 1])` — `luaItemTypeGetWeight` (`luascript.cpp`).
+        // `weight * max(1, count)` (`uint16_t` count, default 1).
+        methods.add_method("getWeight", |_, this, count: Option<u16>| {
+            let n = u64::from(count.unwrap_or(1).max(1));
+            crate::context::current_ctx(|ctx| u64::from(ctx.get_item_type_weight(this.0)) * n)
+                .ok_or_else(|| mlua::Error::runtime("LuaContext not set"))
+        });
+
+        // `ItemType:isContainer()` — `luaItemTypeIsContainer` (`luascript.cpp`).
+        // `ItemType::isContainer`: `group == ITEM_GROUP_CONTAINER` (`items.h`).
+        methods.add_method("isContainer", |_, this, ()| {
+            crate::context::current_ctx(|ctx| ctx.get_item_type_is_container(this.0))
+                .ok_or_else(|| mlua::Error::runtime("LuaContext not set"))
+        });
+
         methods.add_method("isCorpse", |_, this, ()| {
             CURRENT_CTX.with(|c: &RefCell<Option<*const dyn LuaContext>>| {
                 let ptr =
@@ -115,22 +152,6 @@ impl UserData for ItemTypeRef {
                 }
                 let ctx = unsafe { &*ptr };
                 Ok(ctx.get_item_type_is_ground_tile(this.0))
-            })
-        });
-
-        // `ItemType:getName()` — `ItemType::name` (`src/items.h`). Returns
-        // the item name, or empty string if not found.
-        methods.add_method("getName", |_, this, ()| {
-            CURRENT_CTX.with(|c: &RefCell<Option<*const dyn LuaContext>>| {
-                let ptr =
-                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
-                if ptr.is_null() {
-                    return Err(mlua::Error::runtime("LuaContext not set"));
-                }
-                let ctx = unsafe { &*ptr };
-                // Reverse-lookup name isn't on ScriptContext; return id string.
-                let _ = ctx;
-                Ok(format!("item_{}", this.0))
             })
         });
 
@@ -255,6 +276,140 @@ mod tests {
                 .eval()
                 .expect("grass fluid");
             assert_eq!(empty, 0);
+        });
+    }
+
+    /// R1: `onUseQuest` found-text + capacity — TFS `luaItemTypeGetName` /
+    /// `GetArticle` / `GetPluralName` / `GetWeight` (`weight * max(1,count)`) /
+    /// `IsContainer`. Known `items.xml` rows: gold 2148, bag 1987, grass 102.
+    struct ItemTypeLookCtx;
+
+    impl ScriptContext for ItemTypeLookCtx {
+        fn get_creature(&self, _: ScriptCreatureId) -> Option<ScriptCreatureData> {
+            None
+        }
+        fn get_item(&self, _: ScriptItemId) -> Option<ScriptItemRef> {
+            None
+        }
+        fn get_config_string(&self, _: &str) -> Option<String> {
+            None
+        }
+        fn get_item_type_name(&self, item_type: u16) -> String {
+            match item_type {
+                2148 => "gold coin".into(),
+                1987 => "bag".into(),
+                102 => "grass".into(),
+                _ => String::new(),
+            }
+        }
+        fn get_item_type_article(&self, item_type: u16) -> String {
+            match item_type {
+                2148 | 1987 => "a".into(),
+                _ => String::new(),
+            }
+        }
+        fn get_item_type_plural_name(&self, item_type: u16) -> String {
+            match item_type {
+                2148 => "gold coins".into(),
+                1987 => "bags".into(),
+                102 => "grass".into(),
+                _ => String::new(),
+            }
+        }
+        fn get_item_type_weight(&self, item_type: u16) -> u32 {
+            match item_type {
+                2148 => 10,
+                1987 => 800,
+                _ => 0,
+            }
+        }
+        fn get_item_type_is_container(&self, item_type: u16) -> bool {
+            item_type == 1987
+        }
+    }
+
+    #[test]
+    fn r1_item_type_name_article_plural_weight_container() {
+        let runtime = LuaRuntime::new().expect("runtime");
+        let lua = &runtime.lua;
+        with_lua_context(&ItemTypeLookCtx, || {
+            let name: String = lua
+                .load("return ItemType(2148):getName()")
+                .eval()
+                .expect("getName gold");
+            assert_eq!(name, "gold coin");
+
+            let article: String = lua
+                .load("return ItemType(2148):getArticle()")
+                .eval()
+                .expect("getArticle gold");
+            assert_eq!(article, "a");
+
+            let plural: String = lua
+                .load("return ItemType(2148):getPluralName()")
+                .eval()
+                .expect("getPluralName gold");
+            assert_eq!(plural, "gold coins");
+
+            let w1: u64 = lua
+                .load("return ItemType(2148):getWeight()")
+                .eval()
+                .expect("getWeight default");
+            assert_eq!(w1, 10);
+
+            let w100: u64 = lua
+                .load("return ItemType(2148):getWeight(100)")
+                .eval()
+                .expect("getWeight 100");
+            assert_eq!(w100, 1000);
+
+            let w0: u64 = lua
+                .load("return ItemType(2148):getWeight(0)")
+                .eval()
+                .expect("getWeight 0");
+            assert_eq!(w0, 10);
+
+            let gold_cont: bool = lua
+                .load("return ItemType(2148):isContainer()")
+                .eval()
+                .expect("isContainer gold");
+            assert!(!gold_cont);
+
+            let bag_name: String = lua
+                .load("return ItemType(1987):getName()")
+                .eval()
+                .expect("getName bag");
+            assert_eq!(bag_name, "bag");
+
+            let bag_cont: bool = lua
+                .load("return ItemType(1987):isContainer()")
+                .eval()
+                .expect("isContainer bag");
+            assert!(bag_cont);
+
+            let bag_w: u64 = lua
+                .load("return ItemType(1987):getWeight()")
+                .eval()
+                .expect("getWeight bag");
+            assert_eq!(bag_w, 800);
+
+            let grass_art: String = lua
+                .load("return ItemType(102):getArticle()")
+                .eval()
+                .expect("getArticle grass");
+            assert_eq!(grass_art, "");
+
+            let grass_plural: String = lua
+                .load("return ItemType(102):getPluralName()")
+                .eval()
+                .expect("getPluralName grass");
+            assert_eq!(grass_plural, "grass");
+
+            let unknown: String = lua
+                .load("return ItemType(9999):getName()")
+                .eval()
+                .expect("getName unknown");
+            assert_eq!(unknown, "");
         });
     }
 }

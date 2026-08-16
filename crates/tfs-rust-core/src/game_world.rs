@@ -53,6 +53,14 @@ pub struct DeferredTurnBroadcast {
     pub dir: Direction,
 }
 
+/// TFS `Player::writeItem` + `windowTextId` — `playerWriteItem` (`game.cpp`).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct WriteWindow {
+    pub window_id: u32,
+    pub item_id: ItemId,
+    pub max_len: u16,
+}
+
 /// Queued `MoveEvents` StepOut/StepIn until after move packets.
 ///
 /// C++ `Map::moveCreature` sends `sendCreatureMove` **then** `postRemoveNotification` /
@@ -147,6 +155,8 @@ pub struct GameWorld {
     pub next_statement_id: u32,
     /// TFS `Player::windowTextId` — incremented per `showTextDialog` / `sendTextWindow`.
     pub next_window_text_id: u32,
+    /// Open writable text window — `Player::writeItem` (`player.h`).
+    pub(crate) write_windows: HashMap<CreatureId, WriteWindow>,
     /// C++ `Monster::monsterAutoID` — auto-incrementing wire id for monsters/npcs
     /// (`monster.h:43-46`, `monster.cpp:18`). Starts at `0x40000000`, never reused.
     /// Prevents wire-id collisions when SlotMap slots are recycled.
@@ -395,6 +405,7 @@ impl GameWorld {
             weapons: Arc::new(tfs_rust_content::weapons::WeaponRegistry::default()),
             next_statement_id: 0,
             next_window_text_id: 0,
+            write_windows: HashMap::new(),
             next_monster_wire_id: 0x4000_0000,
             todo_queue: crate::todo_queue::ToDoQueue::default(),
             server_ms: 0,

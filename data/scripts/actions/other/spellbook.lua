@@ -1,6 +1,7 @@
 -- 772 `UseAnnouncer` case 4 → `SendEditText` / `GetSpellbook`
 -- (`moveuse.cc:1947-1948`, `sending.cc:1102-1112`, `magic.cc:3830-3901`).
--- Learned instants only (`SpellKnown` / `player_spells`); not TFS `canCast`.
+-- Learned / vocation instants only (`SpellKnown` on TFS domain — not ALL_SPELLS).
+-- `player:getInstantSpells()` = needLearn → persist.spells; else vocation map.
 -- OTB 2175 only — 2217 is fontsize-1 stored text, not a spellbook.
 
 local function spellbookWords(words)
@@ -34,8 +35,8 @@ local spellbook = Action()
 function spellbook.onUse(player, item, fromPosition, target, toPosition, isHotkey)
 	local byLevel = {}
 	local maxLevel = 0
-	for _, spell in ipairs(Game.getInstantSpells()) do
-		if spell.level > 0 and player:hasLearnedSpell(spell.name) then
+	for _, spell in ipairs(player:getInstantSpells()) do
+		if spell.level > 0 then
 			local level = spell.level
 			local group = byLevel[level]
 			if not group then

@@ -7,6 +7,18 @@ use slotmap::Key;
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use tfs_rust_common::{ScriptCreatureId, ScriptItemId, ScriptThing};
+use tfs_rust_content::spells::InstantSpellDef;
+
+fn script_instant_from_def(d: &InstantSpellDef) -> tfs_rust_common::ScriptInstantSpell {
+    tfs_rust_common::ScriptInstantSpell {
+        name: d.name.clone(),
+        words: d.words.clone(),
+        level: d.level,
+        magic_level: d.magic_level,
+        mana: d.mana,
+        mana_percent: d.mana_percent,
+    }
+}
 
 impl tfs_rust_common::ScriptContext for GameWorld {
     fn get_creature(
@@ -93,7 +105,10 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             action_id: item.action_id(),
             unique_id: u32::from(item.unique_id()),
             is_store_item: item.is_store_item(),
-            fluid_type: item.fluid_type(),
+            fluid_type: match it {
+                Some(t) if t.is_fluid_container() || t.is_splash() => item.get_sub_type(t),
+                _ => item.fluid_type(),
+            },
         })
     }
 
@@ -471,6 +486,47 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             .get(&item_type)
             .map(|t| t.fluid_source)
             .unwrap_or(0)
+    }
+
+    /// `ItemType:getName()` — `ItemType::name` (`src/items.h`).
+    fn get_item_type_name(&self, item_type: u16) -> String {
+        self.items_db
+            .items
+            .get(&item_type)
+            .map(|t| t.name.clone())
+            .unwrap_or_default()
+    }
+
+    /// `ItemType:getArticle()` — `ItemType::article` (`src/items.h`).
+    fn get_item_type_article(&self, item_type: u16) -> String {
+        self.items_db
+            .items
+            .get(&item_type)
+            .map(|t| t.article.clone())
+            .unwrap_or_default()
+    }
+
+    /// `ItemType:getPluralName()` — `ItemType::getPluralName` (`src/items.h`).
+    fn get_item_type_plural_name(&self, item_type: u16) -> String {
+        self.items_db
+            .items
+            .get(&item_type)
+            .map(|t| t.get_plural_name())
+            .unwrap_or_default()
+    }
+
+    /// `ItemType:getWeight` type weight — `ItemType::weight` (`src/items.h`).
+    fn get_item_type_weight(&self, item_type: u16) -> u32 {
+        self.items_db
+            .items
+            .get(&item_type)
+            .map(|t| t.weight)
+            .unwrap_or(0)
+    }
+
+    /// `ItemType:isContainer()` — `ItemType::isContainer` (`src/items.h`).
+    fn get_item_type_is_container(&self, item_type: u16) -> bool {
+        self.items_db.is_container(item_type)
     }
 
     /// `item:hasAttribute(key)` — `ItemAttributes::hasAttribute` (`src/item.h`).
@@ -1298,14 +1354,25 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             .spells
             .instant_by_name
             .values()
-            .map(|d| tfs_rust_common::ScriptInstantSpell {
-                name: d.name.clone(),
-                words: d.words.clone(),
-                level: d.level,
-                magic_level: d.magic_level,
-                mana: d.mana,
-                mana_percent: d.mana_percent,
-            })
+            .map(script_instant_from_def)
+            .collect();
+        out.sort_by(|a, b| a.level.cmp(&b.level).then(a.name.cmp(&b.name)));
+        out
+    }
+
+    fn list_player_instant_spells(
+        &self,
+        creature_id: ScriptCreatureId,
+    ) -> Vec<tfs_rust_common::ScriptInstantSpell> {
+        let Some(cid) = self.resolve_creature_u64(creature_id) else {
+            return Vec::new();
+        };
+        let mut out: Vec<tfs_rust_common::ScriptInstantSpell> = self
+            .spells
+            .instant_by_name
+            .values()
+            .filter(|d| self.player_knows_instant(cid, d))
+            .map(script_instant_from_def)
             .collect();
         out.sort_by(|a, b| a.level.cmp(&b.level).then(a.name.cmp(&b.name)));
         out
@@ -1358,6 +1425,48 @@ mod e5_e6_e7_script_tests {
         let id = cid.data().as_ffi();
         assert!(world.player_has_learned_spell(id, "light healing"));
         assert!(!world.player_has_learned_spell(id, "Berserk"));
+    }
+
+    #[test]
+    fn e6_spellbook_lists_vocation_instants_without_player_spells() {
+        use tfs_rust_content::spells::InstantSpellDef;
+
+        let mut world = minimal_world();
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("Mage", pos));
+        let spells = std::sync::Arc::make_mut(&mut world.spells);
+        spells.instant_by_name.insert(
+            "Light Healing".into(),
+            InstantSpellDef {
+                name: "Light Healing".into(),
+                words: "ex,ura".into(),
+                level: 9,
+                mana: 25,
+                need_learn: false,
+                vocations: Vec::new(),
+                ..Default::default()
+            },
+        );
+        spells.instant_by_name.insert(
+            "Undead Legion".into(),
+            InstantSpellDef {
+                name: "Undead Legion".into(),
+                words: "exana mort".into(),
+                level: 15,
+                need_learn: true,
+                vocations: Vec::new(),
+                ..Default::default()
+            },
+        );
+        let listed = world.list_player_instant_spells(cid.data().as_ffi());
+        assert!(
+            listed.iter().any(|s| s.name == "Light Healing"),
+            "vocation/needLearn=false must appear with empty player_spells: {listed:?}"
+        );
+        assert!(
+            !listed.iter().any(|s| s.name == "Undead Legion"),
+            "needLearn with empty persist must stay out: {listed:?}"
+        );
     }
 
     #[test]

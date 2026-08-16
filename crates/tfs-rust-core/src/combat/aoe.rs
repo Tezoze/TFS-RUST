@@ -25,6 +25,7 @@ use crate::ids::CreatureId;
 use crate::item::Item;
 use crate::item_attributes::ItemAttributes;
 use crate::login_out::creature_wire_id;
+use crate::return_value::ReturnValue;
 
 /// Tile iteration result from 772 `ExecuteCircleSpell` filtering (`magic.cc:468-500`).
 ///
@@ -339,7 +340,33 @@ impl GameWorld {
             skip_caster,
             true, // skip NPCs for aggressive — TFS `Combat::canDoCombat` (`combat.cpp:243-248`)
         );
-        let targets = iter.targets;
+        let mut targets = iter.targets;
+
+        // TFS `Combat::canDoCombat` group flags — skip (or cancel single-target) PvP/PvE
+        // the caster's group forbids. 772 has no per-player-target right; GMs used `NO_ATTACK`.
+        if request.aggressive
+            && let Some(caster) = caster_id
+        {
+            let block_players = self.player_cannot_attack_player(caster);
+            let block_monsters = self.player_cannot_attack_monster(caster);
+            if block_players || block_monsters {
+                let had_blocked_player = block_players
+                    && targets.iter().any(|(id, _)| {
+                        matches!(self.creatures.get(*id), Some(CreatureKind::Player(_)))
+                    });
+                targets.retain(|(id, _)| match self.creatures.get(*id) {
+                    Some(CreatureKind::Player(_)) => !block_players,
+                    Some(CreatureKind::Monster(_)) => !block_monsters,
+                    _ => true,
+                });
+                if had_blocked_player && targets.is_empty() {
+                    if let Some(conn) = self.conn_for_creature(caster) {
+                        self.send_cancel_message(conn, ReturnValue::YouMayNotAttackThisPlayer);
+                    }
+                    return Err("You may not attack this person.".into());
+                }
+            }
+        }
 
         // Collect create-item tiles from passing positions — Lua-specific
         // (`Combat::combatTileEffects` — `combat.cpp:557`).
@@ -369,6 +396,12 @@ impl GameWorld {
                     continue;
                 }
                 if !self.check_affected_players(caster, *tile_pos) {
+                    if let Some(conn) = self.conn_for_creature(caster) {
+                        self.send_cancel_message(
+                            conn,
+                            ReturnValue::TurnSecureModeToAttackUnmarkedPlayers,
+                        );
+                    }
                     return Err(
                         "Turn secure mode off if you really want to attack unmarked players."
                             .into(),
@@ -380,6 +413,12 @@ impl GameWorld {
                     continue;
                 }
                 if !self.check_affected_players(caster, *tile_pos) {
+                    if let Some(conn) = self.conn_for_creature(caster) {
+                        self.send_cancel_message(
+                            conn,
+                            ReturnValue::TurnSecureModeToAttackUnmarkedPlayers,
+                        );
+                    }
                     return Err(
                         "Turn secure mode off if you really want to attack unmarked players."
                             .into(),

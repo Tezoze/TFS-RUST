@@ -700,48 +700,29 @@ impl GameWorld {
             .insert(conn_id, known.clone());
     }
 
-    /// Record one wire id as fully sent (e.g. after `0x6A` tile appear).
-    pub fn mark_creature_fully_sent(&mut self, conn_id: ConnId, wire_id: u32) {
-        self.creature_fully_sent_by_conn
-            .entry(conn_id)
-            .or_default()
-            .insert(wire_id);
-    }
-
-    /// Whether `viewer` may treat `target_protocol_id` as “seen” for `knownCreatureSet` eviction.
-    /// C++: `ProtocolGame::canSee` / `Player::canSeeCreature` (`protocolgame.cpp` ~778+).
+    /// Whether `viewer` may treat `target_protocol_id` as still on-screen for
+    /// `knownCreatureSet` eviction (`checkCreatureAsKnown`).
+    ///
+    /// TVP `ProtocolGame::canSee(const Creature*)` — `protocolgame.cpp:676-686`:
+    /// missing/removed → false; `canSeeCreature` (invis); then viewport `canSee(pos)`.
+    /// A true here **blocks** eviction. Returning true for unknown ids filled the
+    /// 150-slot CipSoft table with corpses/far creatures, then `remove_known` hit
+    /// someone still on the tile (sprite stays, name/HP/target gone).
     pub fn can_see_creature_for_known_set(
         &self,
         viewer: CreatureId,
         target_protocol_id: u32,
     ) -> bool {
-        if self.player_guid(viewer) == Some(target_protocol_id) {
-            return true;
+        let Some(cid) = self.creature_by_wire_id(target_protocol_id) else {
+            return false;
+        };
+        if !self.can_see_creature(viewer, cid) {
+            return false;
         }
-        for (cid, k) in self.creatures.iter() {
-            let wire_id = match k {
-                CreatureKind::Player(p) => p.guid,
-                CreatureKind::Monster(m) => {
-                    if m.wire_id != 0 {
-                        m.wire_id
-                    } else {
-                        (cid.data().as_ffi() & 0xFFFF_FFFF) as u32
-                    }
-                }
-                CreatureKind::Npc(n) => {
-                    if n.wire_id != 0 {
-                        n.wire_id
-                    } else {
-                        (cid.data().as_ffi() & 0xFFFF_FFFF) as u32
-                    }
-                }
-            };
-            if wire_id != target_protocol_id {
-                continue;
-            }
-            return self.can_see_creature(viewer, cid);
-        }
-        true
+        let Some(pos) = self.creatures.get(cid).map(|k| k.position()) else {
+            return false;
+        };
+        self.can_see_position(viewer, pos)
     }
 
     /// C++ `Creature::canSeeCreature` / `Player::canSeeCreature` — ghost mode + invisibility.
@@ -792,13 +773,6 @@ impl GameWorld {
             .any(|c| c.ctype == ConditionType::Invisible)
     }
 
-    pub(crate) fn player_guid(&self, cid: CreatureId) -> Option<u32> {
-        self.creatures.get(cid).and_then(|k| match k {
-            CreatureKind::Player(p) => Some(p.guid),
-            _ => None,
-        })
-    }
-
     pub(crate) fn send_cancel_message(&mut self, conn_id: ConnId, rv: ReturnValue) {
         use tfs_rust_net::outgoing_extra::send_text_message_simple;
         let msg = rv.description();
@@ -829,7 +803,8 @@ impl GameWorld {
                     let it = self.items_db.items.get(&item.item_type);
                     (
                         it.map(|t| t.client_id).unwrap_or(0),
-                        item.client_count(),
+                        it.map(|t| item.wire_count_byte(t))
+                            .unwrap_or_else(|| item.client_count()),
                         it.map(|t| t.stackable()).unwrap_or(false),
                         it.map(|t| t.is_splash() || t.is_fluid_container())
                             .unwrap_or(false),
@@ -870,7 +845,8 @@ impl GameWorld {
                     let it = self.items_db.items.get(&item.item_type);
                     (
                         it.map(|t| t.client_id).unwrap_or(0),
-                        item.client_count(),
+                        it.map(|t| item.wire_count_byte(t))
+                            .unwrap_or_else(|| item.client_count()),
                         it.map(|t| t.stackable()).unwrap_or(false),
                         it.map(|t| t.is_splash() || t.is_fluid_container())
                             .unwrap_or(false),
@@ -1227,5 +1203,83 @@ mod creature_can_see_tests {
         let too_far = Position::new(100, 100, 6);
         assert!(!creature_can_see(viewer, too_far, 11, 11, true));
         assert!(!creature_can_see(viewer, too_far, 11, 11, false));
+    }
+}
+
+/// TVP `ProtocolGame::canSee(const Creature*)` for `checkCreatureAsKnown` eviction.
+#[cfg(test)]
+mod known_set_can_see_tests {
+    use super::*;
+    use crate::login_out::creature_wire_id;
+    use crate::sim_harness::{insert_monster, insert_spectator_player, minimal_world, test_player};
+    use std::collections::HashSet;
+    use tfs_rust_common::{ConnId, Position};
+    use tfs_rust_net::creature_known::check_creature_known;
+
+    #[test]
+    fn missing_id_is_not_visible() {
+        let mut world = minimal_world();
+        let viewer = insert_spectator_player(
+            &mut world,
+            ConnId(1),
+            test_player("V", Position::new(100, 100, 7)),
+        );
+        assert!(!world.can_see_creature_for_known_set(viewer, 0xDEAD_BEEF));
+    }
+
+    #[test]
+    fn far_creature_is_not_visible() {
+        let mut world = minimal_world();
+        let viewer = insert_spectator_player(
+            &mut world,
+            ConnId(1),
+            test_player("V", Position::new(100, 100, 7)),
+        );
+        let far = insert_monster(&mut world, "Rat", Position::new(200, 200, 7), 200);
+        let wire = creature_wire_id(far, world.creatures.get(far).expect("far"));
+        assert!(!world.can_see_creature_for_known_set(viewer, wire));
+    }
+
+    #[test]
+    fn adjacent_creature_is_visible() {
+        let mut world = minimal_world();
+        let viewer = insert_spectator_player(
+            &mut world,
+            ConnId(1),
+            test_player("V", Position::new(100, 100, 7)),
+        );
+        let near = insert_monster(&mut world, "Rat", Position::new(101, 100, 7), 200);
+        let wire = creature_wire_id(near, world.creatures.get(near).expect("near"));
+        assert!(world.can_see_creature_for_known_set(viewer, wire));
+        let guid = creature_wire_id(viewer, world.creatures.get(viewer).expect("viewer"));
+        assert!(world.can_see_creature_for_known_set(viewer, guid));
+    }
+
+    /// Full 150-slot table of corpses + one on-screen rat: the 151st sighting must
+    /// `remove_known` a missing id, not the rat still on the tile.
+    #[test]
+    fn eviction_prefers_missing_ids_over_on_screen() {
+        let mut world = minimal_world();
+        let viewer = insert_spectator_player(
+            &mut world,
+            ConnId(1),
+            test_player("V", Position::new(100, 100, 7)),
+        );
+        let near = insert_monster(&mut world, "Rat", Position::new(101, 100, 7), 200);
+        let near_wire = creature_wire_id(near, world.creatures.get(near).expect("near"));
+        let new_cid = insert_monster(&mut world, "Dog", Position::new(100, 101, 7), 200);
+        let new_wire = creature_wire_id(new_cid, world.creatures.get(new_cid).expect("new"));
+
+        let mut known: HashSet<u32> = (10_000u32..10_149).collect();
+        known.insert(near_wire);
+        assert_eq!(known.len(), 150);
+
+        let mut can_see = |id: u32| world.can_see_creature_for_known_set(viewer, id);
+        let (known_flag, remove) = check_creature_known(new_wire, &mut known, &mut can_see, 150);
+        assert!(!known_flag);
+        assert_eq!(remove, 10_000);
+        assert!(known.contains(&near_wire));
+        assert!(known.contains(&new_wire));
+        assert!(!known.contains(&10_000));
     }
 }

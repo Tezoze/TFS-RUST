@@ -163,6 +163,12 @@ pub struct ItemAttributes {
     plural_name: Option<String>,
     /// Custom attributes map (lazily initialized)
     custom: Option<Box<CustomAttributeMap>>,
+    /// C++ `BedItem::sleeperGUID` — `ATTR_SLEEPERGUID`.
+    sleeper_guid: u32,
+    /// C++ `BedItem::sleepStart` — `ATTR_SLEEPSTART` (unix seconds).
+    sleep_start: u32,
+    /// C++ `Teleport::destPos` — `ATTR_TELE_DEST`.
+    tele_dest: Option<tfs_rust_common::Position>,
 }
 
 impl ItemAttributes {
@@ -483,6 +489,30 @@ impl ItemAttributes {
     pub fn reset_date(&mut self) {
         self.attribute_bits.remove(ItemAttrFlags::DATE);
         self.date = 0;
+    }
+
+    pub fn sleeper_guid(&self) -> u32 {
+        self.sleeper_guid
+    }
+
+    pub fn set_sleeper_guid(&mut self, value: u32) {
+        self.sleeper_guid = value;
+    }
+
+    pub fn sleep_start(&self) -> u32 {
+        self.sleep_start
+    }
+
+    pub fn set_sleep_start(&mut self, value: u32) {
+        self.sleep_start = value;
+    }
+
+    pub fn tele_dest(&self) -> Option<tfs_rust_common::Position> {
+        self.tele_dest
+    }
+
+    pub fn set_tele_dest(&mut self, dest: tfs_rust_common::Position) {
+        self.tele_dest = Some(dest);
     }
 
     pub fn set_charges(&mut self, value: u16) {

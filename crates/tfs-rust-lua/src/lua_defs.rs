@@ -591,6 +591,10 @@ mod tests {
             creature.methods.contains("hasLearnedSpell"),
             "Creature:hasLearnedSpell is a native method (E6)"
         );
+        assert!(
+            creature.methods.contains("getInstantSpells"),
+            "Creature:getInstantSpells is a native method (spellbook)"
+        );
 
         let game = snap.classes.get("Game").expect("Game");
         assert!(
@@ -610,6 +614,22 @@ mod tests {
         assert!(
             item_type.methods.contains("getFluidSource"),
             "ItemType:getFluidSource is a native method"
+        );
+        assert!(
+            item_type.methods.contains("getArticle"),
+            "ItemType:getArticle is a native method (R1)"
+        );
+        assert!(
+            item_type.methods.contains("getPluralName"),
+            "ItemType:getPluralName is a native method (R1)"
+        );
+        assert!(
+            item_type.methods.contains("getWeight"),
+            "ItemType:getWeight is a native method (R1)"
+        );
+        assert!(
+            item_type.methods.contains("isContainer"),
+            "ItemType:isContainer is a native method (R1)"
         );
 
         let action = snap.classes.get("Action").expect("Action");

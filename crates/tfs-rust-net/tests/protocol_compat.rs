@@ -8,7 +8,7 @@ use tfs_rust_net::codec::{
     AddCreatureWire, AnimatedTextWire, ChannelOpenWire, ChannelsDialogWire, Codec, Codec1098,
     CombatDamageNotifyWire, ContainerOpenWire, CreatePrivateChannelWire, CreatureHealthWire,
     CreatureSpeedWire, DistanceShootWire, ItemTemplateArgs, MagicEffectWire, OutfitWire,
-    PlayerSkillsWire, PlayerStatsWire,
+    PlayerSkillsWire, PlayerStatsWire, TextWindowWire,
 };
 
 use tfs_rust_net::creature_encode::write_add_creature;
@@ -569,6 +569,45 @@ fn create_private_channel_1098_layout() {
             3, 0, b'B', b'o', b'b', // invited name
         ]
     );
+}
+
+/// 1098 `sendTextWindow` template overload — MARK + empty writer + empty date
+/// (`src/protocolgame.cpp:2999`). Matches the legacy helper so 1098 spellbooks stay intact.
+#[test]
+fn text_window_1098_has_mark_and_date() {
+    let w = TextWindowWire {
+        window_text_id: 1,
+        item: ItemTemplateArgs {
+            client_id: 0x1234,
+            count: 1,
+            stackable: false,
+            is_splash_or_fluid: false,
+            is_animation: false,
+            with_description: false,
+        },
+        text: "hello".to_string(),
+        writer: String::new(),
+        written_date: None,
+        can_write: false,
+        max_text_len: 0,
+    };
+    let b = codec().encode_text_window(&w).into_bytes();
+    assert_eq!(
+        b,
+        vec![
+            0x96, 1, 0, 0, 0, // opcode + windowTextId
+            0x34, 0x12, 0xFF, // clientId + MARK_UNMARKED
+            5, 0, // maxlen = text.size()
+            5, 0, b'h', b'e', b'l', b'l', b'o', // addString
+            0, 0, // empty writer
+            0, 0, // empty date
+        ]
+    );
+    let helper = tfs_rust_net::outgoing_extra::send_text_window_simple_item(
+        1, 0x1234, 1, false, false, false, false, "hello",
+    )
+    .into_bytes();
+    assert_eq!(b, helper);
 }
 
 /// 1098 `sendClosePrivate` — `0xB3 + u16 channelId`. Era-identical.
@@ -1261,6 +1300,44 @@ mod v772 {
                 0xB2, 0x00, 0x01, 10, 0, b'M', b'y', b' ', b'C', b'h', b'a', b'n', b'n', b'e',
                 b'l',
             ]
+        );
+    }
+
+    /// 772 `sendTextWindow` template overload (`gameserver/src/protocolgame.cpp:1925`):
+    /// `addItem` is `u16 clientId` only (no MARK); writer `u16 0`; **no date**.
+    /// The 1098 MARK + date bytes are what crashed the 7.72 client on spellbook open.
+    #[test]
+    fn text_window_772_no_mark_no_date() {
+        let w = TextWindowWire {
+            window_text_id: 1,
+            item: ItemTemplateArgs {
+                client_id: 0x1234,
+                count: 1,
+                stackable: false,
+                is_splash_or_fluid: false,
+                is_animation: false,
+                with_description: false,
+            },
+            text: "hello".to_string(),
+            writer: String::new(),
+            written_date: Some("Jan 01 2026".to_string()),
+            can_write: false,
+            max_text_len: 0,
+        };
+        let b = codec().encode_text_window(&w).into_bytes();
+        assert_eq!(
+            b,
+            vec![
+                0x96, 1, 0, 0, 0, // opcode + windowTextId
+                0x34, 0x12, // clientId only — no MARK
+                5, 0, // maxlen = text.size()
+                5, 0, b'h', b'e', b'l', b'l', b'o', // addString
+                0, 0, // empty writer; no date follows
+            ]
+        );
+        assert!(
+            !b.contains(&0xFF),
+            "772 addItem must not emit MARK_UNMARKED 0xFF"
         );
     }
 

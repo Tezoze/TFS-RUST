@@ -10,7 +10,7 @@ use std::collections::VecDeque;
 use slotmap::Key;
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
-use tfs_rust_net::codec::{ContainerOpenWire, ItemTemplateArgs};
+use tfs_rust_net::codec::{ContainerOpenWire, ItemTemplateArgs, TextWindowWire};
 use tfs_rust_net::outgoing_extra::send_close_container;
 
 use crate::creature::CreatureKind;
@@ -169,7 +169,7 @@ impl GameWorld {
             self.refresh_container_ui_for_all_viewers(container_item_id);
             return;
         }
-        let ccnt = ch.client_count().max(1);
+        let ccnt = self.item_wire_count(ch);
         let cstack = self
             .items_db
             .items
@@ -325,7 +325,7 @@ impl GameWorld {
         if client_id_hdr == 0 {
             return None;
         }
-        let cnt = container_wrapped.client_count().max(1);
+        let cnt = self.item_wire_count(container_wrapped);
         let stackable = self.items_db.stackable_for_server(sid);
         let splash = self.items_db.is_splash_or_fluid_for_server(sid);
         let anim = self.items_db.is_animation_for_server(sid);
@@ -368,7 +368,7 @@ impl GameWorld {
             if ccid == 0 {
                 continue;
             }
-            let ccnt = ch.client_count().max(1);
+            let ccnt = self.item_wire_count(ch);
             let cstack = self
                 .items_db
                 .items
@@ -623,13 +623,51 @@ impl GameWorld {
         if pos.x == 0xFFFF {
             return self.resolve_item_at_position(cid, pos, stack_pos);
         }
-        if self.uses_cip_map_order(cid) {
-            return self
-                .find_tile_item_by_client_sprite(pos, sprite_id)
-                .or_else(|| self.item_id_for_tile_use(cid, pos, stack_pos));
+        let resolved = if self.uses_cip_map_order(cid) {
+            self.find_tile_item_by_client_sprite(pos, sprite_id)
+                .or_else(|| self.item_id_for_tile_use(cid, pos, stack_pos))
+        } else {
+            self.item_id_for_tile_use(cid, pos, stack_pos)
+                .or_else(|| self.find_tile_item_by_client_sprite(pos, sprite_id))
+        };
+        // 772 `CheckTopUseObject` (`operate.cc:344-377`): map Use Best stops on FORCEUSE.
+        // Rewrite (don't reject) so OTC/1098 stackpos on a corpse still hits the ladder.
+        if let Some(best) = self.tile_top_use_item(pos)
+            && self.item_force_use(best)
+            && resolved != Some(best)
+        {
+            return Some(best);
         }
-        self.item_id_for_tile_use(cid, pos, stack_pos)
-            .or_else(|| self.find_tile_item_by_client_sprite(pos, sprite_id))
+        resolved
+    }
+
+    /// 772 `CheckTopUseObject` Best (`operate.cc:360-373`) — items only.
+    fn tile_top_use_item(&self, pos: Position) -> Option<ItemId> {
+        let mut best = None;
+        for id in self.tile_items_in_chain_order(pos)? {
+            let Some(it) = self
+                .items
+                .get(id)
+                .and_then(|i| self.items_db.items.get(&i.item_type))
+            else {
+                continue;
+            };
+            if best.is_none() || !it.is_splash() {
+                best = Some(id);
+            }
+            let priority_low = !it.is_ground_tile() && !it.always_on_top() && !it.is_splash();
+            if it.force_use() || priority_low {
+                break;
+            }
+        }
+        best
+    }
+
+    fn item_force_use(&self, item_id: ItemId) -> bool {
+        self.items
+            .get(item_id)
+            .and_then(|i| self.items_db.items.get(&i.item_type))
+            .is_some_and(|t| t.force_use())
     }
 
     /// Resolve bare **ground** for single-object Use (`CUseObject`).
@@ -734,6 +772,22 @@ impl GameWorld {
         }
 
         let item_type = self.items.get(item_id).map(|i| i.item_type).unwrap_or(0);
+        if self
+            .items_db
+            .items
+            .get(&item_type)
+            .is_some_and(|t| t.is_bed())
+        {
+            return self.player_use_bed(conn_id, cid, item_id);
+        }
+        if self
+            .items_db
+            .items
+            .get(&item_type)
+            .is_some_and(|t| t.can_read_text())
+        {
+            return self.player_open_text_window(conn_id, cid, item_id);
+        }
         if is_map_tile && crate::floor_change_use::is_teleport_floor_use_item(item_type) {
             let dest = crate::floor_change_use::resolve_teleport_use_destination(
                 self, cid, item_type, pos,
@@ -745,6 +799,142 @@ impl GameWorld {
             return Ok(());
         }
         self.try_open_container_for_item(conn_id, cid, item_id, preferred_cid);
+        Ok(())
+    }
+
+    /// C++ `Actions::internalUseItem` readable arm — `actions.cpp` ~376–386.
+    fn player_open_text_window(
+        &mut self,
+        conn_id: ConnId,
+        cid: CreatureId,
+        item_id: ItemId,
+    ) -> Result<(), ReturnValue> {
+        let (item_type, text, writer, can_write, max_len) = {
+            let item = self.items.get(item_id).ok_or(ReturnValue::NotPossible)?;
+            let it = self
+                .items_db
+                .items
+                .get(&item.item_type)
+                .ok_or(ReturnValue::NotPossible)?;
+            (
+                item.item_type,
+                item.text().to_string(),
+                item.writer().to_string(),
+                it.can_write_text,
+                it.max_text_len,
+            )
+        };
+        self.next_window_text_id = self.next_window_text_id.wrapping_add(1);
+        let window_text_id = self.next_window_text_id;
+        if can_write {
+            self.write_windows.insert(
+                cid,
+                crate::game_world::WriteWindow {
+                    window_id: window_text_id,
+                    item_id,
+                    max_len,
+                },
+            );
+        } else {
+            self.write_windows.remove(&cid);
+        }
+        let client_id = self.items_db.client_id_for_server(item_type);
+        let client_id = if client_id == 0 { item_type } else { client_id };
+        let stackable = self.items_db.stackable_for_server(item_type);
+        let splash = self.items_db.is_splash_or_fluid_for_server(item_type);
+        let anim = self.items_db.is_animation_for_server(item_type);
+        let msg = self.codec.encode_text_window(&TextWindowWire {
+            window_text_id,
+            item: ItemTemplateArgs {
+                client_id,
+                count: 1,
+                stackable,
+                is_splash_or_fluid: splash && !stackable,
+                is_animation: anim,
+                with_description: false,
+            },
+            text,
+            writer,
+            written_date: None,
+            can_write,
+            max_text_len: max_len,
+        });
+        self.enqueue_encoded(conn_id, msg);
+        Ok(())
+    }
+
+    /// C++ `Game::playerWriteItem` — `game.cpp:2458-2516`.
+    pub(crate) fn player_write_item(
+        &mut self,
+        cid: CreatureId,
+        window_text_id: u32,
+        new_text: String,
+    ) -> Result<(), ReturnValue> {
+        let Some(win) = self.write_windows.get(&cid).copied() else {
+            return Ok(());
+        };
+        if win.window_id != window_text_id || new_text.len() > usize::from(win.max_len) {
+            return Ok(());
+        }
+        let Some(item) = self.items.get(win.item_id) else {
+            self.write_windows.remove(&cid);
+            return Err(ReturnValue::NotPossible);
+        };
+        if let Some(Cylinder::Inventory { player_id, .. }) = item.parent
+            && player_id != cid
+        {
+            self.write_windows.remove(&cid);
+            return Err(ReturnValue::NotPossible);
+        }
+        let Some(item_pos) = self.script_item_position(win.item_id) else {
+            self.write_windows.remove(&cid);
+            return Err(ReturnValue::NotPossible);
+        };
+        let Some(player_pos) = self.creatures.get(cid).map(|k| k.position()) else {
+            self.write_windows.remove(&cid);
+            return Err(ReturnValue::NotPossible);
+        };
+        if !are_in_range_1_1_0(player_pos, item_pos) && item_pos.x != 0xFFFF {
+            self.write_windows.remove(&cid);
+            return Err(ReturnValue::NotPossible);
+        }
+        let writer_name = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.base.name.clone(),
+            _ => {
+                self.write_windows.remove(&cid);
+                return Err(ReturnValue::NotPossible);
+            }
+        };
+        let write_once = self
+            .items
+            .get(win.item_id)
+            .and_then(|i| self.items_db.items.get(&i.item_type))
+            .map(|t| t.write_once_item_id)
+            .unwrap_or(0);
+        let old_text = self
+            .items
+            .get(win.item_id)
+            .map(|i| i.text().to_string())
+            .unwrap_or_default();
+        if let Some(item) = self.items.get_mut(win.item_id) {
+            if new_text.is_empty() {
+                item.reset_text();
+                item.reset_writer();
+                item.reset_written_date();
+            } else if old_text != new_text {
+                item.set_text(new_text);
+                item.set_writer(writer_name);
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                item.set_written_date(now);
+            }
+        }
+        if write_once != 0 {
+            self.change_item_type(win.item_id, write_once);
+        }
+        self.write_windows.remove(&cid);
         Ok(())
     }
 
@@ -1270,5 +1460,104 @@ mod tests {
                 .any(|(open_cid, root)| *open_cid == ccid && *root == container_item_id),
             "ground container must stay open while player is adjacent"
         );
+    }
+
+    /// OTC/1098 stackpos on a corpse still Uses the FORCEUSE ladder (`operate.cc:344`).
+    #[test]
+    fn forceuse_ladder_wins_over_corpse_on_tile() {
+        use std::sync::Arc;
+        use tfs_rust_content::otb::ItemType;
+
+        let mut world = crate::sim_harness::beat_driven_test_world();
+        let mut db = (*world.items_db).clone();
+        db.items.insert(
+            1386,
+            ItemType {
+                id: 1386,
+                server_id: 1386,
+                client_id: 1386,
+                flags: 1 << 13, // FLAG_ALWAYSONTOP
+                force_use_override: Some(true),
+                ..ItemType::default()
+            },
+        );
+        db.items.insert(
+            3128,
+            ItemType {
+                id: 3128,
+                server_id: 3128,
+                client_id: 3128,
+                ..ItemType::default()
+            },
+        );
+        world.items_db = Arc::new(db);
+
+        let pos = Position::new(90, 90, 7);
+        crate::sim_harness::ensure_walkable_tile(&mut world.map, pos, 100);
+        let ladder = world.items.insert(Item::new_single(1386));
+        world
+            .internal_add_item_to_tile(pos, ladder, crate::cylinder::CylinderFlags::NO_LIMIT)
+            .expect("ladder");
+        let corpse = world.items.insert(Item::new_single(3128));
+        world
+            .internal_add_item_to_tile(pos, corpse, crate::cylinder::CylinderFlags::NONE)
+            .expect("corpse");
+
+        let cid = insert_player(&mut world, test_player("Hero", pos));
+        let resolved = world.resolve_use_object(cid, pos, 1, 3128);
+        assert_eq!(resolved, Some(ladder));
+    }
+
+    #[test]
+    fn write_once_transforms_on_save() {
+        use std::sync::Arc;
+        use tfs_rust_content::otb::ItemType;
+
+        let mut world = crate::sim_harness::beat_driven_test_world();
+        let mut db = (*world.items_db).clone();
+        db.items.insert(
+            1947,
+            ItemType {
+                id: 1947,
+                server_id: 1947,
+                client_id: 1947,
+                can_write_text: true,
+                can_read_text_override: Some(true),
+                max_text_len: 512,
+                write_once_item_id: 1954,
+                ..ItemType::default()
+            },
+        );
+        db.items.insert(
+            1954,
+            ItemType {
+                id: 1954,
+                server_id: 1954,
+                client_id: 1954,
+                ..ItemType::default()
+            },
+        );
+        world.items_db = Arc::new(db);
+
+        let pos = Position::new(91, 91, 7);
+        crate::sim_harness::ensure_walkable_tile(&mut world.map, pos, 100);
+        let paper = world.items.insert(Item::new_single(1947));
+        world
+            .internal_add_item_to_tile(pos, paper, crate::cylinder::CylinderFlags::NONE)
+            .expect("paper");
+        let cid = insert_player(&mut world, test_player("Hero", pos));
+        world.write_windows.insert(
+            cid,
+            crate::game_world::WriteWindow {
+                window_id: 1,
+                item_id: paper,
+                max_len: 512,
+            },
+        );
+        world
+            .player_write_item(cid, 1, "hello".into())
+            .expect("write");
+        assert_eq!(world.items.get(paper).map(|i| i.item_type), Some(1954));
+        assert_eq!(world.items.get(paper).map(|i| i.text().to_string()), Some("hello".into()));
     }
 }

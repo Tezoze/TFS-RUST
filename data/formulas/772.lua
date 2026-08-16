@@ -60,6 +60,14 @@ formulas = {
   -- TVP `pick.lua` aid `destroyableStone` (4004). 772 `BEGIN "Picking"` is
   -- pick-hole transform + two position-locked quest rocks, not this roll.
   destroyableStone = { chance = 40, selfDamage = -50 },
+
+  -- 1098 TFS extras. 772 has no coin-exchange on use, no extra instruments,
+  -- no magic-level spellbook groups.
+  otherActions = {
+    changeGold = false,
+    extraInstruments = false,
+    spellbookMagicLevel = false,
+  },
 }
 
 --- 772 `TSkillProbe::Probe(diff, prob)` (`crskill.cc:546`).

@@ -74,7 +74,9 @@ pub struct VocationDef {
     /// `gainsoulticks` — rounds between soul regen ticks (`crplayer.cc:137`).
     pub gain_soul_ticks: u32,
     /// `allowpvp` — vocation PVP toggle (TFS `Vocation::allowPvp`).
-    #[serde(default)]
+    /// Default `true` matches TFS / XML (`allowPvp` omitted ⇒ allow); only
+    /// vocation 0 (rookgaard) sets `false`.
+    #[serde(default = "default_allow_pvp")]
     pub allow_pvp: bool,
     /// Level-1 vitals floor — HP at level 1. Sourced from `runtime/mon/human.mon`
     /// race data (`HitPoints` `Actual=150`); `AddLevel` only changes the per-level
@@ -102,6 +104,9 @@ fn default_base_mana() -> i32 {
 }
 fn default_base_cap() -> i32 {
     400
+}
+fn default_allow_pvp() -> bool {
+    true
 }
 
 /// Vocation `<formula>` block — multipliers applied to attack/defense/armor
@@ -287,7 +292,8 @@ fn load_xml_for_golden_test(path: &Path) -> Result<Vec<VocationDef>> {
         let mut base_speed = 70i32;
         let mut soul_max = 100i32;
         let mut gain_soul_ticks = 120u32;
-        let mut allow_pvp = false;
+        // TFS `Vocation` default is `true`; only vocation 0 sets `allowPvp="0"`.
+        let mut allow_pvp = true;
         let mut formula = VocationFormula::default();
         let mut skill_multipliers = [1.0f32; 7];
 

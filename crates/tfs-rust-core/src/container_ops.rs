@@ -405,7 +405,9 @@ impl GameWorld {
             return ReturnValue::NotPossible;
         };
         let it = self.items_db.items.get(&item.item_type);
-        if count == 0 || (it.map(|t| t.stackable()).unwrap_or(false) && count > item.count as u32) {
+        if it.map(|t| t.stackable()).unwrap_or(false)
+            && (count == 0 || count > item.count as u32)
+        {
             return ReturnValue::NotPossible;
         }
         if !it.map(|t| t.moveable()).unwrap_or(false)

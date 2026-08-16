@@ -498,6 +498,11 @@ mod tests {
             .expect("formulas.destroyableStone");
         assert_eq!(stone.get::<i32>("chance").expect("chance"), 40);
         assert_eq!(stone.get::<i32>("selfDamage").expect("selfDamage"), -50);
+        let other: mlua::Table = formulas.get("otherActions").expect("formulas.otherActions");
+        assert!(
+            !other.get::<bool>("changeGold").expect("changeGold"),
+            "772 has no coin-exchange on use"
+        );
         let success: mlua::Function = formulas
             .get("fishingSuccess")
             .expect("formulas.fishingSuccess");
@@ -512,6 +517,11 @@ mod tests {
         assert!(
             (coeff - 0.597).abs() < 1e-9,
             "TFS fishing skillCoeff, got {coeff}"
+        );
+        let other: mlua::Table = formulas.get("otherActions").expect("formulas.otherActions");
+        assert!(
+            other.get::<bool>("changeGold").expect("changeGold"),
+            "1098 TFS change_gold is enabled"
         );
     }
 
@@ -831,6 +841,49 @@ mod tests {
             errors.is_empty(),
             "E1 must unblock other-action script load: {errors:?}"
         );
+    }
+
+    /// 772 has no coin-exchange on use. 1098 TFS `change_gold.lua` registers coins.
+    #[test]
+    fn change_gold_registers_only_when_formulas_enable_it() {
+        let data_root = workspace_data_root();
+        let path = data_root.join("scripts/actions/other/change_gold.lua");
+        if !path.exists() {
+            eprintln!("change_gold.lua not found — skipping");
+            return;
+        }
+        let path_string = path.display().to_string();
+
+        let mut runtime = LuaRuntime::new().expect("runtime");
+        inject_era_formulas(&runtime, &data_root, 772).expect("772 formulas");
+        runtime
+            .load_action_script(&path_string)
+            .expect("772 load change_gold");
+        let pending = runtime.drain_pending_actions();
+        assert!(
+            !pending.iter().any(|p| p.item_ids.contains(&2148)
+                || p.item_ids.contains(&2152)
+                || p.item_ids.contains(&2160)),
+            "772 must not register gold/platinum/crystal: {:?}",
+            pending.iter().map(|p| &p.item_ids).collect::<Vec<_>>()
+        );
+
+        let mut runtime = LuaRuntime::new().expect("runtime");
+        inject_era_formulas(&runtime, &data_root, 1098).expect("1098 formulas");
+        runtime
+            .load_action_script(&path_string)
+            .expect("1098 load change_gold");
+        let pending = runtime.drain_pending_actions();
+        let ids: Vec<u16> = pending
+            .iter()
+            .flat_map(|p| p.item_ids.iter().copied())
+            .collect();
+        for expected in [2148u16, 2152, 2160] {
+            assert!(
+                ids.contains(&expected),
+                "1098 change_gold must register {expected}, got {ids:?}"
+            );
+        }
     }
 
     /// E3: 772 `UseWeapon` (`moveuse.cc`) is `random(1,3)==1` then `Change` in place,
@@ -1367,7 +1420,7 @@ mod tests {
         assert!(src.contains("Game.createItem(2016"), "spill 2016");
     }
 
-    /// E6: `GetSpellbook` format — learned Light Healing, Berserk `4*Level`, no ML groups.
+    /// E6: `GetSpellbook` format — vocation/learned Light Healing, Berserk `4*Level`, no ML groups.
     #[test]
     fn e6_spellbook_learned_filter_and_getspellbook_format() {
         use tfs_rust_common::{
@@ -1441,6 +1494,18 @@ mod tests {
                         mana_percent: 0,
                     },
                 ]
+            }
+            fn list_player_instant_spells(&self, id: ScriptCreatureId) -> Vec<ScriptInstantSpell> {
+                if id != 1 {
+                    return Vec::new();
+                }
+                self.list_instant_spells()
+                    .into_iter()
+                    .filter(|s| {
+                        s.name.eq_ignore_ascii_case("Light Healing")
+                            || s.name.eq_ignore_ascii_case("Berserk")
+                    })
+                    .collect()
             }
         }
 

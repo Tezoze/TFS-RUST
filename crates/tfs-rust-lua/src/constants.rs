@@ -108,6 +108,10 @@ fn register_fluids(globals: &mlua::Table) -> Result<(), mlua::Error> {
 
 fn register_player_flags(globals: &mlua::Table) -> Result<(), mlua::Error> {
     // const.h:264-266 — per-player permission flags tested via `player:hasFlag`.
+    globals.set("PlayerFlag_CannotUseCombat", 1i32 << 0)?;
+    globals.set("PlayerFlag_CannotAttackPlayer", 1i32 << 1)?;
+    globals.set("PlayerFlag_CannotAttackMonster", 1i32 << 2)?;
+    globals.set("PlayerFlag_CannotBeAttacked", 1i32 << 3)?;
     globals.set("PlayerFlag_CanTalkRedPrivate", 1i32 << 21)?; // const.h:264
     globals.set("PlayerFlag_CanTalkRedChannel", 1i32 << 22)?; // const.h:265
     globals.set("PlayerFlag_TalkOrangeHelpChannel", 1i32 << 23)?; // const.h:266
@@ -371,6 +375,10 @@ mod tests {
         assert_eq!(get("FLUID_LEMONADE"), 12);
 
         // PlayerFlag_* (const.h:264-266, 506, 516)
+        assert_eq!(get("PlayerFlag_CannotUseCombat"), 1 << 0);
+        assert_eq!(get("PlayerFlag_CannotAttackPlayer"), 1 << 1);
+        assert_eq!(get("PlayerFlag_CannotAttackMonster"), 1 << 2);
+        assert_eq!(get("PlayerFlag_CannotBeAttacked"), 1 << 3);
         assert_eq!(get("PlayerFlag_CanTalkRedPrivate"), 1 << 21);
         assert_eq!(get("PlayerFlag_CanTalkRedChannel"), 1 << 22);
         assert_eq!(get("PlayerFlag_TalkOrangeHelpChannel"), 1 << 23);

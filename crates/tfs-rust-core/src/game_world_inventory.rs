@@ -32,6 +32,15 @@ impl GameWorld {
         self.creature_to_conn.get(&cid).copied()
     }
 
+    /// Wire count/fluid byte — fluids may be `0` (empty); stacks use at least `1`.
+    pub(crate) fn item_wire_count(&self, item: &Item) -> u8 {
+        self.items_db
+            .items
+            .get(&item.item_type)
+            .map(|t| item.wire_count_byte(t))
+            .unwrap_or_else(|| item.client_count().max(1))
+    }
+
     /// Remaining duration for look `showduration` — scheduler when decaying, else raw attr.
     pub(crate) fn item_look_duration_ms(&self, item_id: ItemId) -> Option<i32> {
         let item = self.items.get(item_id)?;
@@ -749,28 +758,46 @@ impl GameWorld {
             .get(item_id)
             .map(|i| i.item_type)
             .ok_or_else(|| "item not found".to_string())?;
-        let old_count = self.items.get(item_id).map(|i| i.count).unwrap_or(1);
-        if old_type == new_type && (sub_type < 0 || sub_type as u16 == old_count) {
+        let old_sub = {
+            let item = self
+                .items
+                .get(item_id)
+                .ok_or_else(|| "item not found".to_string())?;
+            self.items_db
+                .items
+                .get(&item.item_type)
+                .map(|t| item.get_sub_type(t))
+                .unwrap_or(item.count)
+        };
+        if old_type == new_type && (sub_type < 0 || sub_type as u16 == old_sub) {
             return Ok(true);
         }
         if !self.items_db.items.contains_key(&new_type) {
             return Ok(true);
         }
-        let stackable = self
-            .items_db
-            .items
-            .get(&new_type)
-            .map(|t| t.stackable())
-            .unwrap_or(false);
-        let new_count = if sub_type < 0 {
-            old_count
-        } else if stackable {
-            (sub_type as u16).clamp(1, 100)
-        } else {
-            sub_type as u16
-        };
-        if let Some(item) = self.items.get_mut(item_id) {
-            item.count = new_count.max(1);
+        if sub_type >= 0 {
+            let n = sub_type as u16;
+            let kind = self.items_db.items.get(&new_type).map(|t| {
+                (
+                    t.is_fluid_container() || t.is_splash(),
+                    t.stackable(),
+                    t.charges,
+                )
+            });
+            if let Some(item) = self.items.get_mut(item_id) {
+                match kind {
+                    Some((true, _, _)) => {
+                        item.set_fluid_type(n);
+                        item.count = n;
+                    }
+                    Some((_, true, _)) => item.count = n.clamp(1, 100),
+                    Some((_, _, charges)) if charges != 0 => {
+                        item.set_charges(n);
+                        item.count = n.max(1);
+                    }
+                    _ => item.count = n.max(1),
+                }
+            }
         }
         if old_type != new_type {
             self.change_item_type(item_id, new_type);
@@ -1000,7 +1027,7 @@ impl GameWorld {
                 self.enqueue_outgoing(conn, send_inventory_slot_empty(slot).into_bytes());
                 return;
             }
-            let cnt = item.client_count().max(1);
+            let cnt = self.item_wire_count(item);
             let stackable = self.items_db.stackable_for_server(sid);
             let splash = self.items_db.is_splash_or_fluid_for_server(sid);
             let anim = self.items_db.is_animation_for_server(sid);
@@ -1764,6 +1791,50 @@ mod look_tests {
             .lua_script_remove_item(cid.data().as_ffi(), 3976, 1, -1, false)
             .expect("player exists");
         assert!(!ok, "missing worms must be false, not an error");
+    }
+
+    /// `item:transform(id, FLUID_NONE)` must empty the vial, not clamp to water (`FLUID_WATER=1`).
+    /// TFS `Item::setSubType` → `setFluidType(0)` (`item.cpp` ~367–371); `Game::transformItem`.
+    #[test]
+    fn lua_transform_empty_fluid_is_not_water() {
+        use crate::item::Item;
+        use slotmap::Key;
+        use tfs_rust_common::ScriptContext;
+        use tfs_rust_content::otb::ItemType;
+
+        let mut world = minimal_world();
+        let vial = ItemType {
+            id: 2006,
+            server_id: 2006,
+            client_id: 2006,
+            group: ItemType::GROUP_FLUID,
+            ..ItemType::default()
+        };
+        {
+            let mut db = (*world.items_db).clone();
+            db.items.insert(2006, vial);
+            world.items_db = Arc::new(db);
+        }
+
+        let mut item = Item::new(2006, 10);
+        item.set_fluid_type(10);
+        let iid = world.items.insert(item);
+        world
+            .lua_script_item_transform(iid.data().as_ffi(), 2006, 0)
+            .expect("transform");
+
+        let it = world.items_db.items.get(&2006).expect("vial type");
+        let item = world.items.get(iid).expect("vial");
+        assert_eq!(item.get_sub_type(it), 0, "empty fluid subtype");
+        assert_eq!(item.wire_count_byte(it), 0, "wire must not send water=1");
+        assert_eq!(item.count, 0);
+        assert_eq!(item.fluid_type(), 0);
+        assert_eq!(
+            world
+                .get_item_data(iid.data().as_ffi())
+                .map(|d| d.fluid_type),
+            Some(0)
+        );
     }
 }
 

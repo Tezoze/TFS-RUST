@@ -61,6 +61,13 @@ formulas = {
     skillCoeff = 0.597,
   },
   destroyableStone = { chance = 40, selfDamage = -50 },
+
+  -- TFS `actions/other` extras (not 772).
+  otherActions = {
+    changeGold = true,
+    extraInstruments = true,
+    spellbookMagicLevel = true,
+  },
 }
 
 --- TFS linear fishing catch: `min(max(min + (skill - base) * coeff, min), max)`.

@@ -23,7 +23,7 @@ use super::wire::{
     AnimatedTextWire, ChannelMessageWire, ChannelOpenWire, ChannelsDialogWire,
     CombatDamageNotifyWire, CreatePrivateChannelWire, CreatureHealthWire, CreatureSayWire,
     CreatureSpeedWire, CreatureSquareWire, DistanceShootWire, ItemTemplateArgs, MagicEffectWire,
-    PlayerSkillsWire, PlayerStatsWire, PrivateMessageWire, ToChannelWire,
+    PlayerSkillsWire, PlayerStatsWire, PrivateMessageWire, TextWindowWire, ToChannelWire,
 };
 
 /// Zero-sized 7.72 codec (stateless; caps from `ProtocolVersion::V772`).
@@ -597,6 +597,25 @@ impl Codec772 {
         m.write_u8(server::CREATE_PRIVATE_CHANNEL);
         m.write_u16(w.channel_id);
         m.write_string(&w.name);
+        m
+    }
+
+    /// 7.72 `ProtocolGame::sendTextWindow` template-item overload — opcode `0x96`
+    /// (`gameserver/src/protocolgame.cpp:1925`): `byte + u32 windowTextId + addItem(itemId, 1)
+    /// + u16 text.size() + addString(text) + u16 0` writer. **No date** (10.98 appends one).
+    pub fn encode_text_window(&self, w: &TextWindowWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::TEXT_WINDOW);
+        m.write_u32(w.window_text_id);
+        self.write_item_template_args(&mut m, w.item);
+        let maxlen = if w.can_write {
+            w.max_text_len
+        } else {
+            w.text.len() as u16
+        };
+        m.write_u16(maxlen);
+        m.write_string(&w.text);
+        m.write_string(&w.writer);
         m
     }
 }

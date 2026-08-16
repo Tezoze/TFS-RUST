@@ -37,7 +37,7 @@ return {
       max_depot_items = 0, max_vip_entries = 200,
       flags = {
         cannotusecombat = false,
-        cannotattackplayer = false,
+        cannotattackplayer = true,
         cannotattackmonster = false,
         cannotbeattacked = true,
         canconvinceall = false,
@@ -82,7 +82,7 @@ return {
       max_depot_items = 0, max_vip_entries = 200,
       flags = {
         cannotusecombat = false,
-        cannotattackplayer = false,
+        cannotattackplayer = true,
         cannotattackmonster = false,
         cannotbeattacked = true,
         canconvinceall = true,
@@ -126,7 +126,7 @@ return {
       max_depot_items = 0, max_vip_entries = 200,
       flags = {
         cannotusecombat = false,
-        cannotattackplayer = false,
+        cannotattackplayer = true,
         cannotattackmonster = false,
         cannotbeattacked = true,
         canconvinceall = true,

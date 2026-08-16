@@ -600,7 +600,11 @@ impl UserData for CombatRef {
                     no_damage: combat.no_damage,
                     distance_effect: combat.distance_effect,
                 };
-                call_combat_execute(request).map_err(mlua::Error::runtime)?;
+                // TFS `luaCombatExecute` returns boolean; `canDoCombat` failure
+                // is `false` (rune not consumed), not a Lua error.
+                if call_combat_execute(request).is_err() {
+                    return Ok(false);
+                }
                 // Phase 6: event callbacks after tile resolution / damage.
                 // C++ `TargetCallback::onTargetCombat` / `TileCallback::onTileCombat`
                 // — `combat.cpp:720,776`.

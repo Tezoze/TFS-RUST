@@ -2,6 +2,7 @@
 // C++ reference: `game.cpp`, `map.cpp`, `configmanager.cpp` (see per-module comments).
 
 mod actions;
+mod bed;
 mod chase_debug;
 pub mod chat;
 mod clear_field;
@@ -89,6 +90,7 @@ pub mod talkactions;
 mod test_world;
 pub mod thing;
 pub mod tile;
+mod tile_specials;
 mod todo_queue;
 pub mod walk;
 pub mod walk_action;

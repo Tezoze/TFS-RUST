@@ -11,6 +11,7 @@ use tfs_rust_common::Position;
 use tfs_rust_common::enums::{Direction, SkullType, ZoneType};
 use tfs_rust_content::monsters::MonsterOutfit;
 use tfs_rust_content::npcs::{DialoguePolicy, NpcAppearance};
+use tfs_rust_net::codec::wire::{ItemTemplateArgs, TextWindowWire};
 use tfs_rust_net::creature_known::check_creature_known;
 use tracing::{debug, info, warn};
 
@@ -1014,7 +1015,8 @@ impl GameWorld {
     }
 
     /// `player:showTextDialog(itemId, text)` — E6. TFS `luaPlayerShowTextDialog`
-    /// → `sendTextWindow`; 772 `SendEditText` (`sending.cc:1088`, opcode `0x96`).
+    /// → `ProtocolGame::sendTextWindow` template-item overload.
+    /// 772 wire: `gameserver/src/protocolgame.cpp:1925` (no MARK, no date).
     pub fn lua_script_show_text_dialog(
         &mut self,
         creature_u64: u64,
@@ -1031,17 +1033,26 @@ impl GameWorld {
         let window_text_id = self.next_window_text_id;
         let client_id = self.items_db.client_id_for_server(item_type);
         let client_id = if client_id == 0 { item_type } else { client_id };
-        let msg = tfs_rust_net::outgoing_extra::send_text_window_simple_item(
+        let stackable = self.items_db.stackable_for_server(item_type);
+        let splash = self.items_db.is_splash_or_fluid_for_server(item_type);
+        let anim = self.items_db.is_animation_for_server(item_type);
+        let msg = self.codec.encode_text_window(&TextWindowWire {
             window_text_id,
-            client_id,
-            1,
-            false,
-            false,
-            false,
-            false,
-            &text,
-        );
-        self.enqueue_outgoing(conn, msg.into_bytes());
+            item: ItemTemplateArgs {
+                client_id,
+                count: 1,
+                stackable,
+                is_splash_or_fluid: splash && !stackable,
+                is_animation: anim,
+                with_description: false,
+            },
+            text,
+            writer: String::new(),
+            written_date: None,
+            can_write: false,
+            max_text_len: 0,
+        });
+        self.enqueue_encoded(conn, msg);
         Ok(())
     }
 
@@ -1236,6 +1247,7 @@ impl GameWorld {
             .known_creatures_by_conn
             .remove(&conn)
             .unwrap_or_default();
+        self.reconcile_known_creatures_for_send(conn, &mut known);
         let mut can_see = |id: u32| self.can_see_creature_for_known_set(viewer, id);
         let limit = self.codec.caps().known_creature_limit as usize;
         let (known_flag, remove_known) =
@@ -1248,11 +1260,9 @@ impl GameWorld {
             .codec
             .encode_add_tile_creature(pos, stack_pos, &wire, false)
             .into_bytes();
-        self.known_creatures_by_conn.insert(conn, known);
-        // Always mark fully-sent: `known=true` means the client already has name/HP from an
-        // earlier full AddCreature; `known=false` just sent them. Either way, subsequent
-        // spectator moves must use 0x6D (not a second appear) or bars flicker.
-        self.mark_creature_fully_sent(conn, wire_id);
+        // Commit replaces both sets: `remove_known` must drop `creature_fully_sent` too,
+        // or a later 0x6D treats the forgotten id as still named.
+        self.commit_known_creatures_after_send(conn, &known);
         self.enqueue_outgoing(conn, packet);
         true
     }

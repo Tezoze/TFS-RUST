@@ -239,11 +239,23 @@ impl GameWorld {
             slot: to_slot,
         } = to_work
         {
-            let move_count = self
-                .items
-                .get(item_id)
-                .map(|i| (i.count as u32).min(u32::from(count)))
-                .unwrap_or(1);
+            let move_count = {
+                let stackable = self
+                    .items
+                    .get(item_id)
+                    .and_then(|i| self.items_db.items.get(&i.item_type))
+                    .map(|t| t.stackable())
+                    .unwrap_or(false);
+                if stackable {
+                    self.items
+                        .get(item_id)
+                        .map(|i| (i.count as u32).min(u32::from(count)))
+                        .unwrap_or(1)
+                } else {
+                    // Fluids store subtype in `count` (0 = empty). Non-stackables move as one object.
+                    1
+                }
+            };
             let rv = self.player_query_add(to_pid, to_slot, item_id, move_count, flags);
             match rv {
                 ReturnValue::NeedExchange => {
@@ -296,7 +308,10 @@ impl GameWorld {
         let m = if is_stackable {
             count.min(item_count)
         } else {
-            item_count
+            // Fluids/splashes store subtype in `count` (`0` = empty). 772 `Move` always
+            // relocates the whole non-cumulative object (`receiving.cc` only rejects
+            // `CUMULATIVE && Count == 0`).
+            1
         };
 
         if to_merge_item == Some(item_id) {
@@ -1126,5 +1141,71 @@ mod tests {
             .expect("add onto hole");
         assert!(!tile_has(&world, hole, gold));
         assert!(tile_has(&world, below, gold));
+    }
+
+    /// Empty vials store `FLUID_NONE` in `Item::count` (`0`). That is not a stack size —
+    /// throwing one onto a tile must still `queryRemove`/`Move` the object.
+    #[test]
+    fn throw_empty_vial_from_hand_onto_tile() {
+        use crate::inventory::InventorySlot;
+        use crate::sim_harness::{insert_player, test_player};
+        use tfs_rust_content::otb::ItemType;
+
+        let mut world = minimal_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, from, 100);
+        ensure_walkable_tile(&mut world.map, to, 100);
+        let cid = insert_player(&mut world, test_player("Thrower", from));
+        world.map.register_creature_at(from, cid);
+
+        const VIAL: u16 = 2006;
+        let mut it = ItemType {
+            id: VIAL,
+            server_id: VIAL,
+            client_id: VIAL,
+            group: ItemType::GROUP_FLUID,
+            ..ItemType::default()
+        };
+        it.moveable_override = Some(true);
+        it.allow_pickupable = true;
+        let mut items = std::collections::HashMap::clone(&world.items_db.items);
+        items.insert(VIAL, it);
+        let client_to_server = std::collections::HashMap::clone(&world.items_db.client_to_server);
+        world.items_db = std::sync::Arc::new(tfs_rust_content::items::ItemDatabase {
+            items,
+            client_to_server,
+        });
+
+        let mut vial = Item::new(VIAL, 0);
+        vial.set_fluid_type(0);
+        let vial_id = world.items.insert(vial);
+        world
+            .internal_add_item_to_inventory_slot(cid, InventorySlot::Left as u8, vial_id)
+            .expect("equip empty vial");
+
+        world
+            .internal_move_item(
+                Some(cid),
+                Cylinder::Inventory {
+                    player_id: cid,
+                    slot: InventorySlot::Left as u8,
+                },
+                Cylinder::Tile { pos: to },
+                vial_id,
+                0,
+                CylinderFlags::NONE,
+                None,
+            )
+            .expect("throw empty vial");
+        assert!(
+            tile_has(&world, to, vial_id),
+            "empty vial must land on the destination tile"
+        );
+        assert_eq!(
+            world.items.get(vial_id).map(|i| i.count),
+            Some(0),
+            "empty subtype must survive the move"
+        );
     }
 }

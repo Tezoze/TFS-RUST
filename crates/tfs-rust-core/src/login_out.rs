@@ -585,7 +585,7 @@ fn enqueue_initial_login_packets_classic(
                 world.enqueue_outgoing(conn_id, send_inventory_slot_empty(slot).into_bytes());
                 continue;
             }
-            let cnt = item.client_count().max(1);
+            let cnt = world.item_wire_count(item);
             let stackable = world.items_db.stackable_for_server(sid);
             let splash = world.items_db.is_splash_or_fluid_for_server(sid);
             let anim = world.items_db.is_animation_for_server(sid);
@@ -738,7 +738,7 @@ fn enqueue_initial_login_packets_1098(
                 world.enqueue_outgoing(conn_id, send_inventory_slot_empty(slot).into_bytes());
                 continue;
             }
-            let cnt = item.client_count().max(1);
+            let cnt = world.item_wire_count(item);
             let stackable = world.items_db.stackable_for_server(sid);
             let splash = world.items_db.is_splash_or_fluid_for_server(sid);
             let anim = world.items_db.is_animation_for_server(sid);

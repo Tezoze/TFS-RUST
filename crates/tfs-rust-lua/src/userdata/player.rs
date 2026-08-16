@@ -289,6 +289,24 @@ impl UserData for CreatureRef {
             with_ctx(|ctx| Ok(ctx.player_has_learned_spell(this.0, &name)))
         });
 
+        // `player:getInstantSpells()` — TFS `luaPlayerGetInstantSpells`.
+        // Learn/vocation arm only (no IGNORE_SPELL_CHECK). 772 GetSpellbook.
+        methods.add_method("getInstantSpells", |lua, this, ()| {
+            let spells = with_ctx(|ctx| Ok(ctx.list_player_instant_spells(this.0)))?;
+            let t = lua.create_table_with_capacity(spells.len(), 0)?;
+            for (i, spell) in spells.into_iter().enumerate() {
+                let row = lua.create_table_with_capacity(0, 6)?;
+                row.set("name", spell.name)?;
+                row.set("words", spell.words)?;
+                row.set("level", spell.level)?;
+                row.set("mlevel", spell.magic_level)?;
+                row.set("mana", spell.mana)?;
+                row.set("manapercent", spell.mana_percent)?;
+                t.set(i + 1, row)?;
+            }
+            Ok(t)
+        });
+
         // `player:addManaSpent(amount)` — `luascript.cpp` `luaPlayerAddManaSpent`.
         // PC-3a Phase 5: advances magic level for dual-hand second conjure.
         methods.add_method("addManaSpent", |_, this, amount: u64| {

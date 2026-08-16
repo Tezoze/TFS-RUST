@@ -18,7 +18,7 @@ Do **not** port `moveuse.dat` as an engine. Pattern: `food.lua` (772 numbers + c
 5. **Script pass** — food `>`, birdcage, waterpipe, music, create_bread, used_lamp, teleport, change_gold gate, `formulas.otherActions`.
 6. ~~**E6** `showTextDialog` + learned-spell list + **rewrite `spellbook.lua`** (`GetSpellbook`).~~ **done.** ~~**E7** `getHouse` + `construction_kits.lua`.~~ **done.**
 7. ~~**E9** `getFormattedWorldTime` — `watch.lua`.~~ **done.**
-8. **After this folder** — remaining actions APIs **R1–R5** (map chests + mintwallin `createTile`). E3 already covers tool `destroyItem`. Then G10 `decay(id)`, G12.
+8. **After this folder** — remaining actions APIs **R2–R5** (map chests + mintwallin `createTile`). E3 already covers tool `destroyItem`. R1 shipped. Then G10 `decay(id)`, G12.
 
 ---
 
@@ -125,6 +125,7 @@ Load probe 2026-08-15 (post-E1): **20/20 load**. 772 column is decompile match, 
 - E1 ✅: `FLUID_WATER==1`, `TALKTYPE_SAY==1`, `CONST_ME_SOUND_YELLOW==22`, `ITEM_GOLD_COIN==2148` (`e1_other_action_constants_unblock_fluids_and_change_gold_load` + `lua_defs` snapshot).
 - Zero-thing: `target.uid==0 and target.itemid==0`; `isHotkey` boolean. ✅ `e2_no_target_is_zero_thing_table_and_is_hotkey_boolean`
 - `getDestroyId` / `getFluidSource` against known `items.xml` rows. ✅ `destroyto_and_fluidsource_match_items_xml_rows` + `e3_get_destroy_id_and_fluid_source_from_known_xml_rows`
+- R1 ✅: `ItemType:getName` / `getArticle` / `getPluralName` / `getWeight([count])` / `isContainer` (`r1_item_type_name_article_plural_weight_container` + `r1_name_article_plural_weight_container_match_items_xml_rows`).
 - `destroyItem` 1/3 uses `transform`. ✅ `e3_destroy_item_uses_one_in_three_transform`
 - `addHealth` clamp. ✅ `e4_add_health_clamps_to_effective_max_and_zero` + `e4_add_health_clamps_to_equipment_bonus_max`
 - Drunk: beer → level 1; second → 2 and count 120; cap 5; after 120 rounds level −1.
@@ -152,7 +153,7 @@ E2 (nil `target`) and E3 (`getDestroyId`) already unblock quest kits and crowbar
 
 | ID | Missing | Blocks | Domain |
 |---|---|---|---|
-| **R1** | `ItemType:getArticle` / `getPluralName` / `getWeight([count])` / `isContainer`; **real** `getName` (today `"item_{id}"`) | `onUseQuest` found-text + capacity (`map/quests.lua`) | TFS `luaItemTypeGetArticle` / `GetPluralName` / `GetWeight` (`weight * max(1,count)`) / `IsContainer` / `GetName` |
+| **R1** ✅ | `ItemType:getArticle` / `getPluralName` / `getWeight([count])` / `isContainer`; **real** `getName` (today `"item_{id}"`) | `onUseQuest` found-text + capacity (`map/quests.lua`) | TFS `luaItemTypeGetArticle` / `GetPluralName` / `GetWeight` (`weight * max(1,count)`) / `IsContainer` / `GetName` |
 | **R2** | `Game.createItem` must return **Container** userdata when the type is a container (TFS `setItemMetatable`) | `reward:addItem(...)` filling bag/backpack `content`. Rust always pushes `ItemRef`; `Item` has no `addItem` | `luaGameCreateItem` → `pushUserdata<Item>` + `setItemMetatable` |
 | **R3** | `Player:addItemEx(item[, canDropOnMap])` → `RETURNVALUE_*` (tools **G4**). Same cylinder move for `Container:addItemEx` / `Tile:addItemEx` (lib loot, 1098 `change_gold`) | `onUseQuest` `player:addItemEx(reward)`; `data/lib/core/container.lua` loot | `luaPlayerAddItemEx` / `luaContainerAddItemEx` / `luaTileAddItemEx`. Detached item only (`VirtualCylinder` parent) |
 | **R4** | Inject `getPlayerFlagValue(cid, flag)` = `Player(cid):hasFlag(flag)` (compat one-liner; **do not** load `compat.lua`) | `onUseQuest` infinite-capacity skip (`PlayerFlag_HasInfiniteCapacity` already bound) | `compat.lua:460` |
@@ -162,13 +163,13 @@ E2 (nil `target`) and E3 (`getDestroyId`) already unblock quest kits and crowbar
 
 **Already bound — do not treat as remaining:** `doRelocate` (injected), `doTargetCombatHealth`, `Game.createItem`/`createMonster`, lib `Game.isItemInPosition` / `removeItemInPosition` / `transformItemInPosition` / `sendMagicEffect`, `item:transform`/`decay()`/`remove`/`moveTo`, `player:teleportTo`/`sendTextMessage`/`getItemCount`/`removeItem`/`addSkillTries`/`getEffectiveSkillLevel`/`isPzLocked`/`getFreeCapacity`/`hasFlag`, `Tile:getGround`/`getItemById`/`getBottomCreature`/`relocateTo`, `Position:moveUpstairs`, `Container:addItem`.
 
-**`other/`-only remaining (not map/quests/tools):** `Item:decay(id)`. **E1–E9 shipped.** **E3 shipped:** `getDestroyId`, `getFluidSource`. **E4 shipped:** `addHealth`. **E5 shipped:** `say`. **E6 shipped:** `showTextDialog` / `hasLearnedSpell` / `Game.getInstantSpells` / `spellbook.lua`. **E7 shipped:** `getHouse` / `construction_kits.lua`. **E8 shipped:** drunk stack / `fluids.lua`. **E9 shipped:** `getFormattedWorldTime` / `watch.lua`.
+**`other/`-only remaining (not map/quests/tools):** `Item:decay(id)`. **E1–E9 shipped.** **E3 shipped:** `getDestroyId`, `getFluidSource`. **E4 shipped:** `addHealth`. **E5 shipped:** `say`. **E6 shipped:** `showTextDialog` / `hasLearnedSpell` / `Game.getInstantSpells` / `spellbook.lua`. **E7 shipped:** `getHouse` / `construction_kits.lua`. **E8 shipped:** drunk stack / `fluids.lua`. **E9 shipped:** `getFormattedWorldTime` / `watch.lua`. **R1 shipped:** `ItemType:getName` / `getArticle` / `getPluralName` / `getWeight` / `isContainer`.
 
 ---
 
 ## Deferred
 
-- **R1–R5** — remaining actions APIs above (after E1–E9).
+- **R2–R5** — remaining actions APIs above (after E1–E9; R1 shipped).
 - **G10** `Item:decay(id)` — map uses no-arg `decay()`; only `other/music.lua` passes an id.
 - **G12** — delete `data/items/#items.lua` and `data/actions/**`.
 - **1098 spellbook** — vocation dump + magic-level groups behind `formulas.otherActions.spellbookMagicLevel`.

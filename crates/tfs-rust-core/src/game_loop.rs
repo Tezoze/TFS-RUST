@@ -1076,6 +1076,16 @@ fn handle_game_packet(
                 world.player_channel_exclude(cid, &name);
             }
         }
+        GamePacket::TextWindow {
+            window_text_id,
+            new_text,
+        } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied()
+                && let Err(rv) = world.player_write_item(cid, window_text_id, new_text)
+            {
+                world.send_cancel_message(conn_id, rv);
+            }
+        }
         _ => trace!(
             conn_id = conn_id.0,
             ?packet,
