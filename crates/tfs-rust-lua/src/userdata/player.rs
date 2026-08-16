@@ -484,6 +484,34 @@ impl UserData for CreatureRef {
             },
         );
 
+        // `player:addItemEx(item[, canDropOnMap[, slot/index[, flags]]])` — `luaPlayerAddItemEx`.
+        // Default `canDropOnMap = false` (`luascript.cpp:9311`). Returns `RETURNVALUE_*`.
+        methods.add_method(
+            "addItemEx",
+            |_,
+             this,
+             (item, can_drop, slot, flags): (Value, Option<bool>, Option<i32>, Option<u32>)| {
+                let Some(item_id) = crate::userdata::item::item_script_id_from_value(&item) else {
+                    return Ok(Value::Boolean(false));
+                };
+                let parent = with_ctx(|ctx| Ok(ctx.get_item_parent(item_id)))?;
+                if parent.is_some() {
+                    return Ok(Value::Boolean(false));
+                }
+                let rv = crate::lua_mutation::call_lua_add_item_ex(
+                    item_id,
+                    crate::lua_mutation::LuaMoveDestination::Player {
+                        creature_id: this.0,
+                    },
+                    can_drop.unwrap_or(false),
+                    slot.unwrap_or(-1),
+                    flags.unwrap_or(0),
+                )
+                .map_err(mlua::Error::runtime)?;
+                Ok(Value::Integer(i64::from(rv)))
+            },
+        );
+
         methods.add_method(
             "getItemCount",
             |_, this, (item_type, sub_type): (u16, Option<i32>)| {
@@ -1439,6 +1467,56 @@ mod tests {
                 matches!(v, mlua::Value::Nil),
                 "expected nil for unknown player"
             );
+        });
+    }
+
+    /// R4: shipped `Player()` ctor accepts userdata and numeric id (`luaPlayerCreate`).
+    #[test]
+    fn player_constructor_accepts_userdata_and_id() {
+        use crate::context::with_lua_context;
+        use tfs_rust_common::{
+            ScriptContext, ScriptCreatureData, ScriptCreatureId, ScriptItemId, ScriptItemRef,
+        };
+
+        struct CtorCtx;
+        impl ScriptContext for CtorCtx {
+            fn get_creature(&self, id: ScriptCreatureId) -> Option<ScriptCreatureData> {
+                (id == 42).then_some(ScriptCreatureData {
+                    name: "OnlinePlayer".into(),
+                    guid: 42,
+                })
+            }
+            fn get_item(&self, _: ScriptItemId) -> Option<ScriptItemRef> {
+                None
+            }
+            fn get_config_string(&self, _: &str) -> Option<String> {
+                None
+            }
+            fn get_player_by_name(&self, name: &str) -> Option<ScriptCreatureId> {
+                (name == "OnlinePlayer").then_some(42)
+            }
+            fn get_player_level(&self, id: ScriptCreatureId) -> Option<i32> {
+                (id == 42).then_some(8)
+            }
+        }
+
+        let runtime = crate::runtime::LuaRuntime::new().expect("runtime");
+        let lua = &runtime.lua;
+        let p = lua.create_userdata(CreatureRef(42)).expect("p");
+        lua.globals().set("p", p).unwrap();
+        with_lua_context(&CtorCtx, || {
+            let via_ud: u64 = lua
+                .load("return Player(p):getId()")
+                .eval()
+                .expect("Player(userdata)");
+            assert_eq!(via_ud, 42);
+            let via_id: u64 = lua
+                .load("return Player(42):getId()")
+                .eval()
+                .expect("Player(id)");
+            assert_eq!(via_id, 42);
+            let nobody: mlua::Value = lua.load("return Player(99)").eval().expect("Player(99)");
+            assert!(matches!(nobody, mlua::Value::Nil));
         });
     }
 }

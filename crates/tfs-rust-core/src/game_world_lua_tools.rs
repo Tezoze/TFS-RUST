@@ -129,6 +129,22 @@ impl GameWorld {
         }
     }
 
+    /// `Game.createTile(position[, isDynamic])` — `luaGameCreateTile`.
+    /// Get-or-create. `is_dynamic` is accepted (TFS DynamicTile vs StaticTile) but unused.
+    pub fn lua_script_game_create_tile(
+        &mut self,
+        x: u16,
+        y: u16,
+        z: u8,
+        _is_dynamic: bool,
+    ) -> Result<(), String> {
+        let pos = Position { x, y, z };
+        if self.map.get_tile(pos).is_none() {
+            self.map.insert_tile(pos, crate::tile::Tile::empty_normal());
+        }
+        Ok(())
+    }
+
     /// `doTargetCombat` / `doTargetCombatHealth` — `luaDoTargetCombat`.
     /// Single target; `attacker = None` is environment damage (`cid == 0`).
     pub fn lua_script_target_combat_health(
@@ -310,6 +326,118 @@ mod tests {
             .lua_script_container_add_item(detached, 2148, 1, -1, 0)
             .unwrap();
         assert!(gold.is_some(), "hydrated bag accepts addItem");
+    }
+
+    /// R3: detached `createItem` gold lands in a worn bag via `addItemEx`.
+    #[test]
+    fn r3_add_item_ex_moves_detached_item_into_player_backpack() {
+        use crate::container::Container;
+        use crate::item::Item;
+        use tfs_rust_lua::LuaMoveDestination;
+
+        let mut world = minimal_world();
+        let pos = Position::new(50, 50, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+        let cid = insert_player(&mut world, test_player("Quest", pos));
+        let bp = world.items.insert(Item::new_single(1987));
+        {
+            let CreatureKind::Player(p) = world.creatures.get_mut(cid).expect("player") else {
+                panic!("not player");
+            };
+            p.equipment_slots[2] = Some(bp);
+        }
+        if let Some(item) = world.items.get_mut(bp) {
+            item.parent = Some(crate::cylinder::Cylinder::Inventory {
+                player_id: cid,
+                slot: 3,
+            });
+        }
+        world.container_registry.register(Container::new(bp, 20));
+
+        let gold = world
+            .lua_script_game_create_item(2148, 40, None)
+            .unwrap()
+            .expect("gold");
+        let rv = world
+            .lua_script_add_item_ex(
+                gold,
+                LuaMoveDestination::Player {
+                    creature_id: cid.data().as_ffi(),
+                },
+                false,
+                -1,
+                0,
+            )
+            .unwrap();
+        assert_eq!(rv, ReturnValue::NoError as i32);
+        let gold_id = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(gold));
+        assert!(
+            world.items.get(gold_id).unwrap().parent.is_some(),
+            "addItemEx must stamp parent"
+        );
+        let again = world
+            .lua_script_add_item_ex(
+                gold,
+                LuaMoveDestination::Player {
+                    creature_id: cid.data().as_ffi(),
+                },
+                false,
+                -1,
+                0,
+            )
+            .unwrap();
+        assert_eq!(again, ReturnValue::NotPossible as i32);
+    }
+
+    /// R3: `container:addItemEx` into a detached bag (loot `createLootItem`).
+    #[test]
+    fn r3_add_item_ex_into_detached_container() {
+        use tfs_rust_lua::LuaMoveDestination;
+
+        let mut world = minimal_world();
+        let bag = world
+            .lua_script_game_create_item(1987, 1, None)
+            .unwrap()
+            .expect("bag");
+        let gold = world
+            .lua_script_game_create_item(2148, 1, None)
+            .unwrap()
+            .expect("gold");
+        let rv = world
+            .lua_script_add_item_ex(
+                gold,
+                LuaMoveDestination::Container { item_id: bag },
+                false,
+                -1,
+                0,
+            )
+            .unwrap();
+        assert_eq!(rv, ReturnValue::NoError as i32);
+        let bag_id = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(bag));
+        assert_eq!(
+            world.container_registry.get(bag_id).map(|c| c.size()),
+            Some(1)
+        );
+    }
+
+    /// R5: `Game.createTile` inserts a missing tile so `createItem` can land.
+    #[test]
+    fn r5_create_tile_get_or_create_then_create_item_lands() {
+        let mut world = minimal_world();
+        register_item_type(&mut world, 1284, false);
+        let pos = Position::new(32426, 32201, 14);
+        assert!(world.map.get_tile(pos).is_none());
+        world
+            .lua_script_game_create_tile(pos.x, pos.y, pos.z, true)
+            .unwrap();
+        assert!(world.map.get_tile(pos).is_some());
+        world
+            .lua_script_game_create_tile(pos.x, pos.y, pos.z, true)
+            .unwrap();
+        let item = world
+            .lua_script_game_create_item(1284, 1, Some((pos.x, pos.y, pos.z)))
+            .unwrap();
+        assert!(item.is_some(), "createItem after createTile must land");
     }
 
     #[test]

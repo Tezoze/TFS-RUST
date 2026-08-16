@@ -302,6 +302,25 @@ pub enum LuaMutation {
         item_type: u16,
         text: String,
     },
+    /// `player:addItemEx` / `container:addItemEx` / `tile:addItemEx`.
+    /// TFS `luaPlayerAddItemEx` / `luaContainerAddItemEx` / `luaTileAddItemEx`.
+    /// Detached item only (`parent == None` = VirtualCylinder). Result is `RETURNVALUE_*`.
+    AddItemEx {
+        item_id: u64,
+        dest: LuaMoveDestination,
+        can_drop_on_map: bool,
+        index: i32,
+        flags: u32,
+    },
+    /// `Game.createTile(position[, isDynamic])` / `Game.createTile(x, y, z[, isDynamic])`.
+    /// TFS `luaGameCreateTile` — get-or-create tile. `is_dynamic` is accepted (TFS
+    /// DynamicTile vs StaticTile) but unused: we only have `Tile::Normal` / `House`.
+    GameCreateTile {
+        x: u16,
+        y: u16,
+        z: u8,
+        is_dynamic: bool,
+    },
 }
 
 /// Snapshot of a Lua `ConditionBuilder` for the mutation / combat-execute seam.
@@ -398,6 +417,7 @@ thread_local! {
     static MUTATION_WORLD: Cell<*mut ()> = const { Cell::new(std::ptr::null_mut()) };
     static MUTATION_BOOL_RESULT: Cell<Option<bool>> = const { Cell::new(None) };
     static MUTATION_ITEM_RESULT: Cell<Option<u64>> = const { Cell::new(None) };
+    static MUTATION_I32_RESULT: Cell<Option<i32>> = const { Cell::new(None) };
 }
 
 // Per-test override — `OnceLock` cannot replace an applier, and tests in this
@@ -426,10 +446,12 @@ where
     let prev_world = MUTATION_WORLD.replace(world);
     let prev_bool = MUTATION_BOOL_RESULT.replace(None);
     let prev_item = MUTATION_ITEM_RESULT.replace(None);
+    let prev_i32 = MUTATION_I32_RESULT.replace(None);
     let result = f();
     MUTATION_WORLD.set(prev_world);
     MUTATION_BOOL_RESULT.set(prev_bool);
     MUTATION_ITEM_RESULT.set(prev_item);
+    MUTATION_I32_RESULT.set(prev_i32);
     result
 }
 
@@ -447,6 +469,14 @@ pub fn set_mutation_bool_result(v: bool) {
 
 pub fn set_mutation_item_result(v: u64) {
     MUTATION_ITEM_RESULT.set(Some(v));
+}
+
+pub fn take_mutation_i32_result() -> Option<i32> {
+    MUTATION_I32_RESULT.take()
+}
+
+pub fn set_mutation_i32_result(v: i32) {
+    MUTATION_I32_RESULT.set(Some(v));
 }
 
 fn apply_mutation(mutation: LuaMutation) -> Result<(), String> {
@@ -934,6 +964,35 @@ pub fn call_lua_game_create_item(
         position,
     })?;
     Ok(take_mutation_item_result())
+}
+
+/// `player:addItemEx` / `container:addItemEx` / `tile:addItemEx`.
+/// Returns `RETURNVALUE_*` (`0` = `RETURNVALUE_NOERROR`).
+pub fn call_lua_add_item_ex(
+    item_id: u64,
+    dest: LuaMoveDestination,
+    can_drop_on_map: bool,
+    index: i32,
+    flags: u32,
+) -> Result<i32, String> {
+    apply_mutation(LuaMutation::AddItemEx {
+        item_id,
+        dest,
+        can_drop_on_map,
+        index,
+        flags,
+    })?;
+    Ok(take_mutation_i32_result().unwrap_or(1))
+}
+
+/// `Game.createTile(position[, isDynamic])` — `luaGameCreateTile`.
+pub fn call_lua_game_create_tile(x: u16, y: u16, z: u8, is_dynamic: bool) -> Result<(), String> {
+    apply_mutation(LuaMutation::GameCreateTile {
+        x,
+        y,
+        z,
+        is_dynamic,
+    })
 }
 
 /// `doTargetCombat` / `doTargetCombatHealth` — `luaDoTargetCombat`.

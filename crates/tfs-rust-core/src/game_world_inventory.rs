@@ -476,6 +476,33 @@ impl GameWorld {
             }
         }
         let iid = self.items.insert(new_item);
+        if self.lua_place_detached_item_on_player(
+            cid,
+            iid,
+            can_drop_on_map,
+            slot,
+            CylinderFlags::NONE,
+        ) == ReturnValue::NoError
+        {
+            Ok(Some(iid.data().as_ffi()))
+        } else {
+            self.items.remove(iid);
+            Ok(None)
+        }
+    }
+
+    /// Place a detached item onto a player (slot / backpack / optional map drop).
+    /// TFS `Game::internalPlayerAddItem` / `internalAddItem(player)` (`game.cpp`).
+    /// Does **not** destroy the item on failure — `addItem` removes, `addItemEx` keeps it.
+    fn lua_place_detached_item_on_player(
+        &mut self,
+        cid: CreatureId,
+        iid: ItemId,
+        can_drop_on_map: bool,
+        slot: u8,
+        flags: CylinderFlags,
+    ) -> ReturnValue {
+        let stack_count = self.items.get(iid).map(|i| i.count).unwrap_or(1);
         self.hydrate_player_equipment_containers(cid);
 
         let target_slot = if slot == 0 {
@@ -485,13 +512,7 @@ impl GameWorld {
         };
 
         if target_slot != InventorySlot::Wherever as u8 {
-            let rv = self.player_query_add(
-                cid,
-                target_slot,
-                iid,
-                u32::from(stack_count),
-                CylinderFlags::NONE,
-            );
+            let rv = self.player_query_add(cid, target_slot, iid, u32::from(stack_count), flags);
             if rv == ReturnValue::NoError
                 && self
                     .internal_add_item_to_inventory_slot(cid, target_slot, iid)
@@ -503,11 +524,12 @@ impl GameWorld {
                     iid,
                     NotificationParent::None,
                 );
-                return Ok(Some(iid.data().as_ffi()));
+                return ReturnValue::NoError;
             }
         }
 
-        if self.query_add_item_to_inventory(cid, iid) == ReturnValue::NoError {
+        let inv_rv = self.query_add_item_to_inventory(cid, iid);
+        if inv_rv == ReturnValue::NoError {
             let backpack = match self.creatures.get(cid) {
                 Some(CreatureKind::Player(p)) => p.equipment_slots[2],
                 _ => None,
@@ -526,7 +548,7 @@ impl GameWorld {
                 // `Container::add_item` (push to end) + `refresh_container_chain` (weights only)
                 // — no client notification, wrong slot order.
                 if self.container_add_thing(bp, 0, iid).is_ok() {
-                    return Ok(Some(iid.data().as_ffi()));
+                    return ReturnValue::NoError;
                 }
             }
         }
@@ -537,16 +559,75 @@ impl GameWorld {
                 .get(cid)
                 .map(|k| k.position())
                 .unwrap_or_default();
-            if self
-                .internal_add_item_to_tile(pos, iid, CylinderFlags::NO_LIMIT)
-                .is_ok()
-            {
-                return Ok(Some(iid.data().as_ffi()));
-            }
+            return match self.internal_add_item_to_tile(pos, iid, CylinderFlags::NO_LIMIT) {
+                Ok(_) => ReturnValue::NoError,
+                Err(e) => e,
+            };
         }
 
-        self.items.remove(iid);
-        Ok(None)
+        if inv_rv != ReturnValue::NoError {
+            inv_rv
+        } else {
+            ReturnValue::NotEnoughRoom
+        }
+    }
+
+    /// `player:addItemEx` / `container:addItemEx` / `tile:addItemEx`.
+    /// TFS `luaPlayerAddItemEx` / `luaContainerAddItemEx` / `luaTileAddItemEx`.
+    /// Item must be detached (`parent == None` = VirtualCylinder). Returns `RETURNVALUE_*`.
+    pub fn lua_script_add_item_ex(
+        &mut self,
+        item_u64: u64,
+        dest: tfs_rust_lua::LuaMoveDestination,
+        can_drop_on_map: bool,
+        index: i32,
+        flags_bits: u32,
+    ) -> Result<i32, String> {
+        use tfs_rust_lua::LuaMoveDestination;
+        let item_id = self
+            .resolve_item_u64(item_u64)
+            .ok_or_else(|| "item not found".to_string())?;
+        if self.items.get(item_id).and_then(|i| i.parent).is_some() {
+            return Ok(ReturnValue::NotPossible as i32);
+        }
+        let flags = CylinderFlags { bits: flags_bits };
+        let rv = match dest {
+            LuaMoveDestination::Player { creature_id } => {
+                let Some(cid) = self.resolve_creature_u64(creature_id) else {
+                    return Ok(ReturnValue::CreatureDoesNotExist as i32);
+                };
+                let slot = if index <= 0 { 0 } else { index as u8 };
+                self.lua_place_detached_item_on_player(cid, item_id, can_drop_on_map, slot, flags)
+            }
+            LuaMoveDestination::Container { item_id: cid_u64 } => {
+                let Some(container_id) = self.resolve_item_u64(cid_u64) else {
+                    return Ok(ReturnValue::NotPossible as i32);
+                };
+                self.hydrate_container_if_needed(container_id);
+                let count = self
+                    .items
+                    .get(item_id)
+                    .map(|i| u32::from(i.count))
+                    .unwrap_or(1);
+                let q = self.container_query_add(container_id, index, item_id, count, flags, None);
+                if q.is_error() {
+                    q
+                } else {
+                    match self.container_add_thing(container_id, index, item_id) {
+                        Ok(()) => ReturnValue::NoError,
+                        Err(e) => e,
+                    }
+                }
+            }
+            LuaMoveDestination::Tile { x, y, z } => {
+                let pos = Position::new(x, y, z);
+                match self.internal_add_item_to_tile(pos, item_id, flags) {
+                    Ok(_) => ReturnValue::NoError,
+                    Err(e) => e,
+                }
+            }
+        };
+        Ok(rv as i32)
     }
 
     pub fn lua_script_set_action_id(

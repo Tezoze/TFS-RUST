@@ -1676,15 +1676,48 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
     // by `function Player:method(...)`) with a `__call` ctor (`Player(name)`).
     // The ctor closure takes `(name)` — `register_class` wraps it to drop the
     // `__call` `self` arg. C++ `LuaScriptInterface::registerClass`.
-    let player_ctor = lua.create_function(|lua, name: String| {
-        let id_opt = crate::context::current_ctx(|ctx| ctx.get_player_by_name(&name)).flatten();
-        match id_opt {
-            Some(id) => {
-                let ud = lua.create_userdata(crate::context::CreatureRef(id))?;
-                Ok(mlua::Value::UserData(ud))
+    let player_ctor = lua.create_function(|lua, arg: Value| match arg {
+        Value::UserData(ud) => {
+            if ud.borrow::<crate::context::CreatureRef>().is_ok() {
+                Ok(Value::UserData(ud))
+            } else {
+                Ok(Value::Nil)
             }
-            None => Ok(mlua::Value::Nil),
         }
+        Value::String(s) => {
+            let name = s.to_str()?.to_string();
+            let id_opt = crate::context::current_ctx(|ctx| ctx.get_player_by_name(&name)).flatten();
+            match id_opt {
+                Some(id) => {
+                    let ud = lua.create_userdata(crate::context::CreatureRef(id))?;
+                    Ok(Value::UserData(ud))
+                }
+                None => Ok(Value::Nil),
+            }
+        }
+        Value::Integer(n) if n > 0 => {
+            let id = n as u64;
+            let is_player = crate::context::current_ctx(|ctx| ctx.get_player_level(id).is_some())
+                .unwrap_or(false);
+            if is_player {
+                let ud = lua.create_userdata(crate::context::CreatureRef(id))?;
+                Ok(Value::UserData(ud))
+            } else {
+                Ok(Value::Nil)
+            }
+        }
+        Value::Number(n) if n > 0.0 => {
+            let id = n as u64;
+            let is_player = crate::context::current_ctx(|ctx| ctx.get_player_level(id).is_some())
+                .unwrap_or(false);
+            if is_player {
+                let ud = lua.create_userdata(crate::context::CreatureRef(id))?;
+                Ok(Value::UserData(ud))
+            } else {
+                Ok(Value::Nil)
+            }
+        }
+        _ => Ok(Value::Nil),
     })?;
     crate::class_registry::register_class(lua, "Player", Some(player_ctor))?;
 
@@ -1965,6 +1998,18 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
                 }
             },
         )?,
+    )?;
+    // `Game.createTile(position[, isDynamic])` / `Game.createTile(x, y, z[, isDynamic])`
+    // — `luaGameCreateTile`. Get-or-create; always returns Tile userdata.
+    game.set(
+        "createTile",
+        lua.create_function(|lua, args: mlua::MultiValue| {
+            let (x, y, z, is_dynamic) = crate::userdata::tile::parse_create_tile_args(args)?;
+            crate::lua_mutation::call_lua_game_create_tile(x, y, z, is_dynamic)
+                .map_err(mlua::Error::runtime)?;
+            let ud = lua.create_userdata(crate::userdata::tile::TileRef { x, y, z })?;
+            Ok(Value::UserData(ud))
+        })?,
     )?;
     // E6: all instant defs (incl. rune-conjure instants). **Not** TFS
     // `player:getInstantSpells` = `canCast` vocation dump.

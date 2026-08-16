@@ -130,6 +130,29 @@ impl UserData for ContainerRef {
             },
         );
 
+        // `container:addItemEx(item[, index[, flags]])` — `luaContainerAddItemEx`.
+        methods.add_method(
+            "addItemEx",
+            |_, this, (item, index, flags): (Value, Option<i32>, Option<u32>)| {
+                let Some(item_id) = crate::userdata::item::item_script_id_from_value(&item) else {
+                    return Ok(Value::Nil);
+                };
+                let parent = with_ctx(|ctx| Ok(ctx.get_item_parent(item_id)))?;
+                if parent.is_some() {
+                    return Ok(Value::Nil);
+                }
+                let rv = crate::lua_mutation::call_lua_add_item_ex(
+                    item_id,
+                    crate::lua_mutation::LuaMoveDestination::Container { item_id: this.0 },
+                    false,
+                    index.unwrap_or(-1),
+                    flags.unwrap_or(0),
+                )
+                .map_err(mlua::Error::runtime)?;
+                Ok(Value::Integer(i64::from(rv)))
+            },
+        );
+
         // Item base methods — C++ `Container` extends `Item`.
         methods.add_method("getId", |_, this, ()| Ok(this.0));
         methods.add_method("getType", |_, this, ()| {

@@ -13,6 +13,7 @@ use crate::lua_mutation::{
 };
 use crate::userdata::container::ContainerRef;
 use crate::userdata::position::PositionRef;
+use crate::userdata::tile::TileRef;
 
 /// Register the Item metatable in the Lua runtime.
 pub fn register_item_metatable(lua: &mlua::Lua) -> Result<(), mlua::Error> {
@@ -38,6 +39,20 @@ pub(crate) fn push_item_userdata(lua: &Lua, item_id: u64) -> Result<Value, mlua:
     } else {
         Ok(Value::UserData(lua.create_userdata(ItemRef(item_id))?))
     }
+}
+
+/// Resolve Item or Container userdata to a script item id.
+pub(crate) fn item_script_id_from_value(value: &Value) -> Option<u64> {
+    let Value::UserData(ud) = value else {
+        return None;
+    };
+    if let Ok(item) = ud.borrow::<ItemRef>() {
+        return Some(item.0);
+    }
+    if let Ok(cont) = ud.borrow::<ContainerRef>() {
+        return Some(cont.0);
+    }
+    None
 }
 
 /// Resolve a Lua item-id argument — number or name (`luaGameCreateItem` / `luaTileAddItem`).
@@ -78,11 +93,12 @@ fn push_cylinder(lua: &Lua, cyl: tfs_rust_common::ScriptCylinder) -> Result<Valu
             Ok(Value::UserData(ud))
         }
         tfs_rust_common::ScriptCylinder::Tile(pos) => {
-            let table = lua.create_table()?;
-            table.set("x", pos.x)?;
-            table.set("y", pos.y)?;
-            table.set("z", pos.z)?;
-            Ok(Value::Table(table))
+            let ud = lua.create_userdata(TileRef {
+                x: pos.x,
+                y: pos.y,
+                z: pos.z,
+            })?;
+            Ok(Value::UserData(ud))
         }
     }
 }
@@ -700,6 +716,103 @@ mod tests {
                     .expect("bag:remove");
                 assert!(removed);
             });
+        });
+    }
+
+    /// R3: `addItemEx` is bound on Player / Container / Tile and returns `RETURNVALUE_*`.
+    #[test]
+    fn r3_add_item_ex_returns_returnvalue() {
+        crate::lua_mutation::register_lua_mutation_applier(|_, mutation| {
+            if let crate::lua_mutation::LuaMutation::AddItemEx { .. } = mutation {
+                crate::lua_mutation::set_mutation_i32_result(0);
+            }
+            Ok(())
+        });
+        let runtime = crate::runtime::LuaRuntime::new().expect("runtime");
+        let lua = &runtime.lua;
+        let player = lua
+            .create_userdata(crate::context::CreatureRef(1))
+            .expect("player");
+        let gold = lua.create_userdata(ItemRef(2)).expect("gold");
+        lua.globals().set("player", player).unwrap();
+        lua.globals().set("gold", gold).unwrap();
+        crate::lua_mutation::with_lua_mutation_scope(std::ptr::without_provenance_mut(1), || {
+            with_lua_context(&R2CreateItemCtx, || {
+                let rv: i32 = lua
+                    .load("return player:addItemEx(gold)")
+                    .eval()
+                    .expect("addItemEx");
+                assert_eq!(rv, 0);
+                let bag = lua
+                    .create_userdata(crate::userdata::container::ContainerRef(1))
+                    .expect("bag");
+                lua.globals().set("bag", bag).unwrap();
+                let crv: i32 = lua
+                    .load("return bag:addItemEx(gold)")
+                    .eval()
+                    .expect("container addItemEx");
+                assert_eq!(crv, 0);
+                let tile = lua
+                    .create_userdata(crate::userdata::tile::TileRef { x: 50, y: 50, z: 7 })
+                    .expect("tile");
+                lua.globals().set("tile", tile).unwrap();
+                let trv: i32 = lua
+                    .load("return tile:addItemEx(gold)")
+                    .eval()
+                    .expect("tile addItemEx");
+                assert_eq!(trv, 0);
+            });
+        });
+    }
+
+    /// Floor `item:getParent()` is Tile userdata so `parent:isContainer()` can resolve.
+    #[test]
+    fn get_parent_tile_arm_pushes_tile_userdata() {
+        use tfs_rust_common::{Position, ScriptCylinder};
+
+        struct ParentCtx;
+        impl ScriptContext for ParentCtx {
+            fn get_creature(&self, _: ScriptCreatureId) -> Option<ScriptCreatureData> {
+                None
+            }
+            fn get_item(&self, id: ScriptItemId) -> Option<ScriptItemRef> {
+                Some(ScriptItemRef(id))
+            }
+            fn get_config_string(&self, _: &str) -> Option<String> {
+                None
+            }
+            fn get_item_data(&self, _: ScriptItemId) -> Option<ScriptItemData> {
+                Some(ScriptItemData {
+                    item_type: 2580,
+                    count: 1,
+                    weight: 0,
+                    name: "fishing rod".into(),
+                    action_id: 0,
+                    unique_id: 0,
+                    is_store_item: false,
+                    fluid_type: 0,
+                })
+            }
+            fn get_item_parent(&self, _: ScriptItemId) -> Option<ScriptCylinder> {
+                Some(ScriptCylinder::Tile(Position::new(100, 100, 7)))
+            }
+            fn tile_exists(&self, _: u16, _: u16, _: u8) -> bool {
+                true
+            }
+        }
+
+        let lua = Lua::new();
+        register_item_metatable(&lua).expect("item");
+        crate::userdata::register_tile_constructor(&lua).expect("tile");
+        crate::userdata::register_position_metatable(&lua).expect("position");
+        let item = lua.create_userdata(ItemRef(1)).expect("item");
+        lua.globals().set("item", item).unwrap();
+        with_lua_context(&ParentCtx, || {
+            let z: u8 = lua
+                .load("local p = item:getParent(); return p:getPosition().z")
+                .eval()
+                .expect("getParent Tile");
+            assert_eq!(z, 7);
         });
     }
 }

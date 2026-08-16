@@ -40,6 +40,7 @@ Creature = {}
 function Creature:addCondition(...) end
 function Creature:addHealth(...) end
 function Creature:addItem(...) end
+function Creature:addItemEx(...) end
 function Creature:addMana(...) end
 function Creature:addManaSpent(...) end
 function Creature:addSkillTries(...) end
@@ -118,6 +119,7 @@ Game = {}
 function Game.clearField(...) end
 function Game.createItem(...) end
 function Game.createMonster(...) end
+function Game.createTile(...) end
 function Game.getInstantSpells(...) end
 function Game.getWorldType(...) end
 
@@ -320,6 +322,7 @@ Teleport = {}
 Tile = {}
 
 function Tile:addItem(...) end
+function Tile:addItemEx(...) end
 function Tile:getBottomCreature(...) end
 function Tile:getCreatureCount(...) end
 function Tile:getCreatures(...) end
@@ -378,6 +381,7 @@ function tfs.appendLog(...) end
 Container = {}
 
 function Container:addItem(...) end
+function Container:addItemEx(...) end
 function Container:getCapacity(...) end
 function Container:getCorpseOwner(...) end
 function Container:getCount(...) end

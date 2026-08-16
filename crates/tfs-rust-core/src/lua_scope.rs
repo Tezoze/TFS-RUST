@@ -7,8 +7,8 @@ use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 use tfs_rust_lua::{
-    self, LuaMutation, set_mutation_bool_result, set_mutation_item_result, with_lua_context,
-    with_lua_mutation_scope,
+    self, LuaMutation, set_mutation_bool_result, set_mutation_i32_result, set_mutation_item_result,
+    with_lua_context, with_lua_mutation_scope,
 };
 
 fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), String> {
@@ -402,6 +402,29 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             item_type,
             text,
         } => unsafe { &mut *world }.lua_script_show_text_dialog(creature_id, item_type, text),
+        LuaMutation::AddItemEx {
+            item_id,
+            dest,
+            can_drop_on_map,
+            index,
+            flags,
+        } => {
+            let rv = unsafe { &mut *world }.lua_script_add_item_ex(
+                item_id,
+                dest,
+                can_drop_on_map,
+                index,
+                flags,
+            )?;
+            set_mutation_i32_result(rv);
+            Ok(())
+        }
+        LuaMutation::GameCreateTile {
+            x,
+            y,
+            z,
+            is_dynamic,
+        } => unsafe { &mut *world }.lua_script_game_create_tile(x, y, z, is_dynamic),
     }
 }
 

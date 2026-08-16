@@ -567,6 +567,10 @@ mod tests {
             tile.methods.contains("getHouse"),
             "Tile:getHouse is a native method (E7)"
         );
+        assert!(
+            tile.methods.contains("addItemEx"),
+            "Tile:addItemEx is a native method (R3)"
+        );
 
         let house = snap.classes.get("House").expect("House");
         assert!(
@@ -578,6 +582,10 @@ mod tests {
         assert!(
             creature.methods.contains("addHealth"),
             "Creature:addHealth is a native method (E4)"
+        );
+        assert!(
+            creature.methods.contains("addItemEx"),
+            "Creature:addItemEx is a native method (R3)"
         );
         assert!(
             creature.methods.contains("say"),
@@ -600,6 +608,10 @@ mod tests {
         assert!(
             game.table_functions.contains("createItem"),
             "Game.createItem is a class-table function"
+        );
+        assert!(
+            game.table_functions.contains("createTile"),
+            "Game.createTile is a class-table function (R5)"
         );
         assert!(
             game.table_functions.contains("getInstantSpells"),
@@ -688,6 +700,10 @@ mod tests {
         assert!(
             container.methods.contains("addItem"),
             "Container:addItem is a native method (R2)"
+        );
+        assert!(
+            container.methods.contains("addItemEx"),
+            "Container:addItemEx is a native method (R3)"
         );
         assert!(
             container.methods.contains("remove"),

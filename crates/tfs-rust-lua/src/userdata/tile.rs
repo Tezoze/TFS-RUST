@@ -382,6 +382,41 @@ impl UserData for TileRef {
             },
         );
 
+        // `tile:addItemEx(item[, flags = 0])` — `luaTileAddItemEx`.
+        methods.add_method(
+            "addItemEx",
+            |_, this, (item, flags): (Value, Option<u32>)| {
+                let Some(item_id) = crate::userdata::item::item_script_id_from_value(&item) else {
+                    return Ok(Value::Nil);
+                };
+                let parent = CURRENT_CTX.with(|c| {
+                    let ptr =
+                        (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                    if ptr.is_null() {
+                        return Err(mlua::Error::runtime("LuaContext not set"));
+                    }
+                    let ctx = unsafe { &*ptr };
+                    Ok(ctx.get_item_parent(item_id))
+                })?;
+                if parent.is_some() {
+                    return Ok(Value::Nil);
+                }
+                let rv = crate::lua_mutation::call_lua_add_item_ex(
+                    item_id,
+                    crate::lua_mutation::LuaMoveDestination::Tile {
+                        x: this.x,
+                        y: this.y,
+                        z: this.z,
+                    },
+                    false,
+                    -1,
+                    flags.unwrap_or(0),
+                )
+                .map_err(mlua::Error::runtime)?;
+                Ok(Value::Integer(i64::from(rv)))
+            },
+        );
+
         // `tile:getHouse()` — TFS `luaTileGetHouse`. `nil` or House userdata.
         // Never `0` (Lua 0 is truthy). 772 `IsHouse(Obj1)` (`moveuse.cc:313-318`).
         methods.add_method("getHouse", |lua, this, ()| {
@@ -480,6 +515,25 @@ fn parse_tile_args(args: mlua::MultiValue) -> Result<(u16, u16, u8), mlua::Error
             "Tile(): expected Position, table, or x,y,z",
         )),
     }
+}
+
+/// `Game.createTile(position[, isDynamic])` / `Game.createTile(x, y, z[, isDynamic])`.
+pub(crate) fn parse_create_tile_args(
+    args: mlua::MultiValue,
+) -> Result<(u16, u16, u8, bool), mlua::Error> {
+    let values: Vec<Value> = args.into_iter().collect();
+    let is_dynamic = match values.first() {
+        Some(Value::Table(_) | Value::UserData(_)) => match values.get(1) {
+            Some(Value::Boolean(b)) => *b,
+            _ => false,
+        },
+        _ => match values.get(3) {
+            Some(Value::Boolean(b)) => *b,
+            _ => false,
+        },
+    };
+    let (x, y, z) = parse_tile_args(values.into_iter().collect())?;
+    Ok((x, y, z, is_dynamic))
 }
 
 /// Register `Tile(pos)` / `Tile(x,y,z)` constructor — C++ `luaTileCreate`.
@@ -624,6 +678,32 @@ mod tests {
             assert!(is_nil, "non-house must be nil, not 0");
             let not_zero: bool = lua.load("return n:getHouse() ~= 0").eval().unwrap();
             assert!(not_zero);
+        });
+    }
+
+    /// R5: `Game.createTile({x,y,z}, true)` returns Tile userdata.
+    #[test]
+    fn r5_game_create_tile_table_form_returns_tile() {
+        crate::lua_mutation::register_lua_mutation_applier(|_, mutation| match mutation {
+            crate::lua_mutation::LuaMutation::GameCreateTile {
+                x: 32426,
+                y: 32201,
+                z: 14,
+                is_dynamic: true,
+            } => Ok(()),
+            other => panic!("unexpected mutation {other:?}"),
+        });
+        let runtime = crate::runtime::LuaRuntime::new().expect("runtime");
+        let lua = &runtime.lua;
+        crate::lua_mutation::with_lua_mutation_scope(std::ptr::without_provenance_mut(1), || {
+            let z: u8 = lua
+                .load(
+                    "local t = Game.createTile({x = 32426, y = 32201, z = 14}, true)
+                     return t:getPosition().z",
+                )
+                .eval()
+                .expect("createTile");
+            assert_eq!(z, 14);
         });
     }
 }

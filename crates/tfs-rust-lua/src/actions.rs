@@ -33,9 +33,9 @@ impl From<PendingAction> for ActionDef {
 }
 
 /// Inject `actionIds` + door ID tables + `table.contains` + `getFormattedWorldTime`
-/// from `data/global.lua` without loading `lib.lua` / compat (bootstrap
-/// deliberately skips full `global.lua`). TVP defines `actionIds` in
-/// `global.lua`, not `actionids.lua`.
+/// and `getPlayerFlagValue` from `data/global.lua` / a compat one-liner without
+/// loading `lib.lua` or `compat.lua` (bootstrap skips full `global.lua`).
+/// TVP defines `actionIds` in `global.lua`, not `actionids.lua`.
 ///
 /// Enables [`doors.lua`](data/scripts/actions/other/doors.lua), tools scripts
 /// that read `actionIds.*`, and [`watch.lua`](data/scripts/actions/other/watch.lua).
@@ -97,7 +97,10 @@ pub fn inject_door_tables_from_global(
     })?;
     let formatted_time = &time_rest[..=time_end + 3];
 
-    let chunk = format!("{tables}\n\n{contains}\n\n{formatted_time}\n");
+    // R4: compat one-liner only — do not `dofile` `compat.lua`.
+    let flag_helper = "function getPlayerFlagValue(cid, flag) local p = Player(cid) return p ~= nil and p:hasFlag(flag) or false end";
+
+    let chunk = format!("{tables}\n\n{contains}\n\n{formatted_time}\n\n{flag_helper}\n");
     runtime.exec_chunk("door_tables_from_global", &chunk)
 }
 
@@ -1042,6 +1045,16 @@ mod tests {
         lua.globals().set("t", tile).unwrap();
         let add: String = lua.load("return type(t.addItem)").eval().expect("addItem");
         assert_eq!(add, "function");
+        let add_ex: String = lua
+            .load("return type(t.addItemEx)")
+            .eval()
+            .expect("addItemEx");
+        assert_eq!(add_ex, "function");
+        let create_tile: String = lua
+            .load("return type(Game.createTile)")
+            .eval()
+            .expect("Game.createTile");
+        assert_eq!(create_tile, "function");
         let bottom: String = lua
             .load("return type(t.getBottomCreature)")
             .eval()
@@ -1393,6 +1406,66 @@ mod tests {
         assert!(src.contains("1877"), "cuckoo 1877");
         assert!(src.contains("1881"), "cuckoo 1881");
         assert!(!src.contains("3900"), "no sundial 3900");
+    }
+
+    /// R4: inject `getPlayerFlagValue` without loading `compat.lua`.
+    #[test]
+    fn r4_get_player_flag_value_uses_has_flag() {
+        use crate::context::{CreatureRef, with_lua_context};
+        use tfs_rust_common::{
+            ScriptContext, ScriptCreatureData, ScriptCreatureId, ScriptItemId, ScriptItemRef,
+        };
+
+        const INFINITE_CAP: u64 = 1 << 20;
+
+        struct FlagCtx;
+        impl ScriptContext for FlagCtx {
+            fn get_creature(&self, id: ScriptCreatureId) -> Option<ScriptCreatureData> {
+                (id == 1).then_some(ScriptCreatureData {
+                    name: "Quest".into(),
+                    guid: 1,
+                })
+            }
+            fn get_item(&self, _: ScriptItemId) -> Option<ScriptItemRef> {
+                None
+            }
+            fn get_config_string(&self, _: &str) -> Option<String> {
+                None
+            }
+            fn get_player_level(&self, id: ScriptCreatureId) -> Option<i32> {
+                (id == 1).then_some(8)
+            }
+            fn player_has_flag(&self, id: ScriptCreatureId, flag: u64) -> bool {
+                id == 1 && flag == INFINITE_CAP
+            }
+        }
+
+        let data_root = workspace_data_root();
+        let runtime = LuaRuntime::new().expect("runtime init");
+        inject_door_tables_from_global(&runtime, &data_root).expect("door tables");
+        let lua = &runtime.lua;
+        let p = lua.create_userdata(CreatureRef(1)).expect("player");
+        lua.globals().set("p", p).unwrap();
+        with_lua_context(&FlagCtx, || {
+            let via_ud: bool = lua
+                .load("return getPlayerFlagValue(p, PlayerFlag_HasInfiniteCapacity)")
+                .eval()
+                .expect("flag via userdata");
+            assert!(
+                via_ud,
+                "Player(userdata) must resolve for the compat wrapper"
+            );
+            let missing: bool = lua
+                .load("return getPlayerFlagValue(p, 1)")
+                .eval()
+                .expect("unset flag");
+            assert!(!missing);
+            let via_id: bool = lua
+                .load("return getPlayerFlagValue(1, PlayerFlag_HasInfiniteCapacity)")
+                .eval()
+                .expect("flag via id");
+            assert!(via_id);
+        });
     }
 
     /// E8: fluids.lua drink numbers/messages; engine stack is `addCondition` only.
