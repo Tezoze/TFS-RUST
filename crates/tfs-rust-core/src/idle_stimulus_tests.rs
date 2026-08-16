@@ -8,7 +8,8 @@ use crate::combat::{CombatDamage, CombatParams};
 use crate::creature::{
     ChaseMode, CreatureKind, MonsterAiConfig, MonsterSpell, MonsterState, SpellImpact, SpellShape,
 };
-use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
+use crate::creature_todo::{ActionObjectRef, CreatureAction, MONSTER_IDLE_WAIT_MS};
+use crate::event_dispatcher::EventDispatcher;
 use crate::game_world::GameWorld;
 use crate::idle_stimulus::MonsterIdleWalkBranch;
 use crate::ids::CreatureId;
@@ -6682,6 +6683,162 @@ fn single_object_use_does_not_defer() {
     assert_eq!(
         base.next_wakeup, None,
         "no wakeup armed — single-object Use is ungated"
+    );
+}
+
+// === Action `allowFarUse` LoS (`Actions::canUseFar` + 772 `throw_possible`) ===
+// TFS `actions.cpp:272-274`: after `<7,5>` range + floor, `checkLineOfSight` (always
+// true for Action — no `blockWalls`) calls `canThrowObjectTo(..., multiFloor=false)`.
+// Rust uses 772 `Map::throw_possible` (`info.cc:1154`) instead of TFS Bresenham.
+
+/// Stub: `Action:allowFarUse(true)` without loading Lua (`fishing_rod.lua`).
+struct AllowFarUseDispatcher;
+
+impl EventDispatcher for AllowFarUseDispatcher {
+    fn action_allows_far_use(&self, _item_type: u16, _action_id: u16) -> bool {
+        true
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+fn outgoing_contains_text(world: &GameWorld, conn: ConnId, needle: &str) -> bool {
+    world.pending_outgoing.get(&conn).is_some_and(|pkts| {
+        pkts.iter()
+            .any(|p| p.windows(needle.len()).any(|w| w == needle.as_bytes()))
+    })
+}
+
+/// Inventory fishing rod (2580) + far same-floor water tile. Optional UNTHROW wall.
+fn setup_action_far_use_world(
+    wall_unthrow: bool,
+) -> (
+    GameWorld,
+    CreatureId,
+    ConnId,
+    ActionObjectRef,
+    ActionObjectRef,
+) {
+    let mut world = beat_driven_test_world();
+    world.events = Box::new(AllowFarUseDispatcher);
+    let player_pos = Position::new(100, 100, 7);
+    let water_pos = Position::new(104, 100, 7);
+    let wall_pos = Position::new(102, 100, 7);
+    for x in 100..=104u16 {
+        ensure_walkable_tile(
+            &mut world.map,
+            Position::new(x, 100, 7),
+            TEST_SYNTHETIC_GROUND_WP,
+        );
+    }
+    if wall_unthrow && let Some(tile) = world.map.get_tile_mut(wall_pos) {
+        tile.body_mut().flags |= crate::tile::flags::UNTHROW;
+    }
+
+    let conn = ConnId(1);
+    let player = insert_spectator_player(&mut world, conn, test_player("Angler", player_pos));
+
+    const FISHING_ROD: u16 = 2580;
+    let rod_id = world
+        .items
+        .insert(crate::item::Item::new_single(FISHING_ROD));
+    if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+        // CONST_SLOT_AMMO = 10 → array index 9
+        p.equipment_slots[9] = Some(rod_id);
+    }
+    let sprite_id = world.items_db.client_id_for_server(FISHING_ROD);
+    let obj1 = ActionObjectRef {
+        pos: Position::new(0xFFFF, 10, 0),
+        stack_pos: 0,
+        sprite_id,
+    };
+    let obj2 = ActionObjectRef {
+        pos: water_pos,
+        stack_pos: 0,
+        sprite_id: 0,
+    };
+    (world, player, conn, obj1, obj2)
+}
+
+/// UNTHROW between player and water (3+ tiles) → `CannotThrow` / Wait, no execute.
+#[test]
+fn action_far_use_blocked_by_unthrow_los() {
+    let (mut world, player, conn, obj1, obj2) = setup_action_far_use_world(true);
+    assert!(
+        !world
+            .map
+            .throw_possible(Position::new(100, 100, 7), obj2.pos, 0),
+        "fixture: UNTHROW wall must block 772 throw_possible"
+    );
+
+    if let Some(k) = world.creatures.get_mut(player) {
+        k.base_mut().todo.queue.push_back(CreatureAction::Use {
+            obj1,
+            obj2: Some(obj2),
+            open_index: 0,
+        });
+    }
+    world.pending_outgoing.clear();
+    let kind = world.execute_creature_todo_action(player);
+    assert!(
+        matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Wait)),
+        "action_far LoS fail → Wait"
+    );
+    assert!(
+        outgoing_contains_text(&world, conn, "You cannot throw there."),
+        "TFS canUseFar LoS → ReturnValue::CannotThrow"
+    );
+    let base = world.creatures.get(player).unwrap().base();
+    assert!(
+        !base
+            .todo
+            .queue
+            .iter()
+            .any(|a| matches!(a, CreatureAction::Use { .. })),
+        "blocked LoS must not leave Use queued for execute"
+    );
+}
+
+/// Clear line, in range `<7,5>`, same floor → LoS does not reject; execute proceeds.
+#[test]
+fn action_far_use_clear_los_does_not_reject() {
+    let (mut world, player, conn, obj1, obj2) = setup_action_far_use_world(false);
+    assert!(
+        world
+            .map
+            .throw_possible(Position::new(100, 100, 7), obj2.pos, 0),
+        "fixture: open ground must be throw_possible"
+    );
+
+    if let Some(k) = world.creatures.get_mut(player) {
+        k.base_mut().todo.queue.push_back(CreatureAction::Use {
+            obj1,
+            obj2: Some(obj2),
+            open_index: 0,
+        });
+    }
+    world.pending_outgoing.clear();
+    let kind = world.execute_creature_todo_action(player);
+    assert!(
+        matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Wait)),
+        "in-range action_far with clear LoS proceeds to execute"
+    );
+    assert!(
+        !outgoing_contains_text(&world, conn, "You cannot throw there."),
+        "clear LoS must not apply CannotThrow"
+    );
+    let base = world.creatures.get(player).unwrap().base();
+    assert!(
+        !base
+            .todo
+            .queue
+            .iter()
+            .any(|a| matches!(a, CreatureAction::Use { .. })),
+        "Use must be consumed (execute path), not deferred"
     );
 }
 

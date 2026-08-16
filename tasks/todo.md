@@ -1,13 +1,12 @@
-# Ground addThing + getTopVisibleThing — 2026-08-16
+# Action Lua API wiring — TYPE / TILEP / SPLASH / LOS — 2026-08-16
 
 **Status:** done.
 
-## Goal
-TFS `Tile::addThing` set/replace ground; `getTopVisibleThing` returns ground `Item*`.
+## Shipped
+- **TYPE** — `item.type` / `getSubType` (`ScriptItemData.sub_type`). `create_bread.lua` flour+water.
+- **TILEP** — `Tile.isPlayer` / `isMonster` / `isNpc` in `data/lib/core/tile.lua`. Ice pick on floor. Test uses Phase 2 `load_data_lib`.
+- **SPLASH** — replace existing splash on `createItem`; **no** TFS ladder discard (772 `CreatePool`). Fluids show on ladders.
+- **LOS** — Action `allowFarUse` → `map.throw_possible`; `CannotThrow`. Fishing through walls blocked.
 
-## Work
-- `internal_add_item_to_tile`: `isGroundTile` → set or replace `ground`/`ground_item`.
-- `tile_get_top_visible_thing`: `LookTarget::Ground` → `ground_item` userdata.
-- Tests: createItem drawbridge on empty tile; replace bank; always-on-top dirt does not replace; getTopVisibleThing on hydrated ground.
-
-Dirt 4797/4799 stay OTB group NONE + always-on-top, so rat-bridge overlays are unchanged.
+## Deferred
+G10 `Item:decay(id)` / SAY5 5-arg `say` with `music.lua` rewrite.

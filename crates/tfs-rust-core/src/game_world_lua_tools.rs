@@ -274,6 +274,20 @@ mod tests {
         world.items_db = Arc::new(db);
     }
 
+    /// Splash 2016/2019: OTB `GROUP_SPLASH` + FLAG_ALWAYSONTOP, typical order 2.
+    fn register_splash_type(world: &mut GameWorld, id: u16) {
+        use tfs_rust_content::otb::ItemType;
+        let mut it = pickup_item_type(id);
+        it.id = id;
+        it.server_id = id;
+        it.group = ItemType::GROUP_SPLASH;
+        it.flags = 1 << 13; // FLAG_ALWAYSONTOP
+        it.always_on_top_order = 2;
+        let mut db = (*world.items_db).clone();
+        db.items.insert(id, it);
+        world.items_db = Arc::new(db);
+    }
+
     #[test]
     fn lua_script_add_skill_tries_advances_fishing() {
         let mut world = minimal_world();
@@ -523,6 +537,89 @@ mod tests {
             world.items.get(water_iid).is_some(),
             "water bank must survive dirt overlay"
         );
+    }
+
+    /// TFS `Tile::addThing` splash replace (`tile.cpp` ~868–882): one splash on the top stack.
+    #[test]
+    fn create_item_splash_replaces_existing_top_splash() {
+        let mut world = minimal_world();
+        register_splash_type(&mut world, 2016);
+        let pos = Position::new(50, 50, 7);
+        world
+            .lua_script_game_create_tile(pos.x, pos.y, pos.z, true)
+            .unwrap();
+        let first = world
+            .lua_script_game_create_item(2016, 1, Some((pos.x, pos.y, pos.z)))
+            .unwrap()
+            .expect("first splash");
+        let first_id = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(first));
+        let second = world
+            .lua_script_game_create_item(2016, 5, Some((pos.x, pos.y, pos.z)))
+            .unwrap()
+            .expect("second splash");
+        let second_id = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(second));
+        let body = world.map.get_tile(pos).unwrap().body();
+        assert_eq!(body.top_items.as_slice(), &[second_id]);
+        assert!(world.items.get(first_id).is_none(), "old splash released");
+        assert_eq!(world.items.get(second_id).map(|i| i.count), Some(5));
+    }
+
+    /// 772 `CreatePool` skips TOP (ladders) and still `Create`s the pool.
+    /// Sorted insert: equal `alwaysOnTopOrder` → splash before ladder (`tile.rs` `add_top_item_at`).
+    #[test]
+    fn create_item_splash_lands_on_ladder_tile() {
+        let mut world = minimal_world();
+        register_splash_type(&mut world, 2016);
+        let mut ladder = pickup_item_type(1386);
+        ladder.id = 1386;
+        ladder.server_id = 1386;
+        ladder.flags = 1 << 13; // FLAG_ALWAYSONTOP
+        ladder.always_on_top_order = 2;
+        let mut db = (*world.items_db).clone();
+        db.items.insert(1386, ladder);
+        world.items_db = Arc::new(db);
+
+        let pos = Position::new(50, 50, 7);
+        world
+            .lua_script_game_create_tile(pos.x, pos.y, pos.z, true)
+            .unwrap();
+        let ladder_id = world
+            .lua_script_game_create_item(1386, 1, Some((pos.x, pos.y, pos.z)))
+            .unwrap()
+            .expect("ladder");
+        let ladder_iid = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(ladder_id));
+        let splash = world
+            .lua_script_game_create_item(2016, 1, Some((pos.x, pos.y, pos.z)))
+            .unwrap()
+            .expect("772 CreatePool places splash on ladder tiles");
+        let splash_iid = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(splash));
+        let body = world.map.get_tile(pos).unwrap().body();
+        assert_eq!(
+            body.top_items.as_slice(),
+            &[splash_iid, ladder_iid],
+            "equal alwaysOnTopOrder: splash inserts before ladder"
+        );
+    }
+
+    /// Combat `create_liquid_splash` replace goes through `internal_add_item_to_tile`.
+    #[test]
+    fn create_liquid_splash_leaves_one_splash() {
+        let mut world = minimal_world();
+        register_splash_type(&mut world, 2019);
+        let pos = Position::new(50, 50, 7);
+        world
+            .lua_script_game_create_tile(pos.x, pos.y, pos.z, true)
+            .unwrap();
+        world.create_liquid_splash(pos, 2019, 2);
+        let first = world.map.get_tile(pos).unwrap().body().top_items[0];
+        assert_eq!(world.items.get(first).map(|i| i.count), Some(2));
+        world.create_liquid_splash(pos, 2019, 4);
+        let body = world.map.get_tile(pos).unwrap().body();
+        assert_eq!(body.top_items.len(), 1);
+        assert!(world.items.get(first).is_none(), "first splash released");
+        let remaining = body.top_items[0];
+        assert_eq!(world.items.get(remaining).map(|i| i.count), Some(4));
+        assert_eq!(world.items.get(remaining).map(|i| i.fluid_type()), Some(4));
     }
 
     #[test]

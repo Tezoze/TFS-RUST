@@ -162,6 +162,11 @@ impl UserData for ItemRef {
         fields.add_field_method_get("uid", |_, this| {
             with_ctx(|ctx| Ok(ctx.get_item_data(this.0).map(|d| d.unique_id).unwrap_or(0)))
         });
+        // TFS compat `item.type` → `Item:getSubType()` (`compat.lua` ItemIndex).
+        // Distinct from `getType()` which returns ItemType userdata.
+        fields.add_field_method_get("type", |_, this| {
+            with_ctx(|ctx| Ok(ctx.get_item_data(this.0).map(|d| d.sub_type).unwrap_or(0)))
+        });
     }
 
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
@@ -223,6 +228,12 @@ impl UserData for ItemRef {
         // `Tile.relocateTo` (`lib/core/tile.lua`) skips splash/fluid items via this.
         methods.add_method("getFluidType", |_, this, ()| {
             with_ctx(|ctx| Ok(ctx.get_item_data(this.0).map(|d| d.fluid_type).unwrap_or(0)))
+        });
+
+        // `item:getSubType()` — `luascript.cpp` `luaItemGetSubType` (`gameserver` ~6008–6017).
+        // Fluid/splash → fluid type, stackable → count, charges/rune → charges, else count.
+        methods.add_method("getSubType", |_, this, ()| {
+            with_ctx(|ctx| Ok(ctx.get_item_data(this.0).map(|d| d.sub_type).unwrap_or(0)))
         });
 
         methods.add_method("setActionId", |_, this, action_id: u16| {
@@ -494,6 +505,7 @@ mod tests {
                 unique_id: 0,
                 is_store_item: false,
                 fluid_type: if id == 1 { 5 } else { 0 },
+                sub_type: if id == 1 { 5 } else { 0 },
             })
         }
         fn item_has_custom_attribute(&self, _: ScriptItemId, key: &str) -> bool {
@@ -626,6 +638,7 @@ mod tests {
                 unique_id: 0,
                 is_store_item: false,
                 fluid_type: 0,
+                sub_type: 1,
             })
         }
         fn get_item_type_is_container(&self, item_type: u16) -> bool {
@@ -791,6 +804,7 @@ mod tests {
                     unique_id: 0,
                     is_store_item: false,
                     fluid_type: 0,
+                    sub_type: 1,
                 })
             }
             fn get_item_parent(&self, _: ScriptItemId) -> Option<ScriptCylinder> {
@@ -813,6 +827,76 @@ mod tests {
                 .eval()
                 .expect("getParent Tile");
             assert_eq!(z, 7);
+        });
+    }
+
+    /// TFS `item.type` / `Item:getSubType` — compat ItemIndex + `luaItemGetSubType`.
+    /// `.type` is subtype; `:getType()` remains ItemType userdata.
+    struct SubTypeCtx;
+
+    impl ScriptContext for SubTypeCtx {
+        fn get_creature(&self, _: ScriptCreatureId) -> Option<ScriptCreatureData> {
+            None
+        }
+        fn get_item(&self, id: ScriptItemId) -> Option<ScriptItemRef> {
+            Some(ScriptItemRef(id))
+        }
+        fn get_config_string(&self, _: &str) -> Option<String> {
+            None
+        }
+        fn get_item_data(&self, id: ScriptItemId) -> Option<ScriptItemData> {
+            match id {
+                // Water vial — fluid container subtype `FLUID_WATER` (1).
+                1 => Some(ScriptItemData {
+                    item_type: 2006,
+                    count: 1,
+                    weight: 0,
+                    name: "vial".into(),
+                    action_id: 0,
+                    unique_id: 0,
+                    is_store_item: false,
+                    fluid_type: 1,
+                    sub_type: 1,
+                }),
+                // Gold stack — `change_gold.lua` `item.type == 100`.
+                2 => Some(ScriptItemData {
+                    item_type: 2148,
+                    count: 100,
+                    weight: 10,
+                    name: "gold coin".into(),
+                    action_id: 0,
+                    unique_id: 0,
+                    is_store_item: false,
+                    fluid_type: 0,
+                    sub_type: 100,
+                }),
+                _ => None,
+            }
+        }
+    }
+
+    #[test]
+    fn item_type_field_and_get_sub_type() {
+        let lua = Lua::new();
+        register_item_metatable(&lua).expect("item mt");
+
+        with_lua_context(&SubTypeCtx, || {
+            let vial = lua.create_userdata(ItemRef(1)).expect("vial");
+            lua.globals().set("item", vial).unwrap();
+            let t: u16 = lua.load("return item.type").eval().unwrap();
+            assert_eq!(t, 1);
+            let sub: u16 = lua.load("return item:getSubType()").eval().unwrap();
+            assert_eq!(sub, 1);
+
+            let gold = lua.create_userdata(ItemRef(2)).expect("gold");
+            lua.globals().set("item", gold).unwrap();
+            let stack: u16 = lua.load("return item.type").eval().unwrap();
+            assert_eq!(stack, 100);
+
+            let missing = lua.create_userdata(ItemRef(99)).expect("missing");
+            lua.globals().set("item", missing).unwrap();
+            let zero: u16 = lua.load("return item.type").eval().unwrap();
+            assert_eq!(zero, 0);
         });
     }
 }

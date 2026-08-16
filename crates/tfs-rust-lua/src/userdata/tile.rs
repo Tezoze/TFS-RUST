@@ -602,6 +602,7 @@ mod tests {
                 unique_id: 0,
                 is_store_item: false,
                 fluid_type: 0,
+                sub_type: 1,
             })
         }
         fn tile_exists(&self, _: u16, _: u16, _: u8) -> bool {

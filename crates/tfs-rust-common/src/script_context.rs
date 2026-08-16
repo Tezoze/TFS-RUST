@@ -29,6 +29,8 @@ pub struct ScriptItemData {
     pub is_store_item: bool,
     /// `item:getFluidType()` — `Item::getFluidType` (`item.h`).
     pub fluid_type: u16,
+    /// TFS `Item::getSubType` / compat `item.type` (`item.cpp`, `compat.lua` ItemIndex).
+    pub sub_type: u16,
 }
 
 /// ID handle wrapper for creatures passed to Lua userdata.

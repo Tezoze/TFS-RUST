@@ -3793,6 +3793,19 @@ impl GameWorld {
                                         );
                                         return Some(TodoExecuteKind::Wait);
                                     }
+                                    // TFS `Actions::canUseFar` LoS (`actions.cpp:272-274`):
+                                    // `checkLineOfSight && !canThrowObjectTo(..., multiFloor=false)`.
+                                    // Action has no `blockWalls` — always check for `action_far`.
+                                    // 772 outcome: `Map::throw_possible` (`info.cc:1154`), not TFS Bresenham.
+                                    if action_far
+                                        && let Some(pp) =
+                                            self.creatures.get(cid).map(|k| k.position())
+                                        && !self.map.throw_possible(pp, o2.pos, 0)
+                                    {
+                                        self.apply_todo_result_catch(cid, ReturnValue::CannotThrow);
+                                        trace_creature_todo(self, cid, "execute_use_far_use_los");
+                                        return Some(TodoExecuteKind::Wait);
+                                    }
                                     // Far-use within range → proceed (no walk to Obj2).
                                 } else {
                                     // Non-DistUse + Obj2 > 1 tile → walk to Obj2 + re-enqueue

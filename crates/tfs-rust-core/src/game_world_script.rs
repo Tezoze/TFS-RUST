@@ -109,6 +109,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
                 Some(t) if t.is_fluid_container() || t.is_splash() => item.get_sub_type(t),
                 _ => item.fluid_type(),
             },
+            sub_type: it.map(|t| item.get_sub_type(t)).unwrap_or(item.count),
         })
     }
 

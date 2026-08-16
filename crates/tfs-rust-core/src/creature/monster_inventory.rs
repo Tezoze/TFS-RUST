@@ -561,32 +561,8 @@ impl GameWorld {
         splash_item_id: u16,
         fluid_subtype: u16,
     ) {
-        // C++ `Tile::addThing` removes any existing splash before adding a new one
-        // (`tile.cpp:881-894`) — a tile holds at most ONE splash. Without this, sustained combat
-        // (e.g. a bear meleeing the player each beat) piles splash items onto the victim's tile,
-        // overflowing the client's 10-object tile stack and desyncing it.
-        let existing_splashes: Vec<ItemId> = self
-            .map
-            .get_tile(pos)
-            .map(|t| {
-                let b = t.body();
-                b.top_items
-                    .iter()
-                    .chain(b.down_items.iter())
-                    .copied()
-                    .filter(|&iid| {
-                        self.items
-                            .get(iid)
-                            .and_then(|it| self.items_db.items.get(&it.item_type))
-                            .is_some_and(|ty| ty.is_splash())
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        for iid in existing_splashes {
-            let _ = self.internal_remove_item_from_tile(pos, iid, u16::MAX);
-        }
-
+        // Splash replace lives in `internal_add_item_to_tile` (772 `CreatePool`
+        // deletes existing `LIQUIDPOOL` then Create; ladders/TOP are not a block).
         let mut item = Item::new(splash_item_id, fluid_subtype);
         item.set_fluid_type(fluid_subtype);
         let id = self.items.insert(item);

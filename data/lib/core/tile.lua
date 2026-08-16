@@ -14,6 +14,18 @@ function Tile.isContainer(self)
 	return false
 end
 
+function Tile.isPlayer(self)
+	return false
+end
+
+function Tile.isMonster(self)
+	return false
+end
+
+function Tile.isNpc(self)
+	return false
+end
+
 function Tile.relocateTo(self, toPosition)
 	if self:getPosition() == toPosition or not Tile(toPosition) then
 		return false

@@ -443,6 +443,39 @@ mod tests {
             .expect("required data globals present after lib load");
     }
 
+    /// TILEP: `ice_pick.lua` does `parent:isContainer() or parent:isPlayer()`.
+    /// Floor parent is Tile; helpers live in `data/lib/core/tile.lua` (Phase 2).
+    #[test]
+    fn tilep_is_player_is_monster_is_npc_false_on_live_userdata() {
+        use crate::userdata::tile::TileRef;
+
+        let data_root = workspace_data_root();
+        if !data_root.join("lib/core/tile.lua").exists() {
+            eprintln!("data pack not present — skipping");
+            return;
+        }
+
+        let runtime = LuaRuntime::new().expect("runtime init");
+        inject_door_tables_from_global(&runtime, &data_root).expect("door tables");
+        load_data_lib(&runtime, &data_root).expect("data lib");
+
+        let lua = &runtime.lua;
+        let tile = lua
+            .create_userdata(TileRef { x: 1, y: 2, z: 7 })
+            .expect("tile");
+        lua.globals().set("t", tile).unwrap();
+        let flags: (bool, bool, bool, bool) = lua
+            .load("return t:isContainer(), t:isPlayer(), t:isMonster(), t:isNpc()")
+            .eval()
+            .expect("Tile class helpers");
+        assert_eq!(flags, (false, false, false, false));
+        let ice_pick: bool = lua
+            .load("return t:isContainer() or t:isPlayer()")
+            .eval()
+            .expect("ice_pick parent guard");
+        assert!(!ice_pick);
+    }
+
     /// Gap 4: `SKILL_*` engine constants survive lib load, and TVP
     /// `actionIds` from `global.lua` is not replaced by `actionids.lua`.
     #[test]
@@ -1525,6 +1558,7 @@ mod tests {
                     unique_id: 0,
                     is_store_item: false,
                     fluid_type: 0,
+                    sub_type: 1,
                 })
             }
             fn player_has_learned_spell(&self, id: ScriptCreatureId, name: &str) -> bool {

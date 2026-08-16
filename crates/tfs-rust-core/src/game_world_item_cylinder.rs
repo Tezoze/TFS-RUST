@@ -1,7 +1,7 @@
 //! Item cylinder resolution and tile add/remove.
 //!
 //! - `Game::internalGetCylinder`, `internalGetThing`, `internalAddItem`, `internalRemoveItem` — `game.cpp`.
-//! - `Tile::queryAdd` — `tile.cpp`.
+//! - `Tile::queryAdd` / `Tile::addThing` (ground, splash replace, always-on-top insert) — `tile.cpp`.
 
 use tfs_rust_common::Position;
 
@@ -610,6 +610,7 @@ impl GameWorld {
         let item_type_info = self.items_db.items.get(&item_type);
         let is_ground = item_type_info.map(|t| t.is_ground_tile()).unwrap_or(false);
         let is_magic_field = item_type_info.map(|t| t.is_magic_field()).unwrap_or(false);
+        let is_splash = item_type_info.map(|t| t.is_splash()).unwrap_or(false);
         let always_on_top = item_type_info.map(|t| t.always_on_top()).unwrap_or(false);
         let new_order = item_type_info.map(|t| t.always_on_top_order).unwrap_or(0);
 
@@ -622,6 +623,16 @@ impl GameWorld {
         // always-on-top / down stack. Empty bank → setGround; occupied → replace.
         if is_ground {
             return self.add_ground_item_to_tile(pos, item_id, item_type);
+        }
+
+        // 772 `CreatePool` (`operate.cc:2585-2619`): replace existing liquid pool, then
+        // Create — TOP objects (ladders) are skipped, not a hard block.
+        // TFS `addThing` "no splash in ladders" (`tile.cpp` ~884–893) discards the new
+        // splash when a remaining top item shares alwaysOnTopOrder — **772 wins**:
+        // splashes and ladders coexist in `top_items` via sorted insert (see
+        // `docs/772_SPLASH_LAYER_MISMATCH.md`). One splash per tile still holds.
+        if is_splash {
+            self.remove_existing_splashes_on_tile(pos);
         }
 
         {
@@ -672,6 +683,33 @@ impl GameWorld {
         self.start_decay(item_id);
         self.apply_tile_item_specials(pos, item_id);
         Ok(item_id)
+    }
+
+    /// Remove splash items from the tile (top and down). 772 `CreatePool` deletes
+    /// existing `LIQUIDPOOL` then `Create`; TFS `addThing` replaces the first top splash.
+    /// Collect ids first — do not hold a tile borrow across `internal_remove_item_from_tile`.
+    fn remove_existing_splashes_on_tile(&mut self, pos: Position) {
+        let existing: Vec<ItemId> = self
+            .map
+            .get_tile(pos)
+            .map(|t| {
+                let b = t.body();
+                b.top_items
+                    .iter()
+                    .chain(b.down_items.iter())
+                    .copied()
+                    .filter(|&iid| {
+                        self.items
+                            .get(iid)
+                            .and_then(|it| self.items_db.items.get(&it.item_type))
+                            .is_some_and(|ty| ty.is_splash())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        for iid in existing {
+            let _ = self.internal_remove_item_from_tile(pos, iid, u16::MAX);
+        }
     }
 
     /// TFS `Tile::addThing` when `item->isGroundTile()` (`tile.cpp` ~852–867).
