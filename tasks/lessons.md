@@ -762,3 +762,5 @@
 
 357. **Action `allowFarUse` still skips LoS** (`idle_stimulus.rs` far-use arm; `actions.cpp` `canUseFar`): range `<7,5>` and floor match TFS; `canThrowObjectTo` / `blockWalls` are not applied. `fishing_rod.lua` can fish through walls. Rune `blockWalls` exists; Action has no equivalent method. *(August 2026)*
 
+358. **MoveEvent StepIn/Out lookup is uid→aid→itemid with fallthrough; `:tileItem` must exist at load** (`move_events.rs` `get_event`; `runtime.rs` `MoveEvent:tileItem`; `movement.cpp:366-397`): aid registered for that kind wins over `:id()` (trap 1510 vs bridge aid 3052). Aid *set* but no event of this kind still falls through to itemid — C++ only skips itemid when the aid list for that `eventType` is non-empty. Unique-id map unused this pack. Dual StepIn+AddItem files call `:tileItem(true)` after the first `:register()`; if the method is missing the whole chunk errors and the StepIn never drains. Stub the flag in M1 (ITEMTILE remap is M2). First registered event per `(kind, key)` wins (`moveEventList.begin()`). *(August 2026)*
+

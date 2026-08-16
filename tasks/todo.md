@@ -1,12 +1,14 @@
-# Action Lua API wiring — TYPE / TILEP / SPLASH / LOS — 2026-08-16
+# Movements Lua fire path — M1 aid lookup — 2026-08-16
 
-**Status:** done.
+**Status:** M1 done. Full audit: [movements-plan.md](movements-plan.md).
 
-## Shipped
-- **TYPE** — `item.type` / `getSubType` (`ScriptItemData.sub_type`). `create_bread.lua` flour+water.
-- **TILEP** — `Tile.isPlayer` / `isMonster` / `isNpc` in `data/lib/core/tile.lua`. Ice pick on floor. Test uses Phase 2 `load_data_lib`.
-- **SPLASH** — replace existing splash on `createItem`; **no** TFS ladder discard (772 `CreatePool`). Fluids show on ladders.
-- **LOS** — Action `allowFarUse` → `map.throw_possible`; `CannotThrow`. Fishing through walls blocked.
+## M1 shipped
+StepIn/Out fire uses TFS `getEvent(Item*)` order (uid map skipped → **aid → itemid**). `tile_move_event_items` snapshots `action_id`. `get_by_aid` is on the live path. First registered event per key wins. No-op `MoveEvent:tileItem` so dual StepIn+AddItem files load.
 
-## Deferred
-G10 `Item:decay(id)` / SAY5 5-arg `say` with `music.lua` rewrite.
+Then **M2** (`tileItem` ITEMTILE remap + AddItem args + mutation scope — also 11 AddItem-only scripts), **M3** (`setTown`, `getMaster`), **M4** (772 trap/field script pass).
+
+## 772 (do not forget)
+- Fields: keep native `magic_field.rs` (`moveuse.dat` Trap Damage). No Lua double-hit.
+- Traps: holes transform first; 60 physical on blades; no PZ skip on Collision; bear trap `!IsPeaceful`.
+- Doors: leave `closing_doors.lua` (SeparationEvent ClearField+Change).
+- Map aids: leave as Lua — they now fire on walk.

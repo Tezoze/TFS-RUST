@@ -150,6 +150,7 @@ function House:getId(...) end
 ---@class Item
 ---@field actionid any
 ---@field itemid any
+---@field type any
 ---@field uid any
 Item = {}
 
@@ -163,6 +164,7 @@ function Item:getId(...) end
 function Item:getName(...) end
 function Item:getParent(...) end
 function Item:getPosition(...) end
+function Item:getSubType(...) end
 function Item:getTopParent(...) end
 function Item:getType(...) end
 function Item:getUniqueId(...) end
@@ -219,6 +221,7 @@ function MoveEvent:id(...) end
 function MoveEvent:level(...) end
 function MoveEvent:register(...) end
 function MoveEvent:slot(...) end
+function MoveEvent:tileItem(...) end
 function MoveEvent:type(...) end
 
 ---@class Npc

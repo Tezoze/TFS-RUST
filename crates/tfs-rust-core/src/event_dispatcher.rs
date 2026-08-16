@@ -116,11 +116,13 @@ pub trait EventDispatcher {
     /// TFS `MoveEvent::onStepOut` — creature/item leaving a tile.
     ///
     /// `pos` = tile being left; `from_pos` = creature last position (Lua 4th arg).
+    /// `action_id` feeds `MoveEvents::getEvent` (uid skipped → aid → itemid).
     fn on_step_out(
         &self,
         _actor: Option<CreatureId>,
         _item: ItemId,
         _item_type: u16,
+        _action_id: u16,
         _pos: Position,
         _from_pos: Position,
     ) -> bool {
@@ -130,11 +132,13 @@ pub trait EventDispatcher {
     /// TFS `MoveEvent::onStepIn` — creature/item entering a tile.
     ///
     /// `pos` = tile entered; `from_pos` = creature last position (Lua 4th arg).
+    /// `action_id` feeds `MoveEvents::getEvent` (uid skipped → aid → itemid).
     fn on_step_in(
         &self,
         _actor: Option<CreatureId>,
         _item: ItemId,
         _item_type: u16,
+        _action_id: u16,
         _pos: Position,
         _from_pos: Position,
     ) -> bool {

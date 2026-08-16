@@ -3,7 +3,7 @@
 //! C++ reference: `LuaScriptInterface::executeTimer` / creature event dispatch — single game thread.
 
 use crate::event_dispatcher::TalkActionResult;
-use crate::game_world::GameWorld;
+use crate::game_world::{GameWorld, TileMoveEventItem};
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 use tfs_rust_lua::{
@@ -586,13 +586,13 @@ pub fn fire_on_use_action(
 /// `closing_doors.lua` call `Tile()`, `item:transform`, `doRelocate` — all need the
 /// same scope as `fire_on_use_action`. Called from `move_creature_on_map` after the
 /// creature has left `from` and landed on `to` so `getCreatureCount()` sees leavers gone.
-pub fn fire_creature_step_events(
+pub(crate) fn fire_creature_step_events(
     world: &mut GameWorld,
     cid: CreatureId,
     from: tfs_rust_common::Position,
     to: tfs_rust_common::Position,
-    step_out_items: &[(ItemId, u16)],
-    step_in_items: &[(ItemId, u16)],
+    step_out_items: &[TileMoveEventItem],
+    step_in_items: &[TileMoveEventItem],
 ) {
     let world_ptr = std::ptr::from_mut(world);
     with_lua_mutation_scope(world_ptr as *mut (), || {
@@ -601,15 +601,25 @@ pub fn fire_creature_step_events(
             let world = unsafe { &mut *world_ptr };
             // C++ `getLastPosition()` for executeStep — tile we left (`from`).
             let last_pos = from;
-            for &(item_id, item_type) in step_out_items {
-                let _ = world
-                    .events
-                    .on_step_out(Some(cid), item_id, item_type, from, last_pos);
+            for item in step_out_items {
+                let _ = world.events.on_step_out(
+                    Some(cid),
+                    item.item_id,
+                    item.item_type,
+                    item.action_id,
+                    from,
+                    last_pos,
+                );
             }
-            for &(item_id, item_type) in step_in_items {
-                let _ = world
-                    .events
-                    .on_step_in(Some(cid), item_id, item_type, to, last_pos);
+            for item in step_in_items {
+                let _ = world.events.on_step_in(
+                    Some(cid),
+                    item.item_id,
+                    item.item_type,
+                    item.action_id,
+                    to,
+                    last_pos,
+                );
             }
         });
     });

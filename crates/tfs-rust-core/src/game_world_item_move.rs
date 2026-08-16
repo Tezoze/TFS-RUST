@@ -304,6 +304,7 @@ impl GameWorld {
             .unwrap_or(false);
         let item_count = item.count;
         let item_type = item.item_type;
+        let action_id = item.action_id();
 
         let m = if is_stackable {
             count.min(item_count)
@@ -360,9 +361,14 @@ impl GameWorld {
                     return Err(ReturnValue::NotPossible);
                 }
                 if let Cylinder::Tile { pos } = &from_cylinder
-                    && !self
-                        .events
-                        .on_step_out(acting_player, item_id, item_type, *pos, from_pos)
+                    && !self.events.on_step_out(
+                        acting_player,
+                        item_id,
+                        item_type,
+                        action_id,
+                        *pos,
+                        from_pos,
+                    )
                 {
                     return Err(ReturnValue::NotPossible);
                 }

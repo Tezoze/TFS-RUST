@@ -1580,6 +1580,15 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
                 Ok(this)
             })?,
         )?;
+        // Store the flag so dual StepIn+AddItem files finish loading. ITEMTILE remap is M2.
+        // C++ `MoveEvent::tileItem` — `luascript.cpp` `luaMoveEventTileItem`.
+        me.set(
+            "tileItem",
+            lua.create_function(|_, (this, tile_item): (mlua::Table, bool)| {
+                this.set("_tile_item", tile_item)?;
+                Ok(this)
+            })?,
+        )?;
         me.set(
             "register",
             lua.create_function(|lua, this: mlua::Table| {

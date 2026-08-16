@@ -1,7 +1,7 @@
 //! MoveEvent registry — XML equip/deequip + revscript StepIn/StepOut.
 //!
 //! C++ reference: `src/movement.cpp` `MoveEvents`, `MoveEvent::fireEquip` /
-//! `executeStep`, `MoveEvents::registerLuaEvent`.
+//! `executeStep`, `MoveEvents::registerLuaEvent`, `MoveEvents::getEvent(Item*)`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -97,20 +97,65 @@ impl MoveEventsRegistry {
         self.by_aid.get(&(kind, action_id))
     }
 
+    /// TFS `MoveEvents::getEvent(Item*, MoveEvent_t)` — `movement.cpp:366-397`.
+    ///
+    /// Unique-id map skipped this pass (no `:uid` scripts). Aid hit returns the first
+    /// registered event for that `(kind, aid)` and does not consult itemid. Aid miss
+    /// (unset, or no event of this kind) falls through to itemid — C++ does the same
+    /// when `actionIdMap` has no list for this `eventType`.
+    pub fn get_event(
+        &self,
+        kind: MoveEventKind,
+        item_type: u16,
+        action_id: u16,
+    ) -> Option<&CallbackRef> {
+        if action_id != 0
+            && let Some(entry) = self.get_by_aid(kind, action_id)
+        {
+            return Some(&entry.callback);
+        }
+        self.get(kind, item_type).map(|e| &e.callback)
+    }
+
     pub fn len(&self) -> usize {
         self.by_item.len() + self.by_aid.len()
+    }
+
+    /// Count of action-id keyed events (`MoveEvents::actionIdMap`).
+    pub fn aid_len(&self) -> usize {
+        self.by_aid.len()
     }
 
     pub fn is_empty(&self) -> bool {
         self.by_item.is_empty() && self.by_aid.is_empty()
     }
 
+    /// First registered event per `(kind, item_id)` wins — C++ `addEvent` + `begin()`.
     pub fn register(&mut self, entry: MoveEventEntry) {
-        self.by_item.insert((entry.kind, entry.item_id), entry);
+        let key = (entry.kind, entry.item_id);
+        if let std::collections::hash_map::Entry::Vacant(slot) = self.by_item.entry(key) {
+            slot.insert(entry);
+        } else {
+            tracing::warn!(
+                kind = ?key.0,
+                item_id = key.1,
+                "duplicate MoveEvent item id; keeping first"
+            );
+        }
     }
 
+    /// First registered event per `(kind, action_id)` wins — C++ `addEvent` + `begin()`.
     pub fn register_aid(&mut self, entry: MoveEventAidEntry) {
-        self.by_aid.insert((entry.kind, entry.action_id), entry);
+        let key = (entry.kind, entry.action_id);
+        if let std::collections::hash_map::Entry::Vacant(slot) = self.by_aid.entry(key) {
+            slot.insert(entry);
+        } else {
+            tracing::warn!(
+                kind = ?key.0,
+                action_id = key.1,
+                "duplicate MoveEvent action id; keeping first"
+            );
+        }
     }
 
     /// Load `movements/lib/movements.lua` and ensure default equip globals exist.
@@ -384,5 +429,206 @@ mod tests {
         assert_eq!(pending[0].kind, MoveEventKind::StepIn);
         assert!(pending[0].item_ids.contains(&1228));
         assert!(pending[0].callback.is_some());
+    }
+
+    fn dummy_step_callback(runtime: &mut LuaRuntime, name: &str) -> CallbackRef {
+        runtime
+            .exec_chunk(
+                name,
+                &format!(
+                    "function {name}(creature, item, position, fromPosition) _G.fired = '{name}' return true end"
+                ),
+            )
+            .expect("chunk");
+        runtime
+            .register_callback(name.to_string(), name)
+            .expect("callback")
+    }
+
+    fn fired_marker(runtime: &LuaRuntime) -> String {
+        runtime
+            .lua
+            .globals()
+            .get::<String>("fired")
+            .unwrap_or_default()
+    }
+
+    fn fire_step(runtime: &LuaRuntime, callback: &CallbackRef) {
+        let pos = tfs_rust_common::Position::new(100, 100, 7);
+        runtime
+            .call_move_step(callback, 1, 1, pos, pos)
+            .expect("call_move_step");
+    }
+
+    /// M1: tile item with actionid 3052 fires the aid callback, not a same-type `:id()` trap.
+    #[test]
+    fn get_event_aid_wins_over_itemid_and_fires() {
+        let mut runtime = LuaRuntime::new().expect("runtime");
+        let mut registry = MoveEventsRegistry::default();
+        let trap = dummy_step_callback(&mut runtime, "trap_id");
+        let aid = dummy_step_callback(&mut runtime, "aid_3052");
+        registry.register(MoveEventEntry {
+            kind: MoveEventKind::StepIn,
+            item_id: 1510,
+            slot_mask: 0,
+            req_level: 0,
+            callback: trap,
+        });
+        registry.register_aid(MoveEventAidEntry {
+            kind: MoveEventKind::StepIn,
+            action_id: 3052,
+            slot_mask: 0,
+            req_level: 0,
+            callback: aid,
+        });
+
+        let resolved = registry
+            .get_event(MoveEventKind::StepIn, 1510, 3052)
+            .expect("aid event");
+        fire_step(&runtime, resolved);
+        assert_eq!(fired_marker(&runtime), "aid_3052");
+
+        let id_only = registry
+            .get_event(MoveEventKind::StepIn, 1510, 0)
+            .expect("itemid event");
+        fire_step(&runtime, id_only);
+        assert_eq!(fired_marker(&runtime), "trap_id");
+    }
+
+    /// C++ `getEvent`: aid attribute set but no StepIn for that aid → fall through to itemid.
+    #[test]
+    fn get_event_aid_miss_falls_through_to_itemid() {
+        let mut runtime = LuaRuntime::new().expect("runtime");
+        let mut registry = MoveEventsRegistry::default();
+        let trap = dummy_step_callback(&mut runtime, "trap_fallthrough");
+        registry.register(MoveEventEntry {
+            kind: MoveEventKind::StepIn,
+            item_id: 1510,
+            slot_mask: 0,
+            req_level: 0,
+            callback: trap,
+        });
+        registry.register_aid(MoveEventAidEntry {
+            kind: MoveEventKind::AddItem,
+            action_id: 3052,
+            slot_mask: 0,
+            req_level: 0,
+            callback: dummy_step_callback(&mut runtime, "aid_additem_only"),
+        });
+
+        let resolved = registry
+            .get_event(MoveEventKind::StepIn, 1510, 3052)
+            .expect("itemid fallthrough");
+        fire_step(&runtime, resolved);
+        assert_eq!(fired_marker(&runtime), "trap_fallthrough");
+    }
+
+    #[test]
+    fn register_keeps_first_aid_and_item_event() {
+        let mut runtime = LuaRuntime::new().expect("runtime");
+        let mut registry = MoveEventsRegistry::default();
+        registry.register_aid(MoveEventAidEntry {
+            kind: MoveEventKind::StepIn,
+            action_id: 3052,
+            slot_mask: 0,
+            req_level: 0,
+            callback: dummy_step_callback(&mut runtime, "first_aid"),
+        });
+        registry.register_aid(MoveEventAidEntry {
+            kind: MoveEventKind::StepIn,
+            action_id: 3052,
+            slot_mask: 0,
+            req_level: 0,
+            callback: dummy_step_callback(&mut runtime, "second_aid"),
+        });
+        registry.register(MoveEventEntry {
+            kind: MoveEventKind::StepIn,
+            item_id: 1510,
+            slot_mask: 0,
+            req_level: 0,
+            callback: dummy_step_callback(&mut runtime, "first_id"),
+        });
+        registry.register(MoveEventEntry {
+            kind: MoveEventKind::StepIn,
+            item_id: 1510,
+            slot_mask: 0,
+            req_level: 0,
+            callback: dummy_step_callback(&mut runtime, "second_id"),
+        });
+
+        fire_step(
+            &runtime,
+            registry
+                .get_event(MoveEventKind::StepIn, 1510, 3052)
+                .expect("aid"),
+        );
+        assert_eq!(fired_marker(&runtime), "first_aid");
+        fire_step(
+            &runtime,
+            registry
+                .get_event(MoveEventKind::StepIn, 1510, 0)
+                .expect("id"),
+        );
+        assert_eq!(fired_marker(&runtime), "first_id");
+    }
+
+    /// Load the pack: 133 files, non-zero `by_aid`, rookgaard bridge aids, live aid-over-id lookup.
+    #[test]
+    fn load_movements_registers_aid_and_prefers_bridge_over_trap() {
+        let data_root = workspace_data_root();
+        let dir = data_root.join("scripts/movements");
+        if !dir.exists() {
+            eprintln!("scripts/movements not found — skipping");
+            return;
+        }
+
+        let mut files = Vec::new();
+        collect_lua_files(&dir, &mut files);
+        assert_eq!(
+            files.len(),
+            133,
+            "expected 133 movement scripts; got {}",
+            files.len()
+        );
+
+        let mut runtime = LuaRuntime::new().expect("runtime");
+        inject_door_tables_from_global(&runtime, &data_root).expect("door tables");
+        let defs = load_move_event_scripts(&mut runtime, &data_root).expect("load");
+        let mut registry = MoveEventsRegistry::default();
+        merge_move_event_defs(&mut registry, &runtime, defs);
+
+        assert!(
+            registry.aid_len() > 0,
+            "aid map must be populated after load"
+        );
+        assert!(
+            registry.get_by_aid(MoveEventKind::StepIn, 3052).is_some(),
+            "rookgaard premium_bridge.lua aid 3052"
+        );
+        assert!(
+            registry.get_by_aid(MoveEventKind::StepIn, 3051).is_some(),
+            "rookgaard level_2_bridge.lua aid 3051"
+        );
+
+        let trap = registry
+            .get(MoveEventKind::StepIn, 1510)
+            .expect("trap.lua :id(1510)");
+        let aid = registry
+            .get_by_aid(MoveEventKind::StepIn, 3052)
+            .expect("aid 3052");
+        let resolved = registry
+            .get_event(MoveEventKind::StepIn, 1510, 3052)
+            .expect("get_event aid");
+        assert!(
+            std::ptr::eq(resolved, &aid.callback),
+            "aid 3052 must win over trap itemid 1510"
+        );
+        let id_only = registry
+            .get_event(MoveEventKind::StepIn, 1510, 0)
+            .expect("get_event itemid");
+        assert!(
+            std::ptr::eq(id_only, &trap.callback),
+            "aid 0 must hit :id() trap"
+        );
     }
 }

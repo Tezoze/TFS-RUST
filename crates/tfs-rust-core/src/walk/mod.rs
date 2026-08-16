@@ -2389,10 +2389,10 @@ impl GameWorld {
         }
     }
 
-    /// Item ids + types on a tile for `MoveEvents::onCreatureMove` item iteration.
+    /// Item ids + types + action ids on a tile for `MoveEvents::onCreatureMove`.
     /// Includes the ground item — TFS `MoveEvents::onCreatureMove` iterates from
     /// `getFirstIndex` which includes the ground (`tile.cpp` postAddNotification).
-    fn tile_move_event_items(&self, pos: Position) -> Vec<(ItemId, u16)> {
+    fn tile_move_event_items(&self, pos: Position) -> Vec<crate::game_world::TileMoveEventItem> {
         let Some(tile) = self.map.get_tile(pos) else {
             return Vec::new();
         };
@@ -2400,14 +2400,28 @@ impl GameWorld {
         let mut out = Vec::new();
         // Ground first — TFS iterates ground before top/down items.
         if let Some(gid) = body.ground_item {
-            let typ = self.items.get(gid).map(|i| i.item_type).unwrap_or(0);
-            out.push((gid, typ));
+            out.push(self.snapshot_tile_move_event_item(gid));
         }
         for &iid in body.top_items.iter().chain(body.down_items.iter()) {
-            let typ = self.items.get(iid).map(|i| i.item_type).unwrap_or(0);
-            out.push((iid, typ));
+            out.push(self.snapshot_tile_move_event_item(iid));
         }
         out
+    }
+
+    fn snapshot_tile_move_event_item(
+        &self,
+        item_id: ItemId,
+    ) -> crate::game_world::TileMoveEventItem {
+        let (item_type, action_id) = self
+            .items
+            .get(item_id)
+            .map(|i| (i.item_type, i.action_id()))
+            .unwrap_or((0, 0));
+        crate::game_world::TileMoveEventItem {
+            item_id,
+            item_type,
+            action_id,
+        }
     }
 
     /// TFS `Creature::getPathTo` / `Map::getPathMatching` for walk-to-item (`creature.cpp` ~1735).

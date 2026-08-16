@@ -1,6 +1,7 @@
 //! Lua-based event dispatcher implementation.
 //!
-//! C++ reference: `src/movement.cpp` `MoveEvents::onPlayerEquip`, `MoveEvent::fireEquip`.
+//! C++ reference: `src/movement.cpp` `MoveEvents::onPlayerEquip`, `MoveEvent::fireEquip`,
+//! `MoveEvents::getEvent(Item*, MoveEvent_t)` (StepIn/Out: aid then itemid).
 
 use std::any::Any;
 use std::collections::HashMap;
@@ -187,17 +188,18 @@ impl LuaEventDispatcher {
         actor: Option<CreatureId>,
         item: ItemId,
         item_type: u16,
+        action_id: u16,
         pos: Position,
         from_pos: Position,
     ) -> bool {
         let Some(actor) = actor else {
             return true;
         };
-        let Some(entry) = self.move_events.get(kind, item_type) else {
+        let Some(callback) = self.move_events.get_event(kind, item_type, action_id) else {
             return true;
         };
         match self.runtime.call_move_step(
-            &entry.callback,
+            callback,
             actor.data().as_ffi(),
             item.data().as_ffi(),
             pos,
@@ -209,6 +211,7 @@ impl LuaEventDispatcher {
                     ?actor,
                     ?item,
                     item_type,
+                    action_id,
                     ?kind,
                     "Lua move step event failed: {e}"
                 );
@@ -325,6 +328,7 @@ impl EventDispatcher for LuaEventDispatcher {
         actor: Option<CreatureId>,
         item: ItemId,
         item_type: u16,
+        action_id: u16,
         pos: Position,
         from_pos: Position,
     ) -> bool {
@@ -333,6 +337,7 @@ impl EventDispatcher for LuaEventDispatcher {
             actor,
             item,
             item_type,
+            action_id,
             pos,
             from_pos,
         )
@@ -343,10 +348,19 @@ impl EventDispatcher for LuaEventDispatcher {
         actor: Option<CreatureId>,
         item: ItemId,
         item_type: u16,
+        action_id: u16,
         pos: Position,
         from_pos: Position,
     ) -> bool {
-        self.dispatch_move_step(MoveEventKind::StepIn, actor, item, item_type, pos, from_pos)
+        self.dispatch_move_step(
+            MoveEventKind::StepIn,
+            actor,
+            item,
+            item_type,
+            action_id,
+            pos,
+            from_pos,
+        )
     }
 
     fn on_login(&self, creature: CreatureId, ctx: &dyn tfs_rust_common::ScriptContext) {

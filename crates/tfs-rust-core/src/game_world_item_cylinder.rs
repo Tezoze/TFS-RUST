@@ -557,10 +557,12 @@ impl GameWorld {
         let is_stackable;
         let item_type;
         let item_count;
+        let action_id;
         {
             let item = self.items.get(item_id).ok_or(ReturnValue::NotPossible)?;
             item_type = item.item_type;
             item_count = item.count;
+            action_id = item.action_id();
             is_stackable = self
                 .items_db
                 .items
@@ -586,7 +588,9 @@ impl GameWorld {
             self.broadcast_tile_item_update(pos, target_id, tvp_stack, cip_stack);
 
             // Fully merged — remove the source item from SlotMap
-            let _ = self.events.on_step_in(None, target_id, item_type, pos, pos);
+            let _ = self
+                .events
+                .on_step_in(None, target_id, item_type, action_id, pos, pos);
 
             self.cancel_item_decay(item_id);
             self.items.remove(item_id);
@@ -678,7 +682,9 @@ impl GameWorld {
         if is_magic_field {
             self.apply_magic_field_to_tile_creatures(pos, item_id);
         } else {
-            let _ = self.events.on_step_in(None, item_id, item_type, pos, pos);
+            let _ = self
+                .events
+                .on_step_in(None, item_id, item_type, action_id, pos, pos);
         }
         self.start_decay(item_id);
         self.apply_tile_item_specials(pos, item_id);
@@ -778,7 +784,10 @@ impl GameWorld {
             self.items.remove(old_id);
         }
 
-        let _ = self.events.on_step_in(None, item_id, item_type, pos, pos);
+        let action_id = self.items.get(item_id).map(|i| i.action_id()).unwrap_or(0);
+        let _ = self
+            .events
+            .on_step_in(None, item_id, item_type, action_id, pos, pos);
         self.start_decay(item_id);
         self.apply_tile_item_specials(pos, item_id);
         Ok(item_id)

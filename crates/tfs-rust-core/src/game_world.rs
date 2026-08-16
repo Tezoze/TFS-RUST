@@ -61,6 +61,16 @@ pub(crate) struct WriteWindow {
     pub max_len: u16,
 }
 
+/// Snapshot of a tile item for deferred StepOut/StepIn (`MoveEvents::onCreatureMove`).
+///
+/// C++ `getEvent(Item*, eventType)` needs actionid as well as type — `movement.cpp:366-397`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TileMoveEventItem {
+    pub item_id: ItemId,
+    pub item_type: u16,
+    pub action_id: u16,
+}
+
 /// Queued `MoveEvents` StepOut/StepIn until after move packets.
 ///
 /// C++ `Map::moveCreature` sends `sendCreatureMove` **then** `postRemoveNotification` /
@@ -72,8 +82,8 @@ pub(crate) struct PendingCreatureStepEvent {
     pub cid: CreatureId,
     pub from: Position,
     pub to: Position,
-    pub step_out_items: Vec<(ItemId, u16)>,
-    pub step_in_items: Vec<(ItemId, u16)>,
+    pub step_out_items: Vec<TileMoveEventItem>,
+    pub step_in_items: Vec<TileMoveEventItem>,
 }
 
 pub struct GameWorld {
