@@ -2392,7 +2392,10 @@ impl GameWorld {
     /// Item ids + types + action ids on a tile for `MoveEvents::onCreatureMove`.
     /// Includes the ground item — TFS `MoveEvents::onCreatureMove` iterates from
     /// `getFirstIndex` which includes the ground (`tile.cpp` postAddNotification).
-    fn tile_move_event_items(&self, pos: Position) -> Vec<crate::game_world::TileMoveEventItem> {
+    pub(crate) fn tile_move_event_items(
+        &self,
+        pos: Position,
+    ) -> Vec<crate::game_world::TileMoveEventItem> {
         let Some(tile) = self.map.get_tile(pos) else {
             return Vec::new();
         };

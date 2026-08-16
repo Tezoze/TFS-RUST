@@ -303,8 +303,6 @@ impl GameWorld {
             .map(|t| t.stackable())
             .unwrap_or(false);
         let item_count = item.count;
-        let item_type = item.item_type;
-        let action_id = item.action_id();
 
         let m = if is_stackable {
             count.min(item_count)
@@ -346,38 +344,6 @@ impl GameWorld {
             let rv = self.player_query_remove(*player_id, item_id, u32::from(m_move), flags);
             if rv.is_error() {
                 return Err(rv);
-            }
-        }
-
-        // 772 `MovementEvent` / `SeparationEvent` (T11/T30/T33) — OldCon != Con gate.
-        if from_cylinder != to_work {
-            let from_pos = self.cylinder_position(&from_cylinder);
-            let to_pos = self.cylinder_position(&to_work);
-            if let (Some(from_pos), Some(to_pos)) = (from_pos, to_pos) {
-                if !self
-                    .events
-                    .on_remove_item(acting_player, item_id, item_type, from_pos, to_pos)
-                {
-                    return Err(ReturnValue::NotPossible);
-                }
-                if let Cylinder::Tile { pos } = &from_cylinder
-                    && !self.events.on_step_out(
-                        acting_player,
-                        item_id,
-                        item_type,
-                        action_id,
-                        *pos,
-                        from_pos,
-                    )
-                {
-                    return Err(ReturnValue::NotPossible);
-                }
-                if !self
-                    .events
-                    .on_add_item(acting_player, item_id, item_type, from_pos, to_pos)
-                {
-                    return Err(ReturnValue::NotPossible);
-                }
             }
         }
 

@@ -11,6 +11,17 @@ use tfs_rust_common::Position;
 use tfs_rust_common::ScriptContext;
 use tfs_rust_content::npcs::NpcCallbackId;
 
+/// Snapshot of a tile item for MoveEvent lookup (`getEvent(Item*)`).
+///
+/// C++ `MoveEvents::onItemMove` / `onCreatureMove` iterate tile things and pass
+/// each item's type + actionid — `movement.cpp:366-397`, `477-515`.
+#[derive(Clone, Copy, Debug)]
+pub struct TileMoveEventItem {
+    pub item_id: ItemId,
+    pub item_type: u16,
+    pub action_id: u16,
+}
+
 /// Talkaction dispatch result — mirrors C++ `TalkActionResult_t`
 /// (`talkaction.h:13-17`).
 ///
@@ -89,28 +100,19 @@ pub trait EventDispatcher {
     ) {
     }
 
-    /// TFS `MoveEvent::onRemoveItem` — `internal_move_item` SeparationEvent (OldCon != Con).
-    fn on_remove_item(
+    /// TFS `MoveEvents::onItemMove` — `movement.cpp:477-515`.
+    ///
+    /// Fired from tile post-add / post-remove **after** the cylinder change. Lua
+    /// `false` is discarded (does not undo). Actor is not passed.
+    fn on_item_move(
         &self,
-        _actor: Option<CreatureId>,
         _item: ItemId,
         _item_type: u16,
-        _from: Position,
-        _to: Position,
-    ) -> bool {
-        true
-    }
-
-    /// TFS `MoveEvent::onAddItem` — `internal_move_item` MovementEvent (OldCon != Con).
-    fn on_add_item(
-        &self,
-        _actor: Option<CreatureId>,
-        _item: ItemId,
-        _item_type: u16,
-        _from: Position,
-        _to: Position,
-    ) -> bool {
-        true
+        _action_id: u16,
+        _pos: Position,
+        _is_add: bool,
+        _tile_items: &[TileMoveEventItem],
+    ) {
     }
 
     /// TFS `MoveEvent::onStepOut` — creature/item leaving a tile.

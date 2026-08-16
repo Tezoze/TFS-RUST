@@ -61,15 +61,7 @@ pub(crate) struct WriteWindow {
     pub max_len: u16,
 }
 
-/// Snapshot of a tile item for deferred StepOut/StepIn (`MoveEvents::onCreatureMove`).
-///
-/// C++ `getEvent(Item*, eventType)` needs actionid as well as type — `movement.cpp:366-397`.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct TileMoveEventItem {
-    pub item_id: ItemId,
-    pub item_type: u16,
-    pub action_id: u16,
-}
+pub(crate) use crate::event_dispatcher::TileMoveEventItem;
 
 /// Queued `MoveEvents` StepOut/StepIn until after move packets.
 ///

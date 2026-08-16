@@ -1,13 +1,13 @@
 //! Lua-based event dispatcher implementation.
 //!
 //! C++ reference: `src/movement.cpp` `MoveEvents::onPlayerEquip`, `MoveEvent::fireEquip`,
-//! `MoveEvents::getEvent(Item*, MoveEvent_t)` (StepIn/Out: aid then itemid).
+//! `MoveEvents::onItemMove` / `executeAddRemItem`, `MoveEvents::getEvent(Item*)`.
 
 use std::any::Any;
 use std::collections::HashMap;
 
 use crate::actions::ActionRegistry;
-use crate::event_dispatcher::{EventDispatcher, TalkActionResult};
+use crate::event_dispatcher::{EventDispatcher, TalkActionResult, TileMoveEventItem};
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 use crate::talkactions::TalkActionRegistry;
@@ -146,39 +146,58 @@ impl LuaEventDispatcher {
         }
     }
 
-    fn dispatch_move_item(
+    /// TFS `MoveEvents::onItemMove` — `movement.cpp:477-515`.
+    ///
+    /// Position-map lookup skipped (no `:position` scripts this pass). Actor is not
+    /// required. Lua `false` is discarded.
+    fn dispatch_item_move(
         &self,
-        kind: MoveEventKind,
-        actor: Option<CreatureId>,
         item: ItemId,
         item_type: u16,
-        from: Position,
-        to: Position,
-    ) -> bool {
-        let Some(actor) = actor else {
-            return true;
+        action_id: u16,
+        pos: Position,
+        is_add: bool,
+        tile_items: &[TileMoveEventItem],
+    ) {
+        let (kind, tile_kind) = if is_add {
+            (MoveEventKind::AddItem, MoveEventKind::AddItemItemTile)
+        } else {
+            (MoveEventKind::RemoveItem, MoveEventKind::RemoveItemItemTile)
         };
-        let Some(entry) = self.move_events.get(kind, item_type) else {
-            return true;
-        };
-        match self.runtime.call_move_item(
-            &entry.callback,
-            actor.data().as_ffi(),
-            item.data().as_ffi(),
-            from,
-            to,
-        ) {
-            Ok(allow) => allow,
-            Err(e) => {
-                tracing::error!(
-                    ?actor,
-                    ?item,
-                    item_type,
-                    ?kind,
-                    "Lua move item event failed: {e}"
-                );
-                true
+
+        if let Some(callback) = self.move_events.get_event(kind, item_type, action_id) {
+            self.fire_add_rem_item(callback, item, None, pos, kind);
+        }
+
+        for sibling in tile_items {
+            if sibling.item_id == item {
+                continue;
             }
+            let Some(callback) =
+                self.move_events
+                    .get_event(tile_kind, sibling.item_type, sibling.action_id)
+            else {
+                continue;
+            };
+            self.fire_add_rem_item(callback, item, Some(sibling.item_id), pos, tile_kind);
+        }
+    }
+
+    fn fire_add_rem_item(
+        &self,
+        callback: &CallbackRef,
+        item: ItemId,
+        tile_item: Option<ItemId>,
+        pos: Position,
+        kind: MoveEventKind,
+    ) {
+        if let Err(e) = self.runtime.call_move_item(
+            callback,
+            item.data().as_ffi(),
+            tile_item.map(|id| id.data().as_ffi()),
+            pos,
+        ) {
+            tracing::error!(?item, ?tile_item, ?kind, "Lua move item event failed: {e}");
         }
     }
 
@@ -301,26 +320,16 @@ impl EventDispatcher for LuaEventDispatcher {
         }
     }
 
-    fn on_remove_item(
+    fn on_item_move(
         &self,
-        actor: Option<CreatureId>,
         item: ItemId,
         item_type: u16,
-        from: Position,
-        to: Position,
-    ) -> bool {
-        self.dispatch_move_item(MoveEventKind::RemoveItem, actor, item, item_type, from, to)
-    }
-
-    fn on_add_item(
-        &self,
-        actor: Option<CreatureId>,
-        item: ItemId,
-        item_type: u16,
-        from: Position,
-        to: Position,
-    ) -> bool {
-        self.dispatch_move_item(MoveEventKind::AddItem, actor, item, item_type, from, to)
+        action_id: u16,
+        pos: Position,
+        is_add: bool,
+        tile_items: &[TileMoveEventItem],
+    ) {
+        self.dispatch_item_move(item, item_type, action_id, pos, is_add, tile_items)
     }
 
     fn on_step_out(

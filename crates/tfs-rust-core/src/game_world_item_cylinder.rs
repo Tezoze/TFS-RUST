@@ -557,12 +557,10 @@ impl GameWorld {
         let is_stackable;
         let item_type;
         let item_count;
-        let action_id;
         {
             let item = self.items.get(item_id).ok_or(ReturnValue::NotPossible)?;
             item_type = item.item_type;
             item_count = item.count;
-            action_id = item.action_id();
             is_stackable = self
                 .items_db
                 .items
@@ -588,13 +586,10 @@ impl GameWorld {
             self.broadcast_tile_item_update(pos, target_id, tvp_stack, cip_stack);
 
             // Fully merged — remove the source item from SlotMap
-            let _ = self
-                .events
-                .on_step_in(None, target_id, item_type, action_id, pos, pos);
-
             self.cancel_item_decay(item_id);
             self.items.remove(item_id);
             self.start_decay(target_id);
+            crate::lua_scope::fire_item_move_events(self, target_id, pos, true);
             return Ok(target_id);
         }
 
@@ -681,11 +676,8 @@ impl GameWorld {
         // (Lua `onStepInField` is a C++ native; movements.xml cannot register it as a Lua global.)
         if is_magic_field {
             self.apply_magic_field_to_tile_creatures(pos, item_id);
-        } else {
-            let _ = self
-                .events
-                .on_step_in(None, item_id, item_type, action_id, pos, pos);
         }
+        crate::lua_scope::fire_item_move_events(self, item_id, pos, true);
         self.start_decay(item_id);
         self.apply_tile_item_specials(pos, item_id);
         Ok(item_id)
@@ -784,10 +776,7 @@ impl GameWorld {
             self.items.remove(old_id);
         }
 
-        let action_id = self.items.get(item_id).map(|i| i.action_id()).unwrap_or(0);
-        let _ = self
-            .events
-            .on_step_in(None, item_id, item_type, action_id, pos, pos);
+        crate::lua_scope::fire_item_move_events(self, item_id, pos, true);
         self.start_decay(item_id);
         self.apply_tile_item_specials(pos, item_id);
         Ok(item_id)
@@ -826,6 +815,7 @@ impl GameWorld {
         if let Some(item) = self.items.get_mut(item_id) {
             item.parent = None;
         }
+        crate::lua_scope::fire_item_move_events(self, item_id, pos, false);
         Ok(())
     }
 
@@ -853,6 +843,7 @@ impl GameWorld {
             }
             let (tvp_stack, cip_stack) = self.item_stack_pos_pair(pos, item_id);
             self.broadcast_tile_item_update(pos, item_id, tvp_stack, cip_stack);
+            crate::lua_scope::fire_item_move_events(self, item_id, pos, false);
         } else {
             self.detach_item_from_tile(pos, item_id)?;
             self.cancel_item_decay(item_id);
@@ -945,6 +936,210 @@ mod detach_tile_flag_tests {
                 .down_items
                 .is_empty(),
             "table gone from source"
+        );
+    }
+}
+
+/// M2: tile AddItem/RemoveItem fires `EventDispatcher::on_item_move` after the
+/// cylinder change, with no actor, sibling snapshot (aid 3052), mutation scope.
+/// Lua `executeAddRemItem` signature is covered in `tfs-rust-lua` `move_events`.
+#[cfg(test)]
+mod item_move_event_tests {
+    use super::*;
+    use crate::cylinder::{Cylinder, CylinderFlags};
+    use crate::event_dispatcher::{EventDispatcher, TileMoveEventItem};
+    use crate::ids::ItemId;
+    use crate::item::Item;
+    use crate::sim_harness::minimal_world;
+    use crate::tile::Tile;
+    use std::sync::{Arc, Mutex};
+    use tfs_rust_common::Position;
+    use tfs_rust_content::otb::ItemType;
+
+    const TILE_AID_TYPE: u16 = 9202;
+    const DROP_TYPE: u16 = 2148;
+    const BRIDGE_AID: u16 = 3052;
+
+    #[derive(Clone, Debug)]
+    struct ItemMoveCall {
+        item: ItemId,
+        item_type: u16,
+        action_id: u16,
+        pos: Position,
+        is_add: bool,
+        tile_items: Vec<TileMoveEventItem>,
+        script_scope_active: bool,
+    }
+
+    #[derive(Default)]
+    struct ItemMoveRecorder {
+        calls: Mutex<Vec<ItemMoveCall>>,
+    }
+
+    struct ItemMoveRecorderProxy(Arc<ItemMoveRecorder>);
+
+    impl EventDispatcher for ItemMoveRecorderProxy {
+        fn on_item_move(
+            &self,
+            item: ItemId,
+            item_type: u16,
+            action_id: u16,
+            pos: Position,
+            is_add: bool,
+            tile_items: &[TileMoveEventItem],
+        ) {
+            let script_scope_active = tfs_rust_lua::context::current_ctx(|_| true).unwrap_or(false);
+            self.0.calls.lock().expect("lock").push(ItemMoveCall {
+                item,
+                item_type,
+                action_id,
+                pos,
+                is_add,
+                tile_items: tile_items.to_vec(),
+                script_scope_active,
+            });
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+            self
+        }
+    }
+
+    fn register_type(world: &mut GameWorld, item_type_id: u16, mut it: ItemType) {
+        it.id = item_type_id;
+        it.server_id = item_type_id;
+        let mut items = std::collections::HashMap::clone(&world.items_db.items);
+        items.insert(item_type_id, it);
+        let client_to_server = std::collections::HashMap::clone(&world.items_db.client_to_server);
+        world.items_db = std::sync::Arc::new(tfs_rust_content::items::ItemDatabase {
+            items,
+            client_to_server,
+        });
+    }
+
+    fn insert_walkable(world: &mut GameWorld, pos: Position) {
+        world.map.insert_tile(pos, Tile::empty_normal());
+        if let Some(tile) = world.map.get_tile_mut(pos) {
+            tile.body_mut().ground = Some(100);
+        }
+    }
+
+    fn place_aid_sibling(world: &mut GameWorld, pos: Position) -> ItemId {
+        register_type(
+            world,
+            TILE_AID_TYPE,
+            ItemType {
+                moveable_override: Some(true),
+                ..Default::default()
+            },
+        );
+        let mut tile_item = Item::new_single(TILE_AID_TYPE);
+        tile_item.set_action_id(BRIDGE_AID);
+        let sibling = world.items.insert(tile_item);
+        world
+            .internal_add_item_to_tile(pos, sibling, CylinderFlags::NO_LIMIT)
+            .expect("place aid-3052 tile item");
+        sibling
+    }
+
+    fn install_recorder(world: &mut GameWorld) -> Arc<ItemMoveRecorder> {
+        let recorder = Arc::new(ItemMoveRecorder::default());
+        world.events = Box::new(ItemMoveRecorderProxy(recorder.clone()));
+        recorder
+    }
+
+    fn assert_add_snapshot(call: &ItemMoveCall, dropped: ItemId, sibling: ItemId, dest: Position) {
+        assert!(call.is_add, "drop/move onto tile is AddItem");
+        assert_eq!(call.item, dropped);
+        assert_eq!(call.item_type, DROP_TYPE);
+        assert_eq!(call.action_id, 0, "moved gold has no action_id");
+        assert_eq!(call.pos, dest);
+        assert!(
+            call.script_scope_active,
+            "on_item_move must run inside mutation + ScriptContext scope"
+        );
+        assert!(
+            call.tile_items
+                .iter()
+                .any(|t| t.item_id == sibling && t.action_id == BRIDGE_AID),
+            "tile_items must contain the aid-3052 sibling; got {:?}",
+            call.tile_items
+        );
+        // Snapshot is the full tile after add — moved item is present as itself
+        // (`call.item == dropped` above). Lua `dispatch_item_move` skips
+        // `sibling.item_id == moved` when firing ITEMTILE.
+        assert!(
+            call.tile_items.iter().any(|t| t.item_id == dropped),
+            "moved item present in tile_items (equal to the moved id)"
+        );
+        assert_ne!(sibling, dropped);
+    }
+
+    /// Drop via `internal_add_item_to_tile` (no actor) onto an aid-3052 tile.
+    #[test]
+    fn add_item_to_aid_tile_fires_on_item_move() {
+        let mut world = minimal_world();
+        let dest = Position::new(60, 60, 7);
+        insert_walkable(&mut world, dest);
+        let sibling = place_aid_sibling(&mut world, dest);
+
+        let recorder = install_recorder(&mut world);
+        let dropped = world.items.insert(Item::new_single(DROP_TYPE));
+        world
+            .internal_add_item_to_tile(dest, dropped, CylinderFlags::NO_LIMIT)
+            .expect("drop gold");
+
+        let calls = recorder.calls.lock().expect("lock");
+        assert_eq!(calls.len(), 1, "one AddItem fire; got {calls:?}");
+        assert_add_snapshot(&calls[0], dropped, sibling, dest);
+    }
+
+    /// Tile→tile `internal_move_item` with `actor = None` still fires AddItem
+    /// (and RemoveItem on the source) after the cylinder change.
+    #[test]
+    fn move_item_onto_aid_tile_with_no_actor_fires_on_item_move() {
+        let mut world = minimal_world();
+        let from = Position::new(60, 60, 7);
+        let dest = Position::new(61, 60, 7);
+        insert_walkable(&mut world, from);
+        insert_walkable(&mut world, dest);
+        let sibling = place_aid_sibling(&mut world, dest);
+
+        let dropped = world.items.insert(Item::new_single(DROP_TYPE));
+        world
+            .internal_add_item_to_tile(from, dropped, CylinderFlags::NO_LIMIT)
+            .expect("place gold on source");
+
+        let recorder = install_recorder(&mut world);
+        world
+            .internal_move_item(
+                None,
+                Cylinder::Tile { pos: from },
+                Cylinder::Tile { pos: dest },
+                dropped,
+                1,
+                CylinderFlags::NO_LIMIT,
+                None,
+            )
+            .expect("move gold with no actor");
+
+        let calls = recorder.calls.lock().expect("lock");
+        assert!(
+            calls
+                .iter()
+                .any(|c| !c.is_add && c.item == dropped && c.pos == from),
+            "RemoveItem on source; got {calls:?}"
+        );
+        let add = calls
+            .iter()
+            .find(|c| c.is_add && c.item == dropped && c.pos == dest)
+            .expect("AddItem on dest");
+        assert_add_snapshot(add, dropped, sibling, dest);
+        assert!(
+            add.script_scope_active && calls.iter().any(|c| !c.is_add && c.script_scope_active),
+            "both add and remove run under mutation/ScriptContext scope"
         );
     }
 }

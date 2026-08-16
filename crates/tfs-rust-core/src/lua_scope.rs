@@ -625,6 +625,36 @@ pub(crate) fn fire_creature_step_events(
     });
 }
 
+/// TFS `MoveEvents::onItemMove` — fire AddItem/RemoveItem after the tile change.
+///
+/// C++ reference: `tile.cpp` `postAddNotification` (`LINK_OWNER`) /
+/// `postRemoveNotification` → `MoveEvents::onItemMove` → `executeAddRemItem`.
+/// Pack scripts (`premium_bridge.lua`) call `doRelocate` / `Tile()` — same
+/// mutation + ScriptContext nest as `fire_creature_step_events`.
+pub(crate) fn fire_item_move_events(
+    world: &mut GameWorld,
+    item: ItemId,
+    pos: tfs_rust_common::Position,
+    is_add: bool,
+) {
+    let (item_type, action_id) = world
+        .items
+        .get(item)
+        .map(|i| (i.item_type, i.action_id()))
+        .unwrap_or((0, 0));
+    let tile_items = world.tile_move_event_items(pos);
+    let world_ptr = std::ptr::from_mut(world);
+    with_lua_mutation_scope(world_ptr as *mut (), || {
+        let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
+        with_lua_context(ctx, || {
+            let world = unsafe { &mut *world_ptr };
+            world
+                .events
+                .on_item_move(item, item_type, action_id, pos, is_add, &tile_items);
+        });
+    });
+}
+
 /// TFS `Weapon::executeUseWeapon` — fire `onUseWeapon(player, variant[, hit])`.
 pub fn fire_on_use_weapon(
     world: &mut GameWorld,

@@ -1,7 +1,8 @@
-//! MoveEvent registry — XML equip/deequip + revscript StepIn/StepOut.
+//! MoveEvent registry — XML equip/deequip + revscript StepIn/StepOut/AddItem.
 //!
 //! C++ reference: `src/movement.cpp` `MoveEvents`, `MoveEvent::fireEquip` /
-//! `executeStep`, `MoveEvents::registerLuaEvent`, `MoveEvents::getEvent(Item*)`.
+//! `executeStep`, `executeAddRemItem`, `MoveEvents::registerLuaEvent`,
+//! `MoveEvents::getEvent(Item*)`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,10 @@ pub enum MoveEventKind {
     DeEquip,
     AddItem,
     RemoveItem,
+    /// `MOVE_EVENT_ADD_ITEM_ITEMTILE` — sibling tile item, not the moved item.
+    AddItemItemTile,
+    /// `MOVE_EVENT_REMOVE_ITEM_ITEMTILE` — sibling tile item, not the moved item.
+    RemoveItemItemTile,
     StepIn,
     StepOut,
 }
@@ -32,6 +37,32 @@ impl MoveEventKind {
             "stepin" => Some(Self::StepIn),
             "stepout" => Some(Self::StepOut),
             _ => None,
+        }
+    }
+
+    /// TFS `registerLuaEvent` `:tileItem(true)` remap — `movement.cpp:243-255`.
+    ///
+    /// Only AddItem/RemoveItem change bucket; StepIn/Out keep their kind (TFS no-op).
+    pub fn with_tile_item(self, tile_item: bool) -> Self {
+        if !tile_item {
+            return self;
+        }
+        match self {
+            Self::AddItem => Self::AddItemItemTile,
+            Self::RemoveItem => Self::RemoveItemItemTile,
+            other => other,
+        }
+    }
+
+    /// Lua callback field on the pending `MoveEvent` table (`compat.lua` `__newindex`).
+    pub fn script_callback_field(self) -> &'static str {
+        match self {
+            Self::StepIn => "onStepIn",
+            Self::StepOut => "onStepOut",
+            Self::Equip => "onEquip",
+            Self::DeEquip => "onDeEquip",
+            Self::AddItem | Self::AddItemItemTile => "onAddItem",
+            Self::RemoveItem | Self::RemoveItemItemTile => "onRemoveItem",
         }
     }
 }
@@ -609,6 +640,16 @@ mod tests {
             registry.get_by_aid(MoveEventKind::StepIn, 3051).is_some(),
             "rookgaard level_2_bridge.lua aid 3051"
         );
+        assert!(
+            registry
+                .get_by_aid(MoveEventKind::AddItemItemTile, 3052)
+                .is_some(),
+            "premium_bridge.lua :tileItem(true) remaps to ITEMTILE"
+        );
+        assert!(
+            registry.get_by_aid(MoveEventKind::AddItem, 3052).is_none(),
+            "aid 3052 AddItem must not stay in the non-ITEMTILE bucket"
+        );
 
         let trap = registry
             .get(MoveEventKind::StepIn, 1510)
@@ -630,5 +671,180 @@ mod tests {
             std::ptr::eq(id_only, &trap.callback),
             "aid 0 must hit :id() trap"
         );
+    }
+
+    fn dummy_add_item_callback(runtime: &mut LuaRuntime, name: &str) -> CallbackRef {
+        runtime
+            .exec_chunk(
+                name,
+                &format!(
+                    "function {name}(item, tileitem, position) _G.move_id = item.itemid; _G.tile_id = tileitem.itemid; _G.pos_x = position.x; _G.fired = '{name}' return true end"
+                ),
+            )
+            .expect("chunk");
+        runtime
+            .register_callback(name.to_string(), name)
+            .expect("callback")
+    }
+
+    struct AddItemCtx {
+        moved_type: u16,
+        tile_type: u16,
+    }
+
+    impl tfs_rust_common::ScriptContext for AddItemCtx {
+        fn get_creature(
+            &self,
+            _: tfs_rust_common::ScriptCreatureId,
+        ) -> Option<tfs_rust_common::ScriptCreatureData> {
+            None
+        }
+        fn get_item(
+            &self,
+            id: tfs_rust_common::ScriptItemId,
+        ) -> Option<tfs_rust_common::ScriptItemRef> {
+            Some(tfs_rust_common::ScriptItemRef(id))
+        }
+        fn get_config_string(&self, _: &str) -> Option<String> {
+            None
+        }
+        fn get_item_data(
+            &self,
+            id: tfs_rust_common::ScriptItemId,
+        ) -> Option<tfs_rust_common::ScriptItemData> {
+            let item_type = if id == 1 {
+                self.moved_type
+            } else {
+                self.tile_type
+            };
+            Some(tfs_rust_common::ScriptItemData {
+                item_type,
+                count: 1,
+                weight: 0,
+                name: "test".into(),
+                action_id: if id == 1 { 0 } else { 3052 },
+                unique_id: 0,
+                is_store_item: false,
+                fluid_type: 0,
+                sub_type: 0,
+            })
+        }
+    }
+
+    /// `:tileItem(true)` remaps AddItem → ITEMTILE; StepIn on the same file stays StepIn.
+    #[test]
+    fn tile_item_true_remaps_additem_to_itemtile() {
+        let data_root = workspace_data_root();
+        let bridge = data_root.join("scripts/movements/map/rookgaard/premium_bridge.lua");
+        if !bridge.exists() {
+            eprintln!("premium_bridge.lua not found — skipping");
+            return;
+        }
+
+        let mut runtime = LuaRuntime::new().expect("runtime");
+        runtime
+            .load_move_event_script(bridge.to_str().expect("utf8"))
+            .expect("premium_bridge.lua should load");
+        let pending = runtime.drain_pending_move_events();
+        assert_eq!(pending.len(), 2);
+        assert!(
+            pending
+                .iter()
+                .any(|e| e.kind == MoveEventKind::StepIn && e.action_ids.contains(&3052)),
+            "StepIn aid 3052; got {pending:?}"
+        );
+        assert!(
+            pending.iter().any(|e| {
+                e.kind == MoveEventKind::AddItemItemTile && e.action_ids.contains(&3052)
+            }),
+            "AddItem+tileItem → ITEMTILE; got {pending:?}"
+        );
+        assert!(
+            pending.iter().all(|e| e.kind != MoveEventKind::AddItem),
+            "non-ITEMTILE AddItem must not remain after remap"
+        );
+    }
+
+    /// M2: `onAddItem` Lua sees `tileitem.itemid` of the tile sibling, not the dropped item.
+    /// No actor is passed (TFS `executeAddRemItem`).
+    #[test]
+    fn call_move_item_sees_tileitem_id_not_moved_item() {
+        let mut runtime = LuaRuntime::new().expect("runtime");
+        let callback = dummy_add_item_callback(&mut runtime, "on_add");
+        let pos = tfs_rust_common::Position::new(100, 100, 7);
+        let ctx = AddItemCtx {
+            moved_type: 2148,
+            tile_type: 1510,
+        };
+        crate::context::with_lua_context(&ctx, || {
+            runtime
+                .call_move_item(&callback, 1, Some(2), pos)
+                .expect("call_move_item");
+        });
+        assert_eq!(fired_marker(&runtime), "on_add");
+        let move_id: u16 = runtime.lua.globals().get("move_id").unwrap_or(0);
+        let tile_id: u16 = runtime.lua.globals().get("tile_id").unwrap_or(0);
+        let pos_x: u16 = runtime.lua.globals().get("pos_x").unwrap_or(0);
+        assert_eq!(move_id, 2148, "moveitem is the dropped item");
+        assert_eq!(tile_id, 1510, "tileitem is the sibling, not the drop");
+        assert_eq!(pos_x, 100);
+
+        crate::context::with_lua_context(&ctx, || {
+            runtime
+                .call_move_item(&callback, 1, None, pos)
+                .expect("call_move_item nullptr tileitem");
+        });
+        let tile_id: u16 = runtime.lua.globals().get("tile_id").unwrap_or(99);
+        assert_eq!(tile_id, 0, "nullptr tileitem is pushThing zero table");
+    }
+
+    /// ITEMTILE aid is a distinct kind from ADD_ITEM — M1 get_event must not mix them.
+    #[test]
+    fn get_event_itemtile_kind_is_separate_from_additem() {
+        let mut runtime = LuaRuntime::new().expect("runtime");
+        let mut registry = MoveEventsRegistry::default();
+        registry.register_aid(MoveEventAidEntry {
+            kind: MoveEventKind::AddItemItemTile,
+            action_id: 3052,
+            slot_mask: 0,
+            req_level: 0,
+            callback: dummy_add_item_callback(&mut runtime, "itemtile_3052"),
+        });
+        registry.register(MoveEventEntry {
+            kind: MoveEventKind::AddItem,
+            item_id: 2148,
+            slot_mask: 0,
+            req_level: 0,
+            callback: dummy_add_item_callback(&mut runtime, "additem_2148"),
+        });
+
+        assert!(
+            registry
+                .get_event(MoveEventKind::AddItem, 2148, 3052)
+                .is_some()
+        );
+        let additem = registry
+            .get_event(MoveEventKind::AddItem, 2148, 3052)
+            .expect("ADD_ITEM fallthrough");
+        let tile = registry
+            .get_event(MoveEventKind::AddItemItemTile, 100, 3052)
+            .expect("ITEMTILE aid");
+        let pos = tfs_rust_common::Position::new(1, 1, 7);
+        let ctx = AddItemCtx {
+            moved_type: 2148,
+            tile_type: 1510,
+        };
+        crate::context::with_lua_context(&ctx, || {
+            runtime
+                .call_move_item(additem, 1, None, pos)
+                .expect("additem");
+        });
+        assert_eq!(fired_marker(&runtime), "additem_2148");
+        crate::context::with_lua_context(&ctx, || {
+            runtime
+                .call_move_item(tile, 1, Some(2), pos)
+                .expect("itemtile");
+        });
+        assert_eq!(fired_marker(&runtime), "itemtile_3052");
     }
 }

@@ -558,14 +558,7 @@ impl LuaRuntime {
                 };
                 let kind = infer_move_event_kind(&me_table, type_name.as_deref())?;
 
-                let callback_field = match kind {
-                    crate::move_events::MoveEventKind::StepIn => "onStepIn",
-                    crate::move_events::MoveEventKind::StepOut => "onStepOut",
-                    crate::move_events::MoveEventKind::Equip => "onEquip",
-                    crate::move_events::MoveEventKind::DeEquip => "onDeEquip",
-                    crate::move_events::MoveEventKind::AddItem => "onAddItem",
-                    crate::move_events::MoveEventKind::RemoveItem => "onRemoveItem",
-                };
+                let callback_field = kind.script_callback_field();
                 let callback = me_table
                     .get::<Option<mlua::Function>>(callback_field)?
                     .map(|f| self.lua.create_registry_value(f))
@@ -574,6 +567,9 @@ impl LuaRuntime {
 
                 let slot_mask: u32 = me_table.get("_slot_mask").unwrap_or(0);
                 let req_level: u32 = me_table.get("_req_level").unwrap_or(0);
+                let tile_item: bool = me_table.get("_tile_item").unwrap_or(false);
+                // Remap after reading the callback — TFS `registerLuaEvent` (`movement.cpp:243-255`).
+                let kind = kind.with_tile_item(tile_item);
 
                 self.pending_move_events.push(PendingMoveEvent {
                     kind,
@@ -824,44 +820,43 @@ impl LuaRuntime {
         self.call_lua(&function, (player_ud, item_ud, slot, is_check))
     }
 
-    /// TFS `MoveEvent::executeAddItem` — `(player, item, fromPosition, toPosition) -> bool`.
+    /// TFS `MoveEvent::executeAddRemItem` — `(moveitem, tileitem, pos) -> bool`.
+    ///
+    /// `tile_item` `None` is `pushThing(nullptr)` (zero table), not Lua nil.
+    /// C++ reference: `movement.cpp:1017-1036`.
     pub fn call_move_item(
         &self,
         callback: &CallbackRef,
-        player: crate::context::CreatureId,
         item: crate::context::ItemId,
-        from: Position,
-        to: Position,
+        tile_item: Option<crate::context::ItemId>,
+        pos: Position,
     ) -> Result<bool, LuaError> {
         let function: mlua::Function = self
             .lua
             .registry_value(&callback.0)
             .map_err(LuaError::Init)?;
-        let player_ud = self
-            .lua
-            .create_userdata(CreatureRef(player))
-            .map_err(LuaError::Init)?;
         let item_ud = self
             .lua
             .create_userdata(ItemRef(item))
             .map_err(LuaError::Init)?;
-        let from_ud = self
+        let tile_ud: Value = if let Some(tid) = tile_item {
+            Value::UserData(
+                self.lua
+                    .create_userdata(ItemRef(tid))
+                    .map_err(LuaError::Init)?,
+            )
+        } else {
+            self.zero_thing_table()?
+        };
+        let pos_ud = self
             .lua
             .create_userdata(PositionRef {
-                x: from.x,
-                y: from.y,
-                z: from.z,
+                x: pos.x,
+                y: pos.y,
+                z: pos.z,
             })
             .map_err(LuaError::Init)?;
-        let to_ud = self
-            .lua
-            .create_userdata(PositionRef {
-                x: to.x,
-                y: to.y,
-                z: to.z,
-            })
-            .map_err(LuaError::Init)?;
-        self.call_lua(&function, (player_ud, item_ud, from_ud, to_ud))
+        self.call_lua(&function, (item_ud, tile_ud, pos_ud))
     }
 
     /// TFS `MoveEvent::executeStep` — `(creature, item, position, fromPosition) -> bool`.
@@ -1580,8 +1575,8 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
                 Ok(this)
             })?,
         )?;
-        // Store the flag so dual StepIn+AddItem files finish loading. ITEMTILE remap is M2.
         // C++ `MoveEvent::tileItem` — `luascript.cpp` `luaMoveEventTileItem`.
+        // Drain remaps AddItem/RemoveItem + true → ITEMTILE (`registerLuaEvent`).
         me.set(
             "tileItem",
             lua.create_function(|_, (this, tile_item): (mlua::Table, bool)| {
