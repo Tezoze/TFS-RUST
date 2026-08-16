@@ -1,10 +1,18 @@
-# Field step-in battle sign — 2026-08-16
+# Cancel-target on attack deny — 2026-08-16
 
-Walking on poison/fire/energy fields does not show the swords icon. 772 `TPlayer::DamageStimulus` (`crplayer.cc:382-385`) always `BlockLogout(60, false)` for a living player, including field collision with `Attacker == NULL` (`moveuse.dat` `Damage(Obj1,Obj2,32,100)`). Rust gated victim infight on `attacker: Some`.
+**Status:** done.
 
-## Work
+## Bug
+After "You may not attack this person/creature", the client's red attack square stays. Server is not sending cancel-target (`0xA3`).
 
-- [x] Call victim `DamageStimulus` (Infight) from periodic arm even when attacker is None
-- [x] Same on the HP path for field `initdamage` (fire 20 / energy 30)
-- [x] Test: poison field under player applies `CONDITION_INFIGHT`
-- [x] Lesson
+## Cause
+772 `TCombat::StopAttack(0)` (`crcombat.cc:513-518`) always `SendClearTarget` for players, even when `AttackDest` was already 0. The stock client paints the red square on click before the server answers.
+
+Rust `combat_stop_attack_with_conn` gated `encode_clear_target` on `was_attacking` (`attack_target.is_some()`). First-click deny (NPC, rook PvP, PZ, `NO_ATTACK`) never armed dest, so only the `SendResult` text went out.
+
+## Fix
+Send codec `0xA3` for every player `StopAttack(0)`, matching the decompile. Do not use `outgoing_extra::send_cancel_target` (extra `u32(0)`).
+
+## Files
+- `crates/tfs-rust-core/src/player/combat/mod.rs`
+- `tasks/lessons.md`

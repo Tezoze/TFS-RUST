@@ -5320,7 +5320,7 @@ fn test_player_chase_mode_none_target_lost_on_z_change() {
     );
 }
 
-/// Phase 1.4: `player_stop_attack` sends `0xA3` clear-target when was attacking.
+/// Phase 1.4: `player_stop_attack` sends `0xA3` clear-target (`crcombat.cc:513-518`).
 #[test]
 fn test_phase1_player_stop_attack_sends_clear_target() {
     let (mut world, player, conn) = setup_player_world_with_conn();

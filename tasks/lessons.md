@@ -708,3 +708,4 @@
     - **`fluids.lua` is `UseLiquidContainer`.** Fill → pour → drink iff dest is self (or hotkey) → else spill `2016`. Mana `50..=150`, life `25..=75`. No magic-blue, no exhaust, no `queryAdd`.
     - **E9 injects `getFormattedWorldTime` only.** Full `dofile('data/global.lua')` would double-load `lib.lua`. Watch ids: pendulum 1728–1731, 2036, cuckoo 1873–1877 and 1881; drop sundial 3900. *(August 2026)*
 
+343. **`StopAttack(0)` always `SendClearTarget`** (`combat_stop_attack_with_conn`; `crcombat.cc:513-518`): gated `0xA3` on `attack_target.is_some()`. First-click deny (NPC / rook PvP / PZ / `NO_ATTACK`) never armed dest, so only the `SendResult` text went out and the stock client's optimistic red square stuck. 772 sends `SendClearTarget` for every player `StopAttack(0)` even when dest was already 0. Codec path is a lone `0xA3` (not TFS `0xA3`+`u32 0`). *(August 2026)*

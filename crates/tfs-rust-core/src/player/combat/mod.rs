@@ -200,7 +200,9 @@ impl GameWorld {
 
     /// 772 `TCombat::StopAttack(Delay)` — `crcombat.cc:513-522`.
     ///
-    /// - `delay_rounds == 0`: clear `AttackDest` / follow; players get `SendClearTarget` (`0xA3`).
+    /// - `delay_rounds == 0`: clear `AttackDest` / follow; players always get `SendClearTarget`
+    ///   (`0xA3`), even when dest was already unset (`crcombat.cc:515-518`). The stock client
+    ///   paints the red square on click; skipping the packet leaves it stuck after ATTACKNOTALLOWED.
     /// - `delay_rounds > 0`: leave dest armed; set `LatestAttackTime = RoundNr + Delay`. The next
     ///   `Attack()` after that round expires the dest (`crcombat.cc:551-553`). Used by
     ///   `StartLogout(..., StopFight=false)` with delay **60** (`crmain.cc:414`,
@@ -216,10 +218,6 @@ impl GameWorld {
         delay_rounds: u32,
     ) {
         if delay_rounds == 0 {
-            let was_attacking = self
-                .creatures
-                .get(cid)
-                .is_some_and(|k| k.base().attack_target.is_some());
             let is_player = self
                 .creatures
                 .get(cid)
@@ -229,7 +227,7 @@ impl GameWorld {
                 base.attack_target = None;
                 base.follow_target = None;
             }
-            if was_attacking && is_player {
+            if is_player {
                 let conn_id = conn_hint.or_else(|| self.conn_for_creature(cid));
                 if let Some(conn_id) = conn_id {
                     self.enqueue_encoded(conn_id, self.codec.encode_clear_target());
@@ -865,7 +863,8 @@ mod set_attack_dest_tests {
 
     use crate::login_out::creature_wire_id;
     use crate::sim_harness::{
-        TEST_SYNTHETIC_GROUND_WP, ensure_walkable_tile, insert_monster, insert_player, test_player,
+        TEST_SYNTHETIC_GROUND_WP, ensure_walkable_tile, insert_monster, insert_npc, insert_player,
+        test_player,
     };
 
     use super::*;
@@ -1142,6 +1141,45 @@ mod set_attack_dest_tests {
         assert_eq!(
             world.validate_player_attack_target(a, mon, false),
             CombatResult::NoError
+        );
+    }
+    #[test]
+    fn attack_not_allowed_sends_clear_target_even_without_prior_dest() {
+        // 772 `StopAttack(0)` always `SendClearTarget` (`crcombat.cc:513-518`). The client paints
+        // the red square on click; dest is never armed on NPC `ATTACKNOTALLOWED`.
+        let mut world = crate::sim_harness::beat_driven_test_world();
+        let ppos = Position::new(100, 100, 7);
+        let npos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, npos, TEST_SYNTHETIC_GROUND_WP);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        let npc = insert_npc(&mut world, "Tom", npos, 100);
+        world.map.register_creature_at(ppos, player);
+        world.map.register_creature_at(npos, npc);
+        let wire = creature_wire_id(npc, world.creatures.get(npc).unwrap());
+        let conn = tfs_rust_common::ConnId(1);
+        world.register_conn_mapping(conn, player);
+        world.pending_outgoing.clear();
+
+        let result = world.player_set_attack_dest(conn, player, wire, false);
+        assert_eq!(result, CombatResult::AttackNotAllowed);
+        assert!(
+            world
+                .creatures
+                .get(player)
+                .unwrap()
+                .base()
+                .attack_target
+                .is_none()
+        );
+
+        let pkts = world
+            .pending_outgoing
+            .get(&conn)
+            .expect("must enqueue clear-target + SendResult");
+        assert!(
+            pkts.iter().any(|b| b.as_slice() == [0xA3]),
+            "ATTACKNOTALLOWED must send lone 0xA3 so the client drops the red square, got {pkts:?}"
         );
     }
 }
