@@ -19,6 +19,27 @@ pub fn register_item_metatable(lua: &mlua::Lua) -> Result<(), mlua::Error> {
     lua.register_userdata_type::<ItemRef>(|_registry| {})
 }
 
+/// TFS `LuaScriptInterface::setItemMetatable` (`luascript.cpp`).
+///
+/// `Game.createItem` / `Container:addItem` push `Item*` then set Container vs
+/// Item metatable from the live object. mlua userdata types are distinct, so
+/// container types must be `ContainerRef` or `reward:addItem(...)` is nil
+/// (`onUseQuest` bag/backpack `content`).
+pub(crate) fn push_item_userdata(lua: &Lua, item_id: u64) -> Result<Value, mlua::Error> {
+    let is_container = crate::context::current_ctx(|ctx| {
+        ctx.is_registered_container(item_id)
+            || ctx
+                .get_item_data(item_id)
+                .is_some_and(|d| ctx.get_item_type_is_container(d.item_type))
+    })
+    .unwrap_or(false);
+    if is_container {
+        Ok(Value::UserData(lua.create_userdata(ContainerRef(item_id))?))
+    } else {
+        Ok(Value::UserData(lua.create_userdata(ItemRef(item_id))?))
+    }
+}
+
 /// Resolve a Lua item-id argument — number or name (`luaGameCreateItem` / `luaTileAddItem`).
 pub(crate) fn parse_lua_item_type_id(value: Value) -> Result<Option<u16>, mlua::Error> {
     match value {
@@ -553,5 +574,132 @@ mod tests {
                 z: 6
             }
         );
+    }
+
+    /// R2: `Game.createItem` returns Container userdata for bag 1987 so
+    /// `reward:addItem` works (`onUseQuest` content). Gold 2148 stays Item.
+    struct R2CreateItemCtx;
+
+    impl ScriptContext for R2CreateItemCtx {
+        fn get_creature(&self, _: ScriptCreatureId) -> Option<ScriptCreatureData> {
+            None
+        }
+        fn get_item(&self, id: ScriptItemId) -> Option<ScriptItemRef> {
+            Some(ScriptItemRef(id))
+        }
+        fn get_config_string(&self, _: &str) -> Option<String> {
+            None
+        }
+        fn get_item_data(&self, id: ScriptItemId) -> Option<ScriptItemData> {
+            let item_type = match id {
+                1 => 1987,
+                2 => 2148,
+                3 => 2148,
+                _ => return None,
+            };
+            Some(ScriptItemData {
+                item_type,
+                count: 1,
+                weight: if item_type == 1987 { 800 } else { 10 },
+                name: if item_type == 1987 {
+                    "bag".into()
+                } else {
+                    "gold coin".into()
+                },
+                action_id: 0,
+                unique_id: 0,
+                is_store_item: false,
+                fluid_type: 0,
+            })
+        }
+        fn get_item_type_is_container(&self, item_type: u16) -> bool {
+            item_type == 1987
+        }
+        fn is_registered_container(&self, item_id: ScriptItemId) -> bool {
+            item_id == 1
+        }
+        fn get_container_data(
+            &self,
+            item_id: ScriptItemId,
+        ) -> Option<tfs_rust_common::ScriptContainerData> {
+            if item_id != 1 {
+                return None;
+            }
+            Some(tfs_rust_common::ScriptContainerData {
+                size: 0,
+                capacity: 20,
+                empty_slots: 20,
+                item_holding_count: 0,
+                corpse_owner: 0,
+            })
+        }
+    }
+
+    fn r2_create_item_applier(
+        _: *mut (),
+        mutation: crate::lua_mutation::LuaMutation,
+    ) -> Result<(), String> {
+        match mutation {
+            crate::lua_mutation::LuaMutation::GameCreateItem { item_type, .. } => {
+                let id = match item_type {
+                    1987 => 1,
+                    2148 => 2,
+                    _ => 99,
+                };
+                crate::lua_mutation::set_mutation_item_result(id);
+            }
+            crate::lua_mutation::LuaMutation::ContainerAddItem { .. } => {
+                crate::lua_mutation::set_mutation_item_result(3);
+            }
+            crate::lua_mutation::LuaMutation::ItemRemove { .. } => {
+                crate::lua_mutation::set_mutation_bool_result(true);
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn r2_create_item_returns_container_userdata_for_container_type() {
+        crate::lua_mutation::register_lua_mutation_applier(r2_create_item_applier);
+        let runtime = crate::runtime::LuaRuntime::new().expect("runtime");
+        let lua = &runtime.lua;
+        crate::lua_mutation::with_lua_mutation_scope(std::ptr::without_provenance_mut(1), || {
+            with_lua_context(&R2CreateItemCtx, || {
+                let bag_size: u32 = lua
+                    .load("local bag = Game.createItem(1987); return bag:getSize()")
+                    .eval()
+                    .expect("bag:getSize");
+                assert_eq!(bag_size, 0, "bag must be Container userdata");
+
+                let added: bool = lua
+                    .load(
+                        "local bag = Game.createItem(1987)
+                         local gold = bag:addItem(2148, 40)
+                         return gold ~= nil",
+                    )
+                    .eval()
+                    .expect("bag:addItem");
+                assert!(added, "Container:addItem must succeed on createItem bag");
+
+                let gold_has_size: bool = lua
+                    .load(
+                        "local gold = Game.createItem(2148)
+                         return pcall(function() return gold:getSize() end)",
+                    )
+                    .eval()
+                    .expect("gold:getSize pcall");
+                assert!(
+                    !gold_has_size,
+                    "non-container createItem must stay Item userdata"
+                );
+
+                let removed: bool = lua
+                    .load("local bag = Game.createItem(1987); return bag:remove()")
+                    .eval()
+                    .expect("bag:remove");
+                assert!(removed);
+            });
+        });
     }
 }

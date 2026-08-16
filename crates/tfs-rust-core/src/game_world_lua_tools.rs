@@ -62,6 +62,13 @@ impl GameWorld {
         Some(Item::new(item_type, count))
     }
 
+    /// SlotMap id for Lua after a successful create. Hydrates containers
+    /// (TFS `Item::CreateItem` returns `Container` for container types).
+    fn lua_created_item_script_id(&mut self, iid: crate::ids::ItemId) -> u64 {
+        self.hydrate_container_if_needed(iid);
+        iid.data().as_ffi()
+    }
+
     /// `tile:addItem(itemId[, count[, flags]])` — `luaTileAddItem` → `internalAddItem`.
     /// Returns the SlotMap id that landed on the tile (may differ after stack merge).
     pub fn lua_script_tile_add_item(
@@ -83,7 +90,7 @@ impl GameWorld {
         let iid = self.items.insert(item);
         let cyl_flags = CylinderFlags { bits: flags };
         match self.internal_add_item_to_tile(pos, iid, cyl_flags) {
-            Ok(landed) => Ok(Some(landed.data().as_ffi())),
+            Ok(landed) => Ok(Some(self.lua_created_item_script_id(landed))),
             Err(_) => {
                 self.items.remove(iid);
                 Ok(None)
@@ -94,6 +101,7 @@ impl GameWorld {
     /// `Game.createItem(itemId[, count[, position]])` — `luaGameCreateItem`.
     ///
     /// With a position: `internalAddItem` + `FLAG_NOLIMIT`. Without: detached SlotMap item.
+    /// Container types are hydrated (TFS `Item::CreateItem` → `Container`).
     pub fn lua_script_game_create_item(
         &mut self,
         item_type: u16,
@@ -105,7 +113,7 @@ impl GameWorld {
         };
         let iid = self.items.insert(item);
         let Some((x, y, z)) = position else {
-            return Ok(Some(iid.data().as_ffi()));
+            return Ok(Some(self.lua_created_item_script_id(iid)));
         };
         let pos = Position { x, y, z };
         if self.map.get_tile(pos).is_none() {
@@ -113,7 +121,7 @@ impl GameWorld {
             return Ok(None);
         }
         match self.internal_add_item_to_tile(pos, iid, CylinderFlags::NO_LIMIT) {
-            Ok(landed) => Ok(Some(landed.data().as_ffi())),
+            Ok(landed) => Ok(Some(self.lua_created_item_script_id(landed))),
             Err(_) => {
                 self.items.remove(iid);
                 Ok(None)
@@ -283,6 +291,25 @@ mod tests {
         let det = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(detached.unwrap()));
         assert!(world.items.get(det).is_some());
         assert!(world.items.get(det).unwrap().parent.is_none());
+    }
+
+    /// R2: detached `Game.createItem(bag)` hydrates the registry so `addItem` works.
+    #[test]
+    fn lua_script_game_create_item_hydrates_container_for_add_item() {
+        let mut world = minimal_world();
+        let detached = world
+            .lua_script_game_create_item(1987, 1, None)
+            .unwrap()
+            .expect("bag");
+        let det = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(detached));
+        assert!(
+            world.container_registry.get(det).is_some(),
+            "CreateItem hydrates Container (TFS Item::CreateItem)"
+        );
+        let gold = world
+            .lua_script_container_add_item(detached, 2148, 1, -1, 0)
+            .unwrap();
+        assert!(gold.is_some(), "hydrated bag accepts addItem");
     }
 
     #[test]

@@ -397,6 +397,7 @@ impl GameWorld {
         let container_id = self
             .resolve_item_u64(container_u64)
             .ok_or_else(|| "container not found".to_string())?;
+        self.hydrate_container_if_needed(container_id);
         let stackable = self
             .items_db
             .items

@@ -6,7 +6,8 @@ use mlua::{Lua, MetaMethod, UserData, UserDataMethods, Value};
 use std::cell::RefCell;
 
 use crate::context::{CURRENT_CTX, ItemRef, LuaContext};
-use crate::lua_mutation::call_lua_container_add_item;
+use crate::lua_mutation::{call_lua_container_add_item, call_lua_item_remove};
+use crate::userdata::item::push_item_userdata;
 
 /// Container handle — same underlying item id as [`ItemRef`].
 #[derive(Clone, Copy, Debug)]
@@ -79,10 +80,7 @@ impl UserData for ContainerRef {
         methods.add_method("getItem", |lua, this, index: u32| {
             let id_opt = with_ctx(|ctx| Ok(ctx.get_container_item_at(this.0, index)))?;
             match id_opt {
-                Some(iid) => {
-                    let ud = lua.create_userdata(ItemRef(iid))?;
-                    Ok(Value::UserData(ud))
-                }
+                Some(iid) => push_item_userdata(lua, iid),
                 None => Ok(Value::Nil),
             }
         });
@@ -91,8 +89,7 @@ impl UserData for ContainerRef {
             let ids = with_ctx(|ctx| Ok(ctx.get_container_items(this.0)))?;
             let table = lua.create_table()?;
             for (i, id) in ids.into_iter().enumerate() {
-                let ud = lua.create_userdata(ItemRef(id))?;
-                table.set(i + 1, ud)?;
+                table.set(i + 1, push_item_userdata(lua, id)?)?;
             }
             Ok(table)
         });
@@ -127,10 +124,7 @@ impl UserData for ContainerRef {
                 let id_opt = call_lua_container_add_item(this.0, item_type, count, index, flags)
                     .map_err(mlua::Error::runtime)?;
                 match id_opt {
-                    Some(iid) => {
-                        let ud = lua.create_userdata(ItemRef(iid))?;
-                        Ok(Value::UserData(ud))
-                    }
+                    Some(iid) => push_item_userdata(lua, iid),
                     None => Ok(Value::Nil),
                 }
             },
@@ -153,6 +147,13 @@ impl UserData for ContainerRef {
                     .map(|d| d.name)
                     .ok_or_else(|| mlua::Error::runtime("item not found"))
             })
+        });
+
+        // `item:remove([count])` — `luaItemRemove`. Quest `onUseQuest` calls
+        // `reward:remove()` when `addItemEx` fails or capacity is short.
+        methods.add_method("remove", |_, this, count: Option<i32>| {
+            let count = count.unwrap_or(-1);
+            call_lua_item_remove(this.0, count).map_err(mlua::Error::runtime)
         });
 
         // Gap 7b — `__index` fallback so `container:createLootItem(item)` /

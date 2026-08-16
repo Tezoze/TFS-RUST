@@ -1868,7 +1868,7 @@ end
 fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
     use crate::context::{CreatureRef, ItemRef};
     use crate::lua_mutation::{call_clear_field, call_create_monster, call_lua_game_create_item};
-    use crate::userdata::item::parse_lua_item_type_id;
+    use crate::userdata::item::{parse_lua_item_type_id, push_item_userdata};
     use crate::userdata::position::PositionRef;
     // `Game` is a class table (extensible by `function Game:method(...)` in
     // `data/lib/core/game.lua`) with no constructor — `register_class(_, None)`
@@ -1925,7 +1925,8 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
             },
         )?,
     )?;
-    // `Game.createItem(itemId[, count[, position]])` — `luaGameCreateItem`.
+    // `Game.createItem(itemId[, count[, position]])` — `luaGameCreateItem`
+    // + `setItemMetatable` (R2: container types return Container userdata).
     game.set(
         "createItem",
         lua.create_function(
@@ -1958,10 +1959,7 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
                     }
                 };
                 match call_lua_game_create_item(item_type, count, position) {
-                    Ok(Some(id)) => {
-                        let ud = lua.create_userdata(ItemRef(id))?;
-                        Ok(Value::UserData(ud))
-                    }
+                    Ok(Some(id)) => push_item_userdata(lua, id),
                     Ok(None) => Ok(Value::Nil),
                     Err(e) => Err(mlua::Error::runtime(e)),
                 }

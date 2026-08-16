@@ -685,6 +685,14 @@ mod tests {
         assert_eq!(player.base.as_deref(), Some("Creature"));
         let container = snap.classes.get("Container").expect("Container");
         assert_eq!(container.base.as_deref(), Some("Item"));
+        assert!(
+            container.methods.contains("addItem"),
+            "Container:addItem is a native method (R2)"
+        );
+        assert!(
+            container.methods.contains("remove"),
+            "Container:remove is Item::remove on container userdata (R2 / onUseQuest)"
+        );
 
         let tfs = snap.classes.get("tfs").expect("tfs");
         assert!(

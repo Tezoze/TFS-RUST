@@ -392,6 +392,7 @@ function Container:getSize(...) end
 function Container:getType(...) end
 function Container:getWeight(...) end
 function Container:hasItem(...) end
+function Container:remove(...) end
 
 ---@class Player : Creature
 Player = {}
