@@ -317,6 +317,10 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             key,
             value,
         } => unsafe { &mut *world }.lua_script_player_set_storage(creature_id, key, value),
+        LuaMutation::PlayerSetTown {
+            creature_id,
+            town_id,
+        } => unsafe { &mut *world }.lua_script_player_set_town(creature_id, town_id),
         LuaMutation::SetWorldLight { level, color } => {
             let ok = unsafe { &mut *world }.set_world_light(level, color);
             set_mutation_bool_result(ok);

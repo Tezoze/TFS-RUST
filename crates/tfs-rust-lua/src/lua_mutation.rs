@@ -242,6 +242,12 @@ pub enum LuaMutation {
         key: u32,
         value: i32,
     },
+    /// `player:setTown(town)` — `Player::setTown` (`player.h`). In-memory
+    /// `town_id` only; no teleport. TFS `luaPlayerSetTown`.
+    PlayerSetTown {
+        creature_id: u64,
+        town_id: u32,
+    },
     /// `setWorldLight(level, color)` — TFS `LuaScriptInterface::luaSetWorldLight`.
     /// C++ ref: `gameserver/src/luascript.cpp:3132-3145`.
     SetWorldLight {
@@ -874,6 +880,14 @@ pub fn call_lua_set_storage_value(creature_id: u64, key: u32, value: i32) -> Res
         creature_id,
         key,
         value,
+    })
+}
+
+/// `player:setTown(town)` — `luaPlayerSetTown`. Assigns `town_id` only.
+pub fn call_lua_set_town(creature_id: u64, town_id: u32) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerSetTown {
+        creature_id,
+        town_id,
     })
 }
 

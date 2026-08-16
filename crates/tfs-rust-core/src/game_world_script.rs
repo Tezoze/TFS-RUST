@@ -1283,6 +1283,13 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             .collect()
     }
 
+    fn get_creature_master(&self, creature_id: ScriptCreatureId) -> Option<ScriptCreatureId> {
+        let cid = self.resolve_creature_u64(creature_id)?;
+        let master = self.creatures.get(cid)?.base().master?;
+        self.creatures.get(master)?;
+        Some(master.data().as_ffi())
+    }
+
     fn is_creature_monster(&self, creature_id: ScriptCreatureId) -> bool {
         self.resolve_creature_u64(creature_id)
             .and_then(|cid| self.creatures.get(cid))
@@ -1439,7 +1446,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
 #[cfg(test)]
 mod e5_e6_e7_script_tests {
     use super::*;
-    use crate::sim_harness::{insert_player, minimal_world, test_player};
+    use crate::sim_harness::{insert_monster, insert_player, minimal_world, test_player};
     use crate::tile::{HouseTile, Tile, TileBody};
     use slotmap::Key;
     use tfs_rust_common::Position;
@@ -1577,5 +1584,32 @@ mod e5_e6_e7_script_tests {
             world.tile_get_top_visible_thing(100, 100, 7, None),
             Some(ScriptThing::Item(gid.data().as_ffi()))
         );
+    }
+
+    /// M3: `setTown` assigns `town_id`; `getMaster` is nil for wild, player for summon.
+    #[test]
+    fn m3_set_town_and_get_master() {
+        let mut world = minimal_world();
+        let pos = Position::new(50, 50, 7);
+        let player_cid = insert_player(&mut world, test_player("Citizen", pos));
+        let pid = player_cid.data().as_ffi();
+        world
+            .lua_script_player_set_town(pid, 4)
+            .expect("setTown");
+        let town = match world.creatures.get(player_cid) {
+            Some(CreatureKind::Player(p)) => p.town_id,
+            _ => panic!("player"),
+        };
+        assert_eq!(town, 4);
+
+        let wild = insert_monster(&mut world, "rat", pos, 200);
+        assert_eq!(world.get_creature_master(wild.data().as_ffi()), None);
+
+        let summon = insert_monster(&mut world, "bear", pos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(summon) {
+            m.base.master = Some(player_cid);
+        }
+        assert_eq!(world.get_creature_master(summon.data().as_ffi()), Some(pid));
+        assert_eq!(world.get_creature_master(pid), None);
     }
 }

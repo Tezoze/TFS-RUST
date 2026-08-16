@@ -793,6 +793,13 @@ pub trait ScriptContext {
         Vec::new()
     }
 
+    /// `creature:getMaster()` — summoner id, or `None` if wild / no live master.
+    /// TFS `luaCreatureGetMaster` (`luascript.cpp`).
+    fn get_creature_master(&self, creature_id: ScriptCreatureId) -> Option<ScriptCreatureId> {
+        let _ = creature_id;
+        None
+    }
+
     /// `creature:isMonster()`.
     fn is_creature_monster(&self, creature_id: ScriptCreatureId) -> bool {
         let _ = creature_id;

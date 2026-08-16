@@ -73,6 +73,7 @@ function Creature:getItemCount(...) end
 function Creature:getLevel(...) end
 function Creature:getMagicLevel(...) end
 function Creature:getMana(...) end
+function Creature:getMaster(...) end
 function Creature:getMoney(...) end
 function Creature:getMurderTimestamps(...) end
 function Creature:getName(...) end
@@ -104,6 +105,7 @@ function Creature:sendTextMessage(...) end
 function Creature:setInFight(...) end
 function Creature:setPremiumEndsAt(...) end
 function Creature:setStorageValue(...) end
+function Creature:setTown(...) end
 function Creature:showTextDialog(...) end
 function Creature:teleportTo(...) end
 function Creature:withdrawMoney(...) end

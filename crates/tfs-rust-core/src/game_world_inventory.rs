@@ -736,6 +736,23 @@ impl GameWorld {
         self.player_set_storage(cid, key, value)
     }
 
+    /// `player:setTown(town)` — TFS `luaPlayerSetTown` / `Player::setTown`.
+    /// Assigns `players.town_id` in memory; does not teleport. Persist on save.
+    pub fn lua_script_player_set_town(
+        &mut self,
+        creature_u64: u64,
+        town_id: u32,
+    ) -> Result<(), String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "creature not found".to_string())?;
+        let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
+            return Err("not a player".into());
+        };
+        p.town_id = town_id as i32;
+        Ok(())
+    }
+
     /// Lua `player:addMana(manaChange)` — `luascript.cpp` `luaPlayerAddMana`
     /// with `animationOnLoss=false` → `Player::changeMana`.
     /// PC-3a Phase 5: `conjureItem` dual-hand mana deduction.

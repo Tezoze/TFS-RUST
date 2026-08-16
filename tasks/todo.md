@@ -1,8 +1,9 @@
-# Movements Lua fire path — M2 AddItem/RemoveItem — 2026-08-16
+# Movements Lua APIs — M3 setTown + getMaster — 2026-08-16
 
-**Status:** M2 done. Full audit: [movements-plan.md](movements-plan.md).
+**Status:** M3 done. Full audit: [movements-plan.md](movements-plan.md).
 
-## M2 shipped
-`executeAddRemItem(moveitem, tileitem, pos)` TFS signature. `:tileItem(true)` remaps to ITEMTILE. Sibling tile iteration (skip moved item). Actor not required. Fire after tile add/remove under mutation + ScriptContext (same nest as StepIn). Lua `false` does not undo.
+## M3 shipped
+- **M3a** `Player:setTown(Town)` — Town userdata only; `true` / `false` / `nil` like TFS; in-memory `town_id` only (no teleport).
+- **M3b** `Creature:getMaster()` — live summoner `CreatureRef` or `nil`.
 
-Then **M3** (`setTown`, `getMaster`), **M4** (772 trap/field script pass).
+Then **M4** (772 trap/field script pass).

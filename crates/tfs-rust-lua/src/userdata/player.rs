@@ -348,6 +348,23 @@ impl UserData for CreatureRef {
             }
         });
 
+        // `player:setTown(town)` — `luaPlayerSetTown`. Town userdata only.
+        // `false` if arg is not Town; `nil` if self is not a live player;
+        // `true` after assigning `town_id`. No teleport (`Player::setTown`).
+        methods.add_method("setTown", |_, this, town: Value| {
+            let town_id = match town {
+                Value::UserData(ud) => match ud.borrow::<TownRef>() {
+                    Ok(t) => t.0,
+                    Err(_) => return Ok(Value::Boolean(false)),
+                },
+                _ => return Ok(Value::Boolean(false)),
+            };
+            match crate::lua_mutation::call_lua_set_town(this.0, town_id) {
+                Ok(()) => Ok(Value::Boolean(true)),
+                Err(_) => Ok(Value::Nil),
+            }
+        });
+
         // `player:getGroup()` — `Player::getGroup` (`player.h`). CH-6 talkaction
         // access gating; returns a `GroupRef` userdata wrapping the player's
         // `group_id`. `GroupRef:getAccess()` reads the `access` flag from the
@@ -779,6 +796,19 @@ impl UserData for CreatureRef {
                 t.set(i + 1, ud)?;
             }
             Ok(t)
+        });
+
+        // `creature:getMaster()` — `luaCreatureGetMaster`. Nil if wild / no
+        // live master. Unified `CreatureRef` (Player methods via index chain).
+        methods.add_method("getMaster", |lua, this, ()| {
+            let master = with_ctx(|ctx| Ok(ctx.get_creature_master(this.0)))?;
+            match master {
+                Some(id) => {
+                    let ud = lua.create_userdata(CreatureRef(id))?;
+                    Ok(Value::UserData(ud))
+                }
+                None => Ok(Value::Nil),
+            }
         });
 
         // `creature:addSummon(monster)` — PC-3a Gap 5.
@@ -1531,6 +1561,145 @@ mod tests {
             assert_eq!(via_id, 42);
             let nobody: mlua::Value = lua.load("return Player(99)").eval().expect("Player(99)");
             assert!(matches!(nobody, mlua::Value::Nil));
+        });
+    }
+
+    thread_local! {
+        static CAPTURED_TOWN: std::cell::RefCell<Option<(u64, u32)>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    fn capture_set_town_applier(
+        _: *mut (),
+        mutation: crate::lua_mutation::LuaMutation,
+    ) -> Result<(), String> {
+        if let crate::lua_mutation::LuaMutation::PlayerSetTown {
+            creature_id,
+            town_id,
+        } = mutation
+        {
+            CAPTURED_TOWN.with(|c| *c.borrow_mut() = Some((creature_id, town_id)));
+        }
+        Ok(())
+    }
+
+    /// M3: `player:setTown(Town("Thais"))` mutates town id; bad arg is `false`.
+    #[test]
+    fn m3_set_town_emits_mutation() {
+        CAPTURED_TOWN.with(|c| *c.borrow_mut() = None);
+        crate::lua_mutation::register_lua_mutation_applier(capture_set_town_applier);
+
+        let runtime = crate::runtime::LuaRuntime::new().expect("runtime");
+        let lua = &runtime.lua;
+        let p = lua.create_userdata(CreatureRef(7)).expect("player");
+        lua.globals().set("player", p).unwrap();
+
+        struct TownSetCtx;
+        impl ScriptContext for TownSetCtx {
+            fn get_creature(&self, id: ScriptCreatureId) -> Option<ScriptCreatureData> {
+                (id == 7).then_some(ScriptCreatureData {
+                    name: "Gm".into(),
+                    guid: 7,
+                })
+            }
+            fn get_item(&self, _: ScriptItemId) -> Option<ScriptItemRef> {
+                None
+            }
+            fn get_config_string(&self, _: &str) -> Option<String> {
+                None
+            }
+            fn get_town_by_id(&self, town_id: u32) -> Option<tfs_rust_common::ScriptTownData> {
+                (town_id == 1).then_some(tfs_rust_common::ScriptTownData {
+                    id: 1,
+                    name: "Thais".into(),
+                    temple: tfs_rust_common::Position::new(32369, 32241, 7),
+                })
+            }
+            fn get_town_by_name(&self, name: &str) -> Option<tfs_rust_common::ScriptTownData> {
+                name.eq_ignore_ascii_case("Thais")
+                    .then_some(tfs_rust_common::ScriptTownData {
+                        id: 1,
+                        name: "Thais".into(),
+                        temple: tfs_rust_common::Position::new(32369, 32241, 7),
+                    })
+            }
+        }
+
+        crate::lua_mutation::with_lua_mutation_scope(std::ptr::without_provenance_mut(1), || {
+            with_lua_context(&TownSetCtx, || {
+                let ok: bool = lua
+                    .load("return player:setTown(Town('Thais'))")
+                    .eval()
+                    .expect("setTown Thais");
+                assert!(ok);
+                let bad: bool = lua
+                    .load("return player:setTown(1)")
+                    .eval()
+                    .expect("setTown number");
+                assert!(!bad);
+            });
+        });
+        assert_eq!(CAPTURED_TOWN.with(|c| *c.borrow()), Some((7, 1)));
+    }
+
+    /// M3: `getMaster()` nil for wild; player userdata for summon.
+    #[test]
+    fn m3_get_master_nil_wild_player_for_summon() {
+        struct MasterCtx;
+        impl ScriptContext for MasterCtx {
+            fn get_creature(&self, id: ScriptCreatureId) -> Option<ScriptCreatureData> {
+                match id {
+                    1 => Some(ScriptCreatureData {
+                        name: "Hero".into(),
+                        guid: 1,
+                    }),
+                    2 => Some(ScriptCreatureData {
+                        name: "Bear".into(),
+                        guid: 2,
+                    }),
+                    3 => Some(ScriptCreatureData {
+                        name: "Rat".into(),
+                        guid: 3,
+                    }),
+                    _ => None,
+                }
+            }
+            fn get_item(&self, _: ScriptItemId) -> Option<ScriptItemRef> {
+                None
+            }
+            fn get_config_string(&self, _: &str) -> Option<String> {
+                None
+            }
+            fn is_creature_player(&self, id: ScriptCreatureId) -> bool {
+                id == 1
+            }
+            fn get_creature_master(&self, id: ScriptCreatureId) -> Option<ScriptCreatureId> {
+                (id == 2).then_some(1)
+            }
+        }
+
+        let lua = Lua::new();
+        crate::userdata::register_creature_metatable(&lua).expect("creature");
+        with_lua_context(&MasterCtx, || {
+            let summon = lua.create_userdata(CreatureRef(2)).expect("summon");
+            let wild = lua.create_userdata(CreatureRef(3)).expect("wild");
+            lua.globals().set("summon", summon).unwrap();
+            lua.globals().set("wild", wild).unwrap();
+            let wild_master: mlua::Value = lua
+                .load("return wild:getMaster()")
+                .eval()
+                .expect("wild master");
+            assert!(matches!(wild_master, mlua::Value::Nil));
+            let master_id: u64 = lua
+                .load("return summon:getMaster():getId()")
+                .eval()
+                .expect("summon master");
+            assert_eq!(master_id, 1);
+            let is_player: bool = lua
+                .load("return summon:getMaster():isPlayer()")
+                .eval()
+                .expect("master isPlayer");
+            assert!(is_player);
         });
     }
 }
