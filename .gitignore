@@ -229,9 +229,8 @@ data/logs/*
 #############
 .agent/
 .claude/
-.cursor/*
-!.cursor/rules/
-!.cursor/rules/**
+.cursor/
+.codebase-memory/
 .kiro/
 .windsurfrules
 
