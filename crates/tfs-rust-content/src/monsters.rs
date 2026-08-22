@@ -114,6 +114,16 @@ pub struct MonsterTypeFlags {
     pub change_target_speed: u32,
     /// `<targetchange chance=…>` — default 0.
     pub change_target_chance: i32,
+    /// `<losetarget chance=…>` — 772 `RaceData.LoseTarget` (`crmain.cc:1244`, `:1473`).
+    pub lose_target_percent: u8,
+    /// `<targetstrategy nearest=…>` — `Strategy[0]` (`crmain.cc:1245`, default 100).
+    pub strategy_nearest: u8,
+    /// `<targetstrategy weakest=…>` — `Strategy[1]`.
+    pub strategy_health: u8,
+    /// `<targetstrategy mostdamage=…>` — `Strategy[2]`.
+    pub strategy_damage: u8,
+    /// `<targetstrategy random=…>` — residual `Strategy[3]` (never compared; leftover bucket).
+    pub strategy_random: u8,
 }
 
 impl Default for MonsterTypeFlags {
@@ -132,6 +142,11 @@ impl Default for MonsterTypeFlags {
             convinceable: false,
             change_target_speed: 0,
             change_target_chance: 0,
+            lose_target_percent: 0,
+            strategy_nearest: 100,
+            strategy_health: 0,
+            strategy_damage: 0,
+            strategy_random: 0,
         }
     }
 }
@@ -626,6 +641,10 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
             }
         } else if tag.eq_ignore_ascii_case("targetchange") {
             parse_target_change(child, &mut flags, file_str);
+        } else if tag.eq_ignore_ascii_case("targetstrategy") {
+            parse_target_strategy(child, &mut flags);
+        } else if tag.eq_ignore_ascii_case("losetarget") {
+            parse_lose_target(child, &mut flags);
         } else if tag.eq_ignore_ascii_case("summons") {
             parse_summons(child, &mut max_summons, &mut summons, file_str);
         } else if tag.eq_ignore_ascii_case("voices") {
@@ -780,6 +799,34 @@ fn parse_monster_flags(node: roxmltree::Node<'_, '_>, flags: &mut MonsterTypeFla
     }
 }
 
+/// `<targetstrategy nearest= weakest= mostdamage= random= />` — 772 `strategy=(w,w,w,w)`
+/// (`crmain.cc:1476-1484`). Bucket 3 is residual; `random` is stored but never compared.
+fn parse_target_strategy(node: roxmltree::Node<'_, '_>, flags: &mut MonsterTypeFlags) {
+    if let Some(a) = node.attribute("nearest") {
+        flags.strategy_nearest = a.parse().unwrap_or(flags.strategy_nearest);
+    }
+    if let Some(a) = node.attribute("weakest") {
+        flags.strategy_health = a.parse().unwrap_or(flags.strategy_health);
+    }
+    if let Some(a) = node.attribute("mostdamage") {
+        flags.strategy_damage = a.parse().unwrap_or(flags.strategy_damage);
+    }
+    if let Some(a) = node.attribute("random") {
+        flags.strategy_random = a.parse().unwrap_or(flags.strategy_random);
+    }
+}
+
+/// `<losetarget chance=N/>` — 772 `losetarget N` (`crmain.cc:1473`).
+fn parse_lose_target(node: roxmltree::Node<'_, '_>, flags: &mut MonsterTypeFlags) {
+    let raw = node
+        .attribute("chance")
+        .or_else(|| node.attribute("value"))
+        .or_else(|| node.attribute("percent"));
+    if let Some(a) = raw {
+        flags.lose_target_percent = a.parse().unwrap_or(0);
+    }
+}
+
 /// `<targetchange>` — TFS 1.4.2 uses `interval` + `chance` (`src/monsters.cpp` ~1007, warns if
 /// interval missing). TVP 7.72 / `gameserver` data often has `chance` only (`gameserver` ~945,
 /// leaves `changeTargetSpeed` at 0).
@@ -835,6 +882,26 @@ mod tests {
         assert!(m.flags.can_push_creatures);
         assert!(m.flags.can_push_items);
         assert!(m.flags.is_hostile);
+    }
+
+    #[test]
+    fn parses_targetstrategy_and_losetarget() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<monster name="Ferumbras" speed="100">
+    <health now="20" max="20"/>
+    <targetstrategy nearest="60" weakest="5" mostdamage="30" random="5" />
+    <losetarget chance="10" />
+</monster>"#;
+        let items = ItemDatabase {
+            items: HashMap::new(),
+            client_to_server: HashMap::new(),
+        };
+        let m = parse_monster_xml(xml, "ferumbras.xml", &items).expect("parse");
+        assert_eq!(m.flags.strategy_nearest, 60);
+        assert_eq!(m.flags.strategy_health, 5);
+        assert_eq!(m.flags.strategy_damage, 30);
+        assert_eq!(m.flags.strategy_random, 5);
+        assert_eq!(m.flags.lose_target_percent, 10);
     }
 
     #[test]

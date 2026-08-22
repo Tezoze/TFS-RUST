@@ -629,7 +629,7 @@ impl GameWorld {
             }
             CombatType::FirePeriodic => {
                 let interval = self.mechanics.profile.conditions.fire.ticks.max(1);
-                let cycle = (strength / 10).max(1);
+                let cycle = strength / 10;
                 (
                     ConditionType::Fire,
                     Some(
@@ -647,7 +647,7 @@ impl GameWorld {
             }
             CombatType::EnergyPeriodic => {
                 let interval = self.mechanics.profile.conditions.energy.ticks.max(1);
-                let cycle = (strength / 20).max(1);
+                let cycle = strength / 20;
                 (
                     ConditionType::Energy,
                     Some(
@@ -1264,17 +1264,12 @@ impl GameWorld {
         }
     }
 
-    /// Z floors `TFindCreatures` can hit for idle acquire — XY search is 12×12; CipSoft's
-    /// creature chain is XY-only so other floors in that box appear. Mirror that with a
-    /// compact per-era Z span instead of scanning the whole map.
+    /// Z floors whose occupants can `CanSeeFloor` the monster (`cr.hh:576`).
+    ///
+    /// Surface viewers (`z≤7`) see 0..=7; a viewer on 8–9 can still see floor 7
+    /// (`abs(Δz)≤2`). Reuse the multifloor spectator span (floor 6 → 0..=8, 7 → 0..=9).
     fn idle_acquire_search_z_range(monster_z: u8) -> std::ops::RangeInclusive<u8> {
-        if monster_z <= 7 {
-            0..=7
-        } else {
-            let min_z = monster_z.saturating_sub(2);
-            let max_z = (monster_z + 2).min(15);
-            min_z..=max_z
-        }
+        Self::spectator_z_range(monster_z, true)
     }
 
     /// Returns `true` when idle should stop (monster entered sleep).
@@ -1285,9 +1280,7 @@ impl GameWorld {
             let CreatureKind::Monster(m) = k else {
                 return None;
             };
-            if m.base.is_summon() || m.base.master.is_some() {
-                return None;
-            }
+            let mastered = m.base.master.is_some();
             Some((
                 m.base.position,
                 m.base.follow_target,
@@ -1296,16 +1289,39 @@ impl GameWorld {
                 m.strategy_health,
                 m.strategy_damage,
                 m.see_invisible,
+                mastered,
             ))
         });
-        let Some((pos, existing_follow, _state, strat_near, strat_hp, strat_dmg, see_invisible)) =
-            snapshot
+        let Some((
+            pos,
+            existing_follow,
+            _state,
+            strat_near,
+            strat_hp,
+            strat_dmg,
+            see_invisible,
+            mastered,
+        )) = snapshot
         else {
             return false;
         };
 
         let has_target = existing_follow.is_some();
         if has_target {
+            return false;
+        }
+
+        // C++ searches only when `Master == 0` (`crnonpl.cc:2473`). Summons keep
+        // `ShouldSleep == true` and take `ToDoWait(1000)` when Target is empty (`:2552`).
+        if mastered {
+            let state = self.creatures.get(cid).and_then(|k| match k {
+                CreatureKind::Monster(m) => Some(m.state),
+                _ => None,
+            });
+            if !matches!(state, Some(MonsterState::UnderAttack | MonsterState::Panic)) {
+                self.idle_enqueue_wait_and_start(cid, MONSTER_IDLE_WAIT_MS);
+                return true;
+            }
             return false;
         }
 
@@ -1347,10 +1363,12 @@ impl GameWorld {
             let Some(target) = self.creatures.get(target_id) else {
                 continue;
             };
-            // C++ `crnonpl.cc:2500-2502`: wild (non-player-controlled) monsters are skipped
-            // **before** `CanSeeFloor` / targeting. Using them for `ShouldSleep` kept entire
-            // spawn packs awake forever (each rat prevented every other rat from sleeping).
-            if matches!(target, CreatureKind::Monster(m) if !m.base.is_summon()) {
+            // C++ `crnonpl.cc:2500-2502`: skip unless `IsPlayerControlled()`
+            // (`Master != 0 && Master->Type == PLAYER`, `crnonpl.cc:3139`). `is_summon()` is
+            // any master — monster-owned summons must be skipped like wild monsters.
+            if matches!(target, CreatureKind::Monster(m) if !m.base.master.is_some_and(|mid| {
+                matches!(self.creatures.get(mid), Some(CreatureKind::Player(_)))
+            })) {
                 continue;
             }
             // FIND_PLAYERS | FIND_MONSTERS — NPCs are not in the search mask.
@@ -1846,6 +1864,9 @@ impl GameWorld {
                 let scaled = spell_damage(&profile, hooks, 0, 0, max_dmg, false, false);
                 let mut dmg = if scaled > 0 {
                     scaled
+                } else if *variation == 0 {
+                    // `ComputeDamage`: draw only when `Variation != 0` (`magic.cc:776-778`).
+                    (*base).max(0)
                 } else {
                     // C++ `ComputeDamage` monster path: `Damage + random(-Var, Var)` (`magic.cc:776`)
                     // — glibc parity stream, not `ai_rng` (Finding 14).
@@ -2543,29 +2564,31 @@ impl GameWorld {
             return;
         }
 
-        // `Combat.SetAttackDest(this->Target, false)` — early-out when AttackDest unchanged
-        // (`crcombat.cc:358-360`). Side effects only on change (`:432-437`).
-        if prev_attack == Some(target_id) {
-            // Still reset chase mode like C++ `SetChaseMode(CHASE_MODE_NONE)` before the
-            // distance arm re-selects CLOSE/NONE (`monster_idle_set_combat_chase_mode`).
-            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-                m.base.chase_mode = ChaseMode::None;
-            }
-            return;
-        }
-
-        // `ObjectDistance > 8` → `StopAttack` (`crcombat.cc:424-427`).
+        // `ObjectDistance > 8` → `StopAttack` (`crcombat.cc:424-427`, also `:574` in Attack).
+        // Other floor ⇒ `INT_MAX` (`info.cc:313`). Must run even when AttackDest is unchanged
+        // so a kite past 8 tiles drops dest mid-fight.
         let too_far = match (
             self.creatures.get(cid).map(|k| k.position()),
             self.creatures.get(target_id).map(|k| k.position()),
         ) {
-            (Some(from), Some(to)) => chebyshev(from, to) > 8,
+            (Some(from), Some(to)) => from.z != to.z || chebyshev(from, to) > 8,
             _ => true,
         };
         if too_far {
             if let Some(k) = self.creatures.get_mut(cid) {
                 k.base_mut().attack_target = None;
             }
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+                m.base.chase_mode = ChaseMode::None;
+            }
+            return;
+        }
+
+        // `Combat.SetAttackDest(this->Target, false)` — early-out when AttackDest unchanged
+        // (`crcombat.cc:358-360`). Side effects only on change (`:432-437`).
+        if prev_attack == Some(target_id) {
+            // Still reset chase mode like C++ `SetChaseMode(CHASE_MODE_NONE)` before the
+            // distance arm re-selects CLOSE/NONE (`monster_idle_set_combat_chase_mode`).
             if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
                 m.base.chase_mode = ChaseMode::None;
             }

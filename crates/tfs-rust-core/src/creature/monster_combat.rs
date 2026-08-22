@@ -859,6 +859,17 @@ mod tests {
         assert!(cfg.spells.is_empty());
     }
 
+    #[test]
+    fn test_dragon_strategy_and_losetarget_from_xml() {
+        let mtype = load_monster_type("dragon");
+        let cfg = MonsterAiConfig::from_monster_type(&mtype);
+        assert_eq!(cfg.strategy_nearest, 70);
+        assert_eq!(cfg.strategy_health, 10);
+        assert_eq!(cfg.strategy_damage, 10);
+        assert_eq!(cfg.lose_target_percent, 5);
+        assert_eq!(mtype.flags.strategy_random, 10);
+    }
+
     /// XML `<summons>` merges into CASTING as `SpellImpact::Summon` / Origin r=0
     /// (`crnonpl.cc:2647`, `magic.cc` `TSummonImpact`).
     #[test]

@@ -4,6 +4,7 @@
 	<look type="220" head="0" body="0" legs="0" feet="0" corpse="4323" />
 	<targetchange chance="25" />
 	<targetstrategy nearest="70" weakest="30" mostdamage="0" random="0" />
+	<losetarget chance="25" />
 	<flags>
 		<flag hostile="1" />
 		<flag summonable="0" />

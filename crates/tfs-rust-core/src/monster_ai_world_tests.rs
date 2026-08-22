@@ -1514,4 +1514,72 @@ fn test_772_attack_blocked_across_z_levels() {
         "monster must not deal damage to a player on a different Z-level \
              (C++ ObjectDistance returns INT_MAX for diff Z → Distance>8 → TARGETLOST)"
     );
+    assert!(
+        world
+            .creatures
+            .get(monster)
+            .is_some_and(|k| k.base().attack_target.is_none()),
+        "StopAttack(0) must clear AttackDest rather than DelayAttack(200)"
+    );
+}
+
+/// PZ on either combatant → `StopAttack(0)` + `PROTECTIONZONE` (`crcombat.cc:595-598`).
+#[test]
+fn test_772_attack_clears_dest_in_protection_zone() {
+    use crate::creature::MonsterState;
+    use crate::sim_harness::{
+        beat_driven_test_world, ensure_walkable_tile, insert_monster, insert_player, test_player,
+    };
+    use crate::tile::{Tile, TileBody};
+    use tfs_rust_common::enums::ZoneType;
+
+    let mut world = beat_driven_test_world();
+    world.server_ms = 1000;
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(101, 100, 7);
+    world.map.insert_tile(
+        mpos,
+        Tile::Normal(TileBody {
+            ground: Some(2148),
+            ground_item: None,
+            down_items: Vec::new(),
+            top_items: Vec::new(),
+            creatures: Vec::new(),
+            flags: 0,
+            zone: ZoneType::Protection,
+        }),
+    );
+    ensure_walkable_tile(&mut world.map, ppos, 2148);
+
+    let monster = insert_monster(&mut world, "Rat", mpos, 200);
+    let mut player = test_player("Hero", ppos);
+    player.base.health = 500;
+    player.base.max_health = 500;
+    let player = insert_player(&mut world, player);
+    world.map.register_creature_at(ppos, player);
+
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.is_idle = false;
+        m.melee_skill = 15;
+        m.melee_attack = 7;
+        m.is_hostile = true;
+        m.base.attack_target = Some(player);
+        m.base.follow_target = Some(player);
+        m.state = MonsterState::Attacking;
+    }
+
+    let hp_before = world.creatures.get(player).unwrap().base().health;
+    world.monster_do_attacking(monster, 200);
+    assert_eq!(
+        world.creatures.get(player).unwrap().base().health,
+        hp_before,
+        "PZ must block the swing"
+    );
+    assert!(
+        world
+            .creatures
+            .get(monster)
+            .is_some_and(|k| k.base().attack_target.is_none()),
+        "PZ StopAttack(0) must drop AttackDest"
+    );
 }

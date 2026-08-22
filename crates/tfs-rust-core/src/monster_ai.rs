@@ -17,6 +17,7 @@ use tfs_rust_common::Position;
 use tfs_rust_common::enums::{CombatType, Direction, ZoneType};
 
 use crate::chase_debug;
+use crate::combat::math::req_skill_tries;
 use crate::combat::{CombatDamage, CombatParams, FightMode, weapon_damage};
 use crate::creature::{ChaseMode, CreatureKind, MonsterState};
 use crate::creature::{creature_immune_poison, melee_poison_on_hit, roll_target_defense};
@@ -289,6 +290,43 @@ impl GameWorld {
         }
     }
 
+    /// 772 `TSkillProbe::ProbeValue` Increase(1) then Get (`crskill.cc:532`).
+    /// `LearningPoints` decremented with the Increase (`crcombat.cc:220` GetAttackDamage).
+    fn monster_fist_probe_increase(&mut self, cid: CreatureId) {
+        let profile = self.mechanics.profile;
+        let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
+            return;
+        };
+        if m.base.learning_points <= 0 {
+            return;
+        }
+        let mut tries = m.melee_skill_tries.saturating_add(1);
+        let mut level = m.melee_skill;
+        let lp = m.base.learning_points.saturating_sub(1);
+        let skill_base = profile.skill_tries.skill_base[0];
+        let min_level = profile.skill_tries.min_level[0];
+        loop {
+            let need = req_skill_tries(
+                &self.mechanics.hooks,
+                0,
+                level + 1,
+                skill_base,
+                1.0,
+                min_level,
+            );
+            if need == 0 || tries < need {
+                break;
+            }
+            tries -= need;
+            level += 1;
+        }
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+            m.melee_skill_tries = tries;
+            m.melee_skill = level;
+            m.base.learning_points = lp;
+        }
+    }
+
     /// B3.1 — lowest-health opponent from `candidates`, using the profile's [`WeakestTargetMetric`]
     /// (current HP for 772, max HP for TFS). Ties keep the first candidate.
     ///
@@ -336,21 +374,21 @@ impl GameWorld {
         }
 
         let target_pos = self.creatures.get(target_id).unwrap().position();
-        // C++ `ObjectDistance` returns `INT_MAX` when Z-levels differ (`info.cc:313`),
-        // so `TCombat::Attack` gets `Distance > 8` → `StopAttack` + `TARGETLOST`
-        // (`crcombat.cc:574-578`). Block the attack when on a different floor —
-        // `chebyshev` only uses x/y and would otherwise allow cross-floor melee.
-        if monster_pos.z != target_pos.z {
+        // `ObjectDistance` is `INT_MAX` on other floors (`info.cc:313`) and Chebyshev
+        // otherwise. `Distance > 8` or PZ → `StopAttack(0)` (`crcombat.cc:574-598`), no
+        // 200 ms retry with a stale dest.
+        let cheb = chebyshev(monster_pos, target_pos);
+        let object_lost = monster_pos.z != target_pos.z || cheb > 8;
+        let in_pz = self.monster_tile_in_protection_zone(monster_pos)
+            || self.monster_tile_in_protection_zone(target_pos);
+        if object_lost || in_pz {
             if let Some(k) = self.creatures.get_mut(cid) {
-                k.base_mut().delay_attack_ms(server_ms, 200);
+                k.base_mut().attack_target = None;
             }
             return;
         }
-        let cheb = chebyshev(monster_pos, target_pos);
-        let in_pz = self.monster_tile_in_protection_zone(monster_pos)
-            || self.monster_tile_in_protection_zone(target_pos);
 
-        if cheb > 1 || in_pz || melee_skill <= 0 {
+        if cheb > 1 || melee_skill <= 0 {
             if let Some(k) = self.creatures.get_mut(cid) {
                 k.base_mut().delay_attack_ms(server_ms, 200);
             }
@@ -370,6 +408,18 @@ impl GameWorld {
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().delay_attack_ms(server_ms, 200);
         }
+
+        // `ProbeValue(..., Increase)` — Increase(1) before Get when LearningPoints > 0
+        // (`crskill.cc:532`, `crcombat.cc:220`).
+        self.monster_fist_probe_increase(cid);
+        let melee_skill = self
+            .creatures
+            .get(cid)
+            .and_then(|k| match k {
+                CreatureKind::Monster(m) => Some(m.melee_skill),
+                _ => None,
+            })
+            .unwrap_or(melee_skill);
 
         let attack_roll = {
             let hooks = &self.mechanics.hooks;

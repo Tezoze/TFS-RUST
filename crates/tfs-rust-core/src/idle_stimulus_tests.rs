@@ -273,6 +273,42 @@ fn idle_acquire_wild_bystander_does_not_prevent_sleep() {
     );
 }
 
+/// Monster-owned summons are not `IsPlayerControlled` — skip them like wild monsters.
+#[test]
+fn idle_acquire_monster_owned_summon_does_not_prevent_sleep() {
+    let mut world = beat_driven_test_world();
+    let pos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+    let monster = insert_monster(&mut world, "Rat", pos, 200);
+    world.map.register_creature_at(pos, monster);
+
+    let master_pos = Position::new(104, 100, 7);
+    let summon_pos = Position::new(102, 100, 7);
+    ensure_walkable_tile(&mut world.map, master_pos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, summon_pos, TEST_SYNTHETIC_GROUND_WP);
+    let master = insert_monster(&mut world, "Demon", master_pos, 200);
+    world.map.register_creature_at(master_pos, master);
+    let summon = insert_summon(&mut world, "Fire Elemental", summon_pos, master);
+    world.map.register_creature_at(summon_pos, summon);
+
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.is_idle = false;
+        m.state = MonsterState::Idle;
+    }
+    if let Some(k) = world.creatures.get_mut(monster) {
+        k.base_mut().next_wakeup = None;
+    }
+
+    world.monster_idle_stimulus(monster);
+
+    assert!(
+        world.creatures.get(monster).is_some_and(|k| {
+            matches!(k, CreatureKind::Monster(m) if m.state == MonsterState::Sleeping && m.is_idle)
+        }),
+        "monster-owned summon must not keep wild monsters awake or be acquired"
+    );
+}
+
 /// Player on a different surface floor within the XY search box keeps the monster
 /// awake via `CanSeeFloor` but cannot be targeted (`posz` mismatch) — `crnonpl.cc:2504,2512`.
 #[test]
@@ -313,6 +349,78 @@ fn idle_acquire_upstairs_player_keeps_awake_without_target() {
     assert!(
         wakeup.is_some(),
         "awake no-target idle must still arm the roam/wait wakeup"
+    );
+}
+
+/// Floor 7 monster + player on 8: viewer `CanSeeFloor(7)` is true (`abs(Δz)≤2`),
+/// so the pack stays awake. The old `0..=7` scan missed this.
+#[test]
+fn idle_acquire_player_on_floor_8_keeps_surface_monster_awake() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(100, 100, 8);
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+    let monster = insert_monster(&mut world, "Rat", mpos, 200);
+    world.map.register_creature_at(mpos, monster);
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.is_idle = false;
+        m.state = MonsterState::Idle;
+    }
+    if let Some(k) = world.creatures.get_mut(monster) {
+        k.base_mut().next_wakeup = None;
+    }
+
+    world.monster_idle_stimulus(monster);
+
+    let (state, follow) = match world.creatures.get(monster) {
+        Some(CreatureKind::Monster(m)) => (m.state, m.base.follow_target),
+        _ => panic!("monster missing"),
+    };
+    assert_ne!(
+        state,
+        MonsterState::Sleeping,
+        "player one floor below (z=8) must keep a z=7 monster awake"
+    );
+    assert!(
+        follow.is_none(),
+        "different Z must not be acquired as target"
+    );
+}
+
+/// `SetAttackDest` distance>8 must run even when AttackDest is already the same creature.
+#[test]
+fn idle_enter_attacking_drops_dest_when_target_kites_past_8() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(110, 100, 7); // cheb 10
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+    let monster = insert_monster(&mut world, "Rat", mpos, 200);
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.melee_skill = 15;
+        m.state = MonsterState::Attacking;
+        m.base.follow_target = Some(player);
+        m.base.attack_target = Some(player);
+    }
+    world.monster_idle_maybe_enter_attacking(monster);
+    assert!(
+        world
+            .creatures
+            .get(monster)
+            .is_some_and(|k| k.base().attack_target.is_none()),
+        "kiting past ObjectDistance 8 must StopAttack even if dest was already set"
+    );
+    assert!(
+        world
+            .creatures
+            .get(monster)
+            .is_some_and(|k| k.base().follow_target == Some(player)),
+        "StopAttack clears AttackDest only; AI Target stays until the 10-tile idle check"
     );
 }
 

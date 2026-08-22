@@ -11,6 +11,17 @@ use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::player::flags::PLAYER_FLAG_CANNOT_BE_MUTED;
 
+/// 772 `TSkillPoison::SetTimer` AdditionalValue (`crskill.cc:1001-1013`):
+/// `-1` → 50, then clamp to `[10, 1000]`.
+pub(crate) fn poison_factor_percent(additional_value: i32) -> i32 {
+    let v = if additional_value == -1 {
+        50
+    } else {
+        additional_value
+    };
+    v.clamp(10, 1000)
+}
+
 impl GameWorld {
     /// C++ `ProcessSkills` — tick timer-skills for every creature (`crmain.cc:1130-1139`).
     ///
@@ -185,11 +196,7 @@ impl GameWorld {
                             // 772 `TSkillPoison::Process` (`crskill.cc:977-984`):
                             // `Range = (Cycle * FactorPercent) / 1000`; floor to ±1 when 0.
                             // FactorPercent defaults to 50 → 5% of pool per Event.
-                            let fp = if factor_percent > 0 {
-                                factor_percent
-                            } else {
-                                50
-                            };
+                            let fp = poison_factor_percent(factor_percent);
                             let mut range = (total_rank * fp) / 1000;
                             if range == 0 {
                                 range = if total_rank > 0 { 1 } else { -1 };
@@ -350,11 +357,7 @@ impl GameWorld {
                                 factor_percent,
                             } = &mut cond.data
                             {
-                                let fp = if *factor_percent > 0 {
-                                    *factor_percent
-                                } else {
-                                    50
-                                };
+                                let fp = poison_factor_percent(*factor_percent);
                                 let mut range = (*total_rank * fp) / 1000;
                                 if range == 0 {
                                     range = if *total_rank > 0 { 1 } else { -1 };
@@ -554,6 +557,8 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
 
+    use super::poison_factor_percent;
+
     use tfs_rust_common::enums::ConditionType;
     use tfs_rust_common::{Position, ZoneType};
 
@@ -720,6 +725,17 @@ mod tests {
             rank, 19,
             "poison pool drains by 5% per Event (factor_percent=50, /1000)"
         );
+    }
+
+    #[test]
+    fn poison_factor_percent_minus_one_is_50_then_clamped() {
+        assert_eq!(poison_factor_percent(-1), 50);
+        assert_eq!(poison_factor_percent(0), 10);
+        assert_eq!(poison_factor_percent(9), 10);
+        assert_eq!(poison_factor_percent(10), 10);
+        assert_eq!(poison_factor_percent(50), 50);
+        assert_eq!(poison_factor_percent(1000), 1000);
+        assert_eq!(poison_factor_percent(1001), 1000);
     }
 
     /// Build a `VocationRegistry` with a single knight vocation (id=4) matching
