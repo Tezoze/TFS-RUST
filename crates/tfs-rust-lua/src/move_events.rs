@@ -671,6 +671,14 @@ mod tests {
             std::ptr::eq(id_only, &trap.callback),
             "aid 0 must hit :id() trap"
         );
+        assert!(
+            registry.get(MoveEventKind::StepIn, 1511).is_some(),
+            "trap.lua :id(1511) blades"
+        );
+        assert!(
+            registry.get(MoveEventKind::StepIn, 1506).is_none(),
+            "fields.lua must not register StepIn 1506"
+        );
     }
 
     fn dummy_add_item_callback(runtime: &mut LuaRuntime, name: &str) -> CallbackRef {

@@ -2341,6 +2341,7 @@
 		<attribute key="field" value="fire">
 			<attribute key="initdamage" value="20" />
 			<attribute key="cycles" value="70" />
+			<attribute key="skippeaceful" value="1" />
 		</attribute>
 	</item>
 	<item id="1501" article="a" name="fire">
@@ -2350,6 +2351,7 @@
 		<attribute key="field" value="fire">
 			<attribute key="initdamage" value="10" />
 			<attribute key="cycles" value="50" />
+			<attribute key="skippeaceful" value="1" />
 		</attribute>
 	</item>
 	<item id="1502" article="a" name="fire">
@@ -2364,6 +2366,7 @@
 		<attribute key="type" value="magicfield" />
 		<attribute key="field" value="poison">
 			<attribute key="cycles" value="100" />
+			<attribute key="skippeaceful" value="1" />
 		</attribute>
 	</item>
 	<item id="1504" article="an" name="energy field">
@@ -2373,6 +2376,7 @@
 		<attribute key="field" value="energy">
 			<attribute key="initdamage" value="30" />
 			<attribute key="cycles" value="25" />
+			<attribute key="skippeaceful" value="1" />
 		</attribute>
 	</item>
 	<item id="1505" name="smoke">
@@ -2385,6 +2389,10 @@
 		<attribute key="replaceable" value="0"/>
 		<attribute key="specialFieldBlockPath" value="1"/>
 		<attribute key="type" value="magicfield" />
+		<attribute key="field" value="fire">
+			<attribute key="initdamage" value="300" />
+			<attribute key="cycles" value="10" />
+		</attribute>
 	</item>
 	<item id="1507" article="a" name="fire">
 		<attribute key="decayto" value="1508"/>
@@ -2392,6 +2400,10 @@
 		<attribute key="replaceable" value="0"/>
 		<attribute key="specialFieldBlockPath" value="1"/>
 		<attribute key="type" value="magicfield" />
+		<attribute key="field" value="fire">
+			<attribute key="initdamage" value="300" />
+			<attribute key="cycles" value="10" />
+		</attribute>
 	</item>
 	<item id="1508" name="ashes">
 		<attribute key="decayto" value="1506"/>

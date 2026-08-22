@@ -5,8 +5,8 @@
 //! Outcomes: 772 `DAMAGE_*_PERIODIC` → burning/poison/energy timers (`crmain.cc:582-612`,
 //! `crskill.cc` TSkillBurning/Poison/Energy); field kind from items.xml `field` attr.
 
-use tfs_rust_common::Position;
 use tfs_rust_common::enums::CombatType;
+use tfs_rust_common::Position;
 use tfs_rust_content::items::FieldDamageType;
 
 use crate::combat::{CombatDamage, CombatParams};
@@ -80,6 +80,21 @@ impl GameWorld {
         let Some(field_kind) = self.items_db.avoid_damage_type(field_server_id) else {
             return;
         };
+        // Meaning-harmless Trap Damage: `!IsPeaceful` else Effect poff (`moveuse.dat`;
+        // `crmain.cc:900`, `crnonpl.cc:2295`). `field.skippeaceful` — not hardcoded IDs.
+        // Check before race immunity so players/NPCs/summons get poff, not a silent skip.
+        let skip_peaceful = self
+            .items_db
+            .items
+            .get(&field_server_id)
+            .and_then(|t| t.xml_attributes.get("field.skippeaceful"))
+            .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
+        if skip_peaceful && self.creature_is_peaceful(target) {
+            if let Some(pos) = self.creatures.get(target).map(|c| c.base().position) {
+                self.broadcast_magic_effect(pos, 3); // CONST_ME_POFF
+            }
+            return;
+        }
         if self.creature_immune_to_field(target, field_kind) {
             return;
         }
@@ -240,5 +255,169 @@ impl GameWorld {
                 let _ = self.internal_remove_item_from_tile(pos, iid, u16::MAX);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::creature::CreatureKind;
+    use crate::cylinder::CylinderFlags;
+    use crate::game_world::GameWorld;
+    use crate::item::Item;
+    use crate::sim_harness::{
+        beat_driven_test_world, ensure_walkable_tile, insert_monster, insert_player, test_player,
+        TEST_SYNTHETIC_GROUND_WP,
+    };
+    use std::sync::Arc;
+    use tfs_rust_common::enums::ConditionType;
+    use tfs_rust_content::otb::ItemType;
+
+    fn register_fire_field(
+        world: &mut GameWorld,
+        server_id: u16,
+        initdamage: &str,
+        cycles: &str,
+        skippeaceful: Option<&str>,
+    ) {
+        let mut db = (*world.items_db).clone();
+        let mut it = ItemType {
+            server_id,
+            type_tag: 6,
+            ..Default::default()
+        };
+        it.xml_attributes.insert("field".into(), "fire".into());
+        it.xml_attributes
+            .insert("field.initdamage".into(), initdamage.into());
+        it.xml_attributes
+            .insert("field.cycles".into(), cycles.into());
+        if let Some(v) = skippeaceful {
+            it.xml_attributes
+                .insert("field.skippeaceful".into(), v.into());
+        }
+        db.items.insert(server_id, it);
+        world.items_db = Arc::new(db);
+    }
+
+    fn has_fire(world: &GameWorld, cid: CreatureId) -> bool {
+        world.creatures.get(cid).is_some_and(|c| {
+            c.base()
+                .active_conditions
+                .iter()
+                .any(|cond| cond.ctype == ConditionType::Fire)
+        })
+    }
+
+    fn place_field(world: &mut GameWorld, pos: Position, server_id: u16) {
+        let iid = world.items.insert(Item::new_single(server_id));
+        world
+            .internal_add_item_to_tile(pos, iid, CylinderFlags::NONE)
+            .expect("place fire field");
+    }
+
+    fn hp(world: &GameWorld, cid: CreatureId) -> i32 {
+        world.creatures.get(cid).unwrap().base().health
+    }
+
+    /// Opt-in skip: a 1487-style field without skippeaceful still hits a player.
+    #[test]
+    fn fire_field_without_skippeaceful_hits_player() {
+        let mut world = beat_driven_test_world();
+        register_fire_field(&mut world, 1487, "20", "70", None);
+
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let player = insert_player(&mut world, test_player("Hero", pos));
+        world.map.register_creature_at(pos, player);
+        let hp_before = hp(&world, player);
+
+        place_field(&mut world, pos, 1487);
+
+        assert!(hp(&world, player) < hp_before, "initdamage must hit player");
+        assert!(has_fire(&world, player), "fire condition must start");
+    }
+
+    /// Meaning-harmless fields skip peaceful creatures; wild monsters still take the hit.
+    #[test]
+    fn skippeaceful_field_skips_player_hits_wild_monster() {
+        let mut world = beat_driven_test_world();
+        register_fire_field(&mut world, 1500, "20", "70", Some("1"));
+
+        let ppos = Position::new(100, 100, 7);
+        let mpos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let php_before = hp(&world, player);
+
+        let monster = insert_monster(&mut world, "Rat", mpos, 200);
+        let mhp_before = hp(&world, monster);
+
+        place_field(&mut world, ppos, 1500);
+        assert_eq!(
+            hp(&world, player),
+            php_before,
+            "peaceful skip: HP unchanged"
+        );
+        assert!(
+            !has_fire(&world, player),
+            "peaceful skip: no Fire condition"
+        );
+
+        place_field(&mut world, mpos, 1500);
+        assert!(
+            hp(&world, monster) < mhp_before || has_fire(&world, monster),
+            "wild monster must take initdamage and/or Fire condition"
+        );
+    }
+
+    /// Player summons are peaceful (`crnonpl.cc:2295`) and skip skippeaceful fields.
+    #[test]
+    fn skippeaceful_field_skips_player_summon() {
+        let mut world = beat_driven_test_world();
+        register_fire_field(&mut world, 1500, "20", "70", Some("1"));
+
+        let ppos = Position::new(100, 100, 7);
+        let spos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, spos, TEST_SYNTHETIC_GROUND_WP);
+
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        world.map.register_creature_at(ppos, player);
+        let summon = insert_monster(&mut world, "Rat", spos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(summon) {
+            m.base.master = Some(player);
+        }
+        let hp_before = hp(&world, summon);
+
+        place_field(&mut world, spos, 1500);
+        assert_eq!(hp(&world, summon), hp_before, "player summon: HP unchanged");
+        assert!(
+            !has_fire(&world, summon),
+            "player summon: no Fire condition"
+        );
+    }
+
+    /// Native searing path: initdamage 300 + fire cycles 10 (`moveuse.dat` Damage(4,300)+Damage(64,10)).
+    #[test]
+    fn searing_field_init_and_cycles_hit_monster() {
+        let mut world = beat_driven_test_world();
+        register_fire_field(&mut world, 1506, "300", "10", None);
+
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let monster = insert_monster(&mut world, "Rat", pos, 200);
+        if let Some(c) = world.creatures.get_mut(monster) {
+            c.base_mut().health = 500;
+            c.base_mut().max_health = 500;
+        }
+        let hp_before = hp(&world, monster);
+
+        place_field(&mut world, pos, 1506);
+
+        assert!(hp(&world, monster) < hp_before, "initdamage 300 must hit");
+        assert!(has_fire(&world, monster), "fire cycles must start");
     }
 }
