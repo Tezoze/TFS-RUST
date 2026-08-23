@@ -5,8 +5,8 @@
 //! Outcomes: 772 `DAMAGE_*_PERIODIC` → burning/poison/energy timers (`crmain.cc:582-612`,
 //! `crskill.cc` TSkillBurning/Poison/Energy); field kind from items.xml `field` attr.
 
-use tfs_rust_common::enums::CombatType;
 use tfs_rust_common::Position;
+use tfs_rust_common::enums::CombatType;
 use tfs_rust_content::items::FieldDamageType;
 
 use crate::combat::{CombatDamage, CombatParams};
@@ -266,8 +266,8 @@ mod tests {
     use crate::game_world::GameWorld;
     use crate::item::Item;
     use crate::sim_harness::{
-        beat_driven_test_world, ensure_walkable_tile, insert_monster, insert_player, test_player,
-        TEST_SYNTHETIC_GROUND_WP,
+        TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_monster,
+        insert_player, test_player,
     };
     use std::sync::Arc;
     use tfs_rust_common::enums::ConditionType;

@@ -155,7 +155,7 @@ Current XML surface (loaders in `crates/tfs-rust-content/src/`):
 | `data/XML/quests.xml` | (quest system) | `data/defs/quests.lua` | Verify loader exists before migrating. |
 | `data/XML/stages.xml` | (exp stages) | `data/defs/stages.lua` | Flat; TOML candidate. |
 | `data/items/items.xml` | `items.rs`, `item_abilities.rs`, `items_xml_keys.rs` | `data/items.lua` | **Largest / highest-risk.** Pairs with binary `items.otb` (keep). Do last. |
-| `data/monster/monsters.xml` + `data/monster/monsters/*.xml` | `monsters.rs` (runtime still XML) | `data/monster/*.lua` | **Phase 3 converter + immunity pass done** (157 files, all 8 immunity keys). Loader switch pending. Plan: `tasks/monsters-lua-plan.md`. |
+| `data/monster/monsters.xml` + `data/monster/monsters/*.xml` | **deleted** | `data/monster/*.lua` | **Phase 3 done.** Runtime `MonsterDatabase::load_dir` loads Lua only. XML parser/converter removed. Plan: `tasks/monsters-lua-plan.md`. |
 | `data/world/*-spawn.xml` (+ house files) | `spawns.rs`, `otbm.rs` | `data/world/*-spawn.lua` | Referenced by OTBM `EXT_SPAWN_FILE`/`EXT_HOUSE_FILE`; keep OTBM binary, migrate the sidecar. |
 
 **`data/defs/`** holds the static sidecar definitions (vocations, outfits, mounts,
@@ -211,6 +211,8 @@ Out of scope (not XML): `items.otb`, `*.otbm`, `objects.srv`, sprite assets. Exe
    Extra 1098 combat types (death, holy, earth, ice) are **engine gates**, not forked files or
    TFS `COMBAT_*` attack tables. Formulas Lua (`data/formulas/<version>.lua`) stays the place
    for era-tuned numbers/functions; it does not own a second monster pack.
+   Loot is spawn-only for every version (Lua mutates at spawn, never on death):
+   [DATA_PACK_LUA.md](DATA_PACK_LUA.md).
 3. **Lua vs TOML for flat tables** (groups/stages/outfits). Recommendation: Lua for uniformity now;
    revisit if we want a locked-down non-programmable subset later — the `serde` struct is shared
    either way.

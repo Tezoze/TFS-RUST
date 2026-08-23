@@ -113,8 +113,8 @@ pub fn register_monster_type_constructor(lua: &mlua::Lua) -> Result<(), mlua::Er
     })?;
     // Class table + `__call` so `data/scripts/lib/register_monster_type.lua`
     // can assign `MonsterType.register = function(self, mask)`. No userdata
-    // `__index` chain (Gap 7b): the only `mType:register(...)` call site is
-    // `data/monster/lua/#example.lua`, which the loader skips (`#` prefix).
+    // `__index` chain (Gap 7b): `mType:register(...)` has no in-pack caller
+    // (`data/monster/lua/#example.lua` was a TFS sketch and was deleted).
     // C++ `registerClass("MonsterType")` — `luascript.cpp`. Gap 7c.
     crate::class_registry::register_class(lua, "MonsterType", Some(ctor))?;
     Ok(())

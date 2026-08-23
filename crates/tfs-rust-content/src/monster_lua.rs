@@ -1,23 +1,23 @@
 //! Lua-as-data writer/parser for monster defs (`data/monster/<slug>.lua`).
 //!
 //! Domain: TFS `monsters.cpp` `Monsters::loadMonster` (same `MonsterType` /
-//! `MonsterSpellNode` / loot / summons surface as XML). Schema is Lua-as-data
-//! (`return { schema = 1, … }`), not TFS `Game.createMonsterType`.
+//! `MonsterSpellNode` / loot / summons surface as the old XML pack). Schema is
+//! Lua-as-data (`return { schema = 1, … }`), not TFS `Game.createMonsterType`.
 //! Plan: `tasks/monsters-lua-plan.md`.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use mlua::{LuaSerdeExt, Table, Value};
+use mlua::{Lua, LuaSerdeExt, Table, Value};
 use serde::Deserialize;
 use tfs_rust_common::error::{Result, TfsRustError};
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::data_lua::{load_data_table_str, require_schema, sandboxed_data_lua};
 use crate::items::ItemDatabase;
 use crate::monsters::{
-    LootBlock, MAX_LOOTCHANCE, MonsterDefenses, MonsterOutfit, MonsterSpellNode, MonsterType,
-    MonsterTypeFlags, SummonBlock, parse_monster_file, parse_monster_index,
+    LootBlock, MAX_LOOTCHANCE, MonsterDatabase, MonsterDefenses, MonsterOutfit, MonsterSpellNode,
+    MonsterType, MonsterTypeFlags, SummonBlock,
 };
 
 /// Expected `schema` version for monster Lua defs.
@@ -85,8 +85,26 @@ pub fn emit_monster_lua(
 /// `MonsterType.name` is `title` when present, otherwise Lua `name`. The spawn
 /// lookup key is Lua `name` (callers insert into the DB).
 pub fn parse_monster_lua(src: &str, file: &str, items: &ItemDatabase) -> Result<MonsterType> {
+    Ok(parse_monster_lua_named(src, file, items)?.1)
+}
+
+/// Same as [`parse_monster_lua`], plus the spawn lookup key (`name` field).
+pub fn parse_monster_lua_named(
+    src: &str,
+    file: &str,
+    items: &ItemDatabase,
+) -> Result<(String, MonsterType)> {
     let lua = sandboxed_data_lua()?;
-    let root = load_data_table_str(&lua, src, file)?;
+    parse_monster_lua_with(&lua, src, file, items)
+}
+
+fn parse_monster_lua_with(
+    lua: &Lua,
+    src: &str,
+    file: &str,
+    items: &ItemDatabase,
+) -> Result<(String, MonsterType)> {
+    let root = load_data_table_str(lua, src, file)?;
     require_schema(&root, MONSTERS_SCHEMA)?;
 
     let def: MonsterDef =
@@ -107,6 +125,7 @@ pub fn parse_monster_lua(src: &str, file: &str, items: &ItemDatabase) -> Result<
         _ => (0, Vec::new()),
     };
 
+    let lookup_name = def.name.clone();
     let display_name = def.title.clone().unwrap_or_else(|| def.name.clone());
     let mut flags = flags_from_def(&def);
     if flags.can_push_creatures {
@@ -115,58 +134,94 @@ pub fn parse_monster_lua(src: &str, file: &str, items: &ItemDatabase) -> Result<
 
     let loot = loot_from_defs(def.loot.unwrap_or_default(), items, file)?;
 
-    Ok(MonsterType {
-        name: display_name,
-        filename: file.to_string(),
-        name_description: def.description.unwrap_or_default(),
-        race: def.race.unwrap_or_default(),
-        experience: def.experience.unwrap_or(0),
-        speed: def.speed.unwrap_or(0),
-        health_now: def.health.unwrap_or(0),
-        health_max: def.max_health.unwrap_or(0),
-        outfit: outfit_from_def(def.outfit),
-        flags,
-        mana_cost: def.mana_cost.unwrap_or(0),
-        loot,
-        attack_spells: spells_from_defs(def.attacks.unwrap_or_default(), "attack"),
-        defenses: defenses_from_def(def.defenses, def.immunities),
-        max_summons,
-        summons,
-        talk_texts: voices_from_defs(def.voices.unwrap_or_default()),
-    })
+    Ok((
+        lookup_name,
+        MonsterType {
+            name: display_name,
+            filename: file.to_string(),
+            name_description: def.description.unwrap_or_default(),
+            race: def.race.unwrap_or_default(),
+            experience: def.experience.unwrap_or(0),
+            speed: def.speed.unwrap_or(0),
+            health_now: def.health.unwrap_or(0),
+            health_max: def.max_health.unwrap_or(0),
+            outfit: outfit_from_def(def.outfit),
+            flags,
+            mana_cost: def.mana_cost.unwrap_or(0),
+            loot,
+            attack_spells: spells_from_defs(def.attacks.unwrap_or_default(), "attack"),
+            defenses: defenses_from_def(def.defenses, def.immunities),
+            max_summons,
+            summons,
+            talk_texts: voices_from_defs(def.voices.unwrap_or_default()),
+        },
+    ))
 }
 
-/// Parse `monsters.xml` + per-file XML and write `data/monster/<slug>.lua`.
-/// Overwrites existing files (including `dragon.lua`). Does not delete XML.
-pub fn export_monsters_lua(
-    monster_dir: &Path,
-    out_dir: &Path,
-    items: &ItemDatabase,
-) -> Result<usize> {
-    let index_path = monster_dir.join("monsters.xml");
-    let entries = parse_monster_index(&index_path)?;
-    std::fs::create_dir_all(out_dir).map_err(|e| TfsRustError::Content {
-        file: out_dir.to_string_lossy().into_owned(),
-        message: e.to_string(),
-    })?;
+/// Load every `*.lua` under `dir` (recursive). Skip filenames containing `#`.
+///
+/// Insert key is Lua `name` (lowercased). Duplicate names abort. No XML fallback.
+pub fn load_monster_dir(dir: &Path, items: &ItemDatabase) -> Result<MonsterDatabase> {
+    info!("Loading monsters from {:?}", dir);
+    let mut paths = collect_monster_lua_files(dir)?;
+    paths.sort();
+    if paths.is_empty() {
+        return Err(TfsRustError::Content {
+            file: dir.to_string_lossy().into_owned(),
+            message: "no monster lua files found (expected data/monster/*.lua)".to_string(),
+        });
+    }
 
-    let mut written = 0usize;
-    for entry in entries {
-        let slug = monster_lua_slug(&entry.index_name);
-        if slug.is_empty() {
-            continue;
-        }
-        let xml_path = monster_dir.join(&entry.file);
-        let mtype = parse_monster_file(&xml_path, items)?;
-        let lua = emit_monster_lua(&entry.index_name, &mtype, Some(items));
-        let out_path = out_dir.join(format!("{slug}.lua"));
-        std::fs::write(&out_path, lua).map_err(|e| TfsRustError::Content {
-            file: out_path.to_string_lossy().into_owned(),
+    let lua = sandboxed_data_lua()?;
+    let mut monsters = HashMap::new();
+    for path in paths {
+        let src = std::fs::read_to_string(&path).map_err(|e| TfsRustError::Content {
+            file: path.to_string_lossy().into_owned(),
             message: e.to_string(),
         })?;
-        written += 1;
+        let file = path.display().to_string();
+        let (lookup_name, monster) = parse_monster_lua_with(&lua, &src, &file, items)?;
+        let key = lookup_name.to_lowercase();
+        if monsters.contains_key(&key) {
+            return Err(TfsRustError::Content {
+                file,
+                message: format!("duplicate monster name '{lookup_name}'"),
+            });
+        }
+        monsters.insert(key, monster);
     }
-    Ok(written)
+
+    Ok(MonsterDatabase { monsters })
+}
+
+fn collect_monster_lua_files(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut out = Vec::new();
+    collect_monster_lua_files_rec(dir, &mut out)?;
+    Ok(out)
+}
+
+fn collect_monster_lua_files_rec(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    let entries = std::fs::read_dir(dir).map_err(|e| TfsRustError::Content {
+        file: dir.to_string_lossy().into_owned(),
+        message: e.to_string(),
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|e| TfsRustError::Content {
+            file: dir.to_string_lossy().into_owned(),
+            message: e.to_string(),
+        })?;
+        let path = entry.path();
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if path.is_dir() {
+            collect_monster_lua_files_rec(&path, out)?;
+        } else if path.extension().and_then(|ext| ext.to_str()) == Some("lua")
+            && !name_str.contains('#')
+        {
+            out.push(path);
+        }
+    }
+    Ok(())
 }
 
 // --- serde defs (Lua keys) -------------------------------------------------
@@ -1192,7 +1247,7 @@ fn emit_loot(out: &mut String, loot: &[LootBlock], items: Option<&ItemDatabase>)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::monsters::{parse_monster_file, parse_monster_index, parse_monster_xml};
+    use std::collections::HashMap;
     use std::path::PathBuf;
 
     fn data_monster() -> PathBuf {
@@ -1209,6 +1264,20 @@ mod tests {
             items: HashMap::new(),
             client_to_server: HashMap::new(),
         })
+    }
+
+    fn empty_items() -> ItemDatabase {
+        ItemDatabase {
+            items: HashMap::new(),
+            client_to_server: HashMap::new(),
+        }
+    }
+
+    fn parse_file(slug: &str) -> MonsterType {
+        let path = data_monster().join(format!("{slug}.lua"));
+        let src = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{slug}: {e}"));
+        parse_monster_lua(&src, &format!("{slug}.lua"), &repo_items())
+            .unwrap_or_else(|e| panic!("{slug} parse: {e}"))
     }
 
     fn spell_attr<'a>(n: &'a MonsterSpellNode, k: &str) -> Option<&'a str> {
@@ -1243,156 +1312,100 @@ mod tests {
     }
 
     #[test]
-    fn emit_parse_dragon_xml() {
-        let path = data_monster().join("monsters/dragon.xml");
-        if !path.is_file() {
+    fn parse_dragon_lua_goldens() {
+        if !data_monster().join("dragon.lua").is_file() {
             return;
         }
-        let items = repo_items();
-        let xml = std::fs::read_to_string(&path).expect("dragon.xml");
-        let xml_type = parse_monster_xml(&xml, "monsters/dragon.xml", &items).expect("xml");
-        assert_eq!(xml_type.flags.strategy_nearest, 70);
-        assert_eq!(xml_type.flags.strategy_health, 10);
-        assert_eq!(xml_type.flags.strategy_damage, 10);
-        assert_eq!(xml_type.flags.strategy_random, 10);
-        assert_eq!(xml_type.flags.lose_target_percent, 5);
-        assert_eq!(xml_type.speed, 45);
-        assert_eq!(xml_type.outfit.corpse_id, 2844);
-        assert_eq!(xml_type.flags.run_away_health, 300);
-        assert_eq!(xml_type.attack_spells.len(), 3);
-        assert_eq!(
-            spell_attr(&xml_type.attack_spells[0], "name"),
-            Some("melee")
-        );
-        assert_eq!(spell_attr(&xml_type.attack_spells[0], "skill"), Some("55"));
-        assert_eq!(spell_attr(&xml_type.attack_spells[0], "attack"), Some("42"));
-        assert_eq!(spell_attr(&xml_type.attack_spells[1], "name"), Some("fire"));
-        assert_eq!(spell_attr(&xml_type.attack_spells[1], "delay"), Some("9"));
-        assert_eq!(spell_attr(&xml_type.attack_spells[2], "delay"), Some("7"));
-        assert!(!xml_type.loot.is_empty());
-
-        let lua = emit_monster_lua("Dragon", &xml_type, Some(&items));
-        assert!(lua.contains("name = \"Dragon\""));
-        assert!(!lua.contains("title ="));
-        let lua_type = parse_monster_lua(&lua, "dragon.lua", &items).expect("lua");
-        assert_eq!(lua_type.name, "Dragon");
-        assert_eq!(lua_type.speed, xml_type.speed);
-        assert_eq!(
-            lua_type.flags.target_distance,
-            xml_type.flags.target_distance
-        );
-        assert_eq!(lua_type.flags.strategy_nearest, 70);
-        assert_eq!(lua_type.flags.lose_target_percent, 5);
-        assert_eq!(lua_type.attack_spells.len(), xml_type.attack_spells.len());
-        assert_spell_shape(&lua_type.attack_spells[1], &xml_type.attack_spells[1]);
-        assert_spell_shape(&lua_type.attack_spells[2], &xml_type.attack_spells[2]);
-        assert_eq!(lua_type.loot.len(), xml_type.loot.len());
-        assert_eq!(lua_type.talk_texts[0], "#y GROOAAARRR");
-        assert!(lua_type.defenses.immunity_fire);
-        assert!(!lua_type.defenses.immunity_energy);
-        assert!(lua_type.defenses.immunity_paralyze);
-        assert!(!lua_type.defenses.immunity_outfit);
-        assert!(lua.contains("paralyze = true"));
-        assert!(lua.contains("outfit = false"));
+        let m = parse_file("dragon");
+        assert_eq!(m.name, "Dragon");
+        assert_eq!(m.flags.strategy_nearest, 70);
+        assert_eq!(m.flags.strategy_health, 10);
+        assert_eq!(m.flags.strategy_damage, 10);
+        assert_eq!(m.flags.strategy_random, 10);
+        assert_eq!(m.flags.lose_target_percent, 5);
+        assert_eq!(m.speed, 45);
+        assert_eq!(m.outfit.corpse_id, 2844);
+        assert_eq!(m.flags.run_away_health, 300);
+        assert_eq!(m.attack_spells.len(), 3);
+        assert_eq!(spell_attr(&m.attack_spells[0], "name"), Some("melee"));
+        assert_eq!(spell_attr(&m.attack_spells[0], "skill"), Some("55"));
+        assert_eq!(spell_attr(&m.attack_spells[0], "attack"), Some("42"));
+        assert_eq!(spell_attr(&m.attack_spells[1], "name"), Some("fire"));
+        assert_eq!(spell_attr(&m.attack_spells[1], "delay"), Some("9"));
+        assert_eq!(spell_attr(&m.attack_spells[2], "delay"), Some("7"));
+        assert!(!m.loot.is_empty());
+        assert_eq!(m.talk_texts[0], "#y GROOAAARRR");
+        assert!(m.defenses.immunity_fire);
+        assert!(!m.defenses.immunity_energy);
+        assert!(m.defenses.immunity_paralyze);
+        assert!(!m.defenses.immunity_outfit);
     }
 
     #[test]
-    fn amazon_emits_all_false_immunities() {
-        let path = data_monster().join("monsters/amazon.xml");
-        if !path.is_file() {
+    fn amazon_lua_all_false_immunities() {
+        if !data_monster().join("amazon.lua").is_file() {
             return;
         }
-        let items = repo_items();
-        let xml = std::fs::read_to_string(&path).expect("xml");
-        let xml_type = parse_monster_xml(&xml, "monsters/amazon.xml", &items).expect("xml");
-        assert!(!xml_type.defenses.immunity_fire);
-        assert!(!xml_type.defenses.immunity_energy);
-        assert!(!xml_type.defenses.immunity_poison);
-        assert!(!xml_type.defenses.immunity_physical);
-        assert!(!xml_type.defenses.immunity_outfit);
-        assert!(!xml_type.defenses.immunity_life_drain);
-        assert!(!xml_type.defenses.immunity_paralyze);
-        assert!(!xml_type.defenses.see_invisible);
-        let lua = emit_monster_lua("Amazon", &xml_type, Some(&items));
-        assert!(lua.contains("immunities ="));
-        assert!(lua.contains("paralyze = false"));
-        let lua_type = parse_monster_lua(&lua, "amazon.lua", &items).expect("lua");
-        assert!(!lua_type.defenses.immunity_paralyze);
-        assert!(!lua_type.defenses.immunity_outfit);
+        let m = parse_file("amazon");
+        assert!(!m.defenses.immunity_fire);
+        assert!(!m.defenses.immunity_energy);
+        assert!(!m.defenses.immunity_poison);
+        assert!(!m.defenses.immunity_physical);
+        assert!(!m.defenses.immunity_outfit);
+        assert!(!m.defenses.immunity_life_drain);
+        assert!(!m.defenses.immunity_paralyze);
+        assert!(!m.defenses.see_invisible);
+        let src = std::fs::read_to_string(data_monster().join("amazon.lua")).unwrap();
+        assert!(src.contains("paralyze = false"));
+        assert!(src.contains("outfit = false"));
     }
 
     #[test]
-    fn ancient_scarab_paralyze_and_outfit_round_trip() {
-        let path = data_monster().join("monsters/ancient scarab.xml");
-        if !path.is_file() {
+    fn ancient_scarab_lua_paralyze_outfit_life_drain() {
+        if !data_monster().join("ancient_scarab.lua").is_file() {
             return;
         }
-        let items = repo_items();
-        let xml = std::fs::read_to_string(&path).expect("xml");
-        let xml_type = parse_monster_xml(&xml, "monsters/ancient scarab.xml", &items).expect("xml");
-        assert!(xml_type.defenses.immunity_paralyze);
-        assert!(xml_type.defenses.immunity_outfit);
-        let lua = emit_monster_lua("Ancient Scarab", &xml_type, Some(&items));
-        assert!(lua.contains("paralyze = true"));
-        assert!(lua.contains("outfit = true"));
-        let lua_type = parse_monster_lua(&lua, "ancient_scarab.lua", &items).expect("lua");
-        assert!(lua_type.defenses.immunity_paralyze);
-        assert!(lua_type.defenses.immunity_outfit);
-        assert!(lua_type.defenses.immunity_life_drain);
-        assert!(lua_type.defenses.see_invisible);
+        let m = parse_file("ancient_scarab");
+        assert!(m.defenses.immunity_paralyze);
+        assert!(m.defenses.immunity_outfit);
+        assert!(m.defenses.immunity_life_drain);
+        assert!(m.defenses.see_invisible);
     }
 
     #[test]
-    fn red_butterfly_name_and_title() {
-        let path = data_monster().join("monsters/red butterfly.xml");
-        if !path.is_file() {
+    fn red_butterfly_lua_name_and_title() {
+        if !data_monster().join("red_butterfly.lua").is_file() {
             return;
         }
-        let items = repo_items();
-        let xml = std::fs::read_to_string(&path).expect("xml");
-        let xml_type = parse_monster_xml(&xml, "monsters/red butterfly.xml", &items).expect("xml");
-        assert_eq!(xml_type.name, "Butterfly");
-        let lua = emit_monster_lua("Red Butterfly", &xml_type, Some(&items));
-        assert!(lua.contains("name = \"Red Butterfly\""));
-        assert!(lua.contains("title = \"Butterfly\""));
-        let lua_type = parse_monster_lua(&lua, "red_butterfly.lua", &items).expect("lua");
-        assert_eq!(lua_type.name, "Butterfly");
+        let src = std::fs::read_to_string(data_monster().join("red_butterfly.lua")).unwrap();
+        assert!(src.contains("name = \"Red Butterfly\""));
+        assert!(src.contains("title = \"Butterfly\""));
+        let (lookup, m) =
+            parse_monster_lua_named(&src, "red_butterfly.lua", &empty_items()).expect("parse");
+        assert_eq!(lookup, "Red Butterfly");
+        assert_eq!(m.name, "Butterfly");
     }
 
     #[test]
-    fn giant_spider_summons_round_trip() {
-        let path = data_monster().join("monsters/giant spider.xml");
-        if !path.is_file() {
+    fn giant_spider_lua_summons() {
+        if !data_monster().join("giant_spider.lua").is_file() {
             return;
         }
-        let items = repo_items();
-        let xml = std::fs::read_to_string(&path).expect("xml");
-        let xml_type = parse_monster_xml(&xml, "monsters/giant spider.xml", &items).expect("xml");
-        assert_eq!(xml_type.max_summons, 2);
-        assert_eq!(xml_type.summons[0].delay, 10);
-        assert_eq!(xml_type.summons[0].max, 2);
-        let lua = emit_monster_lua("Giant Spider", &xml_type, Some(&items));
-        let lua_type = parse_monster_lua(&lua, "giant_spider.lua", &items).expect("lua");
-        assert_eq!(lua_type.max_summons, 2);
-        assert_eq!(lua_type.summons.len(), 1);
-        assert_eq!(lua_type.summons[0].name, "Poison Spider");
-        assert_eq!(lua_type.summons[0].delay, 10);
-        assert_eq!(lua_type.summons[0].max, 2);
+        let m = parse_file("giant_spider");
+        assert_eq!(m.max_summons, 2);
+        assert_eq!(m.summons.len(), 1);
+        assert_eq!(m.summons[0].name, "Poison Spider");
+        assert_eq!(m.summons[0].delay, 10);
+        assert_eq!(m.summons[0].max, 2);
     }
 
     #[test]
-    fn warlock_spells_round_trip() {
-        let path = data_monster().join("monsters/warlock.xml");
-        if !path.is_file() {
+    fn warlock_lua_spell_names() {
+        if !data_monster().join("warlock.lua").is_file() {
             return;
         }
-        let items = repo_items();
-        let xml = std::fs::read_to_string(&path).expect("xml");
-        let xml_type = parse_monster_xml(&xml, "monsters/warlock.xml", &items).expect("xml");
-        let lua = emit_monster_lua("Warlock", &xml_type, Some(&items));
-        let lua_type = parse_monster_lua(&lua, "warlock.lua", &items).expect("lua");
-        assert_eq!(lua_type.attack_spells.len(), xml_type.attack_spells.len());
-        let names: Vec<_> = lua_type
+        let m = parse_file("warlock");
+        let names: Vec<_> = m
             .attack_spells
             .iter()
             .map(|s| spell_attr(s, "name").unwrap_or(""))
@@ -1400,167 +1413,145 @@ mod tests {
         assert_eq!(
             names,
             vec![
-                "melee",
-                "energy",
-                "firefield",
-                "firefield",
-                "fire",
-                "speed",
-                "manadrain",
+                "melee", "energy", "firefield", "firefield", "fire", "speed", "manadrain",
                 "physical",
             ]
         );
-        assert_eq!(spell_attr(&lua_type.attack_spells[1], "delay"), Some("8"));
+        assert_eq!(spell_attr(&m.attack_spells[1], "delay"), Some("8"));
+        assert_eq!(spell_attr(&m.attack_spells[5], "duration"), Some("40000"));
         assert_eq!(
-            spell_attr(&lua_type.attack_spells[5], "duration"),
-            Some("40000")
-        );
-        assert_eq!(
-            spell_attr(&lua_type.attack_spells[5], "speedvariation"),
+            spell_attr(&m.attack_spells[5], "speedvariation"),
             Some("20")
         );
         assert_eq!(
-            spell_child(&lua_type.attack_spells[1], "areaeffect"),
+            spell_child(&m.attack_spells[1], "areaeffect"),
             Some("energy")
         );
-        assert_eq!(lua_type.defenses.spells.len(), 2);
+        assert_eq!(m.defenses.spells.len(), 2);
         assert_eq!(
-            spell_attr(&lua_type.defenses.spells[0], "name"),
+            spell_attr(&m.defenses.spells[0], "name"),
             Some("invisible")
         );
-        for (a, b) in lua_type
-            .attack_spells
-            .iter()
-            .zip(xml_type.attack_spells.iter())
-        {
-            assert_spell_shape(a, b);
-        }
     }
 
     #[test]
-    fn all_xml_monsters_round_trip_through_lua() {
+    fn all_lua_monsters_emit_parse_round_trip() {
         let dir = data_monster();
-        let index = dir.join("monsters.xml");
-        if !index.is_file() {
+        if !dir.join("dragon.lua").is_file() {
             return;
         }
         let items = repo_items();
-        let entries = parse_monster_index(&index).expect("index");
-        assert_eq!(entries.len(), 157, "stock 772 pack size");
-        for entry in entries {
-            let xml_type = parse_monster_file(&dir.join(&entry.file), &items)
-                .unwrap_or_else(|e| panic!("{} xml: {e}", entry.index_name));
-            let lua = emit_monster_lua(&entry.index_name, &xml_type, Some(&items));
-            let slug = monster_lua_slug(&entry.index_name);
-            let lua_type = parse_monster_lua(&lua, &format!("{slug}.lua"), &items)
-                .unwrap_or_else(|e| panic!("{} lua: {e}", entry.index_name));
-            assert_eq!(lua_type.name, xml_type.name, "{}", entry.index_name);
-            assert_eq!(lua_type.speed, xml_type.speed, "{}", entry.index_name);
+        let mut n = 0usize;
+        let mut files: Vec<_> = std::fs::read_dir(&dir)
+            .expect("read dir")
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("lua"))
+            .filter(|p| {
+                !p.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .contains('#')
+            })
+            .collect();
+        files.sort();
+        for path in files {
+            n += 1;
+            let src = std::fs::read_to_string(&path).expect("read");
+            let file = path.display().to_string();
+            let (lookup, parsed) = parse_monster_lua_named(&src, &file, &items)
+                .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            let emitted = emit_monster_lua(&lookup, &parsed, Some(&items));
+            let again = parse_monster_lua(&emitted, &file, &items)
+                .unwrap_or_else(|e| panic!("{} reparse: {e}", path.display()));
+            assert_eq!(again.name, parsed.name, "{lookup}");
+            assert_eq!(again.speed, parsed.speed, "{lookup}");
             assert_eq!(
-                lua_type.flags.lose_target_percent, xml_type.flags.lose_target_percent,
-                "{}",
-                entry.index_name
+                again.flags.lose_target_percent, parsed.flags.lose_target_percent,
+                "{lookup}"
             );
             assert_eq!(
-                lua_type.flags.strategy_nearest, xml_type.flags.strategy_nearest,
-                "{}",
-                entry.index_name
+                again.flags.strategy_nearest, parsed.flags.strategy_nearest,
+                "{lookup}"
             );
             assert_eq!(
-                lua_type.attack_spells.len(),
-                xml_type.attack_spells.len(),
-                "{}",
-                entry.index_name
+                again.attack_spells.len(),
+                parsed.attack_spells.len(),
+                "{lookup}"
             );
-            assert_eq!(lua_type.summons, xml_type.summons, "{}", entry.index_name);
+            assert_eq!(again.summons, parsed.summons, "{lookup}");
+            assert_eq!(again.max_summons, parsed.max_summons, "{lookup}");
+            assert_eq!(again.loot.len(), parsed.loot.len(), "{lookup}");
+            assert_eq!(again.talk_texts, parsed.talk_texts, "{lookup}");
             assert_eq!(
-                lua_type.max_summons, xml_type.max_summons,
-                "{}",
-                entry.index_name
-            );
-            assert_eq!(
-                lua_type.loot.len(),
-                xml_type.loot.len(),
-                "{}",
-                entry.index_name
+                again.defenses.immunity_paralyze, parsed.defenses.immunity_paralyze,
+                "{lookup}"
             );
             assert_eq!(
-                lua_type.talk_texts, xml_type.talk_texts,
-                "{}",
-                entry.index_name
+                again.defenses.immunity_outfit, parsed.defenses.immunity_outfit,
+                "{lookup}"
             );
             assert_eq!(
-                lua_type.defenses.immunity_paralyze, xml_type.defenses.immunity_paralyze,
-                "{}",
-                entry.index_name
+                again.defenses.immunity_life_drain, parsed.defenses.immunity_life_drain,
+                "{lookup}"
             );
             assert_eq!(
-                lua_type.defenses.immunity_outfit, xml_type.defenses.immunity_outfit,
-                "{}",
-                entry.index_name
+                again.defenses.see_invisible, parsed.defenses.see_invisible,
+                "{lookup}"
             );
-            assert_eq!(
-                lua_type.defenses.immunity_life_drain, xml_type.defenses.immunity_life_drain,
-                "{}",
-                entry.index_name
-            );
-            assert_eq!(
-                lua_type.defenses.see_invisible, xml_type.defenses.see_invisible,
-                "{}",
-                entry.index_name
-            );
-            for (a, b) in lua_type
-                .attack_spells
-                .iter()
-                .zip(xml_type.attack_spells.iter())
-            {
+            for (a, b) in again.attack_spells.iter().zip(parsed.attack_spells.iter()) {
                 assert_spell_shape(a, b);
             }
         }
+        assert_eq!(n, 157, "stock 772 pack size");
     }
 
     #[test]
-    fn dragon_xml_lua_round_trip_compare() {
-        let path = data_monster().join("monsters/dragon.xml");
-        if !path.is_file() {
+    fn load_dir_lua_keys_by_name_skips_hash_prefix() {
+        let dir = data_monster();
+        if !dir.join("dragon.lua").is_file() {
             return;
         }
         let items = repo_items();
-        let xml = std::fs::read_to_string(&path).expect("xml");
-        let xml_type = parse_monster_xml(&xml, "monsters/dragon.xml", &items).expect("xml");
-        let lua = emit_monster_lua("Dragon", &xml_type, Some(&items));
-        let lua_type = parse_monster_lua(&lua, "dragon.lua", &items).expect("lua");
-        assert_eq!(lua_type.name, xml_type.name);
-        assert_eq!(lua_type.speed, xml_type.speed);
-        assert_eq!(
-            lua_type.flags.target_distance,
-            xml_type.flags.target_distance
+        let db = load_monster_dir(&dir, &items).expect("load lua monsters");
+        assert_eq!(db.monsters.len(), 157, "one type per lua file");
+        let dragon = db.get_by_name("Dragon").expect("dragon");
+        assert_eq!(dragon.name, "Dragon");
+        assert_eq!(dragon.speed, 45);
+        let red = db.get_by_name("red butterfly").expect("red butterfly");
+        assert_eq!(red.name, "Butterfly");
+        assert!(!db.monsters.contains_key("butterfly"));
+        assert!(
+            !db.monsters.values().any(|m| m.filename.contains('#')),
+            "filenames with # must not load"
         );
-        assert_eq!(
-            lua_type.flags.strategy_nearest,
-            xml_type.flags.strategy_nearest
-        );
-        assert_eq!(
-            lua_type.flags.strategy_health,
-            xml_type.flags.strategy_health
-        );
-        assert_eq!(
-            lua_type.flags.strategy_damage,
-            xml_type.flags.strategy_damage
-        );
-        assert_eq!(
-            lua_type.flags.strategy_random,
-            xml_type.flags.strategy_random
-        );
-        assert_eq!(
-            lua_type.flags.lose_target_percent,
-            xml_type.flags.lose_target_percent
-        );
-        assert_eq!(lua_type.attack_spells.len(), xml_type.attack_spells.len());
-        assert_eq!(
-            spell_attr(&lua_type.attack_spells[1], "delay"),
-            spell_attr(&xml_type.attack_spells[1], "delay")
-        );
-        assert_eq!(lua_type.loot.len(), xml_type.loot.len());
+        let amazon = db.get_by_name("amazon").expect("amazon");
+        assert!(!amazon.defenses.immunity_fire);
+        assert!(!amazon.defenses.immunity_paralyze);
+        let scarab = db.get_by_name("ancient scarab").expect("ancient scarab");
+        assert!(scarab.defenses.immunity_paralyze);
+        assert!(scarab.defenses.immunity_outfit);
+        assert!(scarab.defenses.immunity_life_drain);
+    }
+
+    #[test]
+    fn load_dir_duplicate_name_fails() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("tfs-mon-lua-dup-{nanos}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = "return { schema = 1, name = \"Rat\" }\n";
+        std::fs::write(dir.join("a.lua"), src).unwrap();
+        std::fs::write(dir.join("b.lua"), src).unwrap();
+        let items = empty_items();
+        let err = match load_monster_dir(&dir, &items) {
+            Err(e) => e,
+            Ok(_) => panic!("duplicate name should fail"),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("duplicate"), "{msg}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

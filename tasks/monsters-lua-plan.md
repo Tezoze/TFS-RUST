@@ -1,9 +1,9 @@
 # Monsters — XML → Lua-as-data
 
 **Scope:** replace `data/monster/monsters.xml` + `data/monster/monsters/*.xml` (157 types) with per-file Lua defs. Loader materializes the existing `MonsterType` Rust structs. Combat / AI / spawn stay unchanged.
-**Date:** 2026-08-22. **Updated:** 2026-08-23 (one monster corpus; era gates on combat types only). **Companions:** [DATA_FORMAT_MIGRATION.md](../docs/DATA_FORMAT_MIGRATION.md) Phase 3, vocations pilot (`data/defs/vocations.lua` + `crates/tfs-rust-content/src/data_lua.rs`). Lessons 364–365.
+**Date:** 2026-08-22. **Updated:** 2026-08-23 (Lua `load_dir`; XML pack deleted). **Companions:** [DATA_FORMAT_MIGRATION.md](../docs/DATA_FORMAT_MIGRATION.md) Phase 3, vocations pilot (`data/defs/vocations.lua` + `crates/tfs-rust-content/src/data_lua.rs`). Lessons 364–367.
 
-**Status:** converter + 157 Lua files + full immunity round-trip **done**. Production still loads XML. Loader switch + XML delete are remaining.
+**Status:** converter + 157 Lua files + immunity round-trip + runtime Lua loader + **XML pack deleted**. `register_monster_type.lua` stub remains.
 
 Canonical file: `data/monster/dragon.lua` (generated from `monsters/dragon.xml`). Do **not** restore the old TFS revscript draft (speed 172, corpse 5973, chance/interval combat).
 
@@ -53,6 +53,8 @@ If a def lists `name = "ice"` (or holy/death/earth), both eras parse the node. T
 
 `monster_combat.rs` already aliases some names (`poison`/`earth`, `death`). Keep extending **name → impact** there, gated by the active profile — not by a second datapack.
 
+Loot is spawn-only (772 corpus); pack Lua policy: [docs/DATA_PACK_LUA.md](../docs/DATA_PACK_LUA.md).
+
 ---
 
 ## Current state
@@ -60,16 +62,17 @@ If a def lists `name = "ice"` (or holy/death/earth), both eras parse the node. T
 | Piece | Status |
 |---|---|
 | XML parse → `MonsterType` | **Done** — `crates/tfs-rust-content/src/monsters.rs` |
-| Index `monsters.xml` name → file | **Done** — HashMap key = index name, not file `name=` (lesson 19) |
-| Pipeline load before Lua VM | **Done** — `pipeline.rs` `spawn_blocking` after items; **still XML** |
+| Index `monsters.xml` name → file | **Retired** — lookup key is Lua `name` (lesson 19 still applies via `title`) |
+| Pipeline load before Lua VM | **Done** — `pipeline.rs` `spawn_blocking` after items; **Lua** via `load_dir` |
 | Combat from `MonsterSpellNode` | **Done** — `monster_combat.rs` `try_from_node` / `combat_from_monster_type` |
 | `Game.createMonster` spawn | **Done** — looks up DB by name |
 | `Game.createMonsterType` / `mType:register` | **Stubs only** — lib Lua exists, no Rust drain; not needed for defs |
 | Schema + emit/parse | **Done** — `crates/tfs-rust-content/src/monster_lua.rs` |
-| Converter bin | **Done** — `cargo run -p tfs-rust-content --bin export-monsters-lua` |
+| Converter bin | **Removed** — XML source gone; emit/parse remain for tests |
 | `data/monster/*.lua` | **Done** — 157 files (flat slugs: `dragon.lua`, `red_butterfly.lua`, …) |
-| XML kept | **Yes** — `monsters.xml` + `monsters/*.xml` still on disk |
-| Production load | **Still XML** — `MonsterDatabase::load_dir` unchanged |
+| XML kept | **No** — `monsters.xml` + `monsters/*.xml` deleted |
+| Production load | **Lua** — `MonsterDatabase::load_dir` scans `**/*.lua`, skips `#` in filename |
+| `lua/#example.lua` | **Deleted** — TFS revscript sketch, not this schema |
 | XML `yell="1"` | **Done** — prefixes `#y ` on `talk_texts` (idle already stripped it) |
 | Immunities (all 8) | **Done** — always emit `true`/`false` for fire, energy, poison, physical, outfit, life_drain, paralyze, invisible |
 | Paralyze | **Done** — stored; 772 `NoParalyze` skips `SpellImpact::Speed` paralyze (haste still applies) |
@@ -78,17 +81,11 @@ If a def lists `name = "ice"` (or holy/death/earth), both eras parse the node. T
 
 Corpus: **157** types. All have `targetchange` + `targetstrategy`; **90** have `losetarget`; **35** have summons; **113** have voices; **0** have `<elements>` / `script=` / `<events>`.
 
-Re-export (does not delete XML):
-
-```sh
-rtk cargo run -p tfs-rust-content --bin export-monsters-lua
-```
-
 ---
 
 ## Target format
 
-One file per type: `data/monster/<slug>.lua`. File must `return { schema = 1, … }`. Snake_case keys (same as vocations). `#`-prefixed files are skipped (keeps `lua/#example.lua` as a non-loaded sketch).
+One file per type: `data/monster/<slug>.lua`. File must `return { schema = 1, … }`. Snake_case keys (same as vocations). `#` in the filename is skipped (no TFS sketch remains in-tree).
 
 **No** `monsters.xml` once the loader switches. Spawn / `get_by_name` key is the def’s `name` (case-insensitive). Filename is not the key.
 
@@ -232,9 +229,9 @@ Keep `MonsterType` as the in-memory type. Lua deserializes into serde defs in `m
 
 ---
 
-## Loader (remaining)
+## Loader (shipped)
 
-Replace `MonsterDatabase::load_dir` XML path. Stay in `tfs-rust-content` (content pipeline, `spawn_blocking`, **before** `LuaRuntime`). Reuse `sandboxed_data_lua` + `load_data_table` / `load_data_table_str` + `require_schema` (`schema = 1`). `parse_monster_lua` already exists.
+`MonsterDatabase::load_dir` is Lua-as-data only (no XML fallback). Stay in `tfs-rust-content` (content pipeline, `spawn_blocking`, **before** `LuaRuntime`). Reuses `sandboxed_data_lua` + `load_data_table_str` + `require_schema` (`schema = 1`).
 
 ```
 pipeline::load_all
@@ -253,22 +250,13 @@ Hard-fail on eval / schema / missing `name`. Unknown loot id: keep today’s war
 
 No game-thread Lua for monster stats. No `_pending_monsters`. No `register_monster_type.lua` drain.
 
-Until this ships, `load_dir` still reads `monsters.xml`.
+XML parser and `export-monsters-lua` were removed in step 7.
 
 ---
 
-## Converter (shipped)
+## Converter (retired)
 
-`cargo run -p tfs-rust-content --bin export-monsters-lua`
-
-- `--data` (default `data`), `--out` (default `{data}/monster`).
-- Parses with the **current** XML loader so output matches today’s `MonsterType`.
-- Slug: lowercase, spaces → `_` (`red_butterfly.lua`). `name` inside the file stays `"Red Butterfly"`.
-- Loot line comments from `ItemDatabase` names.
-- Always emits all eight `immunities` keys (including `false`).
-- Flat `data/monster/*.lua`. Overwrites existing Lua (including `dragon.lua`). Does **not** delete XML.
-
-API: `emit_monster_lua` / `parse_monster_lua` / `export_monsters_lua` / `monster_lua_slug` in `monster_lua.rs`.
+XML → Lua conversion shipped the 157 files, then the XML pack and `export-monsters-lua` bin were deleted. `emit_monster_lua` / `parse_monster_lua` / `monster_lua_slug` remain for tests and any future authoring.
 
 ---
 
@@ -278,9 +266,9 @@ API: `emit_monster_lua` / `parse_monster_lua` / `export_monsters_lua` / `monster
 2. **Done** Converter bin + 157 files.
 3. **Done** Golden: `all_xml_monsters_round_trip_through_lua` (strategy, summons, spell shape, loot, voices, all 8 immunities).
 4. **Done** Immunity pass (lesson 365): store paralyze/outfit; always emit zeros; copy `life_drain` at spawn; 772 `NoParalyze` on speed-down.
-5. **Remaining** `load_dir` prefers `*.lua`; XML fallback optional for one release.
-6. **Remaining** Drop XML fallback. Update tests that load `data/monster` (772 outcomes stay; file suffix changes).
-7. **Remaining** Delete `data/monster/monsters.xml` + `monsters/*.xml`. Remove XML parser from this module if unused elsewhere. Delete or keep `lua/#example.lua` (TFS sketch — do not copy). Leave `register_monster_type.lua` as a stub.
+5. **Done** `load_dir` loads `*.lua` only (no XML fallback).
+6. **Done** Load-dir tests (`name` vs `title`, 157 count, skip `#`, duplicate name). XML parse tests rewritten as Lua fixtures.
+7. **Done** Deleted `data/monster/monsters.xml` + `monsters/*.xml` and `lua/#example.lua`. Removed XML parser and `export-monsters-lua`. Left `register_monster_type.lua` as a stub.
 
 ---
 
@@ -293,16 +281,17 @@ Shipped in `monster_lua.rs`:
 - Red Butterfly `name`/`title`
 - Giant Spider summons delay 10 / max 2
 - Warlock spell names + `speedvariation` round-trip
-- Full-dir XML→Lua round-trip (157), including all 8 immunity bits
+- Full-dir Lua emit→parse round-trip (157), including all 8 immunity bits
 - Amazon: all-false table still emitted
-- Ancient Scarab / Dragon: `paralyze` / `outfit` / `life_drain` match XML
+- Ancient Scarab / Dragon: `paralyze` / `outfit` / `life_drain` from Lua
 - `from_monster_type` copies `immunity_life_drain` and `immunity_paralyze`
+- `load_dir` Lua: 157 types, skip `#example.lua`, Red Butterfly `name`/`title`, duplicate name fails
 
-Keep existing combat goldens; they must still pass after the **loader** swap:
+Keep existing combat goldens (they load via `load_dir` Lua):
 
-- `parses_monster_ai_flags` / `parses_targetstrategy_and_losetarget` / `parses_monster_summons_block` — rewrite fixtures as Lua strings when XML parse goes away.
+- `parses_monster_ai_flags` / `parses_targetstrategy_and_losetarget` / `parses_monster_summons_block` — Lua string fixtures.
 - `index_name_is_lookup_key_not_file_name_attr` → `name` vs `title` for Red Butterfly.
-- `test_dragon_strategy_and_losetarget_from_xml` (rename) — strategy 70/10/10/10, lose 5.
+- `test_dragon_strategy_and_losetarget_from_xml` (rename later) — strategy 70/10/10/10, lose 5.
 - `test_e0_dragon_fire_spells_shape_mapping` — delay 9 wave + delay 7 ball.
 - `test_giant_spider_summon_spell_from_xml` — delay 10, max 2.
 - `test_dragon_merges_defense_spells_at_spawn`.
@@ -311,7 +300,6 @@ Keep existing combat goldens; they must still pass after the **loader** swap:
 rtk cargo test -p tfs-rust-content --lib monster_lua
 rtk cargo test -p tfs-rust-content --lib monsters
 rtk cargo test -p tfs-rust-core --lib monster_combat
-rtk cargo run -p tfs-rust-content --bin export-monsters-lua
 ```
 
 ---
@@ -325,10 +313,10 @@ rtk cargo run -p tfs-rust-content --bin export-monsters-lua
 | Numbers | Copy XML 772 values; do not “upgrade” to TFS 8.x+ loot/speed/corpse |
 | Attacks | Named + `delay` only. Same files for 772 and 1098. No `combat`/`COMBAT_*`/`chance` fork |
 | Voices | List of `{ text, yell }`; no fake interval/chance |
-| Index file | Delete **after** loader switch; `name` is the key |
+| Index file | **Deleted**; `name` is the key |
 | Butterflies | `name` = spawn key, `title` = XML file `name` attr |
 | Load time | Content pipeline, before game Lua VM |
-| Dual path | XML remains production until loader switch (steps 5–7). Same Lua corpus both eras |
+| Dual path | Runtime is Lua. XML pack deleted. Same Lua corpus both eras |
 | Extra 1098 types | death / holy / earth / ice — **profile gates**, not extra monster files |
 | `elements` / walk-on-field / boss flags | Skip until a def needs them |
 | Paralyze / outfit immunity | Always in Lua. Paralyze = 772 `NoParalyze` (skip speed-down). Outfit stored only (no 772 flag) |
@@ -338,7 +326,6 @@ rtk cargo run -p tfs-rust-content --bin export-monsters-lua
 
 ## Deferred
 
-- Switch `load_dir` to Lua and delete XML (steps 5–7 above).
 - 1098 death/holy/earth/ice: keep **gating** in `monster_combat` / conditions by profile; do **not** add a second attack schema or datapack tree.
 - Monster `onThink` / `onAppear` Lua callbacks (none in this pack).
 - `elements` percent map (none in this pack).

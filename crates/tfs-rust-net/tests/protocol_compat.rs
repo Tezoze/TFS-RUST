@@ -1701,12 +1701,12 @@ mod v772_floor_change {
     #[test]
     fn non_adjacent_live_repro_full_screen_only() {
         let dest = Position::new(33211, 31815, 8);
-        let b = notify_go_bytes(
-            &codec_772(),
-            Position::new(33211, 31813, 7),
-            dest,
+        let b = notify_go_bytes(&codec_772(), Position::new(33211, 31813, 7), dest);
+        assert_eq!(
+            b[0], 0x64,
+            "live repro must start with 0x64 (got {:#04X})",
+            b[0]
         );
-        assert_eq!(b[0], 0x64, "live repro must start with 0x64 (got {:#04X})", b[0]);
         assert_ne!(b[0], 0x6D, "must not lead with 0x6D");
         assert_eq!(u16::from_le_bytes([b[1], b[2]]), dest.x);
         assert_eq!(u16::from_le_bytes([b[3], b[4]]), dest.y);

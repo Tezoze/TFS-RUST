@@ -19,10 +19,10 @@ pub use monster::{Monster, MonsterAiConfig, MonsterAiPhase, MonsterState};
 pub use monster_combat::{
     MeleeDefenseSnapshot, MonsterCombatSnapshot, MonsterFieldType, MonsterSpell, SpellImpact,
     SpellShape, combat_from_monster_type, creature_immune_paralyze, creature_immune_poison,
-    defend_fight_mode_for_target,
-    drunk_power_from_xml, duration_ms_to_rounds, melee_defense_snapshot, melee_poison_on_hit,
-    monster_has_melee_strike, monster_weapon_attack_distance, roll_target_defense,
-    runtime_spell_in_attack_range, speed_mdact,
+    defend_fight_mode_for_target, drunk_power_from_xml, duration_ms_to_rounds,
+    melee_defense_snapshot, melee_poison_on_hit, monster_has_melee_strike,
+    monster_weapon_attack_distance, roll_target_defense, runtime_spell_in_attack_range,
+    speed_mdact,
 };
 pub use monster_inventory::{
     DEFAULT_MONSTER_BAG_TYPE, MonsterInventory, damage_text_color, effective_monster_combat_stats,

@@ -1593,9 +1593,7 @@ mod e5_e6_e7_script_tests {
         let pos = Position::new(50, 50, 7);
         let player_cid = insert_player(&mut world, test_player("Citizen", pos));
         let pid = player_cid.data().as_ffi();
-        world
-            .lua_script_player_set_town(pid, 4)
-            .expect("setTown");
+        world.lua_script_player_set_town(pid, 4).expect("setTown");
         let town = match world.creatures.get(player_cid) {
             Some(CreatureKind::Player(p)) => p.town_id,
             _ => panic!("player"),
