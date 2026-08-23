@@ -321,7 +321,7 @@ Delete `ScriptLoader::load_player_events` and the `events.xml` structs (`script_
 
 ---
 
-## Phase 6 — Retire the XML script trees
+## Phase 6 — Retire the XML script trees — **DONE 2026-08-24**
 
 Do this **after** Phases 1–5, so every deletion is provably unreferenced. One commit per subsection.
 

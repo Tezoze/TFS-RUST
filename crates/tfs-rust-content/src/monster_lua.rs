@@ -1413,7 +1413,13 @@ mod tests {
         assert_eq!(
             names,
             vec![
-                "melee", "energy", "firefield", "firefield", "fire", "speed", "manadrain",
+                "melee",
+                "energy",
+                "firefield",
+                "firefield",
+                "fire",
+                "speed",
+                "manadrain",
                 "physical",
             ]
         );
@@ -1428,10 +1434,7 @@ mod tests {
             Some("energy")
         );
         assert_eq!(m.defenses.spells.len(), 2);
-        assert_eq!(
-            spell_attr(&m.defenses.spells[0], "name"),
-            Some("invisible")
-        );
+        assert_eq!(spell_attr(&m.defenses.spells[0], "name"), Some("invisible"));
     }
 
     #[test]

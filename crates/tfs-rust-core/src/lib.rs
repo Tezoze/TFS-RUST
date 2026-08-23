@@ -61,6 +61,7 @@ mod monster_ai;
 mod monster_distance_step;
 mod monster_events;
 mod monster_push;
+mod monster_spawn_hook;
 mod monster_targets;
 mod npc;
 mod obs;
@@ -80,7 +81,6 @@ mod sim_glibc_rand;
 #[cfg(any(test, feature = "sim"))]
 pub mod sim_harness;
 pub mod spawn;
-mod monster_spawn_hook;
 mod spawn_lifecycle;
 mod spawn_placement;
 pub mod spell;
@@ -146,9 +146,7 @@ pub use cylinder::{
     Cylinder, CylinderFlags, CylinderLink, CylinderType, INDEX_ADD_WHEREVER, INDEX_MOVE_UP,
     INDEX_WHEREEVER, VirtualCylinder,
 };
-pub use event_dispatcher::{
-    EventCylinder, EventDispatcher, NullEventDispatcher, TalkActionResult,
-};
+pub use event_dispatcher::{EventCylinder, EventDispatcher, NullEventDispatcher, TalkActionResult};
 pub use formulas::{
     ArmorReduction, ConditionTicks, DamageFormula, DestroyableStoneTuning, DistanceKeep,
     FightModes, FishingSuccessModel, FishingTuning, FormulaHooks, LevelExpModel, Mechanics,

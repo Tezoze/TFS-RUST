@@ -2,8 +2,6 @@ if not KILL_STATISTICS then
 	KILL_STATISTICS = {}
 end
 
-local serverStartTime = os.time()
-
 local creatureevent = CreatureEvent("KillStatistics_KillMonster")
 
 -- Store information for player killing monsters
@@ -19,16 +17,16 @@ function creatureevent.onKill(creature, target)
 
 	if name == "Demon" then -- Special check for Demon "Illusion"
 		local maxhp = target:getMaxHealth()
-		if maxhp <= 50 then 
+		if maxhp <= 50 then
 			name = "Illusion"
 		end
 	end
 
 	local record = KILL_STATISTICS[name]
 	if record then
-		KILL_STATISTICS[name].killed = KILL_STATISTICS[name].killed + 1 -- Increase existing record entry
-	else 
-		KILL_STATISTICS[name] = {killed = 1, killedBy = 0} -- Add new record entry
+		KILL_STATISTICS[name].killed = KILL_STATISTICS[name].killed + 1
+	else
+		KILL_STATISTICS[name] = {killed = 1, killedBy = 0}
 	end
 
 	return true
@@ -43,32 +41,32 @@ function creatureevent.onDeath(creature, corpse, killer, mostDamageKiller, lastH
 	local name = ""
 
 	if not killer then
-		name = "elemental forces" -- If killer not found, player died from conditions
+		name = "elemental forces"
 	elseif killer:getPlayer() then
-		name = "players" -- Killer was a player
+		name = "players"
 	elseif killer:getMaster() then
 		local master = killer:getMaster()
 		if master:getPlayer() then
-			name = "players" -- Killer was a player summon
+			name = "players"
 		else
-			name = master:getName() -- Killer was a monster summon
+			name = master:getName()
 		end
 	else
-		name = killer:getName() -- Killer was a normal monster
+		name = killer:getName()
 	end
 
-	if name == "Demon" then -- Special check for Demon "Illusion"
+	if name == "Demon" then
 		local maxhp = killer:getMaxHealth()
-		if maxhp <= 50 then 
+		if maxhp <= 50 then
 			name = "Illusion"
 		end
 	end
 
 	local record = KILL_STATISTICS[name]
 	if record then
-		KILL_STATISTICS[name].killedBy = KILL_STATISTICS[name].killedBy + 1 -- Increase existing record entry
+		KILL_STATISTICS[name].killedBy = KILL_STATISTICS[name].killedBy + 1
 	else
-		KILL_STATISTICS[name] = {killed = 0, killedBy = 1} -- Add new record entry
+		KILL_STATISTICS[name] = {killed = 0, killedBy = 1}
 	end
 
 	return true
@@ -79,32 +77,9 @@ creatureevent:register()
 creatureevent = CreatureEvent("KillStatistics_PlayerLogin")
 
 function creatureevent.onLogin(player)
-    player:registerEvent("KillStatistics_KillMonster")
-    player:registerEvent("KillStatistics_KillPlayer")
-    return true
-end
-
-creatureevent:register()
-
-local globalevent = GlobalEvent("KillStatistics_Flush")
-
-function globalevent.onShutdown()
-	print("> Flushing kill statistics ...")
-
-	local dbQuery = "INSERT INTO `kill_statistics` (`name`, `killed_by`, `killed`, `time`) VALUES "
-
-    local executeQuery = false
-	for key, value in pairs(KILL_STATISTICS) do
-        executeQuery = true
-		dbQuery = dbQuery .. "(" .. db.escapeString(key) .. ", " .. value.killedBy .. ", " .. value.killed .. ", " .. serverStartTime .. "),"
-	end
-
-	if executeQuery then
-		dbQuery = dbQuery:sub(1, #dbQuery - 1) -- Remove trailing commas
-		db.query(dbQuery) -- Add data to database
-	end
-
+	player:registerEvent("KillStatistics_KillMonster")
+	player:registerEvent("KillStatistics_KillPlayer")
 	return true
 end
 
-globalevent:register()
+creatureevent:register()

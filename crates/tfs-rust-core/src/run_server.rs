@@ -29,9 +29,9 @@ use crate::lua_scope::register_lua_mutation_hooks;
 use crate::map::Map;
 use crate::spawn::SpawnManager;
 use tfs_rust_lua::{
-    LuaRuntime, ScriptLoader, assert_required_data_globals, inject_door_tables_from_global,
-    inject_era_formulas, load_action_scripts, load_all_talkaction_scripts,
-    load_chat_channel_scripts, load_data_lib, load_scripts_interface,
+    LuaRuntime, assert_required_data_globals, inject_door_tables_from_global, inject_era_formulas,
+    load_action_scripts, load_all_talkaction_scripts, load_chat_channel_scripts, load_data_lib,
+    load_scripts_interface,
 };
 
 /// Resolve PEM: `TFS_RSA_PEM` if set, else workspace-root `key.pem`, else `./key.pem`.
@@ -246,9 +246,6 @@ pub async fn run() -> anyhow::Result<()> {
             };
 
             let mut move_events = tfs_rust_lua::MoveEventsRegistry::default();
-            if let Err(e) = move_events.load_from_xml(&mut lua_runtime, &data_path) {
-                tracing::warn!("Lua movements loading failed: {}", e);
-            }
 
             // Load `data/scripts/talkactions/**` (`TalkAction(words):register()`).
             let talkaction_defs = match load_all_talkaction_scripts(&mut lua_runtime, &data_path) {
@@ -393,32 +390,8 @@ pub async fn run() -> anyhow::Result<()> {
                 }
             };
 
-            let mut loader = ScriptLoader::new(&mut lua_runtime);
-            let creature_events = match loader.load_creaturescripts(&data_path) {
-                Ok(events) => events,
-                Err(e) => {
-                    tracing::warn!(
-                        "Lua creaturescript loading failed (continuing with empty events): {}",
-                        e
-                    );
-                    HashMap::new()
-                }
-            };
-            tracing::info!(
-                "Lua creaturescripts loaded: login={} logout={} move_events={}",
-                creature_events
-                    .get(&tfs_rust_lua::CreatureEventType::Login)
-                    .map_or(0, |v| v.len()),
-                creature_events
-                    .get(&tfs_rust_lua::CreatureEventType::Logout)
-                    .map_or(0, |v| v.len()),
-                move_events.len(),
-            );
-            let mut dispatcher = Box::new(LuaEventDispatcher::new(
-                lua_runtime,
-                creature_events,
-                move_events,
-            ));
+            tracing::info!(move_events = move_events.len(), "Lua move events loaded");
+            let mut dispatcher = Box::new(LuaEventDispatcher::new(lua_runtime, move_events));
             // CH-6: Inject talkaction registry into the dispatcher.
             // Must be done after `LuaEventDispatcher::new` since the
             // registry holds `mlua::RegistryKey`s tied to the runtime.

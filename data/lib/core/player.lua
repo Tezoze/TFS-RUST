@@ -17,29 +17,6 @@ function Player.getDepotItems(self, depotId)
 	return self:getDepotLocker(depotId, true):getItemHoldingCount()
 end
 
-function Player.hasFlag(self, flag)
-	return self:getGroup():hasFlag(flag)
-end
-
-function Player.getLossPercent(self)
-	local blessings = 0
-	local lossPercent = {
-		[0] = 100,
-		[1] = 70,
-		[2] = 45,
-		[3] = 25,
-		[4] = 10,
-		[5] = 0
-	}
-
-	for i = 1, 5 do
-		if self:hasBlessing(i) then
-			blessings = blessings + 1
-		end
-	end
-	return lossPercent[blessings]
-end
-
 function Player.getPremiumTime(self)
 	return math.max(0, self:getPremiumEndsAt() - os.time())
 end
@@ -78,13 +55,6 @@ end
 
 function Player.isPremium(self)
 	return self:getPremiumTime() > 0 or configManager.getBoolean(configKeys.FREE_PREMIUM) or self:hasFlag(PlayerFlag_IsAlwaysPremium)
-end
-
-function Player.sendCancelMessage(self, message)
-	if type(message) == "number" then
-		message = Game.getReturnMessage(message)
-	end
-	return self:sendTextMessage(MESSAGE_STATUS_SMALL, message)
 end
 
 function Player.isUsingOtClient(self)
@@ -203,25 +173,6 @@ function Player.canCarryMoney(self, amount)
 	if not backpack or backpack:getEmptySlots(true) < inventorySlots then
 		return false
 	end
-	return true
-end
-
-function Player.withdrawMoney(self, amount)
-	local balance = self:getBankBalance()
-	if amount > balance or not self:addMoney(amount) then
-		return false
-	end
-
-	self:setBankBalance(balance - amount)
-	return true
-end
-
-function Player.depositMoney(self, amount)
-	if not self:removeMoney(amount) then
-		return false
-	end
-
-	self:setBankBalance(self:getBankBalance() + amount)
 	return true
 end
 

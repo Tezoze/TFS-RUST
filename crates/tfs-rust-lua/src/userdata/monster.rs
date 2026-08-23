@@ -210,16 +210,10 @@ mod tests {
         with_lua_context(&ctx, || {
             with_monster_spawn_inventory_scope(7, |token| {
                 let ud = lua
-                    .create_userdata(MonsterRef {
-                        creature: 7,
-                        token,
-                    })
+                    .create_userdata(MonsterRef { creature: 7, token })
                     .expect("ud");
                 lua.globals().set("m", ud).expect("set");
-                let ok: bool = lua
-                    .load("return m:getBag() ~= nil")
-                    .eval()
-                    .expect("getBag");
+                let ok: bool = lua.load("return m:getBag() ~= nil").eval().expect("getBag");
                 assert!(ok);
             });
         });
@@ -233,10 +227,7 @@ mod tests {
         with_lua_context(&ctx, || {
             with_monster_spawn_inventory_scope(7, |token| {
                 let ud = lua
-                    .create_userdata(MonsterRef {
-                        creature: 7,
-                        token,
-                    })
+                    .create_userdata(MonsterRef { creature: 7, token })
                     .expect("ud");
                 lua.globals().set("m", ud).expect("set");
                 token

@@ -4,24 +4,24 @@
 //! `MoveEvents::onItemMove` / `executeAddRemItem`, `MoveEvents::getEvent(Item*)`.
 
 use std::any::Any;
-use std::collections::HashMap;
 
 use crate::actions::ActionRegistry;
-use crate::event_dispatcher::{EventCylinder, EventDispatcher, TalkActionResult, TileMoveEventItem};
+use crate::event_dispatcher::{
+    EventCylinder, EventDispatcher, TalkActionResult, TileMoveEventItem,
+};
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 use crate::talkactions::TalkActionRegistry;
 use slotmap::Key;
 use tfs_rust_common::Position;
 use tfs_rust_lua::{
-    CallbackRef, CreatureEventKind, CreatureEventType, LuaRuntime, MoveEventKind,
-    MoveEventsRegistry, MoveItemCylinder, with_lua_context,
+    CallbackRef, CreatureEventKind, LuaRuntime, MoveEventKind, MoveEventsRegistry,
+    MoveItemCylinder, with_lua_context,
 };
 
 /// Lua-based event dispatcher.
 pub struct LuaEventDispatcher {
     runtime: LuaRuntime,
-    creature_events: HashMap<CreatureEventType, Vec<CallbackRef>>,
     move_events: MoveEventsRegistry,
     /// CH-6: talkaction registry — `/i`, `/a`, … GM commands. The
     /// `mlua::RegistryKey`s are tied to `runtime`'s `Lua` instance.
@@ -31,14 +31,9 @@ pub struct LuaEventDispatcher {
 }
 
 impl LuaEventDispatcher {
-    pub fn new(
-        runtime: LuaRuntime,
-        creature_events: HashMap<CreatureEventType, Vec<CallbackRef>>,
-        move_events: MoveEventsRegistry,
-    ) -> Self {
+    pub fn new(runtime: LuaRuntime, move_events: MoveEventsRegistry) -> Self {
         Self {
             runtime,
-            creature_events,
             move_events,
             talkactions: TalkActionRegistry::default(),
             actions: ActionRegistry::default(),
@@ -294,7 +289,13 @@ impl EventDispatcher for LuaEventDispatcher {
         );
     }
 
-    fn on_player_inventory_update(&self, _player: CreatureId, _item: ItemId, _slot: u8, _equip: bool) {
+    fn on_player_inventory_update(
+        &self,
+        _player: CreatureId,
+        _item: ItemId,
+        _slot: u8,
+        _equip: bool,
+    ) {
         // Phase 5: events.xml / Player:onInventoryUpdate removed. No EventCallback type.
     }
 
@@ -352,30 +353,10 @@ impl EventDispatcher for LuaEventDispatcher {
 
     fn on_login(&self, creature: CreatureId, ctx: &dyn tfs_rust_common::ScriptContext) {
         with_lua_context(ctx, || {
-            if let Some(callbacks) = self.creature_events.get(&CreatureEventType::Login) {
-                for callback in callbacks {
-                    match self
-                        .runtime
-                        .call_creature_callback(callback, creature.data().as_ffi())
-                    {
-                        Ok(true) => {}
-                        Ok(false) => {
-                            tracing::warn!("Lua onLogin returned false for {:?}", creature);
-                        }
-                        Err(e) => {
-                            tracing::error!(
-                                "Lua onLogin callback failed for {:?}: {}",
-                                creature,
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-            if let Err(e) = self.runtime.fire_creature_events_of_kind(
-                CreatureEventKind::Login,
-                creature.data().as_ffi(),
-            ) {
+            if let Err(e) = self
+                .runtime
+                .fire_creature_events_of_kind(CreatureEventKind::Login, creature.data().as_ffi())
+            {
                 tracing::error!("Lua CreatureEvent onLogin failed for {:?}: {}", creature, e);
             }
         });
@@ -385,34 +366,16 @@ impl EventDispatcher for LuaEventDispatcher {
         // C++: `g_creatureEvents->playerLogout(player)` — false cancels logout.
         let mut allow = true;
         with_lua_context(ctx, || {
-            if let Some(callbacks) = self.creature_events.get(&CreatureEventType::Logout) {
-                for callback in callbacks {
-                    match self
-                        .runtime
-                        .call_creature_callback(callback, creature.data().as_ffi())
-                    {
-                        Ok(true) => {}
-                        Ok(false) => {
-                            tracing::warn!("Lua onLogout returned false for {:?}", creature);
-                            allow = false;
-                        }
-                        Err(e) => {
-                            tracing::error!(
-                                "Lua onLogout callback failed for {:?}: {}",
-                                creature,
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-            match self.runtime.fire_creature_events_of_kind(
-                CreatureEventKind::Logout,
-                creature.data().as_ffi(),
-            ) {
+            match self
+                .runtime
+                .fire_creature_events_of_kind(CreatureEventKind::Logout, creature.data().as_ffi())
+            {
                 Ok(true) => {}
                 Ok(false) => {
-                    tracing::warn!("Lua CreatureEvent onLogout returned false for {:?}", creature);
+                    tracing::warn!(
+                        "Lua CreatureEvent onLogout returned false for {:?}",
+                        creature
+                    );
                     allow = false;
                 }
                 Err(e) => {

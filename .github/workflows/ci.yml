@@ -32,6 +32,9 @@ jobs:
       # Note: We run the workspace tests
       run: cargo test --workspace
 
+    - name: Data-pack policy
+      run: bash scripts/check_data_pack_policy.sh
+
     - name: LuaLS check
       env:
         LUALS_VERSION: "3.18.2"

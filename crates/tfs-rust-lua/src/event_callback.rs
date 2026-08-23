@@ -39,9 +39,7 @@ impl LuaRuntime {
     /// Registered callback types that have no Rust call site (boot warn / tests).
     pub fn undispatched_event_callbacks(&self) -> Vec<i32> {
         (1..=EVENT_CALLBACK_LAST)
-            .filter(|&ty| {
-                self.has_event_callback(ty) && !DISPATCHED_EVENT_CALLBACKS.contains(&ty)
-            })
+            .filter(|&ty| self.has_event_callback(ty) && !DISPATCHED_EVENT_CALLBACKS.contains(&ty))
             .collect()
     }
 

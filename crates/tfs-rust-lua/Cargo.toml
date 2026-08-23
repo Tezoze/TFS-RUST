@@ -9,8 +9,6 @@ tfs-rust-content = { workspace = true }
 mlua = { workspace = true }
 thiserror = { workspace = true }
 tracing = "0.1"
-quick-xml = { workspace = true }
-serde = { version = "1.0", features = ["derive"] }
 
 [[bin]]
 name = "import-npcs"

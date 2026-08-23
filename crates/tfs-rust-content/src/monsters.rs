@@ -264,7 +264,10 @@ return {
         assert!(m.flags.can_push_creatures);
         assert!(m.flags.can_push_items);
         assert!(m.flags.is_hostile);
-        assert!(!m.flags.pushable, "can_push_creatures forces pushable false");
+        assert!(
+            !m.flags.pushable,
+            "can_push_creatures forces pushable false"
+        );
     }
 
     #[test]

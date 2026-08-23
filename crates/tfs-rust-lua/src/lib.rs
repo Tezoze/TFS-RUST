@@ -11,19 +11,18 @@ pub mod combat_scripts;
 pub mod constants;
 pub mod context;
 mod creature_events;
+mod event_callback;
 mod instruction_budget;
 pub mod lua_defs;
 pub mod lua_mutation;
+mod monster_spawn;
 pub mod move_events;
 pub mod npc_dialogue;
 pub mod npc_loader;
 pub mod npc_type;
-pub mod runtime;
-pub mod script_loader;
-mod event_callback;
-mod monster_spawn;
 mod player_move_item;
 mod player_report_bug;
+pub mod runtime;
 mod scripts_interface;
 mod stdlib_allowlist;
 pub mod talkactions;
@@ -39,6 +38,11 @@ pub use chat_channels::{ChatChannelDef, load_chat_channel_scripts};
 pub use constants::register_constants;
 pub use context::{
     CreatureData, CreatureId, ItemData, ItemId, ItemRef, LuaContext, with_lua_context,
+};
+pub use creature_events::{CreatureEventKind, is_blocked_creature_event_name};
+pub use event_callback::{
+    EVENT_CALLBACK_ONITEMMOVED, EVENT_CALLBACK_ONMOVEITEM, EVENT_CALLBACK_ONREPORTBUG,
+    EVENT_CALLBACK_ONSPAWN,
 };
 pub use instruction_budget::DEFAULT_LUA_INSTRUCTION_BUDGET;
 pub use lua_mutation::{
@@ -61,17 +65,11 @@ pub use move_events::{
 };
 pub use npc_dialogue::{NpcDialogueProgram, register_npc_dialogue};
 pub use npc_type::{NpcTypeBuilder, PendingNpc, register_npc_type};
+pub use player_move_item::MoveItemCylinder;
 pub use runtime::{
     CallbackRef, DEFAULT_LUA_MEMORY_LIMIT_BYTES, LuaError, LuaRuntime, PendingAction,
     PendingChatChannel, PendingMoveEvent, PendingTalkAction, RegisterLuaFunctions,
 };
-pub use creature_events::{CreatureEventKind, is_blocked_creature_event_name};
-pub use event_callback::{
-    EVENT_CALLBACK_ONITEMMOVED, EVENT_CALLBACK_ONMOVEITEM, EVENT_CALLBACK_ONREPORTBUG,
-    EVENT_CALLBACK_ONSPAWN,
-};
-pub use player_move_item::MoveItemCylinder;
-pub use script_loader::{CreatureEventType, LoadError, ScriptLoader};
 pub use scripts_interface::load_scripts_interface;
 pub use talkactions::{TalkActionDef, load_all_talkaction_scripts, load_talkaction_scripts};
 pub use timer_events::{

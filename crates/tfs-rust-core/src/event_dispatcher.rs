@@ -63,13 +63,7 @@ pub trait EventDispatcher {
     ) {
     }
     /// `registered_events` are the killer's registered names.
-    fn on_kill(
-        &self,
-        _killer: CreatureId,
-        _target: CreatureId,
-        _registered_events: &[String],
-    ) {
-    }
+    fn on_kill(&self, _killer: CreatureId, _target: CreatureId, _registered_events: &[String]) {}
     /// TFS `Creature::onWalkComplete` — walk queue empty after `getNextStep` false (`src/creature.cpp` ~215–219).
     fn on_walk_complete(&self, _creature: CreatureId) {}
     fn on_advance(&self, _creature: CreatureId, _skill: u8, _old_level: u32, _new_level: u32) {}

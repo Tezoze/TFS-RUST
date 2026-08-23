@@ -537,20 +537,4 @@ do
 
 		return ss:concat()
 	end
-
-	if not oldItemDesc then
-		oldItemDesc = Item.getDescription
-	end
-
-	if configManager.getBoolean(configKeys.LUA_ITEM_DESC) then
-		function Item.getDescription(self, lookDistance, subType)
-			return internalItemGetDescription(self:getType(), lookDistance, self, subType)
-		end
-
-		function ItemType.getItemDescription(self, lookDistance, subType)
-			return internalItemGetDescription(self, lookDistance, nil, subType)
-		end
-	else
-		Item.getDescription = oldItemDesc
-	end
 end

@@ -1,6 +1,6 @@
 # Data-pack Lua — 772 corpus policy
 
-**Status:** Phase 5 shipped 2026-08-23 (`events.xml` deleted; registration is the enable bit; `moveitem.lua` + report-bug dispatch). Phases 6–8 remain.  
+**Status:** Phase 6 shipped 2026-08-24 (script-registry XML trees deleted; field/equip derived from item data; pack allowlist defends against re-import). Phase 7 (globalevents) and Phase 8 tests remain.  
 **Execution plan:** [tasks/data-pack-lua-implementation-plan.md](../tasks/data-pack-lua-implementation-plan.md).  
 **Corpus:** 772 behaviour for **every** `clientVersion`. One pack, one timing. No 1098 death-time loot roll, no stamina-empty corpses, no `data/1098/` tree.  
 **Companions:** [DATA_FORMAT_MIGRATION.md](DATA_FORMAT_MIGRATION.md), [tasks/monsters-lua-plan.md](../tasks/monsters-lua-plan.md).

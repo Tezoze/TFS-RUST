@@ -18,7 +18,6 @@ const SCRIPTS_INTERFACE_ALLOWLIST: &[&str] = &[
     "creaturescripts/login.lua",
     "creaturescripts/firstlogin.lua",
     "creaturescripts/playerdeath.lua",
-    "creaturescripts/logout.lua",
     "creaturescripts/extendedopcode.lua",
     "creaturescripts/killstatistics.lua",
     "eventcallbacks/player/default_onReportBug.lua",
@@ -380,6 +379,91 @@ mod tests {
         assert!(
             eval_bool(&runtime, "return isScriptsInterface() == false"),
             "guard must reset after Err"
+        );
+    }
+
+    const FORBIDDEN_GENERATORS: &[&str] = &[
+        "scripts/creaturescripts/droploot.lua",
+        "scripts/creaturescripts/regeneratestamina.lua",
+        "scripts/eventcallbacks/monster/default_onDropLoot.lua",
+        "scripts/eventcallbacks/player/default_onMoveItem.lua",
+        "scripts/eventcallbacks/player/default_onLook.lua",
+        "scripts/eventcallbacks/player/default_onLookInBattleList.lua",
+    ];
+
+    /// Phase 6.4: shipped pack must not contain death-generator / look-double files.
+    #[test]
+    fn real_pack_has_no_forbidden_generators() {
+        let data_root = workspace_data_root();
+        for rel in FORBIDDEN_GENERATORS {
+            let path = data_root.join(rel);
+            assert!(
+                !path.exists(),
+                "forbidden generator still on disk: {}",
+                path.display()
+            );
+        }
+        assert!(
+            !data_root
+                .join("scripts/creaturescripts/logout.lua")
+                .exists(),
+            "logout.lua must be deleted after stamina strip"
+        );
+    }
+
+    /// Content-data XML prefixes. `globalevents/globalevents.xml` is Phase 7.
+    const CONTENT_XML_PREFIXES: &[&str] = &[
+        "items/",
+        "XML/",
+        "raids/",
+        "world/",
+        "monster/monsters/",
+        "npc/archive/",
+    ];
+
+    fn collect_xml_rels(dir: &Path, rel_prefix: &str, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let rel = if rel_prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{rel_prefix}/{name}")
+            };
+            if path.is_dir() {
+                collect_xml_rels(&path, &rel, out);
+            } else if path.extension().is_some_and(|ext| ext == "xml") {
+                out.push(rel);
+            }
+        }
+    }
+
+    /// Phase 8.8c: no script-registry XML except globalevents until Phase 7.
+    #[test]
+    fn no_script_registry_xml_outside_content_allowlist() {
+        let data_root = workspace_data_root();
+        if !data_root.is_dir() {
+            eprintln!("data pack not present — skipping");
+            return;
+        }
+        let mut xmls = Vec::new();
+        collect_xml_rels(&data_root, "", &mut xmls);
+        xmls.sort();
+        let mut unexpected = Vec::new();
+        for rel in xmls {
+            if rel == "globalevents/globalevents.xml" {
+                continue;
+            }
+            if !CONTENT_XML_PREFIXES.iter().any(|p| rel.starts_with(p)) {
+                unexpected.push(rel);
+            }
+        }
+        assert!(
+            unexpected.is_empty(),
+            "script-registry XML outside content allowlist: {unexpected:?}"
         );
     }
 }

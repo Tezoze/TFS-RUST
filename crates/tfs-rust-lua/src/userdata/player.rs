@@ -11,8 +11,9 @@ use crate::lua_mutation::{
     call_lua_add_mana, call_lua_add_mana_spent, call_lua_add_skill_tries, call_lua_feed,
     call_lua_get_depot_chest, call_lua_get_depot_locker, call_lua_get_inbox, call_lua_player_say,
     call_lua_remove_condition, call_lua_remove_item, call_lua_send_cancel_message,
-    call_lua_send_outfit_window, call_lua_set_direction, call_lua_set_in_fight, call_lua_set_outfit,
-    call_lua_set_vocation, call_lua_show_text_dialog, call_player_register_creature_event,
+    call_lua_send_outfit_window, call_lua_set_direction, call_lua_set_in_fight,
+    call_lua_set_outfit, call_lua_set_vocation, call_lua_show_text_dialog,
+    call_player_register_creature_event,
 };
 use crate::userdata::container::ContainerRef;
 use crate::userdata::group::GroupRef;

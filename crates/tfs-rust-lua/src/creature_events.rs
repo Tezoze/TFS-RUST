@@ -259,9 +259,7 @@ mod tests {
     fn runtime_with_event(src: &str) -> LuaRuntime {
         let runtime = LuaRuntime::new().expect("runtime");
         runtime.exec_chunk("ce_test", src).expect("exec");
-        runtime
-            .install_pending_creature_events()
-            .expect("install");
+        runtime.install_pending_creature_events().expect("install");
         runtime
     }
 
