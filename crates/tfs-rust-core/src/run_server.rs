@@ -404,27 +404,19 @@ pub async fn run() -> anyhow::Result<()> {
                     HashMap::new()
                 }
             };
-            let player_events = loader.load_player_events(&data_path).unwrap_or_else(|e| {
-                tracing::warn!("Lua player events loading failed: {}", e);
-                HashMap::new()
-            });
             tracing::info!(
-                "Lua creaturescripts loaded: login={} logout={} inventory_update={} move_events={}",
+                "Lua creaturescripts loaded: login={} logout={} move_events={}",
                 creature_events
                     .get(&tfs_rust_lua::CreatureEventType::Login)
                     .map_or(0, |v| v.len()),
                 creature_events
                     .get(&tfs_rust_lua::CreatureEventType::Logout)
                     .map_or(0, |v| v.len()),
-                player_events
-                    .get(&tfs_rust_lua::PlayerEventType::InventoryUpdate)
-                    .map_or(0, |v| v.len()),
                 move_events.len(),
             );
             let mut dispatcher = Box::new(LuaEventDispatcher::new(
                 lua_runtime,
                 creature_events,
-                player_events,
                 move_events,
             ));
             // CH-6: Inject talkaction registry into the dispatcher.

@@ -347,7 +347,24 @@ impl GameWorld {
             }
         }
 
-        match (&from_cylinder, &to_work) {
+        if let Some(actor) = acting_player
+            && matches!(self.creatures.get(actor), Some(CreatureKind::Player(_)))
+        {
+            let rv = crate::lua_scope::fire_on_player_move_item(
+                self,
+                actor,
+                item_id,
+                m_move,
+                from_cylinder,
+                to_work,
+            );
+            if rv.is_error() {
+                return Err(rv);
+            }
+        }
+
+        let dest_id = (|| {
+            match (&from_cylinder, &to_work) {
             (Cylinder::Tile { pos: from_pos }, Cylinder::Tile { pos: to_pos }) => {
                 let from_pos = *from_pos;
                 let to_pos = *to_pos;
@@ -982,7 +999,22 @@ impl GameWorld {
                 )?;
                 Ok(item_id)
             }
+            }
+        })()?;
+
+        if let Some(actor) = acting_player
+            && matches!(self.creatures.get(actor), Some(CreatureKind::Player(_)))
+        {
+            crate::lua_scope::fire_on_player_item_moved(
+                self,
+                actor,
+                dest_id,
+                m_move,
+                from_cylinder,
+                to_work,
+            );
         }
+        Ok(dest_id)
     }
 }
 

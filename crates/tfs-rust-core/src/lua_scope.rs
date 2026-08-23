@@ -2,7 +2,8 @@
 //!
 //! C++ reference: `LuaScriptInterface::executeTimer` / creature event dispatch — single game thread.
 
-use crate::event_dispatcher::TalkActionResult;
+use crate::cylinder::Cylinder;
+use crate::event_dispatcher::{EventCylinder, TalkActionResult};
 use crate::game_world::{GameWorld, TileMoveEventItem};
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
@@ -518,6 +519,91 @@ pub fn fire_on_monster_spawned(
             world
                 .events
                 .on_monster_spawned(cid, pos, startup, artificial, world);
+        });
+    });
+}
+
+fn event_cylinder(cyl: Cylinder) -> EventCylinder {
+    match cyl {
+        Cylinder::Tile { pos } => EventCylinder::Tile(pos),
+        Cylinder::Container { item_id, .. } => EventCylinder::Container(item_id),
+        Cylinder::Inventory { player_id, .. } => EventCylinder::Inventory(player_id),
+    }
+}
+
+fn lua_move_position(cyl: Cylinder) -> Position {
+    match cyl {
+        Cylinder::Tile { pos } => pos,
+        _ => Position::new(0xFFFF, 0, 0),
+    }
+}
+
+/// TFS `Events::eventPlayerOnMoveItem` after native queryAdd, before the transfer.
+pub fn fire_on_player_move_item(
+    world: &mut GameWorld,
+    player: CreatureId,
+    item: ItemId,
+    count: u16,
+    from: Cylinder,
+    to: Cylinder,
+) -> ReturnValue {
+    let from_pos = lua_move_position(from);
+    let to_pos = lua_move_position(to);
+    let from_cyl = event_cylinder(from);
+    let to_cyl = event_cylinder(to);
+    let world_ptr = std::ptr::from_mut(world);
+    with_lua_mutation_scope(world_ptr as *mut (), || {
+        let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
+        with_lua_context(ctx, || {
+            let world = unsafe { &mut *world_ptr };
+            world.events.on_player_move_item(
+                player, item, count, from_pos, to_pos, from_cyl, to_cyl, world,
+            )
+        })
+    })
+}
+
+/// TFS `Events::eventPlayerOnItemMoved` after a successful transfer.
+pub fn fire_on_player_item_moved(
+    world: &mut GameWorld,
+    player: CreatureId,
+    item: ItemId,
+    count: u16,
+    from: Cylinder,
+    to: Cylinder,
+) {
+    let from_pos = lua_move_position(from);
+    let to_pos = lua_move_position(to);
+    let from_cyl = event_cylinder(from);
+    let to_cyl = event_cylinder(to);
+    let world_ptr = std::ptr::from_mut(world);
+    with_lua_mutation_scope(world_ptr as *mut (), || {
+        let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
+        with_lua_context(ctx, || {
+            let world = unsafe { &mut *world_ptr };
+            world.events.on_player_item_moved(
+                player, item, count, from_pos, to_pos, from_cyl, to_cyl, world,
+            );
+        });
+    });
+}
+
+/// TFS `Events::eventPlayerOnReportBug`.
+pub fn fire_on_player_report_bug(
+    world: &mut GameWorld,
+    player: CreatureId,
+    message: &str,
+    pos: Position,
+    category: u8,
+) {
+    let world_ptr = std::ptr::from_mut(world);
+    with_lua_mutation_scope(world_ptr as *mut (), || {
+        let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
+        with_lua_context(ctx, || {
+            let world = unsafe { &mut *world_ptr };
+            world
+                .events
+                .on_player_report_bug(player, message, pos, category, world);
         });
     });
 }

@@ -1,6 +1,6 @@
 # Data-pack Lua — 772 corpus policy
 
-**Status:** Phase 2 shipped 2026-08-23 (CreatureEvent registry + dispatch). Native spawn-roll and native player `LoseInventory` already exist. Kept scripts still miss several primitives (Phase 3).  
+**Status:** Phase 5 shipped 2026-08-23 (`events.xml` deleted; registration is the enable bit; `moveitem.lua` + report-bug dispatch). Phases 6–8 remain.  
 **Execution plan:** [tasks/data-pack-lua-implementation-plan.md](../tasks/data-pack-lua-implementation-plan.md).  
 **Corpus:** 772 behaviour for **every** `clientVersion`. One pack, one timing. No 1098 death-time loot roll, no stamina-empty corpses, no `data/1098/` tree.  
 **Companions:** [DATA_FORMAT_MIGRATION.md](DATA_FORMAT_MIGRATION.md), [tasks/monsters-lua-plan.md](../tasks/monsters-lua-plan.md).
@@ -78,7 +78,7 @@ death
   → optional creaturescript onDeath / onKill (stats, quests) — still no loot roll
 ```
 
-`events.xml` today has `onDropLoot` enabled and `onSpawn` disabled. Rather than inverting the bits, the file is **deleted**: register an `onSpawn` callback and give `onDropLoot` no Rust call site. Registration is the enable bit.
+`events.xml` is **deleted**. Register an `onSpawn` callback; `onDropLoot` has no Rust call site. Registration is the enable bit.
 
 Shard rarity (new file, not the TFS default):
 

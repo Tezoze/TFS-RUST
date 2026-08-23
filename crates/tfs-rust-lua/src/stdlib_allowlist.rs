@@ -71,9 +71,29 @@ pub(crate) fn set_log_root(path: PathBuf) -> PathBuf {
 pub(crate) fn create_allowlisted_lua() -> mlua::Result<Lua> {
     let lua = Lua::new_with(game_stdlib(), LuaOptions::default())?;
     install_os_time_shim(&lua)?;
+    install_lua51_table_compat(&lua)?;
     strip_denied_globals(&lua)?;
     register_tfs_append_log(&lua)?;
     Ok(lua)
+}
+
+/// LuaJIT is 5.1: no `table.pack` / `table.unpack`. EventCallback `__call`
+/// (`data/scripts/lib/event_callbacks.lua`) uses `table.pack(...)`.
+fn install_lua51_table_compat(lua: &Lua) -> mlua::Result<()> {
+    lua.load(
+        r#"
+        if table.pack == nil then
+            function table.pack(...)
+                return { n = select('#', ...), ... }
+            end
+        end
+        if table.unpack == nil then
+            table.unpack = unpack
+        end
+        "#,
+    )
+    .set_name("lua51_table_compat")
+    .exec()
 }
 
 fn install_os_time_shim(lua: &Lua) -> mlua::Result<()> {
@@ -231,6 +251,9 @@ mod tests {
         assert!(eval_bool(&lua, "return type(jit) == 'table'"));
         assert!(eval_bool(&lua, "return type(dofile) == 'function'"));
         assert!(eval_bool(&lua, "return type(coroutine) == 'table'"));
+        assert!(eval_bool(&lua, "return type(table.pack) == 'function'"));
+        assert!(eval_bool(&lua, "return table.pack(1, 2).n == 2"));
+        assert!(eval_bool(&lua, "return type(table.unpack) == 'function'"));
     }
 
     #[test]

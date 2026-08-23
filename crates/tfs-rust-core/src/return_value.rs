@@ -97,6 +97,19 @@ impl ReturnValue {
         !self.is_success()
     }
 
+    /// Map a Lua EventCallback ReturnValue integer onto [`ReturnValue`].
+    ///
+    /// TFS `lua_tointeger` of `nil`/`true`/`false` is 0 (`RETURNVALUE_NOERROR`).
+    pub fn from_script_int(v: i32) -> Self {
+        match v {
+            0 => Self::NoError,
+            2 => Self::NotEnoughRoom,
+            9 => Self::NotMoveable,
+            _ if v < 0 => Self::NoError,
+            _ => Self::NotPossible,
+        }
+    }
+
     /// Player-visible text — C++ `getReturnMessage` (`src/tools.cpp` ~1015–1234).
     pub fn description(self) -> &'static str {
         match self {

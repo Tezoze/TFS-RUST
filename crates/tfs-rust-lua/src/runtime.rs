@@ -2404,7 +2404,8 @@ mod tests {
     use std::path::PathBuf;
 
     fn workspace_data_path() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data/events/scripts/player.lua")
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/scripts/eventcallbacks/player/moveitem.lua")
     }
 
     fn workspace_data_root() -> PathBuf {
@@ -2412,20 +2413,16 @@ mod tests {
     }
 
     #[test]
-    fn player_events_script_loads_with_bootstrap() {
+    fn player_moveitem_script_loads_with_bootstrap() {
         let path = workspace_data_path();
         if !path.exists() {
             return;
         }
         let mut runtime = LuaRuntime::new().expect("runtime");
+        crate::actions::load_data_lib(&runtime, &workspace_data_root()).expect("data lib");
         runtime
             .load_script(path.to_str().expect("utf8 path"))
-            .expect("player.lua should load");
-        // `player.lua` defines `onTurn` / `onLook` / … — no `onInventoryUpdate` in
-        // the current data pack; smoke-test any registered Player method.
-        runtime
-            .register_table_method_callback("test::onTurn".to_string(), "Player", "onTurn")
-            .expect("onTurn registered");
+            .expect("moveitem.lua should load");
     }
 
     /// LUA-1 smoke test: every chat-channel script loads without

@@ -146,7 +146,9 @@ pub use cylinder::{
     Cylinder, CylinderFlags, CylinderLink, CylinderType, INDEX_ADD_WHEREVER, INDEX_MOVE_UP,
     INDEX_WHEREEVER, VirtualCylinder,
 };
-pub use event_dispatcher::{EventDispatcher, NullEventDispatcher, TalkActionResult};
+pub use event_dispatcher::{
+    EventCylinder, EventDispatcher, NullEventDispatcher, TalkActionResult,
+};
 pub use formulas::{
     ArmorReduction, ConditionTicks, DamageFormula, DestroyableStoneTuning, DistanceKeep,
     FightModes, FishingSuccessModel, FishingTuning, FormulaHooks, LevelExpModel, Mechanics,

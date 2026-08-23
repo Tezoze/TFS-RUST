@@ -20,7 +20,10 @@ pub mod npc_loader;
 pub mod npc_type;
 pub mod runtime;
 pub mod script_loader;
+mod event_callback;
 mod monster_spawn;
+mod player_move_item;
+mod player_report_bug;
 mod scripts_interface;
 mod stdlib_allowlist;
 pub mod talkactions;
@@ -63,7 +66,12 @@ pub use runtime::{
     PendingChatChannel, PendingMoveEvent, PendingTalkAction, RegisterLuaFunctions,
 };
 pub use creature_events::{CreatureEventKind, is_blocked_creature_event_name};
-pub use script_loader::{CreatureEventType, LoadError, PlayerEventType, ScriptLoader};
+pub use event_callback::{
+    EVENT_CALLBACK_ONITEMMOVED, EVENT_CALLBACK_ONMOVEITEM, EVENT_CALLBACK_ONREPORTBUG,
+    EVENT_CALLBACK_ONSPAWN,
+};
+pub use player_move_item::MoveItemCylinder;
+pub use script_loader::{CreatureEventType, LoadError, ScriptLoader};
 pub use scripts_interface::load_scripts_interface;
 pub use talkactions::{TalkActionDef, load_all_talkaction_scripts, load_talkaction_scripts};
 pub use timer_events::{

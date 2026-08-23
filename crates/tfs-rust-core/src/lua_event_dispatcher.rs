@@ -7,7 +7,7 @@ use std::any::Any;
 use std::collections::HashMap;
 
 use crate::actions::ActionRegistry;
-use crate::event_dispatcher::{EventDispatcher, TalkActionResult, TileMoveEventItem};
+use crate::event_dispatcher::{EventCylinder, EventDispatcher, TalkActionResult, TileMoveEventItem};
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 use crate::talkactions::TalkActionRegistry;
@@ -15,14 +15,13 @@ use slotmap::Key;
 use tfs_rust_common::Position;
 use tfs_rust_lua::{
     CallbackRef, CreatureEventKind, CreatureEventType, LuaRuntime, MoveEventKind,
-    MoveEventsRegistry, PlayerEventType, with_lua_context,
+    MoveEventsRegistry, MoveItemCylinder, with_lua_context,
 };
 
 /// Lua-based event dispatcher.
 pub struct LuaEventDispatcher {
     runtime: LuaRuntime,
     creature_events: HashMap<CreatureEventType, Vec<CallbackRef>>,
-    player_events: HashMap<PlayerEventType, Vec<CallbackRef>>,
     move_events: MoveEventsRegistry,
     /// CH-6: talkaction registry — `/i`, `/a`, … GM commands. The
     /// `mlua::RegistryKey`s are tied to `runtime`'s `Lua` instance.
@@ -35,13 +34,11 @@ impl LuaEventDispatcher {
     pub fn new(
         runtime: LuaRuntime,
         creature_events: HashMap<CreatureEventType, Vec<CallbackRef>>,
-        player_events: HashMap<PlayerEventType, Vec<CallbackRef>>,
         move_events: MoveEventsRegistry,
     ) -> Self {
         Self {
             runtime,
             creature_events,
-            player_events,
             move_events,
             talkactions: TalkActionRegistry::default(),
             actions: ActionRegistry::default(),
@@ -297,27 +294,8 @@ impl EventDispatcher for LuaEventDispatcher {
         );
     }
 
-    fn on_player_inventory_update(&self, player: CreatureId, item: ItemId, slot: u8, equip: bool) {
-        let Some(callbacks) = self.player_events.get(&PlayerEventType::InventoryUpdate) else {
-            return;
-        };
-        for callback in callbacks {
-            if let Err(e) = self.runtime.call_player_inventory_update(
-                callback,
-                player.data().as_ffi(),
-                item.data().as_ffi(),
-                slot,
-                equip,
-            ) {
-                tracing::error!(
-                    ?player,
-                    ?item,
-                    slot,
-                    equip,
-                    "Lua onInventoryUpdate failed: {e}"
-                );
-            }
-        }
+    fn on_player_inventory_update(&self, _player: CreatureId, _item: ItemId, _slot: u8, _equip: bool) {
+        // Phase 5: events.xml / Player:onInventoryUpdate removed. No EventCallback type.
     }
 
     fn on_item_move(
@@ -765,11 +743,114 @@ impl EventDispatcher for LuaEventDispatcher {
         });
     }
 
+    fn on_player_move_item(
+        &self,
+        player: CreatureId,
+        item: ItemId,
+        count: u16,
+        from_pos: Position,
+        to_pos: Position,
+        from_cylinder: EventCylinder,
+        to_cylinder: EventCylinder,
+        ctx: &dyn tfs_rust_common::ScriptContext,
+    ) -> ReturnValue {
+        let mut rv = ReturnValue::NoError;
+        with_lua_context(ctx, || {
+            match self.runtime.call_player_on_move_item(
+                player.data().as_ffi(),
+                item.data().as_ffi(),
+                count,
+                from_pos.x,
+                from_pos.y,
+                from_pos.z,
+                to_pos.x,
+                to_pos.y,
+                to_pos.z,
+                event_cyl_to_lua(from_cylinder),
+                event_cyl_to_lua(to_cylinder),
+            ) {
+                Ok(n) => rv = ReturnValue::from_script_int(n),
+                Err(e) => {
+                    tracing::error!(?player, ?item, "Lua EventCallback onMoveItem failed: {e}");
+                }
+            }
+        });
+        rv
+    }
+
+    fn on_player_item_moved(
+        &self,
+        player: CreatureId,
+        item: ItemId,
+        count: u16,
+        from_pos: Position,
+        to_pos: Position,
+        from_cylinder: EventCylinder,
+        to_cylinder: EventCylinder,
+        ctx: &dyn tfs_rust_common::ScriptContext,
+    ) {
+        with_lua_context(ctx, || {
+            if let Err(e) = self.runtime.call_player_on_item_moved(
+                player.data().as_ffi(),
+                item.data().as_ffi(),
+                count,
+                from_pos.x,
+                from_pos.y,
+                from_pos.z,
+                to_pos.x,
+                to_pos.y,
+                to_pos.z,
+                event_cyl_to_lua(from_cylinder),
+                event_cyl_to_lua(to_cylinder),
+            ) {
+                tracing::error!(?player, ?item, "Lua EventCallback onItemMoved failed: {e}");
+            }
+        });
+    }
+
+    fn on_player_report_bug(
+        &self,
+        player: CreatureId,
+        message: &str,
+        pos: Position,
+        category: u8,
+        ctx: &dyn tfs_rust_common::ScriptContext,
+    ) {
+        with_lua_context(ctx, || {
+            if let Err(e) = self.runtime.call_player_on_report_bug(
+                player.data().as_ffi(),
+                message,
+                pos.x,
+                pos.y,
+                pos.z,
+                category,
+            ) {
+                tracing::error!(?player, "Lua EventCallback onReportBug failed: {e}");
+            }
+        });
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+}
+
+fn event_cyl_to_lua(cyl: EventCylinder) -> MoveItemCylinder {
+    match cyl {
+        EventCylinder::Tile(pos) => MoveItemCylinder::Tile {
+            x: pos.x,
+            y: pos.y,
+            z: pos.z,
+        },
+        EventCylinder::Container(id) => MoveItemCylinder::Container {
+            item: id.data().as_ffi(),
+        },
+        EventCylinder::Inventory(id) => MoveItemCylinder::Inventory {
+            player: id.data().as_ffi(),
+        },
     }
 }

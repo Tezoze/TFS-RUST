@@ -22,6 +22,7 @@ const SCRIPTS_INTERFACE_ALLOWLIST: &[&str] = &[
     "creaturescripts/extendedopcode.lua",
     "creaturescripts/killstatistics.lua",
     "eventcallbacks/player/default_onReportBug.lua",
+    "eventcallbacks/player/moveitem.lua",
     "eventcallbacks/monster/rarity.lua", // Phase 4; missing file is not an error
 ];
 
@@ -103,26 +104,10 @@ pub fn load_scripts_interface(runtime: &LuaRuntime, data_dir: &Path) -> Result<(
         }
     }
 
-    // TFS `data/events/scripts/monster.lua` — `Monster:onSpawn` forwards to
-    // `EventCallback(EVENT_CALLBACK_ONSPAWN, ...)`. Not under `data/scripts/`;
-    // loaded here so the mutate hook exists before rarity callbacks run.
-    let monster_events = data_dir.join("events/scripts/monster.lua");
-    if monster_events.is_file() {
-        match std::fs::read_to_string(&monster_events) {
-            Ok(src) => {
-                if let Err(e) = runtime.exec_chunk("monster.lua", &src) {
-                    failures.push((monster_events.display().to_string(), e.to_string()));
-                }
-            }
-            Err(e) => {
-                failures.push((monster_events.display().to_string(), e.to_string()));
-            }
-        }
-    }
-
     runtime.install_pending_creature_events()?;
 
     if failures.is_empty() {
+        runtime.warn_undispatched_event_callbacks();
         Ok(())
     } else {
         Err(LuaError::LibStageFailures(failures))
@@ -146,6 +131,8 @@ mod tests {
 
     /// Lua `EVENT_CALLBACK_ONLOOK` (`event_callbacks.lua`).
     const EVENT_CALLBACK_ONLOOK: i32 = 9;
+    const EVENT_CALLBACK_ONMOVEITEM: i32 = 16;
+    const EVENT_CALLBACK_ONITEMMOVED: i32 = 17;
     const EVENT_CALLBACK_ONREPORTBUG: i32 = 19;
     const EVENT_CALLBACK_ONDROPLOOT: i32 = 24;
     const EVENT_CALLBACK_ONSPAWN: i32 = 25;
@@ -316,6 +303,19 @@ mod tests {
         assert!(
             has_event_callback(&runtime, EVENT_CALLBACK_ONREPORTBUG),
             "default_onReportBug.lua is allowlisted"
+        );
+        assert!(
+            has_event_callback(&runtime, EVENT_CALLBACK_ONMOVEITEM),
+            "moveitem.lua is allowlisted"
+        );
+        assert!(
+            has_event_callback(&runtime, EVENT_CALLBACK_ONITEMMOVED),
+            "moveitem.lua registers onItemMoved"
+        );
+        assert!(
+            runtime.undispatched_event_callbacks().is_empty(),
+            "allowlisted callbacks must have call sites: {:?}",
+            runtime.undispatched_event_callbacks()
         );
         assert!(
             !has_event_callback(&runtime, EVENT_CALLBACK_ONSPAWN),

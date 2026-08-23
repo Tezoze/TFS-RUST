@@ -283,7 +283,7 @@ Never dispatched. Keep `EVENT_CALLBACK_ONDROPLOOT` in the enum so old files pars
 
 ---
 
-## Phase 5 — Retire `events.xml`: registration is the enable bit
+## Phase 5 — Retire `events.xml`: registration is the enable bit — **DONE 2026-08-23**
 
 **Delete `data/events/` entirely** — the XML and all four forwarder bodies. Nothing replaces the enable bits, because the bits are redundant with something that already exists.
 

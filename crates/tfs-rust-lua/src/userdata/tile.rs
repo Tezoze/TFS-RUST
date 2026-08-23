@@ -41,6 +41,9 @@ impl UserData for TileRef {
     }
 
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        // TFS `Thing::isTile` — `moveitem.lua` `toCylinder:isTile()`.
+        methods.add_method("isTile", |_, _this, ()| Ok(true));
+
         methods.add_method("hasProperty", |_, this, prop: i32| {
             CURRENT_CTX.with(|c| {
                 let ptr =

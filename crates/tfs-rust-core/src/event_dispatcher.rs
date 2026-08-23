@@ -22,6 +22,14 @@ pub struct TileMoveEventItem {
     pub action_id: u16,
 }
 
+/// Cylinder identity for player move-item EventCallbacks.
+#[derive(Clone, Copy, Debug)]
+pub enum EventCylinder {
+    Tile(Position),
+    Container(ItemId),
+    Inventory(CreatureId),
+}
+
 /// Talkaction dispatch result — mirrors C++ `TalkActionResult_t`
 /// (`talkaction.h:13-17`).
 ///
@@ -83,6 +91,46 @@ pub trait EventDispatcher {
         _pos: Position,
         _startup: bool,
         _artificial: bool,
+        _ctx: &dyn ScriptContext,
+    ) {
+    }
+
+    /// TFS `Events::eventPlayerOnMoveItem` — after native `queryAdd`, before transfer.
+    fn on_player_move_item(
+        &self,
+        _player: CreatureId,
+        _item: ItemId,
+        _count: u16,
+        _from_pos: Position,
+        _to_pos: Position,
+        _from_cylinder: EventCylinder,
+        _to_cylinder: EventCylinder,
+        _ctx: &dyn ScriptContext,
+    ) -> ReturnValue {
+        ReturnValue::NoError
+    }
+
+    /// TFS `Events::eventPlayerOnItemMoved` — after a successful transfer.
+    fn on_player_item_moved(
+        &self,
+        _player: CreatureId,
+        _item: ItemId,
+        _count: u16,
+        _from_pos: Position,
+        _to_pos: Position,
+        _from_cylinder: EventCylinder,
+        _to_cylinder: EventCylinder,
+        _ctx: &dyn ScriptContext,
+    ) {
+    }
+
+    /// TFS `Events::eventPlayerOnReportBug` — `GamePacket::BugReport`.
+    fn on_player_report_bug(
+        &self,
+        _player: CreatureId,
+        _message: &str,
+        _pos: Position,
+        _category: u8,
         _ctx: &dyn ScriptContext,
     ) {
     }

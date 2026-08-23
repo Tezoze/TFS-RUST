@@ -1072,6 +1072,24 @@ fn handle_game_packet(
                 world.send_cancel_message(conn_id, rv);
             }
         }
+        GamePacket::BugReport(payload) => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                let pos = payload.position.unwrap_or_else(|| {
+                    world
+                        .creatures
+                        .get(cid)
+                        .map(|k| k.position())
+                        .unwrap_or_default()
+                });
+                crate::lua_scope::fire_on_player_report_bug(
+                    world,
+                    cid,
+                    &payload.message,
+                    pos,
+                    payload.category,
+                );
+            }
+        }
         _ => trace!(
             conn_id = conn_id.0,
             ?packet,

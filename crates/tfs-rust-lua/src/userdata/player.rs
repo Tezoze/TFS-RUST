@@ -813,6 +813,9 @@ impl UserData for CreatureRef {
             with_ctx(|ctx| Ok(ctx.is_creature_player(this.0)))
         });
 
+        // TFS `Thing::isTile` — inventory cylinders are the player, not a tile.
+        methods.add_method("isTile", |_, _this, ()| Ok(false));
+
         // `creature:isInGhostMode()` — `Creature::isInGhostMode` (`creature.h`):
         // `false` for non-players; `Player::isInGhostMode` returns `ghostMode`
         // (`player.h:363`). Used by `tiles.lua` step events (`luascript.cpp:7515`).

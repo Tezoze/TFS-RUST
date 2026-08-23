@@ -8,6 +8,7 @@ use std::cell::RefCell;
 use crate::context::{CURRENT_CTX, ItemRef, LuaContext};
 use crate::lua_mutation::{call_lua_container_add_item, call_lua_item_remove};
 use crate::userdata::item::push_item_userdata;
+use crate::userdata::position::PositionRef;
 
 /// Container handle — same underlying item id as [`ItemRef`].
 #[derive(Clone, Copy, Debug)]
@@ -37,6 +38,24 @@ impl UserData for ContainerRef {
     }
 
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        // TFS `Thing::isTile` — false for containers (`moveitem.lua` dest check).
+        methods.add_method("isTile", |_, _this, ()| Ok(false));
+        methods.add_method("isContainer", |_, _this, ()| Ok(true));
+
+        // Trap `onItemMoved` calls `toCylinder:getPosition():sendMagicEffect`.
+        methods.add_method("getPosition", |lua, this, ()| {
+            let pos = with_ctx(|ctx| {
+                ctx.get_item_position(this.0)
+                    .ok_or_else(|| mlua::Error::runtime("item not found"))
+            })?;
+            let ud = lua.create_userdata(PositionRef {
+                x: pos.x,
+                y: pos.y,
+                z: pos.z,
+            })?;
+            Ok(Value::UserData(ud))
+        });
+
         methods.add_method("getSize", |_, this, ()| {
             with_ctx(|ctx| Ok(ctx.get_container_data(this.0).map(|d| d.size).unwrap_or(0)))
         });
