@@ -188,6 +188,29 @@ impl VocationRegistry {
         self.vocations.get(&(vocation_id as u16))
     }
 
+    /// TFS `Vocations::getPromotedVocation` — id whose `fromvoc` is `vocation_id`
+    /// and whose own id differs (promoted row).
+    pub fn promoted_id(&self, vocation_id: i32) -> Option<i32> {
+        if vocation_id < 0 {
+            return None;
+        }
+        let from = vocation_id as u16;
+        self.vocations
+            .values()
+            .find(|v| v.from_vocation == from && v.id != from)
+            .map(|v| i32::from(v.id))
+    }
+
+    /// TFS `luaVocationGetDemotion` — `fromvoc` when it is a real base voc.
+    pub fn demotion_id(&self, vocation_id: i32) -> Option<i32> {
+        let def = self.get(vocation_id)?;
+        if def.from_vocation != 0 && def.from_vocation != def.id {
+            Some(i32::from(def.from_vocation))
+        } else {
+            None
+        }
+    }
+
     /// Load `data/defs/vocations.lua` via the sandboxed data-Lua loader, deserialize
     /// into `Vec<VocationDef>`, validate, and index by id.
     pub fn load(path: &Path) -> Result<Self> {

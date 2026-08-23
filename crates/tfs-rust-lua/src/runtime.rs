@@ -33,9 +33,10 @@ use crate::userdata::{
     register_combat_metatable, register_condition_metatable, register_container_metatable,
     register_creature_metatable, register_group_metatable, register_item_metatable,
     register_item_type_constructor, register_item_type_metatable,
-    register_monster_type_constructor, register_npc_metatable, register_position_metatable,
-    register_spell_metatable, register_tile_constructor, register_town_constructor,
-    register_vocation_metatable, register_weapon_metatable,
+    register_monster_type_constructor, register_npc_metatable, register_outfit_constructor,
+    register_position_metatable, register_spell_metatable, register_tile_constructor,
+    register_town_constructor, register_vocation_constructor, register_vocation_metatable,
+    register_weapon_metatable,
 };
 use tfs_rust_common::Position;
 
@@ -213,6 +214,8 @@ impl LuaRuntime {
             .map_err(LuaError::Registration)?;
         register_tile_constructor(&lua).map_err(LuaError::Registration)?;
         register_town_constructor(&lua).map_err(LuaError::Registration)?;
+        register_vocation_constructor(&lua).map_err(LuaError::Registration)?;
+        register_outfit_constructor(&lua).map_err(LuaError::Registration)?;
         register_game_api(&lua).map_err(LuaError::Registration)?;
         register_variant_constructor(&lua).map_err(LuaError::Registration)?;
         register_monster_type_constructor(&lua).map_err(LuaError::Registration)?;

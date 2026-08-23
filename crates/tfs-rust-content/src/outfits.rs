@@ -119,6 +119,11 @@ impl OutfitDatabase {
             .filter(|o| o.enabled && o.outfit_type == sex)
     }
 
+    /// Looktype lookup ignoring sex — `Outfit(lookType)` premium/name table.
+    pub fn get_by_looktype(&self, looktype: u16) -> Option<&Outfit> {
+        self.outfits.get(&looktype)
+    }
+
     /// Enabled outfits for `sex`, ordered by looktype (stable window list order).
     pub fn outfits_for_sex(&self, sex: u8) -> Vec<&Outfit> {
         let mut list: Vec<&Outfit> = self

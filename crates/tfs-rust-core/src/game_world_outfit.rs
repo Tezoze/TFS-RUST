@@ -261,6 +261,46 @@ impl GameWorld {
         }
         Some(0)
     }
+
+    /// `player:sendOutfitWindow()` — TFS `luaPlayerSendOutfitWindow`.
+    pub fn lua_script_send_outfit_window(&mut self, creature_u64: u64) -> Result<(), String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "sendOutfitWindow: creature not found".to_string())?;
+        if let Some(conn) = self.conn_for_creature(cid) {
+            self.player_request_outfit(conn, cid);
+        }
+        Ok(())
+    }
+
+    /// `player:setOutfit(outfit)` — TFS `luaPlayerSetOutfit` / `internalCreatureChangeOutfit`.
+    pub fn lua_script_set_outfit(
+        &mut self,
+        creature_u64: u64,
+        look_type: i32,
+        look_head: i32,
+        look_body: i32,
+        look_legs: i32,
+        look_feet: i32,
+        look_addons: i32,
+    ) -> Result<(), String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "setOutfit: creature not found".to_string())?;
+        let new_outfit = Outfit {
+            look_type,
+            look_head,
+            look_body,
+            look_legs,
+            look_feet,
+            look_addons,
+        };
+        let Some(CreatureKind::Player(_)) = self.creatures.get(cid) else {
+            return Err("setOutfit: not a player".into());
+        };
+        self.internal_creature_change_outfit(cid, &new_outfit);
+        Ok(())
+    }
 }
 
 /// Stock 7.72 client looktype range — `gameserver` `sendOutfitWindow` else-branch.

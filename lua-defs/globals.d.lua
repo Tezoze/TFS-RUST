@@ -4,6 +4,7 @@
 
 function EventCallback(...) end
 function NpcDialogue(...) end
+function Outfit(...) end
 function addEvent(...) end
 function createCombatArea(...) end
 function debugPrint(...) end
@@ -15,6 +16,7 @@ function getDepotId(...) end
 function getWorldLight(...) end
 function getWorldTime(...) end
 function hasEventCallback(...) end
+function isScriptsInterface(...) end
 function sendChannelMessage(...) end
 function setWorldLight(...) end
 function stopEvent(...) end

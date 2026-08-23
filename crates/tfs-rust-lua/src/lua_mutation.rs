@@ -333,6 +333,30 @@ pub enum LuaMutation {
         name: String,
         register: bool,
     },
+    /// `player:sendOutfitWindow()` — TFS `luaPlayerSendOutfitWindow`.
+    PlayerSendOutfitWindow {
+        creature_id: u64,
+    },
+    /// `player:setOutfit(table)` — TFS `luaPlayerSetOutfit`.
+    PlayerSetOutfit {
+        creature_id: u64,
+        look_type: i32,
+        look_head: i32,
+        look_body: i32,
+        look_legs: i32,
+        look_feet: i32,
+        look_addons: i32,
+    },
+    /// `player:setVocation(id)` — TFS `luaPlayerSetVocation`.
+    PlayerSetVocation {
+        creature_id: u64,
+        vocation_id: i32,
+    },
+    /// `creature:setDirection(dir)` — TFS `luaCreatureSetDirection`.
+    PlayerSetDirection {
+        creature_id: u64,
+        direction: u8,
+    },
 }
 
 /// Snapshot of a Lua `ConditionBuilder` for the mutation / combat-execute seam.
@@ -1045,6 +1069,50 @@ pub fn call_player_register_creature_event(
         creature_id,
         name,
         register,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// `player:sendOutfitWindow()` — TFS `luaPlayerSendOutfitWindow`.
+pub fn call_lua_send_outfit_window(creature_id: u64) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerSendOutfitWindow { creature_id })
+}
+
+/// `player:setOutfit(...)` — TFS `luaPlayerSetOutfit`.
+pub fn call_lua_set_outfit(
+    creature_id: u64,
+    look_type: i32,
+    look_head: i32,
+    look_body: i32,
+    look_legs: i32,
+    look_feet: i32,
+    look_addons: i32,
+) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerSetOutfit {
+        creature_id,
+        look_type,
+        look_head,
+        look_body,
+        look_legs,
+        look_feet,
+        look_addons,
+    })
+}
+
+/// `player:setVocation(id)` — TFS `luaPlayerSetVocation`.
+pub fn call_lua_set_vocation(creature_id: u64, vocation_id: i32) -> Result<bool, String> {
+    apply_mutation(LuaMutation::PlayerSetVocation {
+        creature_id,
+        vocation_id,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// `creature:setDirection(dir)` — TFS `luaCreatureSetDirection`.
+pub fn call_lua_set_direction(creature_id: u64, direction: u8) -> Result<bool, String> {
+    apply_mutation(LuaMutation::PlayerSetDirection {
+        creature_id,
+        direction,
     })?;
     Ok(take_mutation_bool_result().unwrap_or(false))
 }

@@ -179,7 +179,7 @@ Per-player event name set on the player entity, mirroring TFS. `login.lua` uses 
 
 ---
 
-## Phase 3 — Bind the primitives the kept scripts need
+## Phase 3 — Bind the primitives the kept scripts need — **DONE 2026-08-23**
 
 Phase 2 makes the scripts run; most of them will then **error on line 1** because their APIs are unbound. Every binding below is a Rust primitive, per the policy's "bind or native-implement the primitive, then keep the Lua one-liner" rule.
 
@@ -208,7 +208,7 @@ The `db` global does not exist. Two options; pick one before starting the phase:
 - **(a) Bind a narrow `db`** — `db.query` / `storeQuery` / `escapeString` / `asyncQuery` over the existing sqlx pool. Faithful to TFS, but hands arbitrary SQL to the pack.
 - **(b) Keep the death row native** and give Lua only `Player:sendTextMessage` for the death text. Smaller surface; diverges from TFS call sites.
 
-**Recommendation: (b) for the `player_deaths` row, (a) deferred.** The death row is ops/persistence, which the policy already assigns to Rust ("treat save/startup as engine"). Guild-war kill logging and `isInWar` go with it.
+**Chosen 2026-08-23: (b).** `playerdeath.lua` keeps the death text only (also drops blessing-storage and guild-war SQL that Phase 6.3 would have removed). No `db` / `result` globals.
 
 Also needed for the trimmed script: `Player:getSkull()` is unbound; only required if guild-war logic is kept — it is not (see Phase 6).
 

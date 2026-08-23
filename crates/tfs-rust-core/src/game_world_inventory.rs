@@ -753,6 +753,54 @@ impl GameWorld {
         Ok(())
     }
 
+    /// `player:setVocation(vocation)` — TFS `luaPlayerSetVocation`.
+    pub fn lua_script_set_vocation(
+        &mut self,
+        creature_u64: u64,
+        vocation_id: i32,
+    ) -> Result<bool, String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "setVocation: creature not found".to_string())?;
+        let Some(def) = self.vocations.get(vocation_id) else {
+            return Ok(false);
+        };
+        let profile = crate::creature::vocation::VocationProfile::from_def(def);
+        let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
+            return Err("setVocation: not a player".into());
+        };
+        p.vocation_id = vocation_id;
+        p.vocation_profile = profile;
+        Ok(true)
+    }
+
+    /// `creature:setDirection(dir)` — TFS `luaCreatureSetDirection`.
+    pub fn lua_script_set_direction(
+        &mut self,
+        creature_u64: u64,
+        direction: u8,
+    ) -> Result<bool, String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "setDirection: creature not found".to_string())?;
+        let dir = match direction {
+            0 => tfs_rust_common::enums::Direction::North,
+            1 => tfs_rust_common::enums::Direction::East,
+            2 => tfs_rust_common::enums::Direction::South,
+            3 => tfs_rust_common::enums::Direction::West,
+            4 => tfs_rust_common::enums::Direction::SouthWest,
+            5 => tfs_rust_common::enums::Direction::SouthEast,
+            6 => tfs_rust_common::enums::Direction::NorthWest,
+            7 => tfs_rust_common::enums::Direction::NorthEast,
+            _ => return Ok(false),
+        };
+        let Some(kind) = self.creatures.get_mut(cid) else {
+            return Err("setDirection: creature not found".into());
+        };
+        kind.base_mut().direction = dir;
+        Ok(true)
+    }
+
     /// Lua `player:addMana(manaChange)` — `luascript.cpp` `luaPlayerAddMana`
     /// with `animationOnLoss=false` → `Player::changeMana`.
     /// PC-3a Phase 5: `conjureItem` dual-hand mana deduction.

@@ -482,6 +482,91 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         self.creatures.get(cid).map(|k| k.base().direction as u8)
     }
 
+    fn get_player_last_login_saved(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+    ) -> Option<i64> {
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        match self.creatures.get(cid)? {
+            CreatureKind::Player(p) => Some(
+                p.persist
+                    .as_ref()
+                    .map(|b| b.player_row.lastlogin as i64)
+                    .unwrap_or(0),
+            ),
+            _ => None,
+        }
+    }
+
+    fn get_player_last_logout(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+    ) -> Option<i64> {
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        match self.creatures.get(cid)? {
+            CreatureKind::Player(p) => Some(
+                p.persist
+                    .as_ref()
+                    .map(|b| b.player_row.lastlogout as i64)
+                    .unwrap_or(0),
+            ),
+            _ => None,
+        }
+    }
+
+    fn get_player_sex(&self, creature_id: tfs_rust_common::ScriptCreatureId) -> Option<u8> {
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        match self.creatures.get(cid)? {
+            CreatureKind::Player(p) => Some(p.sex as u8),
+            _ => None,
+        }
+    }
+
+    fn get_player_outfit(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+    ) -> Option<tfs_rust_common::ScriptOutfit> {
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        let o = &self.creatures.get(cid)?.base().outfit;
+        Some(tfs_rust_common::ScriptOutfit {
+            look_type: o.look_type,
+            look_head: o.look_head,
+            look_body: o.look_body,
+            look_legs: o.look_legs,
+            look_feet: o.look_feet,
+            look_addons: o.look_addons,
+        })
+    }
+
+    fn get_creature_max_health(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+    ) -> Option<i32> {
+        let cid = self.resolve_creature_from_script(creature_id)?;
+        Some(self.creatures.get(cid)?.base().max_health)
+    }
+
+    fn get_vocation_promotion(&self, vocation_id: i32) -> Option<i32> {
+        self.vocations.promoted_id(vocation_id)
+    }
+
+    fn get_vocation_demotion(&self, vocation_id: i32) -> Option<i32> {
+        self.vocations.demotion_id(vocation_id)
+    }
+
+    fn vocation_exists(&self, vocation_id: i32) -> bool {
+        self.vocations.get(vocation_id).is_some()
+    }
+
+    fn get_outfit_info(&self, look_type: i32) -> Option<(String, bool)> {
+        if look_type < 0 || look_type > i32::from(u16::MAX) {
+            return None;
+        }
+        self.outfits_db
+            .get_by_looktype(look_type as u16)
+            .map(|o| (o.name.clone(), o.premium))
+    }
+
     /// `ItemType:isStackable()` backing read — `ItemType::stackable`.
     /// CH-6 talkaction `/i` count clamping.
     fn get_item_type_is_stackable(&self, item_type: u16) -> bool {

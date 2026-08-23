@@ -17,6 +17,17 @@ pub struct ScriptCreatureData {
     pub guid: u32,
 }
 
+/// Player look table for `player:getOutfit()` / `setOutfit` (`luascript.cpp`).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ScriptOutfit {
+    pub look_type: i32,
+    pub look_head: i32,
+    pub look_body: i32,
+    pub look_legs: i32,
+    pub look_feet: i32,
+    pub look_addons: i32,
+}
+
 /// Item fields for script read APIs (`Item:getId` / `getType` / …).
 #[derive(Clone, Debug)]
 pub struct ScriptItemData {
@@ -383,6 +394,61 @@ pub trait ScriptContext {
     /// Returns `None` if the creature is not found; defaults to `None`.
     fn get_player_direction(&self, creature_id: ScriptCreatureId) -> Option<u8> {
         let _ = creature_id;
+        None
+    }
+
+    /// `player:getLastLoginSaved()` — previous `players.lastlogin` (unix seconds).
+    /// `0` means never logged in (first-login / outfit window).
+    fn get_player_last_login_saved(&self, creature_id: ScriptCreatureId) -> Option<i64> {
+        let _ = creature_id;
+        None
+    }
+
+    /// `player:getLastLogout()` — `players.lastlogout` unix seconds.
+    fn get_player_last_logout(&self, creature_id: ScriptCreatureId) -> Option<i64> {
+        let _ = creature_id;
+        None
+    }
+
+    /// `player:getSex()` — `PLAYERSEX_FEMALE` (0) / `PLAYERSEX_MALE` (1).
+    fn get_player_sex(&self, creature_id: ScriptCreatureId) -> Option<u8> {
+        let _ = creature_id;
+        None
+    }
+
+    /// `player:getOutfit()` — current look (`Creature::outfit`).
+    fn get_player_outfit(&self, creature_id: ScriptCreatureId) -> Option<ScriptOutfit> {
+        let _ = creature_id;
+        None
+    }
+
+    /// `creature:getMaxHealth()` — `Creature::getMaxHealth`.
+    fn get_creature_max_health(&self, creature_id: ScriptCreatureId) -> Option<i32> {
+        let _ = creature_id;
+        None
+    }
+
+    /// `vocation:getPromotion()` — promoted vocation id, or `None`.
+    fn get_vocation_promotion(&self, vocation_id: i32) -> Option<i32> {
+        let _ = vocation_id;
+        None
+    }
+
+    /// `vocation:getDemotion()` — base vocation id, or `None` if already base.
+    fn get_vocation_demotion(&self, vocation_id: i32) -> Option<i32> {
+        let _ = vocation_id;
+        None
+    }
+
+    /// `Vocation(id)` — whether `vocations` contains this id.
+    fn vocation_exists(&self, vocation_id: i32) -> bool {
+        let _ = vocation_id;
+        false
+    }
+
+    /// `Outfit(lookType)` — `(name, premium)` from outfits XML, if enabled.
+    fn get_outfit_info(&self, look_type: i32) -> Option<(String, bool)> {
+        let _ = look_type;
         None
     }
 

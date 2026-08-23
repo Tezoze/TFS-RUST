@@ -442,6 +442,42 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             set_mutation_bool_result(ok);
             Ok(())
         }
+        LuaMutation::PlayerSendOutfitWindow { creature_id } => {
+            unsafe { &mut *world }.lua_script_send_outfit_window(creature_id)
+        }
+        LuaMutation::PlayerSetOutfit {
+            creature_id,
+            look_type,
+            look_head,
+            look_body,
+            look_legs,
+            look_feet,
+            look_addons,
+        } => unsafe { &mut *world }.lua_script_set_outfit(
+            creature_id,
+            look_type,
+            look_head,
+            look_body,
+            look_legs,
+            look_feet,
+            look_addons,
+        ),
+        LuaMutation::PlayerSetVocation {
+            creature_id,
+            vocation_id,
+        } => {
+            let ok = unsafe { &mut *world }.lua_script_set_vocation(creature_id, vocation_id)?;
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
+        LuaMutation::PlayerSetDirection {
+            creature_id,
+            direction,
+        } => {
+            let ok = unsafe { &mut *world }.lua_script_set_direction(creature_id, direction)?;
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
     }
 }
 

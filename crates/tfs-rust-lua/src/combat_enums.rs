@@ -31,6 +31,7 @@ pub fn register_combat_enums(lua: &Lua) -> Result<(), mlua::Error> {
     register_inventory_slots(&globals)?;
     register_item_constants(&globals)?;
     register_directions(&globals)?;
+    register_player_sex(&globals)?;
     register_tile_props(&globals)?;
     register_tile_states(&globals)?;
     register_message_types(&globals)?;
@@ -377,6 +378,13 @@ fn register_directions(globals: &mlua::Table) -> Result<(), mlua::Error> {
     globals.set("DIRECTION_SOUTHEAST", 5i32)?; // position.h:14 (DIAGONAL_MASK|1)
     globals.set("DIRECTION_NORTHWEST", 6i32)?; // position.h:15 (DIAGONAL_MASK|2)
     globals.set("DIRECTION_NORTHEAST", 7i32)?; // position.h:16 (DIAGONAL_MASK|3)
+    Ok(())
+}
+
+fn register_player_sex(globals: &mlua::Table) -> Result<(), mlua::Error> {
+    // enums.h `PlayerSex_t` — `PLAYERSEX_FEMALE` / `PLAYERSEX_MALE`.
+    globals.set("PLAYERSEX_FEMALE", 0i32)?;
+    globals.set("PLAYERSEX_MALE", 1i32)?;
     Ok(())
 }
 

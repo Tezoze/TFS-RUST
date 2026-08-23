@@ -2,7 +2,7 @@
 //!
 //! C++ reference: `src/luascript.cpp` — `Creature` / `Player` userdata methods.
 
-use mlua::{MetaMethod, UserData, UserDataMethods, Value};
+use mlua::{MetaMethod, UserData, UserDataFields, UserDataMethods, Value};
 use std::cell::RefCell;
 
 use crate::context::{CURRENT_CTX, CreatureData, CreatureRef, ItemRef, LuaContext};
@@ -11,7 +11,8 @@ use crate::lua_mutation::{
     call_lua_add_mana, call_lua_add_mana_spent, call_lua_add_skill_tries, call_lua_feed,
     call_lua_get_depot_chest, call_lua_get_depot_locker, call_lua_get_inbox, call_lua_player_say,
     call_lua_remove_condition, call_lua_remove_item, call_lua_send_cancel_message,
-    call_lua_set_in_fight, call_lua_show_text_dialog, call_player_register_creature_event,
+    call_lua_send_outfit_window, call_lua_set_direction, call_lua_set_in_fight, call_lua_set_outfit,
+    call_lua_set_vocation, call_lua_show_text_dialog, call_player_register_creature_event,
 };
 use crate::userdata::container::ContainerRef;
 use crate::userdata::group::GroupRef;
@@ -22,6 +23,31 @@ use crate::userdata::vocation::VocationRef;
 /// Register the Creature metatable in the Lua runtime.
 pub fn register_creature_metatable(lua: &mlua::Lua) -> Result<(), mlua::Error> {
     lua.register_userdata_type::<CreatureRef>(|_registry| {})
+}
+
+/// `Outfit(lookType)` — TFS `luaOutfit` / `g_game.outfits.getOutfitByLookType`.
+/// Returns a table `{ lookType, lookHead=0, …, name, premium }` or `nil`.
+pub fn register_outfit_constructor(lua: &mlua::Lua) -> Result<(), mlua::Error> {
+    let outfit_new = lua.create_function(|lua, look_type: i32| {
+        let info = crate::context::current_ctx(|ctx| ctx.get_outfit_info(look_type)).flatten();
+        match info {
+            Some((name, premium)) => {
+                let t = lua.create_table()?;
+                t.set("lookType", look_type)?;
+                t.set("lookHead", 0i32)?;
+                t.set("lookBody", 0i32)?;
+                t.set("lookLegs", 0i32)?;
+                t.set("lookFeet", 0i32)?;
+                t.set("lookAddons", 0i32)?;
+                t.set("name", name)?;
+                t.set("premium", if premium { 1i32 } else { 0i32 })?;
+                Ok(Value::Table(t))
+            }
+            None => Ok(Value::Nil),
+        }
+    })?;
+    lua.globals().set("Outfit", outfit_new)?;
+    Ok(())
 }
 
 fn with_ctx<F, R>(f: F) -> Result<R, mlua::Error>
@@ -41,6 +67,11 @@ where
 impl UserData for CreatureRef {
     fn register(registry: &mut mlua::UserDataRegistry<Self>) {
         crate::class_registry::register_with_recording(registry, "Creature");
+    }
+
+    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
+        // TFS Thing `uid` for creatures is the creature id (`luascript.cpp`).
+        fields.add_field_method_get("uid", |_, this| Ok(this.0));
     }
 
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
@@ -409,6 +440,24 @@ impl UserData for CreatureRef {
                     Ok(Value::UserData(ud))
                 }
                 None => Ok(Value::Nil),
+            }
+        });
+
+        // `player:setVocation(vocation)` — TFS `luaPlayerSetVocation`.
+        methods.add_method("setVocation", |_, this, voc: Value| {
+            let vocation_id = match voc {
+                Value::UserData(ud) => match ud.borrow::<VocationRef>() {
+                    Ok(v) => v.0,
+                    Err(_) => return Ok(Value::Boolean(false)),
+                },
+                Value::Integer(n) => n as i32,
+                Value::Number(n) => n as i32,
+                _ => return Ok(Value::Boolean(false)),
+            };
+            match call_lua_set_vocation(this.0, vocation_id) {
+                Ok(true) => Ok(Value::Boolean(true)),
+                Ok(false) => Ok(Value::Boolean(false)),
+                Err(_) => Ok(Value::Nil),
             }
         });
 
@@ -787,6 +836,88 @@ impl UserData for CreatureRef {
             with_ctx(|ctx| Ok(ctx.get_player_direction(this.0).unwrap_or(0)))
         });
 
+        // `creature:setDirection(dir)` — TFS `luaCreatureSetDirection`.
+        methods.add_method("setDirection", |_, this, dir: u8| {
+            call_lua_set_direction(this.0, dir).map_err(mlua::Error::runtime)
+        });
+
+        // `creature:getMaxHealth()` — TFS `luaCreatureGetMaxHealth`.
+        methods.add_method("getMaxHealth", |_, this, ()| {
+            with_ctx(|ctx| {
+                ctx.get_creature_max_health(this.0)
+                    .ok_or_else(|| mlua::Error::runtime("creature not found"))
+            })
+        });
+
+        // `player:getLastLoginSaved()` — previous `players.lastlogin` unix seconds.
+        methods.add_method("getLastLoginSaved", |_, this, ()| {
+            with_ctx(|ctx| {
+                ctx.get_player_last_login_saved(this.0)
+                    .ok_or_else(|| mlua::Error::runtime("player not found"))
+            })
+        });
+
+        // `player:getLastLogout()` — `players.lastlogout`.
+        methods.add_method("getLastLogout", |_, this, ()| {
+            with_ctx(|ctx| {
+                ctx.get_player_last_logout(this.0)
+                    .ok_or_else(|| mlua::Error::runtime("player not found"))
+            })
+        });
+
+        // `player:getSex()` — `PLAYERSEX_FEMALE` / `PLAYERSEX_MALE`.
+        methods.add_method("getSex", |_, this, ()| {
+            with_ctx(|ctx| {
+                ctx.get_player_sex(this.0)
+                    .ok_or_else(|| mlua::Error::runtime("player not found"))
+            })
+        });
+
+        // `player:getOutfit()` — table with lookType / colours (`luaPlayerGetOutfit`).
+        methods.add_method("getOutfit", |lua, this, ()| {
+            let outfit = with_ctx(|ctx| Ok(ctx.get_player_outfit(this.0)))?;
+            match outfit {
+                Some(o) => {
+                    let t = lua.create_table()?;
+                    t.set("lookType", o.look_type)?;
+                    t.set("lookHead", o.look_head)?;
+                    t.set("lookBody", o.look_body)?;
+                    t.set("lookLegs", o.look_legs)?;
+                    t.set("lookFeet", o.look_feet)?;
+                    t.set("lookAddons", o.look_addons)?;
+                    Ok(Value::Table(t))
+                }
+                None => Ok(Value::Nil),
+            }
+        });
+
+        // `player:setOutfit(outfit)` — TFS `luaPlayerSetOutfit`.
+        methods.add_method("setOutfit", |_, this, outfit: mlua::Table| {
+            let look_type: i32 = table_i32(&outfit, "lookType")?.unwrap_or(0);
+            let look_head: i32 = table_i32(&outfit, "lookHead")?.unwrap_or(0);
+            let look_body: i32 = table_i32(&outfit, "lookBody")?.unwrap_or(0);
+            let look_legs: i32 = table_i32(&outfit, "lookLegs")?.unwrap_or(0);
+            let look_feet: i32 = table_i32(&outfit, "lookFeet")?.unwrap_or(0);
+            let look_addons: i32 = table_i32(&outfit, "lookAddons")?.unwrap_or(0);
+            call_lua_set_outfit(
+                this.0,
+                look_type,
+                look_head,
+                look_body,
+                look_legs,
+                look_feet,
+                look_addons,
+            )
+            .map_err(mlua::Error::runtime)?;
+            Ok(true)
+        });
+
+        // `player:sendOutfitWindow()` — TFS `luaPlayerSendOutfitWindow` (`0xC8`).
+        methods.add_method("sendOutfitWindow", |_, this, ()| {
+            call_lua_send_outfit_window(this.0).map_err(mlua::Error::runtime)?;
+            Ok(true)
+        });
+
         // `creature:getSummons()` — array of Creature userdata.
         methods.add_method("getSummons", |lua, this, ()| {
             let ids = with_ctx(|ctx| Ok(ctx.get_creature_summons(this.0)))?;
@@ -990,6 +1121,17 @@ fn parse_compute_skill_damage_args(
     let limit_min = args.get(3).and_then(value_as_bool).unwrap_or(false);
     let limit_max = args.get(4).and_then(value_as_bool).unwrap_or(false);
     Ok((damage, variation, skill, limit_min, limit_max))
+}
+
+fn table_i32(table: &mlua::Table, key: &str) -> Result<Option<i32>, mlua::Error> {
+    match table.get::<Value>(key)? {
+        Value::Nil => Ok(None),
+        Value::Integer(n) => Ok(Some(n as i32)),
+        Value::Number(n) => Ok(Some(n as i32)),
+        _ => Err(mlua::Error::runtime(format!(
+            "outfit.{key}: expected integer"
+        ))),
+    }
 }
 
 fn value_as_i32(v: &Value) -> Option<i32> {
@@ -1727,6 +1869,91 @@ mod tests {
                 .eval()
                 .expect("master isPlayer");
             assert!(is_player);
+        });
+    }
+
+    /// Phase 3: login/firstlogin primitives through the userdata bindings.
+    #[test]
+    fn phase3_login_primitives_through_lua() {
+        use tfs_rust_common::ScriptOutfit;
+
+        struct LoginCtx;
+        impl ScriptContext for LoginCtx {
+            fn get_creature(&self, id: ScriptCreatureId) -> Option<ScriptCreatureData> {
+                (id == GM_CID).then_some(ScriptCreatureData {
+                    name: "Hero".into(),
+                    guid: 1,
+                })
+            }
+            fn get_item(&self, _: ScriptItemId) -> Option<ScriptItemRef> {
+                None
+            }
+            fn get_config_string(&self, _: &str) -> Option<String> {
+                None
+            }
+            fn get_player_last_login_saved(&self, id: ScriptCreatureId) -> Option<i64> {
+                (id == GM_CID).then_some(1_700_000_000)
+            }
+            fn get_player_last_logout(&self, id: ScriptCreatureId) -> Option<i64> {
+                (id == GM_CID).then_some(1_699_000_000)
+            }
+            fn get_player_sex(&self, id: ScriptCreatureId) -> Option<u8> {
+                (id == GM_CID).then_some(1)
+            }
+            fn get_player_outfit(&self, id: ScriptCreatureId) -> Option<ScriptOutfit> {
+                (id == GM_CID).then_some(ScriptOutfit {
+                    look_type: 128,
+                    look_head: 78,
+                    look_body: 106,
+                    look_legs: 58,
+                    look_feet: 95,
+                    look_addons: 0,
+                })
+            }
+            fn get_creature_max_health(&self, id: ScriptCreatureId) -> Option<i32> {
+                (id == GM_CID).then_some(150)
+            }
+            fn get_outfit_info(&self, look_type: i32) -> Option<(String, bool)> {
+                (look_type == 128).then_some(("Citizen".into(), false))
+            }
+        }
+
+        let runtime = crate::runtime::LuaRuntime::new().expect("runtime");
+        let lua = &runtime.lua;
+        with_lua_context(&LoginCtx, || {
+            let ud = lua.create_userdata(CreatureRef(GM_CID)).expect("ud");
+            lua.globals().set("player", ud).unwrap();
+            let last: i64 = lua
+                .load("return player:getLastLoginSaved()")
+                .eval()
+                .expect("last login");
+            assert_eq!(last, 1_700_000_000);
+            let logout: i64 = lua
+                .load("return player:getLastLogout()")
+                .eval()
+                .expect("last logout");
+            assert_eq!(logout, 1_699_000_000);
+            let sex: u8 = lua.load("return player:getSex()").eval().expect("sex");
+            assert_eq!(sex, 1);
+            let look: i32 = lua
+                .load("return player:getOutfit().lookType")
+                .eval()
+                .expect("outfit");
+            assert_eq!(look, 128);
+            let uid: u64 = lua.load("return player.uid").eval().expect("uid");
+            assert_eq!(uid, GM_CID);
+            let hp: i32 = lua
+                .load("return player:getMaxHealth()")
+                .eval()
+                .expect("maxhp");
+            assert_eq!(hp, 150);
+            let prem: i32 = lua
+                .load("return Outfit(128).premium")
+                .eval()
+                .expect("Outfit");
+            assert_eq!(prem, 0);
+            let missing: mlua::Value = lua.load("return Outfit(1)").eval().expect("missing outfit");
+            assert!(matches!(missing, mlua::Value::Nil));
         });
     }
 }

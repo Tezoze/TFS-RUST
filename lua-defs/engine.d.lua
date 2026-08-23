@@ -35,6 +35,7 @@ function Condition:setParameter(...) end
 function Condition:setTicks(...) end
 
 ---@class Creature
+---@field uid any
 Creature = {}
 
 function Creature:addCondition(...) end
@@ -70,16 +71,21 @@ function Creature:getInbox(...) end
 function Creature:getInstantSpells(...) end
 function Creature:getItemById(...) end
 function Creature:getItemCount(...) end
+function Creature:getLastLoginSaved(...) end
+function Creature:getLastLogout(...) end
 function Creature:getLevel(...) end
 function Creature:getMagicLevel(...) end
 function Creature:getMana(...) end
 function Creature:getMaster(...) end
+function Creature:getMaxHealth(...) end
 function Creature:getMoney(...) end
 function Creature:getMurderTimestamps(...) end
 function Creature:getName(...) end
+function Creature:getOutfit(...) end
 function Creature:getPlayerKillerEnd(...) end
 function Creature:getPosition(...) end
 function Creature:getPremiumEndsAt(...) end
+function Creature:getSex(...) end
 function Creature:getSlotItem(...) end
 function Creature:getSpellCoeff(...) end
 function Creature:getStorageValue(...) end
@@ -97,17 +103,23 @@ function Creature:isPlayer(...) end
 function Creature:isPremium(...) end
 function Creature:isPzLocked(...) end
 function Creature:move(...) end
+function Creature:registerEvent(...) end
 function Creature:removeCondition(...) end
 function Creature:removeItem(...) end
 function Creature:say(...) end
 function Creature:sendCancelMessage(...) end
+function Creature:sendOutfitWindow(...) end
 function Creature:sendTextMessage(...) end
+function Creature:setDirection(...) end
 function Creature:setInFight(...) end
+function Creature:setOutfit(...) end
 function Creature:setPremiumEndsAt(...) end
 function Creature:setStorageValue(...) end
 function Creature:setTown(...) end
+function Creature:setVocation(...) end
 function Creature:showTextDialog(...) end
 function Creature:teleportTo(...) end
+function Creature:unregisterEvent(...) end
 function Creature:withdrawMoney(...) end
 
 ---@class CreatureEvent
@@ -361,7 +373,9 @@ Variant = {}
 ---@class Vocation
 Vocation = {}
 
+function Vocation:getDemotion(...) end
 function Vocation:getId(...) end
+function Vocation:getPromotion(...) end
 
 ---@class Weapon
 Weapon = {}
