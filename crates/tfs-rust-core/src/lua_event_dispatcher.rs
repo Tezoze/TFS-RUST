@@ -740,6 +740,31 @@ impl EventDispatcher for LuaEventDispatcher {
         }
     }
 
+    fn on_monster_spawned(
+        &self,
+        creature: CreatureId,
+        pos: Position,
+        startup: bool,
+        artificial: bool,
+        ctx: &dyn tfs_rust_common::ScriptContext,
+    ) {
+        with_lua_context(ctx, || {
+            if let Err(e) = self.runtime.call_monster_on_spawned(
+                creature.data().as_ffi(),
+                pos.x,
+                pos.y,
+                pos.z,
+                startup,
+                artificial,
+            ) {
+                tracing::error!(
+                    ?creature,
+                    "Lua Monster:onSpawn / EventCallback onSpawn failed: {e}"
+                );
+            }
+        });
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }

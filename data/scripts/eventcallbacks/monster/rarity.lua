@@ -1,0 +1,17 @@
+-- Shard rarity example. Uncomment the block to enable. Not registered by default.
+-- Native spawn loot already ran; mutate the living monster here (setAttribute /
+-- transform / addItem on bag or equipment). Do not roll loot at death.
+--
+-- local ec = EventCallback
+--
+-- ec.onSpawn = function(monster, position, startup, artificial)
+-- 	-- local bag = monster:getBag()
+-- 	-- if bag then
+-- 	-- 	for _, item in ipairs(bag:getItems()) do
+-- 	-- 		-- item:setAttribute(...) / item:transform(...)
+-- 	-- 	end
+-- 	-- end
+-- 	return true
+-- end
+--
+-- ec:register()

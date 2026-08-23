@@ -394,14 +394,7 @@ impl GameWorld {
                 m.corpse_id = mtype.outfit.corpse_id;
                 m.blood = mtype.blood_type();
             }
-            let is_summon = self
-                .creatures
-                .get(cid)
-                .is_some_and(|k| k.base().master.is_some());
-            if !is_summon {
-                self.roll_monster_spawn_loot(cid, &mtype);
-                self.recompute_monster_combat_from_equipment(cid);
-            }
+            self.finish_monster_spawn(cid, &mtype, startup, false);
         }
 
         if !startup {
@@ -650,6 +643,7 @@ impl GameWorld {
             .unwrap_or(center);
         self.monster_on_creature_appear_self(cid);
         self.broadcast_creature_appear(cid, placed);
+        self.finish_monster_spawn(cid, &mtype, false, true);
         Ok(Some(cid.data().as_ffi()))
     }
 
@@ -855,6 +849,7 @@ impl GameWorld {
         self.monster_on_creature_appear_self(cid);
         self.broadcast_creature_appear(cid, placed);
         self.broadcast_magic_effect(placed, 11);
+        self.finish_monster_spawn(cid, &mtype, false, true);
         Some(cid)
     }
 

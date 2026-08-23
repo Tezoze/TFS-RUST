@@ -878,6 +878,28 @@ pub trait ScriptContext {
         None
     }
 
+    /// Equipment slot on a living monster (`CONST_SLOT_*` 1..=10). Spawn-loot items.
+    fn get_monster_slot_item_id(
+        &self,
+        creature_id: ScriptCreatureId,
+        slot: u8,
+    ) -> Option<ScriptItemId> {
+        let _ = (creature_id, slot);
+        None
+    }
+
+    /// Internal spawn-loot bag item id, if the monster has one.
+    fn get_monster_bag_item_id(&self, creature_id: ScriptCreatureId) -> Option<ScriptItemId> {
+        let _ = creature_id;
+        None
+    }
+
+    /// Loose body-slot loot item ids (moved into the corpse on death, not bagged).
+    fn get_monster_body_item_ids(&self, creature_id: ScriptCreatureId) -> Vec<ScriptItemId> {
+        let _ = creature_id;
+        Vec::new()
+    }
+
     /// `ItemType:isCorpse()` — `corpsetype` set in items.xml.
     fn get_item_type_is_corpse(&self, item_type: u16) -> bool {
         let _ = item_type;

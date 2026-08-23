@@ -101,6 +101,7 @@ pub(crate) const HELPER_CTOR_CLASSES: &[&str] = &[
 /// chains the class hierarchy so `self:method()` resolves through base
 /// classes (`Player` → `Creature`, `Container` → `Item`).
 pub(crate) const CREATURE_INDEX_CHAIN: &[&str] = &["Player", "Creature"];
+pub(crate) const MONSTER_INDEX_CHAIN: &[&str] = &["Monster", "Creature"];
 pub(crate) const TILE_INDEX_CHAIN: &[&str] = &["Tile"];
 pub(crate) const ITEM_INDEX_CHAIN: &[&str] = &["Item"];
 pub(crate) const CONTAINER_INDEX_CHAIN: &[&str] = &["Container", "Item"];
@@ -252,6 +253,7 @@ pub(crate) fn registered_class_entries(lua: &Lua) -> Result<Vec<(String, bool)>,
 pub(crate) fn class_lua_base(name: &str) -> Option<&'static str> {
     match name {
         "Player" => Some("Creature"),
+        "Monster" => Some("Creature"),
         "Container" => Some("Item"),
         _ => None,
     }

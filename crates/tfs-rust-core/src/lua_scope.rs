@@ -6,6 +6,7 @@ use crate::event_dispatcher::TalkActionResult;
 use crate::game_world::{GameWorld, TileMoveEventItem};
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
+use tfs_rust_common::Position;
 use tfs_rust_lua::{
     self, LuaMutation, set_mutation_bool_result, set_mutation_i32_result, set_mutation_item_result,
     with_lua_context, with_lua_mutation_scope,
@@ -495,6 +496,30 @@ where
         let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
         with_lua_context(ctx, || f(unsafe { &mut *world_ptr }))
     })
+}
+
+/// Run `Monster:onSpawn` / EventCallback onSpawn after native spawn loot.
+pub fn fire_on_monster_spawned(
+    world: &mut GameWorld,
+    cid: CreatureId,
+    startup: bool,
+    artificial: bool,
+) {
+    let pos = world
+        .creatures
+        .get(cid)
+        .map(|k| k.position())
+        .unwrap_or(Position::default());
+    let world_ptr = std::ptr::from_mut(world);
+    with_lua_mutation_scope(world_ptr as *mut (), || {
+        let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
+        with_lua_context(ctx, || {
+            let world = unsafe { &mut *world_ptr };
+            world
+                .events
+                .on_monster_spawned(cid, pos, startup, artificial, world);
+        });
+    });
 }
 
 /// Run a creature login script with read context and mutation scope active.

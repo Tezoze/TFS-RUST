@@ -71,6 +71,21 @@ pub trait EventDispatcher {
     fn on_monster_spawn(&self, _name: &str, _pos: Position, _startup: bool) -> bool {
         true
     }
+    /// After native spawn loot + first combat recompute. Mutate-only (rarity).
+    /// Never conflated with [`Self::on_monster_spawn`] so a script cannot cancel
+    /// the spawn by falling off the end of `onSpawn`.
+    ///
+    /// `EVENT_CALLBACK_ONDROPLOOT` is intentionally not dispatched from here
+    /// or from death — loot is spawn-rolled natively (Phase 4.4).
+    fn on_monster_spawned(
+        &self,
+        _creature: CreatureId,
+        _pos: Position,
+        _startup: bool,
+        _artificial: bool,
+        _ctx: &dyn ScriptContext,
+    ) {
+    }
     /// Spread LuaJIT GC across ticks (Phase 4 game loop). No-op without Lua.
     fn lua_gc_step(&self) {}
     /// TFS `MoveEvents::onPlayerEquip` with `isCheck == true` — `player.cpp` `queryAdd`.

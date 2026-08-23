@@ -222,7 +222,7 @@ None of these gate the 772 corpus. Bind them when a shard script needs them, not
 
 ---
 
-## Phase 4 — Monster spawn mutate hook (the rarity feature)
+## Phase 4 — Monster spawn mutate hook (the rarity feature) — **DONE 2026-08-23**
 
 This is the payload of the whole design and the phase the policy doc understates. Rust already rolls the loot; there is currently **no way for Lua to see it**.
 

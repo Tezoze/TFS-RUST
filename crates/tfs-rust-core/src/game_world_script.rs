@@ -6,6 +6,7 @@ use slotmap::Key;
 
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
+use crate::inventory::slot_to_array_index;
 use tfs_rust_common::{ScriptCreatureId, ScriptItemId, ScriptThing};
 use tfs_rust_content::spells::InstantSpellDef;
 
@@ -1387,6 +1388,46 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             CreatureKind::Monster(m) => Some(m.base.name.clone()),
             _ => None,
         }
+    }
+
+    fn get_monster_slot_item_id(
+        &self,
+        creature_id: ScriptCreatureId,
+        slot: u8,
+    ) -> Option<ScriptItemId> {
+        let cid = self.resolve_creature_u64(creature_id)?;
+        let CreatureKind::Monster(m) = self.creatures.get(cid)? else {
+            return None;
+        };
+        let idx = slot_to_array_index(slot)?;
+        m.inventory
+            .equipment
+            .get(idx)
+            .copied()
+            .flatten()
+            .map(|id| id.data().as_ffi())
+    }
+
+    fn get_monster_bag_item_id(&self, creature_id: ScriptCreatureId) -> Option<ScriptItemId> {
+        let cid = self.resolve_creature_u64(creature_id)?;
+        let CreatureKind::Monster(m) = self.creatures.get(cid)? else {
+            return None;
+        };
+        m.inventory.bag.map(|id| id.data().as_ffi())
+    }
+
+    fn get_monster_body_item_ids(&self, creature_id: ScriptCreatureId) -> Vec<ScriptItemId> {
+        let Some(cid) = self.resolve_creature_u64(creature_id) else {
+            return Vec::new();
+        };
+        let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
+            return Vec::new();
+        };
+        m.inventory
+            .body
+            .iter()
+            .map(|id| id.data().as_ffi())
+            .collect()
     }
 
     fn get_item_type_is_corpse(&self, item_type: u16) -> bool {

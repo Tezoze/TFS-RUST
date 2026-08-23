@@ -103,6 +103,23 @@ pub fn load_scripts_interface(runtime: &LuaRuntime, data_dir: &Path) -> Result<(
         }
     }
 
+    // TFS `data/events/scripts/monster.lua` — `Monster:onSpawn` forwards to
+    // `EventCallback(EVENT_CALLBACK_ONSPAWN, ...)`. Not under `data/scripts/`;
+    // loaded here so the mutate hook exists before rarity callbacks run.
+    let monster_events = data_dir.join("events/scripts/monster.lua");
+    if monster_events.is_file() {
+        match std::fs::read_to_string(&monster_events) {
+            Ok(src) => {
+                if let Err(e) = runtime.exec_chunk("monster.lua", &src) {
+                    failures.push((monster_events.display().to_string(), e.to_string()));
+                }
+            }
+            Err(e) => {
+                failures.push((monster_events.display().to_string(), e.to_string()));
+            }
+        }
+    }
+
     runtime.install_pending_creature_events()?;
 
     if failures.is_empty() {

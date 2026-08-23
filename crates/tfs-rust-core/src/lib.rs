@@ -80,6 +80,7 @@ mod sim_glibc_rand;
 #[cfg(any(test, feature = "sim"))]
 pub mod sim_harness;
 pub mod spawn;
+mod monster_spawn_hook;
 mod spawn_lifecycle;
 mod spawn_placement;
 pub mod spell;

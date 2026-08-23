@@ -20,6 +20,7 @@ pub mod npc_loader;
 pub mod npc_type;
 pub mod runtime;
 pub mod script_loader;
+mod monster_spawn;
 mod scripts_interface;
 mod stdlib_allowlist;
 pub mod talkactions;
@@ -72,5 +73,5 @@ pub use timer_events::{
 pub use userdata::{
     ConditionBuilder, ContainerRef, NpcRef, VocationRef, register_condition_metatable,
     register_container_metatable, register_creature_metatable, register_item_metatable,
-    register_npc_metatable, register_vocation_metatable,
+    register_monster_metatable, register_npc_metatable, register_vocation_metatable,
 };
