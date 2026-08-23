@@ -327,6 +327,12 @@ pub enum LuaMutation {
         z: u8,
         is_dynamic: bool,
     },
+    /// `player:registerEvent(name)` / `unregisterEvent(name)` — TFS `luaPlayerRegisterEvent`.
+    PlayerRegisterCreatureEvent {
+        creature_id: u64,
+        name: String,
+        register: bool,
+    },
 }
 
 /// Snapshot of a Lua `ConditionBuilder` for the mutation / combat-execute seam.
@@ -1025,6 +1031,20 @@ pub fn call_do_target_combat_health(
         damage_min,
         damage_max,
         effect,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// `player:registerEvent` / `unregisterEvent` — TFS `luaPlayerRegisterEvent`.
+pub fn call_player_register_creature_event(
+    creature_id: u64,
+    name: String,
+    register: bool,
+) -> Result<bool, String> {
+    apply_mutation(LuaMutation::PlayerRegisterCreatureEvent {
+        creature_id,
+        name,
+        register,
     })?;
     Ok(take_mutation_bool_result().unwrap_or(false))
 }

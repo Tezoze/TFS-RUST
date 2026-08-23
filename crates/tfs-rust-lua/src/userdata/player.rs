@@ -11,7 +11,7 @@ use crate::lua_mutation::{
     call_lua_add_mana, call_lua_add_mana_spent, call_lua_add_skill_tries, call_lua_feed,
     call_lua_get_depot_chest, call_lua_get_depot_locker, call_lua_get_inbox, call_lua_player_say,
     call_lua_remove_condition, call_lua_remove_item, call_lua_send_cancel_message,
-    call_lua_set_in_fight, call_lua_show_text_dialog,
+    call_lua_set_in_fight, call_lua_show_text_dialog, call_player_register_creature_event,
 };
 use crate::userdata::container::ContainerRef;
 use crate::userdata::group::GroupRef;
@@ -904,6 +904,33 @@ impl UserData for CreatureRef {
                 Ok(())
             },
         );
+
+        // `player:registerEvent(name)` — TFS `luaPlayerRegisterEvent` (`luascript.cpp`).
+        methods.add_method("registerEvent", |lua, this, name: String| {
+            if crate::creature_events::is_blocked_creature_event_name(&name) {
+                tracing::warn!(
+                    name = %name,
+                    "registerEvent ignored (DropLoot/RegenerateStamina are not registrable)"
+                );
+                return Ok(false);
+            }
+            let known = lua
+                .globals()
+                .get::<Option<mlua::Table>>("_creature_event_registry")
+                .ok()
+                .flatten()
+                .and_then(|t| t.get::<Option<bool>>(name.as_str()).ok().flatten())
+                .unwrap_or(false);
+            if !known {
+                tracing::warn!(name = %name, "registerEvent: unknown CreatureEvent");
+                return Ok(false);
+            }
+            call_player_register_creature_event(this.0, name, true).map_err(mlua::Error::runtime)
+        });
+
+        methods.add_method("unregisterEvent", |_, this, name: String| {
+            call_player_register_creature_event(this.0, name, false).map_err(mlua::Error::runtime)
+        });
 
         // `player:setInFight(bool)` — PC-3a Phase 3 (`poison_storm.lua`).
         methods.add_method("setInFight", |_, this, in_fight: bool| {

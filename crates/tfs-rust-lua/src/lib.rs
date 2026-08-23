@@ -10,6 +10,7 @@ pub mod combat_enums;
 pub mod combat_scripts;
 pub mod constants;
 pub mod context;
+mod creature_events;
 mod instruction_budget;
 pub mod lua_defs;
 pub mod lua_mutation;
@@ -60,6 +61,7 @@ pub use runtime::{
     CallbackRef, DEFAULT_LUA_MEMORY_LIMIT_BYTES, LuaError, LuaRuntime, PendingAction,
     PendingChatChannel, PendingMoveEvent, PendingTalkAction, RegisterLuaFunctions,
 };
+pub use creature_events::{CreatureEventKind, is_blocked_creature_event_name};
 pub use script_loader::{CreatureEventType, LoadError, PlayerEventType, ScriptLoader};
 pub use scripts_interface::load_scripts_interface;
 pub use talkactions::{TalkActionDef, load_all_talkaction_scripts, load_talkaction_scripts};

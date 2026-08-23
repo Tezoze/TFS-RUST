@@ -429,6 +429,19 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             z,
             is_dynamic,
         } => unsafe { &mut *world }.lua_script_game_create_tile(x, y, z, is_dynamic),
+        LuaMutation::PlayerRegisterCreatureEvent {
+            creature_id,
+            name,
+            register,
+        } => {
+            let ok = unsafe { &mut *world }.lua_script_player_register_creature_event(
+                creature_id,
+                name,
+                register,
+            )?;
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
     }
 }
 
@@ -437,7 +450,7 @@ pub fn register_lua_mutation_hooks() {
     tfs_rust_lua::register_lua_mutation_applier(apply_lua_mutation);
 }
 
-fn with_equip_mutation_scope<F, R>(world: &mut GameWorld, f: F) -> R
+pub(crate) fn with_lua_script_scope<F, R>(world: &mut GameWorld, f: F) -> R
 where
     F: FnOnce(&mut GameWorld) -> R,
 {
@@ -688,7 +701,7 @@ pub fn fire_on_player_inventory_update(
     slot: u8,
     equip: bool,
 ) {
-    with_equip_mutation_scope(world, |world| {
+    with_lua_script_scope(world, |world| {
         world
             .events
             .on_player_inventory_update(player, item, slot, equip);
@@ -704,7 +717,7 @@ pub fn fire_on_player_equip_check(
 ) -> ReturnValue {
     let item_type = world.items.get(item).map(|i| i.item_type).unwrap_or(0);
     let player_level = player_level_u32(world, player);
-    with_equip_mutation_scope(world, |world| {
+    with_lua_script_scope(world, |world| {
         world
             .events
             .on_player_equip_check(player, item, item_type, slot, player_level)
@@ -715,7 +728,7 @@ pub fn fire_on_player_equip_check(
 pub fn fire_on_player_equip(world: &mut GameWorld, player: CreatureId, item: ItemId, slot: u8) {
     let item_type = world.items.get(item).map(|i| i.item_type).unwrap_or(0);
     let player_level = player_level_u32(world, player);
-    with_equip_mutation_scope(world, |world| {
+    with_lua_script_scope(world, |world| {
         world
             .events
             .on_player_equip(player, item, item_type, slot, player_level);
@@ -732,7 +745,7 @@ pub fn fire_on_player_deequip(world: &mut GameWorld, player: CreatureId, item: I
     // Native deequip abilities first — needs `inventoryAbilities` still true
     // (`DeEquipItem` clears the flag itself; `clear_inventory_ability_on_deequip` is redundant).
     world.remove_equip_item_abilities(player, item, slot);
-    with_equip_mutation_scope(world, |world| {
+    with_lua_script_scope(world, |world| {
         world
             .events
             .on_player_deequip(player, item, item_type, slot, player_level);

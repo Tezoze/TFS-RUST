@@ -1,5 +1,5 @@
 use super::*;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 use crate::creature::Player;
@@ -140,6 +140,7 @@ fn minimal_player(next_action_until: Option<u64>) -> Player {
         message_buffer_ticks: 0,
         blessings: 0,
         exact_lethal_blow: false,
+        registered_creature_events: HashSet::new(),
     }
 }
 

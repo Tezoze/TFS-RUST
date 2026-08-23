@@ -1,6 +1,6 @@
 # Data-pack Lua — 772 corpus policy
 
-**Status:** Phase 1 shipped 2026-08-23 (allowlisted scripts-interface scan). Native spawn-roll and native player `LoseInventory` already exist. Most hooks below are **not** dispatched yet (Phase 2+).  
+**Status:** Phase 2 shipped 2026-08-23 (CreatureEvent registry + dispatch). Native spawn-roll and native player `LoseInventory` already exist. Kept scripts still miss several primitives (Phase 3).  
 **Execution plan:** [tasks/data-pack-lua-implementation-plan.md](../tasks/data-pack-lua-implementation-plan.md).  
 **Corpus:** 772 behaviour for **every** `clientVersion`. One pack, one timing. No 1098 death-time loot roll, no stamina-empty corpses, no `data/1098/` tree.  
 **Companions:** [DATA_FORMAT_MIGRATION.md](DATA_FORMAT_MIGRATION.md), [tasks/monsters-lua-plan.md](../tasks/monsters-lua-plan.md).
@@ -58,7 +58,7 @@ TFS put a lot of **Player/Game helpers in Lua** so C++ only bound primitives (`g
 
 **Where the line falls:** boot-time tables in Lua are fine — `data/formulas/772.lua`, monster defs, `data/lib` constants are read once by Rust and create no second code path. Per-event mutation of a core outcome is not. That is what separates the formulas pack from an `onGainExperience` hook, and it is why "mechanics live in `772.lua`" is not a precedent for "mechanics live in event hooks".
 
-**Reload stance (Phase 1.3, 2026-08-23):** **(a) re-runnable from the start.** Each scripts-interface scan clears `EventCallback` data and replaces the pending CreatureEvent / GlobalEvent tables. There is still no `/reload` talkaction; Lua's day-to-day advantage is pack authorship and portability. When `/reload` lands, Phase 2's registry must be a name-keyed replaceable map (not an append-only buffer) so per-player `registerEvent` sets re-resolve by name.
+**Reload stance (Phase 1.3, 2026-08-23):** **(a) re-runnable from the start.** Each scripts-interface scan clears `EventCallback` data and replaces the pending CreatureEvent / GlobalEvent tables. Phase 2 drains those into a name-keyed replaceable map so per-player `registerEvent` sets re-resolve by name. There is still no `/reload` talkaction.
 
 **Point of Lua here:** edit the **data pack** without a rebuild, and keep TFS script call sites (`player:isPremium()`, `player:removeTotalMoney(cost)`). The point is **not** to implement the server in Lua. If a helper is load-bearing 772 behaviour, it belongs next to `death.rs` / `monster_inventory.rs`, with a Lua binding only if scripts must call it.
 
@@ -100,7 +100,7 @@ Do **not** put rarity on `onDropLoot`.
 | Tree | Style | Loaded today |
 |------|--------|----------------|
 | `data/creaturescripts/scripts/*.lua` | Classic `function onLogin` | Only if listed in XML — XML is **empty**, so **nothing** |
-| `data/scripts/creaturescripts/*.lua` | Revscript `CreatureEvent("Name"):register()` | **Allowlisted scan** (Phase 1). `droploot.lua` / `regeneratestamina.lua` skipped. Handlers still do not fire (Phase 2). |
+| `data/scripts/creaturescripts/*.lua` | Revscript `CreatureEvent("Name"):register()` | **Allowlisted scan** (Phase 1) + **name-keyed dispatch** (Phase 2). `droploot.lua` / `regeneratestamina.lua` skipped; `DropLoot`/`RegenerateStamina` are not registrable. Kept scripts still miss primitives (Phase 3). |
 
 Rust `load_creaturescripts` only registers **login/logout** from XML anyway; death is skipped. Login/logout on `LuaEventDispatcher` are wired but have no XML entries, so they do not run either.
 
@@ -154,7 +154,7 @@ boot  load_data_lib
 
 boot  scripts interface (isScriptsInterface = true)   — allowlisted scan (Phase 1)
         data/scripts/eventcallbacks/**   — only `default_onReportBug.lua` today; `rarity.lua` when authored
-        data/scripts/creaturescripts/**  — allowlisted CreatureEvents (login, firstlogin, …); not dispatched yet (Phase 2)
+        data/scripts/creaturescripts/**  — allowlisted CreatureEvents (login, firstlogin, …); dispatched (Phase 2)
         data/scripts/globalevents/**     — not scanned (Phase 7)
 
       (no third stage: events.xml and data/events/ are deleted.

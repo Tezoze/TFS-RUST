@@ -103,6 +103,8 @@ pub fn load_scripts_interface(runtime: &LuaRuntime, data_dir: &Path) -> Result<(
         }
     }
 
+    runtime.install_pending_creature_events()?;
+
     if failures.is_empty() {
         Ok(())
     } else {
@@ -305,6 +307,14 @@ mod tests {
         assert!(
             !has_event_callback(&runtime, EVENT_CALLBACK_ONDROPLOOT),
             "default_onDropLoot.lua must not load"
+        );
+        assert!(
+            runtime.has_creature_event("PlayerLogin"),
+            "allowlisted login.lua must drain CreatureEvent PlayerLogin"
+        );
+        assert!(
+            !runtime.has_creature_event("DropLoot"),
+            "DropLoot must not be in the CreatureEvent registry"
         );
     }
 

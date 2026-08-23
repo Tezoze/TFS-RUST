@@ -448,7 +448,7 @@ mod tests {
     fn test_player_stub() -> Player {
         use crate::CreatureBase;
         use crate::creature::{Outfit, PlayerEconomy, PlayerInventory, PlayerSkills, PlayerSocial};
-        use std::collections::HashMap;
+        use std::collections::{HashMap, HashSet};
         use std::time::Instant;
         use tfs_rust_common::Position;
         use tfs_rust_common::enums::{Direction, SkullType};
@@ -581,6 +581,7 @@ mod tests {
             message_buffer_ticks: 0,
             blessings: 0,
             exact_lethal_blow: false,
+            registered_creature_events: HashSet::new(),
         }
     }
 }

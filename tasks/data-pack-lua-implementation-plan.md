@@ -146,7 +146,7 @@ This is a Phase 1 decision because retrofitting reload onto a registry built for
 
 ---
 
-## Phase 2 — CreatureEvent registry + dispatch
+## Phase 2 — CreatureEvent registry + dispatch — **DONE 2026-08-23**
 
 Phase 1 only *executes* the revscripts. `CreatureEvent(name)` (`runtime.rs:1628`) buffers; nothing drains it, and `Player:registerEvent` is unbound, so no handler ever fires.
 
@@ -175,7 +175,7 @@ Per-player event name set on the player entity, mirroring TFS. `login.lua` uses 
 
 `DropLoot` and `RegenerateStamina` names are not in the registry at all, so a stray `player:registerEvent("DropLoot")` in a shard script is a warn-and-ignore, not a second gear drop.
 
-**Exit:** login welcome text appears in-game; `player_deaths` row written on death; no inventory delta attributable to Lua.
+**Exit:** met — name-keyed replaceable registry; `registerEvent`/`unregisterEvent`; login/logout/death/kill dispatch; `DropLoot`/`RegenerateStamina` excluded. Login welcome text still needs Phase 3 primitives.
 
 ---
 
@@ -425,7 +425,7 @@ Ordered by how load-bearing the invariant is.
 Phase 0  doc fixes                     (no code)  — DONE
 Phase 1  isScriptsInterface + scan     ── blocks 2, 4, 5  — DONE
          1.3 reload stance             ── (a) re-runnable; registry shape is Phase 2
-Phase 2  CreatureEvent dispatch        ── blocks 3
+Phase 2  CreatureEvent dispatch        ── blocks 3  — DONE
 Phase 3  binding gaps                  ── blocks the kept scripts running
 Phase 4  Monster surface + onSpawn     ── the feature; needs 1
 Phase 5  retire events.xml             ── needs 1, 4

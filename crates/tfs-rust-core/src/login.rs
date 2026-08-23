@@ -4,7 +4,7 @@
 //! - 772 outcomes: `connections.cc:224-253` (existing body / reject / TakeOver),
 //!   `TPlayer::TakeOver` — `crplayer.cc:721-775`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
@@ -272,6 +272,7 @@ pub fn player_from_loaded(
         message_buffer_ticks: 0,
         blessings: p.blessings,
         exact_lethal_blow: false,
+        registered_creature_events: HashSet::new(),
     }
 }
 

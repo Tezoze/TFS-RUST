@@ -1014,6 +1014,27 @@ impl GameWorld {
         Ok(())
     }
 
+    /// `player:registerEvent(name)` / `unregisterEvent(name)` — TFS `Player::registerCreatureEvent`.
+    pub fn lua_script_player_register_creature_event(
+        &mut self,
+        creature_u64: u64,
+        name: String,
+        register: bool,
+    ) -> Result<bool, String> {
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "registerEvent: creature not found".to_string())?;
+        let Some(CreatureKind::Player(player)) = self.creatures.get_mut(cid) else {
+            return Ok(false);
+        };
+        let changed = if register {
+            player.registered_creature_events.insert(name)
+        } else {
+            player.registered_creature_events.remove(&name)
+        };
+        Ok(changed)
+    }
+
     /// `player:showTextDialog(itemId, text)` — E6. TFS `luaPlayerShowTextDialog`
     /// → `ProtocolGame::sendTextWindow` template-item overload.
     /// 772 wire: `gameserver/src/protocolgame.cpp:1925` (no MARK, no date).

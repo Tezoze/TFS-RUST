@@ -14,8 +14,8 @@ use crate::talkactions::TalkActionRegistry;
 use slotmap::Key;
 use tfs_rust_common::Position;
 use tfs_rust_lua::{
-    CallbackRef, CreatureEventType, LuaRuntime, MoveEventKind, MoveEventsRegistry, PlayerEventType,
-    with_lua_context,
+    CallbackRef, CreatureEventKind, CreatureEventType, LuaRuntime, MoveEventKind,
+    MoveEventsRegistry, PlayerEventType, with_lua_context,
 };
 
 /// Lua-based event dispatcher.
@@ -394,6 +394,12 @@ impl EventDispatcher for LuaEventDispatcher {
                     }
                 }
             }
+            if let Err(e) = self.runtime.fire_creature_events_of_kind(
+                CreatureEventKind::Login,
+                creature.data().as_ffi(),
+            ) {
+                tracing::error!("Lua CreatureEvent onLogin failed for {:?}: {}", creature, e);
+            }
         });
     }
 
@@ -422,8 +428,52 @@ impl EventDispatcher for LuaEventDispatcher {
                     }
                 }
             }
+            match self.runtime.fire_creature_events_of_kind(
+                CreatureEventKind::Logout,
+                creature.data().as_ffi(),
+            ) {
+                Ok(true) => {}
+                Ok(false) => {
+                    tracing::warn!("Lua CreatureEvent onLogout returned false for {:?}", creature);
+                    allow = false;
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Lua CreatureEvent onLogout failed for {:?}: {}",
+                        creature,
+                        e
+                    );
+                }
+            }
         });
         allow
+    }
+
+    fn on_death(
+        &self,
+        creature: CreatureId,
+        killer: Option<CreatureId>,
+        registered_events: &[String],
+    ) {
+        if let Err(e) = self.runtime.fire_registered_creature_events(
+            CreatureEventKind::Death,
+            creature.data().as_ffi(),
+            killer.map(|k| k.data().as_ffi()),
+            registered_events,
+        ) {
+            tracing::error!("Lua CreatureEvent onDeath failed for {:?}: {}", creature, e);
+        }
+    }
+
+    fn on_kill(&self, killer: CreatureId, target: CreatureId, registered_events: &[String]) {
+        if let Err(e) = self.runtime.fire_registered_creature_events(
+            CreatureEventKind::Kill,
+            killer.data().as_ffi(),
+            Some(target.data().as_ffi()),
+            registered_events,
+        ) {
+            tracing::error!("Lua CreatureEvent onKill failed for {:?}: {}", killer, e);
+        }
     }
 
     fn execute_timer_event(&self, event_id: u64) -> bool {

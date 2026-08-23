@@ -13,6 +13,16 @@ use crate::ids::{CreatureId, ItemId};
 use crate::item::Item;
 use crate::party::split_shared_experience;
 use slotmap::SlotMap;
+
+fn player_script_event_names(
+    creatures: &SlotMap<CreatureId, CreatureKind>,
+    cid: CreatureId,
+) -> Vec<String> {
+    match creatures.get(cid) {
+        Some(CreatureKind::Player(p)) => p.registered_creature_events.iter().cloned().collect(),
+        _ => Vec::new(),
+    }
+}
 use tfs_rust_common::enums::WorldType;
 
 /// Count of the five standard blessings (bits 0–4). Twist of fate is bit 5.
@@ -231,7 +241,8 @@ pub fn handle_creature_death(
         };
 
         let Some(CreatureKind::Player(k)) = creatures.get(*killer_id) else {
-            events.on_kill(*killer_id, victim);
+            let names = player_script_event_names(creatures, *killer_id);
+            events.on_kill(*killer_id, victim, &names);
             continue;
         };
 
@@ -275,10 +286,21 @@ pub fn handle_creature_death(
                 new_level: k.level,
             });
         }
-        events.on_kill(*killer_id, victim);
+        let names = player_script_event_names(creatures, *killer_id);
+        events.on_kill(*killer_id, victim, &names);
     }
 
-    events.on_death(victim);
+    let death_names = player_script_event_names(creatures, victim);
+    let killer = creatures.get(victim).and_then(|k| k.base().last_hit_by);
+    #[cfg(debug_assertions)]
+    let item_count_before_on_death = items.len();
+    events.on_death(victim, killer, &death_names);
+    #[cfg(debug_assertions)]
+    debug_assert_eq!(
+        items.len(),
+        item_count_before_on_death,
+        "CreatureEvent onDeath must not create items"
+    );
 
     if schedule_generic_corpse {
         let corpse_id = items.insert(Item::new(3058, 1));

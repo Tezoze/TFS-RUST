@@ -7,7 +7,7 @@
 pub const HARNESS_APPEAR_IDLE_DEFER_MS: u64 = 2000;
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
@@ -246,6 +246,7 @@ fn test_player_base(name: &str, pos: Position) -> Player {
         message_buffer_ticks: 0,
         blessings: 0,
         exact_lethal_blow: false,
+        registered_creature_events: HashSet::new(),
     }
 }
 

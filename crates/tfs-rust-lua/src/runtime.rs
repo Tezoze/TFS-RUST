@@ -47,6 +47,10 @@ impl CallbackRef {
     pub fn from_registry_key(key: mlua::RegistryKey) -> Self {
         Self(key)
     }
+
+    pub(crate) fn registry_key(&self) -> &mlua::RegistryKey {
+        &self.0
+    }
 }
 
 /// Lua runtime owning the VM and script registry.
@@ -89,6 +93,10 @@ pub struct LuaRuntime {
     /// on boot) must not re-exec `event_callbacks.lua`, which ends in
     /// `EventCallback:clear()` and would wipe scripts-interface registrations.
     data_lib_loaded: Cell<bool>,
+    /// Revscript `CreatureEvent` registry (name → callback). Replaced wholesale
+    /// by [`LuaRuntime::install_pending_creature_events`] (reload stance a).
+    pub(crate) creature_events:
+        RefCell<HashMap<String, crate::creature_events::RegisteredCreatureEvent>>,
 }
 
 /// Scoped `isScriptsInterface() == true`. Resets the flag on drop so a `?`
@@ -286,6 +294,7 @@ impl LuaRuntime {
             instruction_budget: Cell::new(DEFAULT_LUA_INSTRUCTION_BUDGET),
             scripts_interface,
             data_lib_loaded: Cell::new(false),
+            creature_events: RefCell::new(HashMap::new()),
         })
     }
 

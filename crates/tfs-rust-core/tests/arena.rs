@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
 use slotmap::SlotMap;
@@ -138,6 +138,7 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
         message_buffer_ticks: 0,
         blessings: 0,
         exact_lethal_blow: false,
+        registered_creature_events: HashSet::new(),
     }
 }
 

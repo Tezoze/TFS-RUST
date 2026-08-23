@@ -467,22 +467,24 @@ impl GameWorld {
         let decay_now = self.now_ms();
         // Players already placed corpse 3128 in `player_death_drop_inventory`; skip generic 3058.
         let schedule_generic_corpse = !is_player;
-        let (leveled, xp_grants) = crate::death::handle_creature_death(
-            &mut self.creatures,
-            &mut self.items,
-            &mut self.decay,
-            self.events.as_ref(),
-            victim,
-            decay_now,
-            None,
-            self.mechanics.profile.step_speed,
-            self.config.as_ref(),
-            schedule_generic_corpse,
-            self.mechanics.profile.corpse_decay_offset_ms,
-            self.pvp_config.world_type,
-            &self.mechanics.profile,
-            self.round_nr,
-        );
+        let (leveled, xp_grants) = crate::lua_scope::with_lua_script_scope(self, |world| {
+            crate::death::handle_creature_death(
+                &mut world.creatures,
+                &mut world.items,
+                &mut world.decay,
+                world.events.as_ref(),
+                victim,
+                decay_now,
+                None,
+                world.mechanics.profile.step_speed,
+                world.config.as_ref(),
+                schedule_generic_corpse,
+                world.mechanics.profile.corpse_decay_offset_ms,
+                world.pvp_config.world_type,
+                &world.mechanics.profile,
+                world.round_nr,
+            )
+        });
         // C++ `cract.cc:1637` `CREATURE_SPEED_CHANGED` — announce new speed to spectators
         // for any killer (or victim) whose level changed via experience gain/loss.
         for cid in leveled {

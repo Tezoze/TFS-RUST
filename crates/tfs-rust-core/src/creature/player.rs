@@ -1,7 +1,7 @@
 //! Player inventory, skills, economy, social — and level-up.
 // C++ reference: `Player` (`player.h` / `player.cpp`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use tfs_rust_common::game_packet::{UseItemExPayload, UseItemPayload};
@@ -371,6 +371,9 @@ pub struct Player {
     /// 772 `Damage == HitPoints` exact-lethal arm (`crmain.cc:792`) — gates amulet-of-loss scan.
     /// Overkill deaths leave this false so AoL does not fire.
     pub exact_lethal_blow: bool,
+    /// TFS `Player::eventsList` — names from `player:registerEvent` (`player.cpp`).
+    /// Looked up against the current CreatureEvent name map at dispatch (reload stance a).
+    pub registered_creature_events: HashSet<String>,
 }
 
 impl Player {
