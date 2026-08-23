@@ -155,7 +155,7 @@ Current XML surface (loaders in `crates/tfs-rust-content/src/`):
 | `data/XML/quests.xml` | (quest system) | `data/defs/quests.lua` | Verify loader exists before migrating. |
 | `data/XML/stages.xml` | (exp stages) | `data/defs/stages.lua` | Flat; TOML candidate. |
 | `data/items/items.xml` | `items.rs`, `item_abilities.rs`, `items_xml_keys.rs` | `data/items.lua` | **Largest / highest-risk.** Pairs with binary `items.otb` (keep). Do last. |
-| `data/monster/monsters.xml` + `data/monster/*.xml` | `monsters.rs` | `data/monster/*.lua` + index | Many files; spells parsed as nested nodes — nontrivial schema. |
+| `data/monster/monsters.xml` + `data/monster/monsters/*.xml` | `monsters.rs` (runtime still XML) | `data/monster/*.lua` | **Phase 3 converter + immunity pass done** (157 files, all 8 immunity keys). Loader switch pending. Plan: `tasks/monsters-lua-plan.md`. |
 | `data/world/*-spawn.xml` (+ house files) | `spawns.rs`, `otbm.rs` | `data/world/*-spawn.lua` | Referenced by OTBM `EXT_SPAWN_FILE`/`EXT_HOUSE_FILE`; keep OTBM binary, migrate the sidecar. |
 
 **`data/defs/`** holds the static sidecar definitions (vocations, outfits, mounts,
@@ -181,8 +181,10 @@ Out of scope (not XML): `items.otb`, `*.otbm`, `objects.srv`, sprite assets. Exe
    definition, not a hardcoded table) and the neighboring `vocation.rs` stubs. **Done in Phase PC-0.**
 3. **Phase 2 — small flat tables.** outfits, mounts, groups, stages, quests. Low risk, builds the
    pattern and the `xml → lua` converter.
-4. **Phase 3 — monsters.** Per-file defs + index; design the nested spell/loot schema carefully.
-   Validate against existing `monsters.rs` behavior with golden tests.
+4. **Phase 3 — monsters.** Per-file defs (`return { schema = 1, … }`), not TFS
+   `createMonsterType`. Converter + 157 Lua files + full immunity round-trip **done**;
+   `MonsterDatabase::load_dir` still reads XML. Remaining: switch loader, drop XML.
+   See `tasks/monsters-lua-plan.md`.
 5. **Phase 4 — items.** Highest risk (thousands of entries, many attribute keys, OTB pairing).
    Migrate `items.xml` last; keep `items.otb` binary. Diff-test the resulting `ItemType` set
    against the current XML loader before deleting the XML path.
@@ -205,9 +207,10 @@ Out of scope (not XML): `items.otb`, `*.otbm`, `objects.srv`, sprite assets. Exe
 
 1. **One big file vs many?** e.g. single `data/vocations.lua` vs `data/vocations/*.lua`. Monsters
    almost certainly stay per-file; vocations/outfits fit one file each.
-2. **Era handling.** Inject `CLIENT_VERSION` as a sandboxed global so one file can branch, vs
-   separate `data/772/…` and `data/1098/…` trees (mirrors `data/formulas/<version>.lua`).
-   Recommendation: mirror the formulas layout for consistency.
+2. **Era handling (monsters — decided).** One `data/monster/*.lua` tree for all `clientVersion`s.
+   Extra 1098 combat types (death, holy, earth, ice) are **engine gates**, not forked files or
+   TFS `COMBAT_*` attack tables. Formulas Lua (`data/formulas/<version>.lua`) stays the place
+   for era-tuned numbers/functions; it does not own a second monster pack.
 3. **Lua vs TOML for flat tables** (groups/stages/outfits). Recommendation: Lua for uniformity now;
    revisit if we want a locked-down non-programmable subset later — the `serde` struct is shared
    either way.

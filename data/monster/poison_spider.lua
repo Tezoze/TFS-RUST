@@ -1,0 +1,60 @@
+-- Generated from XML. Source: monsters/poison spider.xml
+return {
+  schema = 1,
+  name = "Poison Spider",
+  description = "a poison spider",
+  race = "venom",
+  experience = 22,
+  speed = 40,
+  mana_cost = 270,
+  health = 26,
+  max_health = 26,
+  outfit = {
+    look_type = 36,
+    look_head = 0,
+    look_body = 0,
+    look_legs = 0,
+    look_feet = 0,
+    corpse = 2848,
+  },
+  target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
+  flags = {
+    hostile = true,
+    summonable = true,
+    illusionable = true,
+    pushable = true,
+    convinceable = true,
+    can_push_items = false,
+    can_push_creatures = false,
+    target_distance = 1,
+    run_health = 6,
+  },
+  attacks = {
+    {
+      name = "melee",
+      skill = 25,
+      attack = 12,
+      poison_cycles = 30,
+      skill_factor = 1500,
+      skill_next_level = 100,
+      skill_add_count = 1,
+    },
+  },
+  defenses = {
+    armor = 2,
+    defense = 6,
+  },
+  immunities = {
+    fire = false,
+    energy = false,
+    poison = true,
+    physical = false,
+    outfit = false,
+    life_drain = false,
+    paralyze = false,
+    invisible = false,
+  },
+  loot = {
+    { id = 2148, chance = 25000, count_max = 4 }, -- gold coin
+  },
+}

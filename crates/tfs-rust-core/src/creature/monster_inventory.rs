@@ -873,6 +873,8 @@ mod tests {
                 immunity_life_drain: false,
                 see_invisible: false,
                 immunity_physical: false,
+                immunity_paralyze: false,
+                immunity_outfit: false,
             },
             max_summons: 0,
             summons: Vec::new(),

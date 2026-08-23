@@ -69,6 +69,27 @@ pub fn require_schema(root: &Table, expected: u32) -> Result<()> {
     Ok(())
 }
 
+/// Eval a data-Lua source string as a table (`return { schema = N, ... }`).
+///
+/// `name` is the chunk name used in Lua error messages (file path or test label).
+pub fn load_data_table_str(lua: &Lua, src: &str, name: &str) -> Result<Table> {
+    let value: Value = lua
+        .load(src)
+        .set_name(name.to_string())
+        .eval()
+        .map_err(|e| TfsRustError::Content {
+            file: name.to_string(),
+            message: format!("lua eval failed: {e}"),
+        })?;
+    match value {
+        Value::Table(t) => Ok(t),
+        other => Err(TfsRustError::Content {
+            file: name.to_string(),
+            message: format!("data file must return a table; got {}", other.type_name()),
+        }),
+    }
+}
+
 /// Load a data-Lua file, eval it as a table, and return the root table.
 ///
 /// The file must `return { schema = N, ... }`. The caller is responsible for
@@ -78,19 +99,5 @@ pub fn load_data_table(lua: &Lua, path: &std::path::Path) -> Result<Table> {
         file: path.to_string_lossy().into_owned(),
         message: e.to_string(),
     })?;
-    let value: Value = lua
-        .load(&src)
-        .set_name(path.display().to_string())
-        .eval()
-        .map_err(|e| TfsRustError::Content {
-            file: path.to_string_lossy().into_owned(),
-            message: format!("lua eval failed: {e}"),
-        })?;
-    match value {
-        Value::Table(t) => Ok(t),
-        other => Err(TfsRustError::Content {
-            file: path.to_string_lossy().into_owned(),
-            message: format!("data file must return a table; got {}", other.type_name()),
-        }),
-    }
+    load_data_table_str(lua, &src, &path.display().to_string())
 }

@@ -54,6 +54,10 @@ pub struct MonsterDefenses {
     /// `<immunity physical="1"/>` — `crmain.cc:615` `RaceData[Race].NoHit`. Physical damage
     /// immunity: `Damage(PHYSICAL)` emits `EFFECT_BLOCK_HIT` and returns 0.
     pub immunity_physical: bool,
+    /// XML `paralyze`; 772 `NoParalyze` (`crmain.cc:1515` / `magic.cc` speed impact).
+    pub immunity_paralyze: bool,
+    /// XML `outfit`; TFS/TVP surface — no 772 `RaceData` twin; store for the data pack.
+    pub immunity_outfit: bool,
 }
 
 /// Monster `<look>` block — C++ `MonsterType` look fields (`monsters.cpp` `loadMonster`).
@@ -261,13 +265,13 @@ impl MonsterDatabase {
 }
 
 #[derive(Debug, Clone)]
-struct MonsterIndexEntry {
+pub(crate) struct MonsterIndexEntry {
     /// `monsters.xml` `<monster name="...">` — spawn lookup key in C++.
-    index_name: String,
-    file: String,
+    pub(crate) index_name: String,
+    pub(crate) file: String,
 }
 
-fn parse_monster_index(path: &Path) -> Result<Vec<MonsterIndexEntry>> {
+pub(crate) fn parse_monster_index(path: &Path) -> Result<Vec<MonsterIndexEntry>> {
     let xml = std::fs::read_to_string(path).map_err(|e| TfsRustError::Content {
         file: path.to_string_lossy().into_owned(),
         message: e.to_string(),
@@ -468,7 +472,7 @@ fn parse_loot_section(
     Ok(out)
 }
 
-fn parse_monster_file(path: &Path, items: &ItemDatabase) -> Result<MonsterType> {
+pub(crate) fn parse_monster_file(path: &Path, items: &ItemDatabase) -> Result<MonsterType> {
     let xml = std::fs::read_to_string(path).map_err(|e| TfsRustError::Content {
         file: path.to_string_lossy().into_owned(),
         message: e.to_string(),
@@ -477,7 +481,11 @@ fn parse_monster_file(path: &Path, items: &ItemDatabase) -> Result<MonsterType> 
     parse_monster_xml(&xml, &file_str, items)
 }
 
-fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<MonsterType> {
+pub(crate) fn parse_monster_xml(
+    xml: &str,
+    file_str: &str,
+    items: &ItemDatabase,
+) -> Result<MonsterType> {
     let doc = Document::parse(xml).map_err(|e| TfsRustError::Content {
         file: file_str.to_string(),
         message: e.to_string(),
@@ -549,6 +557,8 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
         immunity_life_drain: false,
         see_invisible: false,
         immunity_physical: false,
+        immunity_paralyze: false,
+        immunity_outfit: false,
     };
     let mut talk_texts = Vec::new();
     let mut max_summons = 0u32;
@@ -637,6 +647,14 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
                     if imm.attribute("physical").is_some_and(parse_bool_flag) {
                         defenses.immunity_physical = true;
                     }
+                    // C++ `RaceData[Race].NoParalyze` — `crmain.cc:1515` / `magic.cc` speed impact.
+                    if imm.attribute("paralyze").is_some_and(parse_bool_flag) {
+                        defenses.immunity_paralyze = true;
+                    }
+                    // TFS/TVP `<immunity outfit>` — no 772 `RaceData` twin; stored for the data pack.
+                    if imm.attribute("outfit").is_some_and(parse_bool_flag) {
+                        defenses.immunity_outfit = true;
+                    }
                 }
             }
         } else if tag.eq_ignore_ascii_case("targetchange") {
@@ -654,7 +672,14 @@ fn parse_monster_xml(xml: &str, file_str: &str, items: &ItemDatabase) -> Result<
                     && let Some(sentence) = voice.attribute("sentence")
                     && !sentence.is_empty()
                 {
-                    talk_texts.push(sentence.to_string());
+                    let mut text = sentence.to_string();
+                    if voice.attribute("yell").is_some_and(parse_bool_flag)
+                        && !text.starts_with("#y ")
+                        && !text.starts_with("#Y ")
+                    {
+                        text.insert_str(0, "#y ");
+                    }
+                    talk_texts.push(text);
                 }
             }
         }
@@ -945,5 +970,70 @@ mod tests {
             !db.monsters.contains_key("butterfly"),
             "file name attr must not be the key"
         );
+    }
+
+    #[test]
+    fn voice_yell_prefixes_talk_text() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<monster name="Yeller" speed="100">
+    <health now="20" max="20"/>
+    <voices>
+        <voice sentence="GROOAAARRR" yell="1" />
+        <voice sentence="hello" yell="0" />
+    </voices>
+</monster>"#;
+        let items = ItemDatabase {
+            items: HashMap::new(),
+            client_to_server: HashMap::new(),
+        };
+        let m = parse_monster_xml(xml, "yeller.xml", &items).expect("parse");
+        assert_eq!(
+            m.talk_texts,
+            vec!["#y GROOAAARRR".to_string(), "hello".to_string()]
+        );
+    }
+
+    fn empty_items() -> ItemDatabase {
+        ItemDatabase {
+            items: HashMap::new(),
+            client_to_server: HashMap::new(),
+        }
+    }
+
+    /// XML has 8 immunity attrs; Amazon is all-false, Ancient Scarab sets outfit+paralyze.
+    #[test]
+    fn parses_all_eight_immunity_flags() {
+        let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data/monster");
+        let amazon_path = data.join("monsters/amazon.xml");
+        let scarab_path = data.join("monsters/ancient scarab.xml");
+        let dragon_path = data.join("monsters/dragon.xml");
+        if !amazon_path.is_file() || !scarab_path.is_file() || !dragon_path.is_file() {
+            return;
+        }
+        let items = empty_items();
+        let amazon = parse_monster_file(&amazon_path, &items).expect("amazon xml");
+        assert!(!amazon.defenses.immunity_fire);
+        assert!(!amazon.defenses.immunity_energy);
+        assert!(!amazon.defenses.immunity_poison);
+        assert!(!amazon.defenses.immunity_physical);
+        assert!(!amazon.defenses.immunity_outfit);
+        assert!(!amazon.defenses.immunity_life_drain);
+        assert!(!amazon.defenses.immunity_paralyze);
+        assert!(!amazon.defenses.see_invisible);
+
+        let scarab = parse_monster_file(&scarab_path, &items).expect("ancient scarab xml");
+        assert!(scarab.defenses.immunity_paralyze);
+        assert!(scarab.defenses.immunity_outfit);
+        assert!(scarab.defenses.immunity_life_drain);
+        assert!(scarab.defenses.see_invisible);
+
+        let dragon = parse_monster_file(&dragon_path, &items).expect("dragon xml");
+        assert!(dragon.defenses.immunity_paralyze);
+        assert!(
+            !dragon.defenses.immunity_outfit,
+            "dragon.xml outfit=0"
+        );
+        assert!(dragon.defenses.immunity_fire);
+        assert!(dragon.defenses.see_invisible);
     }
 }

@@ -21,7 +21,7 @@ use crate::combat::{CombatDamage, CombatParams, disc_offsets};
 use crate::condition::{ActiveCondition, ConditionData};
 use crate::creature::{
     ChaseMode, CreatureBase, CreatureKind, MonsterFieldType, MonsterSpell, MonsterState,
-    SpellImpact, SpellShape, drunk_power_from_xml, duration_ms_to_rounds,
+    SpellImpact, SpellShape, creature_immune_paralyze, drunk_power_from_xml, duration_ms_to_rounds,
     monster_weapon_attack_distance, speed_mdact,
 };
 use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
@@ -1972,6 +1972,15 @@ impl GameWorld {
                 } else {
                     ConditionType::Paralyze
                 };
+                // 772 `NoParalyze` — skip paralyze only; haste still applies (`crmain.cc:1515`).
+                if ctype == ConditionType::Paralyze
+                    && self
+                        .creatures
+                        .get(target_id)
+                        .is_some_and(creature_immune_paralyze)
+                {
+                    return;
+                }
                 let cond = ActiveCondition {
                     id: 0,
                     sub_id: 0,

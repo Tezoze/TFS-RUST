@@ -79,6 +79,10 @@ pub struct MonsterAiConfig {
     /// `<immunity physical="1"/>` — `crmain.cc:615` `RaceData[Race].NoHit`. Physical damage
     /// immunity: `Damage(PHYSICAL)` emits `EFFECT_BLOCK_HIT` (4) and returns 0.
     pub immunity_physical: bool,
+    /// XML `paralyze`; 772 `NoParalyze` (`crmain.cc:1515` / `magic.cc` speed impact).
+    pub immunity_paralyze: bool,
+    /// XML `outfit`; TFS/TVP surface — no 772 `RaceData` twin; store for the data pack.
+    pub immunity_outfit: bool,
     /// Non-melee attacks from `<attacks>` — idle CASTING (E4).
     pub spells: Vec<MonsterSpell>,
     /// 772 `RaceData[].Talk` text list — `<voices><voice sentence="…"/></voices>`
@@ -115,6 +119,8 @@ impl Default for MonsterAiConfig {
             immunity_life_drain: false,
             see_invisible: false,
             immunity_physical: false,
+            immunity_paralyze: false,
+            immunity_outfit: false,
             spells: Vec::new(),
             talk_texts: Arc::from([]),
         }
@@ -149,6 +155,8 @@ impl From<MonsterTypeFlags> for MonsterAiConfig {
             immunity_life_drain: false,
             see_invisible: false,
             immunity_physical: false,
+            immunity_paralyze: false,
+            immunity_outfit: false,
             spells: Vec::new(),
             talk_texts: Arc::from([]),
         }
@@ -168,8 +176,11 @@ impl MonsterAiConfig {
         cfg.immunity_poison = combat.immunity_poison;
         cfg.immunity_fire = combat.immunity_fire;
         cfg.immunity_energy = combat.immunity_energy;
+        cfg.immunity_life_drain = combat.immunity_life_drain;
         cfg.see_invisible = combat.see_invisible;
         cfg.immunity_physical = combat.immunity_physical;
+        cfg.immunity_paralyze = combat.immunity_paralyze;
+        cfg.immunity_outfit = combat.immunity_outfit;
         cfg.spells = combat.spells;
         cfg.talk_texts = Arc::from(mtype.talk_texts.clone());
         // 772 `RaceData[].Talks` is the count of `Talk` entries (`crmain.cc:1552`).
@@ -254,6 +265,10 @@ pub struct Monster {
     /// `<immunity physical="1"/>` — `crmain.cc:615` `RaceData[Race].NoHit`. Physical damage
     /// immunity: `Damage(PHYSICAL)` emits `EFFECT_BLOCK_HIT` (4) and returns 0.
     pub immunity_physical: bool,
+    /// XML `paralyze`; 772 `NoParalyze` (`crmain.cc:1515` / `magic.cc` speed impact).
+    pub immunity_paralyze: bool,
+    /// XML `outfit`; TFS/TVP surface — no 772 `RaceData` twin; store for the data pack.
+    pub immunity_outfit: bool,
     pub spells: Vec<MonsterSpell>,
     /// Race XP grant on death — `MonsterType.experience` / `crcombat.cc:908`.
     pub experience: u32,
@@ -334,6 +349,8 @@ impl Monster {
             immunity_life_drain: config.immunity_life_drain,
             see_invisible: config.see_invisible,
             immunity_physical: config.immunity_physical,
+            immunity_paralyze: config.immunity_paralyze,
+            immunity_outfit: config.immunity_outfit,
             spells: config.spells,
             experience: 0,
             corpse_id: 0,

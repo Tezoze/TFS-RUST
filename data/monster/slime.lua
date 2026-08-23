@@ -1,0 +1,63 @@
+-- Generated from XML. Source: monsters/slime.xml
+return {
+  schema = 1,
+  name = "Slime",
+  description = "a slime",
+  race = "venom",
+  experience = 160,
+  speed = 20,
+  mana_cost = 0,
+  health = 150,
+  max_health = 150,
+  outfit = {
+    look_type = 19,
+    look_head = 0,
+    look_body = 0,
+    look_legs = 0,
+    look_feet = 0,
+    corpse = 1490,
+  },
+  target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
+  flags = {
+    hostile = true,
+    summonable = false,
+    illusionable = false,
+    pushable = false,
+    convinceable = false,
+    can_push_items = true,
+    can_push_creatures = false,
+    target_distance = 1,
+    run_health = 0,
+  },
+  attacks = {
+    {
+      name = "melee",
+      skill = 22,
+      attack = 42,
+      skill_factor = 1100,
+      skill_next_level = 100,
+      skill_add_count = 1,
+    },
+  },
+  defenses = {
+    armor = 3,
+    defense = 10,
+  },
+  immunities = {
+    fire = false,
+    energy = false,
+    poison = true,
+    physical = false,
+    outfit = true,
+    life_drain = false,
+    paralyze = false,
+    invisible = false,
+  },
+  voices = {
+    { text = "Blubb", yell = false },
+  },
+  summons = {
+    max = 3,
+    { name = "Slime", delay = 11, max = 3 },
+  },
+}

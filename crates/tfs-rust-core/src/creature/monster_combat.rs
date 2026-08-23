@@ -145,6 +145,10 @@ pub struct MonsterCombatSnapshot {
     pub see_invisible: bool,
     /// `<immunity physical="1"/>` — `crmain.cc:615` `RaceData[Race].NoHit`.
     pub immunity_physical: bool,
+    /// XML `paralyze`; 772 `NoParalyze` (`crmain.cc:1515` / `magic.cc` speed impact).
+    pub immunity_paralyze: bool,
+    /// XML `outfit`; TFS/TVP surface — no 772 `RaceData` twin; store for the data pack.
+    pub immunity_outfit: bool,
     pub spells: Vec<MonsterSpell>,
 }
 
@@ -208,6 +212,8 @@ pub fn combat_from_monster_type(mtype: &MonsterType) -> MonsterCombatSnapshot {
         immunity_life_drain: mtype.defenses.immunity_life_drain,
         see_invisible: mtype.defenses.see_invisible,
         immunity_physical: mtype.defenses.immunity_physical,
+        immunity_paralyze: mtype.defenses.immunity_paralyze,
+        immunity_outfit: mtype.defenses.immunity_outfit,
         ..MonsterCombatSnapshot::default()
     };
 
@@ -349,6 +355,14 @@ pub fn defend_fight_mode_for_target(kind: &CreatureKind) -> FightMode {
 pub fn creature_immune_poison(kind: &CreatureKind) -> bool {
     match kind {
         CreatureKind::Monster(m) => m.immunity_poison,
+        _ => false,
+    }
+}
+
+/// Whether paralyze (negative speed impact) may apply — `crmain.cc:1515` `NoParalyze`.
+pub fn creature_immune_paralyze(kind: &CreatureKind) -> bool {
+    match kind {
+        CreatureKind::Monster(m) => m.immunity_paralyze,
         _ => false,
     }
 }
@@ -1476,6 +1490,31 @@ mod tests {
         assert!(cfg.immunity_poison, "cobra.xml immunity poison=1");
         let rat = MonsterAiConfig::from_monster_type(&load_monster_type("rat"));
         assert!(!rat.immunity_poison);
+    }
+
+    #[test]
+    fn test_ancient_scarab_paralyze_life_drain_from_xml() {
+        let mtype = load_monster_type("ancient scarab");
+        let cfg = MonsterAiConfig::from_monster_type(&mtype);
+        assert!(cfg.immunity_paralyze, "ancient scarab.xml paralyze=1");
+        assert!(cfg.immunity_outfit, "ancient scarab.xml outfit=1");
+        assert!(cfg.immunity_life_drain, "ancient scarab.xml lifedrain=1");
+        assert!(cfg.see_invisible, "ancient scarab.xml invisible=1");
+        let cobra = MonsterAiConfig::from_monster_type(&load_monster_type("cobra"));
+        assert!(cobra.immunity_poison);
+        assert!(!cobra.immunity_paralyze);
+        assert!(!cobra.immunity_life_drain);
+    }
+
+    #[test]
+    fn test_creature_immune_paralyze_respects_spawn_flag() {
+        use crate::creature::{CreatureKind, Monster};
+        use tfs_rust_common::Position;
+
+        let mut cfg = MonsterAiConfig::default();
+        cfg.immunity_paralyze = true;
+        let m = Monster::with_config(test_creature_base(), Position::new(100, 100, 7), cfg);
+        assert!(creature_immune_paralyze(&CreatureKind::Monster(m)));
     }
 
     #[test]

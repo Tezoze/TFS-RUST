@@ -1,0 +1,70 @@
+-- Generated from XML. Source: monsters/skunk.xml
+return {
+  schema = 1,
+  name = "Skunk",
+  description = "a skunk",
+  race = "blood",
+  experience = 3,
+  speed = 28,
+  mana_cost = 200,
+  health = 20,
+  max_health = 20,
+  outfit = {
+    look_type = 106,
+    look_head = 0,
+    look_body = 0,
+    look_legs = 0,
+    look_feet = 0,
+    corpse = 3046,
+  },
+  target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
+  flags = {
+    hostile = true,
+    summonable = true,
+    illusionable = true,
+    pushable = true,
+    convinceable = true,
+    can_push_items = false,
+    can_push_creatures = false,
+    target_distance = 1,
+    run_health = 8,
+  },
+  attacks = {
+    {
+      name = "melee",
+      skill = 15,
+      attack = 4,
+      skill_factor = 1200,
+      skill_next_level = 100,
+      skill_add_count = 1,
+    },
+    {
+      name = "poison",
+      delay = 60,
+      min = -1,
+      max = -3,
+      range = 1,
+      radius = 1,
+      target = true,
+      effect = "poison",
+    },
+  },
+  defenses = {
+    armor = 1,
+    defense = 5,
+  },
+  immunities = {
+    fire = false,
+    energy = false,
+    poison = false,
+    physical = false,
+    outfit = false,
+    life_drain = false,
+    paralyze = false,
+    invisible = false,
+  },
+  loot = {
+    { id = 3976, chance = 5000 }, -- worm
+    { id = 2666, chance = 1000, count_max = 2 }, -- meat
+  },
+}

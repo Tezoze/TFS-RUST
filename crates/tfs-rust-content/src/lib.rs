@@ -3,6 +3,7 @@ pub mod groups;
 pub mod item_abilities;
 pub mod items;
 mod items_xml_keys;
+pub mod monster_lua;
 pub mod monsters;
 pub mod mounts;
 pub mod npc_import;
