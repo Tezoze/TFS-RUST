@@ -19,6 +19,7 @@ pub mod npc_loader;
 pub mod npc_type;
 pub mod runtime;
 pub mod script_loader;
+mod scripts_interface;
 mod stdlib_allowlist;
 pub mod talkactions;
 pub mod timer_events;
@@ -60,6 +61,7 @@ pub use runtime::{
     PendingChatChannel, PendingMoveEvent, PendingTalkAction, RegisterLuaFunctions,
 };
 pub use script_loader::{CreatureEventType, LoadError, PlayerEventType, ScriptLoader};
+pub use scripts_interface::load_scripts_interface;
 pub use talkactions::{TalkActionDef, load_all_talkaction_scripts, load_talkaction_scripts};
 pub use timer_events::{
     TimerEventDesc, TimerEvents, TimerScheduler, execute_timer_event,

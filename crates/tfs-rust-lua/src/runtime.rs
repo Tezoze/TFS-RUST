@@ -80,6 +80,29 @@ pub struct LuaRuntime {
     /// Per-invocation instruction budget (pillar 4). Synced to the game-thread
     /// local used by [`crate::instruction_budget::with_lua_instruction_budget`].
     instruction_budget: Cell<u32>,
+    /// TFS `LuaScriptInterface::isScriptsInterface` — true only while the
+    /// scripts-interface scan is running. Shared with the Lua global via `Rc`
+    /// so `ScriptsInterfaceGuard` can reset it on `Drop` without borrowing
+    /// `LuaRuntime`. Pack surface: `luascript.cpp` `isScriptsInterface`.
+    scripts_interface: Rc<Cell<bool>>,
+    /// `load_data_lib` already succeeded. A second call (e.g. `load_spell_scripts`
+    /// on boot) must not re-exec `event_callbacks.lua`, which ends in
+    /// `EventCallback:clear()` and would wipe scripts-interface registrations.
+    data_lib_loaded: Cell<bool>,
+}
+
+/// Scoped `isScriptsInterface() == true`. Resets the flag on drop so a `?`
+/// mid-scan cannot leak the flag into a later `dofile`.
+///
+/// Pack surface: TFS `loadScripts(..., isScriptsInterface)`.
+pub(crate) struct ScriptsInterfaceGuard {
+    flag: Rc<Cell<bool>>,
+}
+
+impl Drop for ScriptsInterfaceGuard {
+    fn drop(&mut self) {
+        self.flag.set(false);
+    }
 }
 
 /// Pending channel definition from Lua Channel:register().
@@ -177,7 +200,9 @@ impl LuaRuntime {
         register_group_metatable(&lua).map_err(LuaError::Registration)?;
         register_position_metatable(&lua).map_err(LuaError::Registration)?;
         register_item_type_metatable(&lua).map_err(LuaError::Registration)?;
-        register_event_script_bootstrap(&lua).map_err(LuaError::Registration)?;
+        let scripts_interface = Rc::new(Cell::new(false));
+        register_event_script_bootstrap_with(&lua, Rc::clone(&scripts_interface))
+            .map_err(LuaError::Registration)?;
         register_tile_constructor(&lua).map_err(LuaError::Registration)?;
         register_town_constructor(&lua).map_err(LuaError::Registration)?;
         register_game_api(&lua).map_err(LuaError::Registration)?;
@@ -259,7 +284,37 @@ impl LuaRuntime {
             weapon_callbacks: HashMap::new(),
             npc_callbacks: HashMap::new(),
             instruction_budget: Cell::new(DEFAULT_LUA_INSTRUCTION_BUDGET),
+            scripts_interface,
+            data_lib_loaded: Cell::new(false),
         })
+    }
+
+    /// True only while a [`ScriptsInterfaceGuard`] from [`Self::enter_scripts_interface`]
+    /// is live. Pack surface: TFS `LuaScriptInterface::isScriptsInterface`.
+    pub(crate) fn enter_scripts_interface(&self) -> ScriptsInterfaceGuard {
+        self.scripts_interface.set(true);
+        ScriptsInterfaceGuard {
+            flag: Rc::clone(&self.scripts_interface),
+        }
+    }
+
+    /// Replace CreatureEvent / GlobalEvent pending tables (reload stance (a)).
+    pub(crate) fn reset_pending_script_event_tables(&self) -> Result<(), LuaError> {
+        self.lua
+            .globals()
+            .set("_pending_creature_events", self.lua.create_table()?)?;
+        self.lua
+            .globals()
+            .set("_pending_global_events", self.lua.create_table()?)?;
+        Ok(())
+    }
+
+    pub(crate) fn is_data_lib_loaded(&self) -> bool {
+        self.data_lib_loaded.get()
+    }
+
+    pub(crate) fn mark_data_lib_loaded(&self) {
+        self.data_lib_loaded.set(true);
     }
 
     /// Set the Lua VM memory limit (in bytes). Returns the previous limit.
@@ -1298,7 +1353,10 @@ pub trait RegisterLuaFunctions {
 /// the same primitive (no more `globals.set(Name, ctor_fn)`).
 ///
 /// C++ reference: `LuaScriptInterface::registerClass` — `src/luascript.cpp`.
-pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Error> {
+pub(crate) fn register_event_script_bootstrap_with(
+    lua: &Lua,
+    scripts_interface: Rc<Cell<bool>>,
+) -> Result<(), mlua::Error> {
     // `Channel(id, name)` — self-registering chat-channel constructor.
     //
     // Returns a plain Lua **table** (not userdata). Scripts attach hooks as table fields
@@ -1775,6 +1833,16 @@ pub(crate) fn register_event_script_bootstrap(lua: &Lua) -> Result<(), mlua::Err
     globals.set(
         "EventCallback",
         lua.create_function(|_, _: mlua::MultiValue| Ok(false))?,
+    )?;
+    // TFS `LuaScriptInterface::isScriptsInterface` — true only while the
+    // scripts-interface pass is running. `data/scripts/lib/event_callbacks.lua`
+    // gates `EventCallback:register` / `__newindex` on it; outside the pass a
+    // stray `ec:register()` must be a no-op, not a nil call. Reads the Cell
+    // (not a constant false) so the scan guard can flip it.
+    let flag = Rc::clone(&scripts_interface);
+    globals.set(
+        "isScriptsInterface",
+        lua.create_function(move |_, ()| Ok(flag.get()))?,
     )?;
 
     // `getDepotId(uid)` — TFS `luaGetDepotId` (`luascript.cpp:3766`).

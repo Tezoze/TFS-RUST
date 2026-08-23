@@ -1349,7 +1349,11 @@ mod tests {
         crate::constants::register_constants(&lua).expect("constants");
         // Register the event script bootstrap so `Player` is a table and
         // `function Player:method(...)` definitions in `functions.lua` work.
-        crate::runtime::register_event_script_bootstrap(&lua).expect("bootstrap");
+        crate::runtime::register_event_script_bootstrap_with(
+            &lua,
+            std::rc::Rc::new(std::cell::Cell::new(false)),
+        )
+        .expect("bootstrap");
 
         // Load `functions.lua` so `Player:computeDamage` is available.
         let functions_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1477,7 +1481,11 @@ mod tests {
         crate::userdata::register_creature_metatable(&lua).expect("creature metatable");
         crate::combat_enums::register_combat_enums(&lua).expect("combat enums");
         crate::constants::register_constants(&lua).expect("constants");
-        crate::runtime::register_event_script_bootstrap(&lua).expect("bootstrap");
+        crate::runtime::register_event_script_bootstrap_with(
+            &lua,
+            std::rc::Rc::new(std::cell::Cell::new(false)),
+        )
+        .expect("bootstrap");
 
         let functions_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../data/scripts/functions.lua");
@@ -1596,7 +1604,11 @@ mod tests {
         crate::userdata::register_creature_metatable(&lua).expect("creature metatable");
         crate::combat_enums::register_combat_enums(&lua).expect("combat enums");
         crate::constants::register_constants(&lua).expect("constants");
-        crate::runtime::register_event_script_bootstrap(&lua).expect("bootstrap");
+        crate::runtime::register_event_script_bootstrap_with(
+            &lua,
+            std::rc::Rc::new(std::cell::Cell::new(false)),
+        )
+        .expect("bootstrap");
         crate::lua_mutation::register_lua_mutation_applier(|_, _| Ok(()));
 
         let ctx = Ctx;
@@ -1678,7 +1690,11 @@ mod tests {
 
         let lua = Lua::new();
         crate::userdata::register_creature_metatable(&lua).expect("creature metatable");
-        crate::runtime::register_event_script_bootstrap(&lua).expect("bootstrap");
+        crate::runtime::register_event_script_bootstrap_with(
+            &lua,
+            std::rc::Rc::new(std::cell::Cell::new(false)),
+        )
+        .expect("bootstrap");
 
         let functions_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../data/scripts/functions.lua");

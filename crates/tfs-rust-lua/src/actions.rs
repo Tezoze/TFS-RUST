@@ -153,7 +153,16 @@ pub fn inject_era_formulas(
 /// broken lib file is a boot-blocking defect — the data pack ships with this
 /// repo. Content-stage loaders (`load_action_scripts`, spell/weapon scans)
 /// stay warn-and-continue so a broken shard script cannot brick the server.
+///
+/// Idempotent: a successful load sets a flag on [`LuaRuntime`]; later calls
+/// return `Ok` without re-exec. `load_spell_scripts` also calls this so isolated
+/// tests get `Player:conjureItem`; re-exec would run `EventCallback:clear()` and
+/// wipe the scripts-interface bus.
 pub fn load_data_lib(runtime: &LuaRuntime, data_dir: &Path) -> Result<(), LuaError> {
+    if runtime.is_data_lib_loaded() {
+        return Ok(());
+    }
+
     let mut failures: Vec<(String, String)> = Vec::new();
 
     // `data/lib/core/**/*.lua` — replicates `data/lib/lib.lua` → `core.lua`
@@ -210,6 +219,7 @@ pub fn load_data_lib(runtime: &LuaRuntime, data_dir: &Path) -> Result<(), LuaErr
     }
 
     if failures.is_empty() {
+        runtime.mark_data_lib_loaded();
         Ok(())
     } else {
         Err(LuaError::LibStageFailures(failures))

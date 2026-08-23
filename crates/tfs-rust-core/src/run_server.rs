@@ -31,7 +31,7 @@ use crate::spawn::SpawnManager;
 use tfs_rust_lua::{
     LuaRuntime, ScriptLoader, assert_required_data_globals, inject_door_tables_from_global,
     inject_era_formulas, load_action_scripts, load_all_talkaction_scripts,
-    load_chat_channel_scripts, load_data_lib,
+    load_chat_channel_scripts, load_data_lib, load_scripts_interface,
 };
 
 /// Resolve PEM: `TFS_RSA_PEM` if set, else workspace-root `key.pem`, else `./key.pem`.
@@ -299,6 +299,17 @@ pub async fn run() -> anyhow::Result<()> {
                      Aborting startup — fix the data-pack load order before continuing."
                 );
                 anyhow::bail!("required data globals missing: {e}");
+            }
+            // Scripts-interface: allowlisted EventCallback + CreatureEvent revscripts.
+            // After lib load (`event_callbacks.lua` replaced the stubs) and before
+            // content loaders. `load_spell_scripts` also calls `load_data_lib`; that
+            // second call is a no-op so it cannot `EventCallback:clear()` this bus.
+            if let Err(e) = load_scripts_interface(&lua_runtime, &data_path) {
+                tracing::error!(
+                    "Scripts-interface load failed: {e}. \
+                     Aborting startup — fix the allowlisted pack files before continuing."
+                );
+                anyhow::bail!("scripts-interface load failed: {e}");
             }
             let action_defs = match load_action_scripts(&mut lua_runtime, &data_path) {
                 Ok(defs) => {
