@@ -620,6 +620,65 @@ pub fn fire_on_login(world: &mut GameWorld, cid: CreatureId) {
     });
 }
 
+/// TFS `GlobalEvents::startup` (`globalevent.cpp`).
+pub fn fire_on_startup(world: &mut GameWorld) {
+    let world_ptr = std::ptr::from_mut(world);
+    with_lua_mutation_scope(world_ptr as *mut (), || {
+        let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
+        with_lua_context(ctx, || {
+            let world = unsafe { &mut *world_ptr };
+            world.events.on_startup();
+        });
+    });
+}
+
+/// TFS `GlobalEvents::execute(GLOBALEVENT_SHUTDOWN)` (`globalevent.cpp`).
+pub fn fire_on_shutdown(world: &mut GameWorld) {
+    let world_ptr = std::ptr::from_mut(world);
+    with_lua_mutation_scope(world_ptr as *mut (), || {
+        let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
+        with_lua_context(ctx, || {
+            let world = unsafe { &mut *world_ptr };
+            world.events.on_shutdown();
+        });
+    });
+}
+
+/// TFS `Game::checkPlayersRecord` → `GLOBALEVENT_RECORD` (`game.cpp`).
+pub fn fire_on_record(world: &mut GameWorld, current: u32, old: u32) {
+    let world_ptr = std::ptr::from_mut(world);
+    with_lua_mutation_scope(world_ptr as *mut (), || {
+        let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
+        with_lua_context(ctx, || {
+            let world = unsafe { &mut *world_ptr };
+            world.events.on_record(current, old, world);
+        });
+    });
+}
+
+/// After a successful spawn: `players_online` row + `Game::checkPlayersRecord`.
+pub fn after_player_online(world: &mut GameWorld, guid: u32) {
+    let db = world.db.clone();
+    tokio::spawn(async move {
+        if let Err(e) = tfs_rust_db::insert_player_online(&db, guid).await {
+            tracing::warn!(error = %e, guid, "players_online insert failed");
+        }
+    });
+    let current = world.player_by_guid.len() as u32;
+    if current <= world.players_record {
+        return;
+    }
+    let old = world.players_record;
+    world.players_record = current;
+    let db = world.db.clone();
+    tokio::spawn(async move {
+        if let Err(e) = tfs_rust_db::save_players_record(&db, current).await {
+            tracing::warn!(error = %e, current, "players_record save failed");
+        }
+    });
+    fire_on_record(world, current, old);
+}
+
 /// Execute a fired `addEvent` timer callback with read context and mutation scope.
 ///
 /// C++ reference: `LuaEnvironment::executeTimerEvent` (`luascript.cpp:18238`).

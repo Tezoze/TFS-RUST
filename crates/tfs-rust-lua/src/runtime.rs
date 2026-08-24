@@ -98,6 +98,9 @@ pub struct LuaRuntime {
     /// by [`LuaRuntime::install_pending_creature_events`] (reload stance a).
     pub(crate) creature_events:
         RefCell<HashMap<String, crate::creature_events::RegisteredCreatureEvent>>,
+    /// Revscript `GlobalEvent` registry (name → callback). Replaced wholesale
+    /// by [`LuaRuntime::install_pending_global_events`] (reload stance a).
+    pub(crate) global_events: RefCell<HashMap<String, crate::global_events::RegisteredGlobalEvent>>,
 }
 
 /// Scoped `isScriptsInterface() == true`. Resets the flag on drop so a `?`
@@ -299,6 +302,7 @@ impl LuaRuntime {
             scripts_interface,
             data_lib_loaded: Cell::new(false),
             creature_events: RefCell::new(HashMap::new()),
+            global_events: RefCell::new(HashMap::new()),
         })
     }
 
@@ -1999,6 +2003,18 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
         lua.create_function(|_, ()| {
             let wt = crate::context::current_ctx(|ctx| ctx.get_world_type()).unwrap_or(1);
             Ok(wt)
+        })?,
+    )?;
+    game.set(
+        "getPlayers",
+        lua.create_function(|lua, ()| {
+            let ids = crate::context::current_ctx(|ctx| ctx.online_player_ids()).unwrap_or_default();
+            let table = lua.create_table()?;
+            for (i, id) in ids.into_iter().enumerate() {
+                let ud = lua.create_userdata(CreatureRef(id))?;
+                table.set(i + 1, ud)?;
+            }
+            Ok(table)
         })?,
     )?;
     game.set(

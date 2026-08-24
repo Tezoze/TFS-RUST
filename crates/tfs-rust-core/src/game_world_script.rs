@@ -1076,6 +1076,14 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         }
     }
 
+    fn online_player_ids(&self) -> Vec<tfs_rust_common::ScriptCreatureId> {
+        self.player_by_guid
+            .values()
+            .copied()
+            .map(Self::creature_to_script_id)
+            .collect()
+    }
+
     fn get_world_time(&self) -> i32 {
         crate::world_light::world_time_from_local_clock() as i32
     }

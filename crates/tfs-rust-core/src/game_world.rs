@@ -90,6 +90,11 @@ pub struct GameWorld {
     pub player_by_name: HashMap<String, CreatureId>,
     /// GAME THREAD ONLY — paired with `player_by_name`.
     pub player_by_guid: HashMap<u32, CreatureId>,
+    /// TFS `GAME_STATE_*` — Closed blocks new logins; Shutdown ends the loop after save.
+    pub game_state: crate::game_state::GameState,
+    /// Persisted `server_config.players_record` (TFS `Game::playersRecord`).
+    pub players_record: u32,
+    pub(crate) server_save: crate::server_save::ServerSaveController,
     pub guilds: GuildRegistry,
     pub parties: HashMap<u32, Party>,
     pub party_invites: PartyInviteState,
@@ -370,10 +375,29 @@ impl GameWorld {
             items,
             map,
             events,
-            config,
+            config: config.clone(),
             db,
             player_by_name: HashMap::new(),
             player_by_guid: HashMap::new(),
+            game_state: crate::game_state::GameState::Normal,
+            players_record: 0,
+            server_save: crate::server_save::ServerSaveController::from_world_config(
+                config.as_ref(),
+            )
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "server save config; using 04:30 defaults");
+                crate::server_save::ServerSaveController::new(
+                    crate::server_save::ServerSaveConfig {
+                        hour: 4,
+                        minute: 30,
+                        second: 0,
+                        notify_minutes: 5,
+                        close: true,
+                        shutdown: true,
+                    },
+                    0,
+                )
+            }),
             guilds: GuildRegistry::default(),
             parties: HashMap::new(),
             party_invites: PartyInviteState::default(),

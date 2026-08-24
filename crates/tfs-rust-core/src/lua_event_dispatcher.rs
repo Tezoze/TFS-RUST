@@ -390,6 +390,26 @@ impl EventDispatcher for LuaEventDispatcher {
         allow
     }
 
+    fn on_startup(&self) {
+        if let Err(e) = self.runtime.fire_global_startup() {
+            tracing::error!("Lua GlobalEvent onStartup failed: {e}");
+        }
+    }
+
+    fn on_shutdown(&self) {
+        if let Err(e) = self.runtime.fire_global_shutdown() {
+            tracing::error!("Lua GlobalEvent onShutdown failed: {e}");
+        }
+    }
+
+    fn on_record(&self, current: u32, old: u32, ctx: &dyn tfs_rust_common::ScriptContext) {
+        with_lua_context(ctx, || {
+            if let Err(e) = self.runtime.fire_global_record(current, old) {
+                tracing::error!("Lua GlobalEvent onRecord failed: {e}");
+            }
+        });
+    }
+
     fn on_death(
         &self,
         creature: CreatureId,

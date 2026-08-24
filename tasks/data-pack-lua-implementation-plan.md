@@ -384,7 +384,9 @@ Add a test that fails if any file outside the Phase 1 allowlist appears in the l
 
 ## Phase 7 — Globalevents
 
-`globalevents.xml` is unscanned; `GlobalEvent(name)` buffers into `_pending_global_events` (`runtime.rs:225`) and is never drained; `on_startup` / `on_shutdown` have **no call sites at all**.
+**Status: done 2026-08-24.** Startup ops and the daily save clock are Rust. `GlobalEvent` drains startup / shutdown / record only (`:time` / `:interval` warn, no dispatch). Survivor: `data/scripts/globalevents/record.lua`. `data/globalevents/` deleted.
+
+`globalevents.xml` is gone; `GlobalEvent(name)` buffers into `_pending_global_events` and is drained on the scripts-interface scan. `on_startup` / `on_shutdown` / `on_record` have game-thread call sites.
 
 | Job | Decision |
 |---|---|
@@ -392,11 +394,11 @@ Add a test that fails if any file outside the Phase 1 allowlist appears in the l
 | `serversave.lua` — 04:30 warn, `GAME_STATE_CLOSED`, save/shutdown | **Rust** timer + config. Lua only if editable warn text is wanted, and only after `Game.broadcastMessage` / `setGameState` exist |
 | `record.lua` — "New record: N players" | **Optional Lua**, after `Game.getPlayers` + `broadcastMessage` are bound |
 
-Either drain the pending-GlobalEvent buffer with a real `onTime` / `onStartup` scheduler, or **remove the `GlobalEvent` constructor** so it stops advertising a capability that does not exist. Do not ship the half-state.
+**Shipped:** drain for startup / shutdown / record only (not a full `onTime` scheduler; daily save is engine). Constructor kept so `helper_constructors.lua` stays honest. `killstatistics.lua` has no `KillStatistics_Flush`.
 
-**If the scheduler is built**, globalevents follow the same rule as everything else: scan `data/scripts/globalevents/**` under the scripts interface, self-registering via the existing `GlobalEvent(name)` constructor, on the Phase 1 allowlist. No `globalevents.xml`. `killstatistics.lua` already declares a `GlobalEvent("KillStatistics_Flush")` in the creaturescripts tree, so the drain has to work regardless of which directory the declaration came from — registration is by constructor call, not by file location.
+Scan `data/scripts/globalevents/**` under the scripts interface (Phase 1 allowlist). No `globalevents.xml`. Registration is by `GlobalEvent(name)` constructor call. `killstatistics.lua` does not declare a flush GlobalEvent.
 
-**Exit:** startup/save are Rust; `data/globalevents/` deleted; any surviving globalevent is a revscript under `data/scripts/globalevents/`.
+**Exit (met):** startup/save are Rust; `data/globalevents/` deleted; surviving globalevent is a revscript under `data/scripts/globalevents/`.
 
 ---
 

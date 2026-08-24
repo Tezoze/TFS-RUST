@@ -721,6 +721,11 @@ pub trait ScriptContext {
         1 // WORLD_TYPE_PVP default
     }
 
+    /// `Game.getPlayers()` — online player creature ids (`Game::getPlayers`).
+    fn online_player_ids(&self) -> Vec<ScriptCreatureId> {
+        Vec::new()
+    }
+
     /// `MonsterType(name)` — lookType for outfit condition (`monsters.h`).
     fn get_monster_type_look_type(&self, name: &str) -> Option<i32> {
         let _ = name;

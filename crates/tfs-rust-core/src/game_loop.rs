@@ -114,6 +114,21 @@ async fn flush_online_players_to_db(world: &GameWorld) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn handle_pending_save_tick(world: &mut GameWorld) -> anyhow::Result<bool> {
+    match world.take_save_tick() {
+        crate::server_save::ServerSaveTick::None => Ok(false),
+        crate::server_save::ServerSaveTick::FlushStay => {
+            flush_online_players_to_db(world).await?;
+            Ok(false)
+        }
+        crate::server_save::ServerSaveTick::FlushShutdown => {
+            crate::lua_scope::fire_on_shutdown(world);
+            flush_online_players_to_db(world).await?;
+            Ok(true)
+        }
+    }
+}
+
 fn register_output_sink(
     conn_id: ConnId,
     output_sinks: &mut OutputSinkMap,
@@ -1443,6 +1458,10 @@ pub async fn run_game_loop(
                     &out_registry,
                     &mut pending_output_shed,
                 );
+                world.tick_server_save(chrono::Local::now().timestamp());
+                if handle_pending_save_tick(&mut world).await? {
+                    break;
+                }
                 obs_note_ingress(&mut world, &game_rx, &pending);
                 match dispatch_command(
                     &mut world,
@@ -1456,6 +1475,7 @@ pub async fn run_game_loop(
                     &out_registry,
                 ) {
                     ControlFlow::Break(LoopExit::Shutdown) => {
+                        crate::lua_scope::fire_on_shutdown(&mut world);
                         flush_online_players_to_db(&world).await?;
                         break;
                     }
@@ -1481,6 +1501,7 @@ pub async fn run_game_loop(
                                 &out_registry,
                             ) {
                                 ControlFlow::Break(LoopExit::Shutdown) => {
+                                    crate::lua_scope::fire_on_shutdown(&mut world);
                                     flush_online_players_to_db(&world).await?;
                                     return Ok(());
                                 }
@@ -1510,6 +1531,10 @@ pub async fn run_game_loop(
                     &out_registry,
                     &mut pending_output_shed,
                 );
+                world.tick_server_save(chrono::Local::now().timestamp());
+                if handle_pending_save_tick(&mut world).await? {
+                    break;
+                }
                 world.obs_maybe_emit();
             }
         }

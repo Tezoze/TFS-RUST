@@ -69,6 +69,8 @@ pub trait EventDispatcher {
     fn on_advance(&self, _creature: CreatureId, _skill: u8, _old_level: u32, _new_level: u32) {}
     fn on_startup(&self) {}
     fn on_shutdown(&self) {}
+    /// TFS `Game::checkPlayersRecord` → `GLOBALEVENT_RECORD` (`game.cpp`).
+    fn on_record(&self, _current: u32, _old: u32, _ctx: &dyn ScriptContext) {}
     /// C++ `Events::eventMonsterOnSpawn` — default allow (`events.cpp`).
     fn on_monster_spawn(&self, _name: &str, _pos: Position, _startup: bool) -> bool {
         true

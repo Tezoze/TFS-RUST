@@ -509,6 +509,27 @@ pub async fn run() -> anyhow::Result<()> {
     }
 
     world.startup_spawns();
+    let towns: Vec<tfs_rust_db::TownInsert> = world
+        .map
+        .towns
+        .values()
+        .map(|t| tfs_rust_db::TownInsert {
+            id: t.id,
+            name: t.name.clone(),
+            posx: i32::from(t.temple_position.x),
+            posy: i32::from(t.temple_position.y),
+            posz: i32::from(t.temple_position.z),
+        })
+        .collect();
+    let now = chrono::Local::now().timestamp();
+    if let Err(e) = tfs_rust_db::run_startup_ops(&world.db, &towns, now).await {
+        tracing::error!(error = %e, "startup ops failed");
+    }
+    match tfs_rust_db::load_players_record(&world.db).await {
+        Ok(r) => world.players_record = r,
+        Err(e) => tracing::warn!(error = %e, "load players_record failed"),
+    }
+    crate::lua_scope::fire_on_startup(&mut world);
     info!(
         map_chunks = world.map.grid.chunk_count(),
         map_tiles = world.map.grid.populated_tile_count(),

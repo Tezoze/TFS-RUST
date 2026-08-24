@@ -1,14 +1,19 @@
-# Active plans
+# Phase 7 — Globalevents
 
-- **Data-pack Lua (772 corpus):** [docs/DATA_PACK_LUA.md](../docs/DATA_PACK_LUA.md). **Phases 1–6 done.** Phases 7–8 remain (globalevents; extra tests). Plan: [data-pack-lua-implementation-plan.md](data-pack-lua-implementation-plan.md).
-- **Monsters XML → Lua:** [monsters-lua-plan.md](monsters-lua-plan.md) (Lua-as-data, not TFS `createMonsterType`).
-  - **Done.** Converter shipped 157 files; runtime `load_dir` is Lua; XML pack + parser + `export-monsters-lua` removed; `lua/#example.lua` deleted. Lessons 366–367.
-  - Left as-is: `data/scripts/lib/register_monster_type.lua` stub.
+**Status:** done 2026-08-24.
 
-# Phase 6 — Retire XML script trees
+Close the GlobalEvent half-state. Rust owns startup DB ops and the daily save clock. Drain pending GlobalEvents for startup / shutdown / record only. Ship optional `data/scripts/globalevents/record.lua`. Delete `data/globalevents/`.
 
-**Status:** done 2026-08-24. Lesson 372.
+## Plan
 
-# Monster combat 772 parity — audit fixes
+1. Write this file (parent).
+2. `tfs-rust-db`: `startup_ops.rs` — truncate `players_online`, expire bans/wars, purge deleted players, sync towns; login/logout maintain `players_online`. Skip house auctions.
+3. `tfs-rust-core`: `game_state.rs` + `server_save.rs` — wall-clock save from `config.lua`; Closed blocks new logins; reuse `flush_online_players_to_db`.
+4. `tfs-rust-lua`: `global_events.rs` — drain `_pending_global_events`; dispatch startup/shutdown/record; warn (no dispatch) for `:time` / `:interval`.
+5. Bind `Game.getPlayers`; allowlist `globalevents/record.lua`; persist `server_config.players_record`.
+6. Delete `data/globalevents/`; drop XML test exception; update policy/README/plan.
+7. Tests + `rtk cargo test` / clippy; `tasks/lessons.md`.
 
-**Status:** done except deferred tie-break. Lesson 363.
+## Out of scope
+
+House auctions, `Game.setGameState` / `saveServer` Lua bindings, `db`/`result` globals, Lua `onTime`/`onThink` dispatch.

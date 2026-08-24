@@ -1,6 +1,6 @@
 # Data-pack Lua — 772 corpus policy
 
-**Status:** Phase 6 shipped 2026-08-24 (script-registry XML trees deleted; field/equip derived from item data; pack allowlist defends against re-import). Phase 7 (globalevents) and Phase 8 tests remain.  
+**Status:** Phase 7 shipped 2026-08-24 (startup ops + daily save in Rust; `GlobalEvent` drains startup/shutdown/record only; `data/scripts/globalevents/record.lua`; `data/globalevents/` deleted). Phase 8 tests remain.  
 **Execution plan:** [tasks/data-pack-lua-implementation-plan.md](../tasks/data-pack-lua-implementation-plan.md).  
 **Corpus:** 772 behaviour for **every** `clientVersion`. One pack, one timing. No 1098 death-time loot roll, no stamina-empty corpses, no `data/1098/` tree.  
 **Companions:** [DATA_FORMAT_MIGRATION.md](DATA_FORMAT_MIGRATION.md), [tasks/monsters-lua-plan.md](../tasks/monsters-lua-plan.md).
@@ -13,7 +13,7 @@ This is the policy for **all** of these trees (not only loot/death):
 | `data/scripts/lib/` | EventCallback bus, revscript constructors |
 | `data/scripts/eventcallbacks/` | Extra event bodies (`onSpawn` rarity, report bug, …) |
 | `data/scripts/creaturescripts/` | Canonical CreatureEvents (login, firstlogin, playerdeath) |
-| `data/scripts/globalevents/` | Startup / save / record timers, if any survive as Lua |
+| `data/scripts/globalevents/` | Optional record flavor (`record.lua`); startup/save are engine |
 
 **Target: one tree, zero script-registry XML.** Everything script-shaped lives under `data/scripts/**` and self-registers. The parallel `data/<kind>/{lib,scripts}/` trees and their index files — `creaturescripts.xml`, `events.xml`, `globalevents.xml`, `movements.xml`, and the four empty ~60-byte stubs (`actions`, `spells`, `talkactions`, `weapons`) — are **deleted**, not migrated one-for-one. The enable bits are replaced by registration itself: `EventCallbackData` *is* the enable set, `hasEventCallback(type)` is the query. Sequencing and the one real migration (`movements.xml`) are in the [implementation plan](../tasks/data-pack-lua-implementation-plan.md) Phases 5–6.
 
@@ -155,7 +155,7 @@ boot  load_data_lib
 boot  scripts interface (isScriptsInterface = true)   — allowlisted scan (Phase 1)
         data/scripts/eventcallbacks/**   — only `default_onReportBug.lua` today; `rarity.lua` when authored
         data/scripts/creaturescripts/**  — allowlisted CreatureEvents (login, firstlogin, …); dispatched (Phase 2)
-        data/scripts/globalevents/**     — not scanned (Phase 7)
+        data/scripts/globalevents/**     — allowlisted `record.lua` (startup/shutdown/record only; save is engine)
 
       (no third stage: events.xml and data/events/ are deleted.
        Today player.lua is exec'd, creature/monster/party.lua are not loaded,
@@ -178,7 +178,7 @@ sim   death
 
 `event_callbacks.lua` itself loads fine today: the two gated call sites only run on `register()` / callback assignment, and the file's tail calls `EventCallback:clear()`, which populates the per-type tables so `hasEventCallback` returns `false` rather than erroring.
 
-Do **not** load `data/globalevents/scripts/startup.lua` / `serversave.lua` as the source of truth for DB cleanup and save — those are engine. Optional: `record.lua` after `Game.broadcastMessage` exists.
+Do **not** load Lua as the source of truth for DB cleanup and save — those are engine (`startup_ops.rs`, `server_save.rs`). Optional flavor: `data/scripts/globalevents/record.lua` after `Game.getPlayers` / `Game.broadcastMessage`.
 
 Rust stubs `hasEventCallback` / `EventCallback` to always-false in `runtime.rs` **before** lib load. `event_callbacks.lua` then **replaces** those globals. `isScriptsInterface` is **not** replaced by the lib file. Dispatch still never calls `Monster:onSpawn` (Phase 4).
 
@@ -232,17 +232,17 @@ The `xml said` column is kept only to show what is being discarded. None of it r
 
 ## Verdicts — `data/globalevents/`
 
-**Loaded today:** no. `EventDispatcher::on_startup` / `on_shutdown` are no-ops. `GlobalEvent` ctor exists (Gap 7c) but XML `globalevents.xml` is not scanned. Kill-statistics’ `GlobalEvent("KillStatistics_Flush")` would only register if that creaturescript file is loaded under scripts interface.
+**Shipped (Phase 7):** the XML tree is **deleted**. Rust runs startup ops (`startup_ops.rs`) and the daily save clock (`server_save.rs` / `GameState`). `GlobalEvent` drains **startup / shutdown / record** only; `:time` / `:interval` / `onTime` / `onThink` warn at install and are not registered. The pack survivor is [`data/scripts/globalevents/record.lua`](../data/scripts/globalevents/record.lua) (`Game.getPlayers` + `Game.broadcastMessage`). House auctions and Lua `setGameState` / `saveServer` were not bound.
 
 | File | Job | Need | Works today | Verdict |
 |------|-----|------|-------------|---------|
-| `globalevents.xml` | startup, record, ServerSave 04:30 | Index only | Not loaded | **Delete.** Replace with Rust timers; anything that stays Lua becomes a self-registering revscript under `data/scripts/globalevents/` |
-| `lib/globalevents.lua` | empty | No | n/a | Ignore |
-| `scripts/startup.lua` | Truncate `players_online`, expire bans/wars, house auctions, insert `towns` | Some of this is **ops** | **No** (`db`, `Game.getTowns`, `House`, `doRemoveOfflinePlayerMoney`) | **Prefer Rust** (sqlx / house module). Not 772-critical Lua. House auction / `HOUSES_BANKSYSTEM` is later-era |
-| `scripts/serversave.lua` | Warn, `GAME_STATE_CLOSED`, shutdown or `saveServer()` at 04:30 | Shard ops | **No** (`Game.broadcastMessage`, `setGameState`, `saveServer`) | **Rust or config** for save/restart. Lua only if you want editable warn text without rebuild — still needs those Game bindings |
-| `scripts/record.lua` | “New record: N players” | Optional flavor | Needs `Game.broadcastMessage` | **Lua optional** once broadcast exists |
+| `globalevents.xml` | startup, record, ServerSave 04:30 | Index only | Deleted | **Deleted.** Save/startup are engine; record is a revscript |
+| `lib/globalevents.lua` | empty | No | Deleted | Ignore |
+| `scripts/startup.lua` | Truncate `players_online`, expire bans/wars, house auctions, insert `towns` | Ops | Rust (`startup_ops.rs`); auctions skipped | **Rust.** House auction / `HOUSES_BANKSYSTEM` is later-era |
+| `scripts/serversave.lua` | Warn, `GAME_STATE_CLOSED`, shutdown or `saveServer()` at 04:30 | Shard ops | Rust (`server_save.rs` + config.lua keys) | **Rust.** No Lua `setGameState` / `saveServer` |
+| `scripts/record.lua` | “New record: N players” | Optional flavor | `data/scripts/globalevents/record.lua` | **Lua** on the allowlist |
 
-772 did not ship this XML pack. Treat save/startup as **engine**, record as **pack**. Registration is by `GlobalEvent(name)` constructor call, not by file location — `killstatistics.lua` already declares one from the creaturescripts tree.
+772 did not ship this XML pack. Treat save/startup as **engine**, record as **pack**. Registration is by `GlobalEvent(name)` constructor call, not by file location. `killstatistics.lua` has no `KillStatistics_Flush` timer.
 
 ---
 
@@ -380,7 +380,7 @@ Then Lua `playerdeath` for text + `player_deaths` row. Never Lua `droploot`.
 | `eventcallbacks/**` | Not loaded | Load **except** drop-loot, no-op move, look (until look is Lua-only) |
 | `register_monster_type.lua` | Loaded stub | Stay unused for defs |
 | Creaturescripts | Two trees; XML empty; revscripts not loaded | **One** tree: load `data/scripts/creaturescripts/`, delete `data/creaturescripts/`. No DropLoot / stamina / offline-training |
-| Globalevents | Not loaded | Startup/save → **Rust**; survivors are revscripts under `data/scripts/globalevents/`; delete the XML |
+| Globalevents | Engine startup/save + `record.lua` revscript | Startup/save → **Rust**; survivors are revscripts under `data/scripts/globalevents/`; XML tree deleted |
 | `onDropLoot` / `onSpawn` enable bits | `events.xml` 1 / 0 | **No `events.xml`** — registration is the enable bit, Rust call site is the switch |
 | `movements.xml` | Parsed for field + equip bindings | **Deleted**; bindings derived from item data |
 | Script-registry XML overall | 8 index files, 8 parallel trees | **Zero.** One `data/scripts/**` tree |

@@ -21,7 +21,7 @@ use crate::creature::{
 use crate::formulas::StepSpeedModel;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
-use crate::lua_scope::fire_on_login;
+use crate::lua_scope::{after_player_online, fire_on_login};
 use crate::player_flags::{PLAYER_FLAG_SET_MAX_SPEED, flags_for_group, has_player_flag};
 use tfs_rust_content::groups::GroupDatabase;
 use tfs_rust_content::vocations::VocationRegistry;
@@ -351,6 +351,11 @@ impl ApplyPlayerOutcome {
     }
 }
 
+/// Closed / Shutdown reject new spawns; TakeOver of an already-online body still works.
+pub(crate) fn permits_new_login(state: crate::game_state::GameState) -> bool {
+    state == crate::game_state::GameState::Normal
+}
+
 /// Game-thread apply of a completed DB load — spawn or TakeOver.
 pub fn apply_loaded_player(
     world: &mut GameWorld,
@@ -374,6 +379,12 @@ pub fn apply_loaded_player(
     {
         // Live body kept — do not rehydrate inventory / place / onLogin from this load.
         return Ok(ApplyPlayerOutcome::TakenOver { cid, old_conn });
+    }
+
+    if !permits_new_login(world.game_state) {
+        return Err(TfsRustError::Protocol(
+            "The game is currently closed.".into(),
+        ));
     }
 
     let pos = {
@@ -458,6 +469,7 @@ pub fn apply_loaded_player(
     }
 
     fire_on_login(world, cid);
+    after_player_online(world, guid);
     Ok(ApplyPlayerOutcome::Spawned(cid))
 }
 
@@ -470,4 +482,17 @@ pub async fn login_player(
 ) -> Result<CreatureId> {
     let loaded = load_player_data(&world.db, name).await?;
     Ok(apply_loaded_player(world, loaded, operating_system, otclient_v8)?.creature_id())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_state::GameState;
+
+    #[test]
+    fn permits_new_login_only_when_normal() {
+        assert!(permits_new_login(GameState::Normal));
+        assert!(!permits_new_login(GameState::Closed));
+        assert!(!permits_new_login(GameState::Shutdown));
+    }
 }

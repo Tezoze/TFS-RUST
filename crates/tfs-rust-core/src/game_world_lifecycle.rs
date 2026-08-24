@@ -121,6 +121,12 @@ impl GameWorld {
             self.clear_playerkilling_marks(id);
             self.player_by_name.remove(&name);
             self.player_by_guid.remove(&guid);
+            let db = self.db.clone();
+            tokio::spawn(async move {
+                if let Err(e) = tfs_rust_db::delete_player_online(&db, guid).await {
+                    tracing::warn!(error = %e, guid, "players_online delete failed");
+                }
+            });
             if in_guild {
                 self.guilds.unregister_online(id);
             }

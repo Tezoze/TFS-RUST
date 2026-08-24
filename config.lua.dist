@@ -95,5 +95,14 @@ luaMemoryLimit = 512
 -- Abort does not roll back mutations already applied in that callback.
 luaInstructionBudget = 10000000
 
+-- Daily save clock (replaces XML GlobalEvent time="04:30:00" / serversave.lua).
+-- Warn online players `serverSaveNotifyDuration` minutes before the wall-clock
+-- time, optionally close new logins, then flush. Shutdown exits the process;
+-- false saves and stays in GAME_STATE_NORMAL.
+serverSaveTime = "04:30:00"
+serverSaveNotifyDuration = 5
+serverSaveClose = true
+serverSaveShutdown = true
+
 -- Map file is TFS_MAP_OTBM under TFS_DATA_DIR (default data/world/forgotten.otbm),
 -- not a config.lua key.

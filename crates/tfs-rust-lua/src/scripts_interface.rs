@@ -1,4 +1,5 @@
-//! Scripts-interface loader: allowlisted EventCallback + CreatureEvent revscripts.
+//! Scripts-interface loader: allowlisted EventCallback, CreatureEvent, and
+//! GlobalEvent revscripts.
 //!
 //! Pack surface: TFS `LuaScriptInterface::loadScripts(..., isScriptsInterface)`.
 //! `EventCallback:register` / `__newindex` in `data/scripts/lib/event_callbacks.lua`
@@ -23,10 +24,12 @@ const SCRIPTS_INTERFACE_ALLOWLIST: &[&str] = &[
     "eventcallbacks/player/default_onReportBug.lua",
     "eventcallbacks/player/moveitem.lua",
     "eventcallbacks/monster/rarity.lua", // Phase 4; missing file is not an error
+    "globalevents/record.lua",
 ];
 
-/// Load allowlisted `data/scripts/eventcallbacks/**` and
-/// `data/scripts/creaturescripts/*.lua` with `isScriptsInterface` true.
+/// Load allowlisted `data/scripts/eventcallbacks/**`,
+/// `data/scripts/globalevents/**`, and `data/scripts/creaturescripts/*.lua`
+/// with `isScriptsInterface` true.
 ///
 /// Call after [`crate::actions::load_data_lib`] so `EventCallback` is the real
 /// table, not the bootstrap stub. Does not scan `data/creaturescripts/**`.
@@ -47,6 +50,11 @@ pub fn load_scripts_interface(runtime: &LuaRuntime, data_dir: &Path) -> Result<(
     let eventcallbacks_dir = scripts_root.join("eventcallbacks");
     if eventcallbacks_dir.exists() {
         collect_lua_files(&eventcallbacks_dir, &mut files);
+    }
+
+    let globalevents_dir = scripts_root.join("globalevents");
+    if globalevents_dir.exists() {
+        collect_lua_files(&globalevents_dir, &mut files);
     }
 
     let creaturescripts_dir = scripts_root.join("creaturescripts");
@@ -104,6 +112,7 @@ pub fn load_scripts_interface(runtime: &LuaRuntime, data_dir: &Path) -> Result<(
     }
 
     runtime.install_pending_creature_events()?;
+    runtime.install_pending_global_events()?;
 
     if failures.is_empty() {
         runtime.warn_undispatched_event_callbacks();
@@ -256,6 +265,33 @@ mod tests {
         );
     }
 
+    /// Unlisted file under `scripts/globalevents/` is not executed.
+    #[test]
+    fn unlisted_globalevent_is_skipped() {
+        let pack = TempDataPack::new();
+        pack.install_event_callbacks();
+        pack.write(
+            "scripts/globalevents/not_on_allowlist.lua",
+            "NOPE_LOADED = true\n\
+             local e = GlobalEvent(\"Nope\")\n\
+             function e.onRecord(c, o) return true end\n\
+             e:type(\"record\")\n\
+             e:register()\n",
+        );
+
+        let runtime = LuaRuntime::new().expect("runtime init");
+        load_data_lib(&runtime, &pack.0).expect("data lib");
+        load_scripts_interface(&runtime, &pack.0).expect("scripts interface");
+        assert!(
+            !eval_bool(&runtime, "return NOPE_LOADED == true"),
+            "unlisted globalevents file must not execute"
+        );
+        assert!(
+            !runtime.has_global_event("Nope"),
+            "unlisted GlobalEvent must not drain"
+        );
+    }
+
     /// After the scan, `ec:register()` is a no-op (flag reset), not a nil call.
     #[test]
     fn register_after_scan_is_noop() {
@@ -327,6 +363,10 @@ mod tests {
         assert!(
             runtime.has_creature_event("PlayerLogin"),
             "allowlisted login.lua must drain CreatureEvent PlayerLogin"
+        );
+        assert!(
+            runtime.has_global_event("PlayerRecord"),
+            "allowlisted record.lua must drain GlobalEvent PlayerRecord"
         );
         assert!(
             !runtime.has_creature_event("DropLoot"),
@@ -411,7 +451,7 @@ mod tests {
         );
     }
 
-    /// Content-data XML prefixes. `globalevents/globalevents.xml` is Phase 7.
+    /// Content-data XML prefixes. Script-registry XML is forbidden (Phase 7 removed globalevents.xml).
     const CONTENT_XML_PREFIXES: &[&str] = &[
         "items/",
         "XML/",
@@ -441,7 +481,7 @@ mod tests {
         }
     }
 
-    /// Phase 8.8c: no script-registry XML except globalevents until Phase 7.
+    /// Phase 8.8c: no script-registry XML (Phase 7 removed globalevents.xml).
     #[test]
     fn no_script_registry_xml_outside_content_allowlist() {
         let data_root = workspace_data_root();
@@ -454,9 +494,6 @@ mod tests {
         xmls.sort();
         let mut unexpected = Vec::new();
         for rel in xmls {
-            if rel == "globalevents/globalevents.xml" {
-                continue;
-            }
             if !CONTENT_XML_PREFIXES.iter().any(|p| rel.starts_with(p)) {
                 unexpected.push(rel);
             }

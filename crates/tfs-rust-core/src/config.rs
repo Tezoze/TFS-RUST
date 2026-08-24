@@ -33,7 +33,7 @@ fn is_missing_config_key(err: &TfsRustError) -> bool {
     }
 }
 
-fn get_string_or(cfg: &ConfigManager, key: &str, default: &str) -> Result<String> {
+pub(crate) fn get_string_or(cfg: &ConfigManager, key: &str, default: &str) -> Result<String> {
     match cfg.get_string(key) {
         Ok(v) => Ok(v),
         Err(e) if is_missing_config_key(&e) => Ok(default.to_string()),
@@ -41,7 +41,7 @@ fn get_string_or(cfg: &ConfigManager, key: &str, default: &str) -> Result<String
     }
 }
 
-fn get_i64_or(cfg: &ConfigManager, key: &str, default: i64) -> Result<i64> {
+pub(crate) fn get_i64_or(cfg: &ConfigManager, key: &str, default: i64) -> Result<i64> {
     match cfg.get_i64(key) {
         Ok(v) => Ok(v),
         Err(e) if is_missing_config_key(&e) => Ok(default),

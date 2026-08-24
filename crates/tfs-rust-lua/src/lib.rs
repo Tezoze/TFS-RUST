@@ -11,6 +11,7 @@ pub mod combat_scripts;
 pub mod constants;
 pub mod context;
 mod creature_events;
+mod global_events;
 mod event_callback;
 mod instruction_budget;
 pub mod lua_defs;
