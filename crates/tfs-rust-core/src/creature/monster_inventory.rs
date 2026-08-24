@@ -620,7 +620,7 @@ fn item_decay_schedule(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{BTreeSet, HashMap};
     use std::sync::Arc;
 
     use slotmap::SlotMap;
@@ -948,14 +948,22 @@ mod tests {
             .copied()
             .expect("corpse on tile");
 
+        let snapshot: BTreeSet<_> = inventory
+            .bag
+            .into_iter()
+            .chain(inventory.equipment.iter().copied().flatten())
+            .chain(inventory.body.iter().copied())
+            .collect();
+
         world.hydrate_container_if_needed(corpse_item_id);
         let cont = world
             .container_registry
             .get(corpse_item_id)
             .expect("corpse container");
-        assert!(
-            !cont.items.is_empty(),
-            "corpse must contain spawn-rolled loot"
+        let corpse_ids: BTreeSet<_> = cont.items.iter().copied().collect();
+        assert_eq!(
+            corpse_ids, snapshot,
+            "corpse ItemIds must equal the spawn inventory snapshot (identity move, not regenerate)"
         );
     }
 

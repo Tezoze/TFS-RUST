@@ -23,7 +23,6 @@ done <<< "$loot_hits"
 
 allowed_xml() {
   local rel="$1"
-  [[ "$rel" == globalevents/globalevents.xml ]] && return 0
   [[ "$rel" == items/* ]] && return 0
   [[ "$rel" == XML/* ]] && return 0
   [[ "$rel" == raids/* ]] && return 0

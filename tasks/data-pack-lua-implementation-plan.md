@@ -402,7 +402,9 @@ Scan `data/scripts/globalevents/**` under the scripts interface (Phase 1 allowli
 
 ---
 
-## Phase 8 — Tests
+## Phase 8 — Tests — **DONE 2026-08-24**
+
+**Status: done 2026-08-24.** Invariants live in `crates/tfs-rust-core/src/data_pack_lua_tests.rs` (8.1–8.4, 8.7, 8.9), `scripts_interface.rs` / `monster_spawn.rs` / `event_callback.rs` / `userdata/monster.rs` (5, 6, 6b, 8, 8c), and `tfs-rust-content/tests/movements_derivation.rs` (8b). `death.rs` `debug_assert` is the 8.7 item-count window. `scripts/check_data_pack_policy.sh` no longer allows deleted `globalevents.xml`.
 
 Ordered by how load-bearing the invariant is.
 
@@ -434,7 +436,7 @@ Phase 5  retire events.xml             ── needs 1, 4
 Phase 6  retire the XML script trees   ── needs 1–5 (proves unreferenced)
          6.1 movements.xml derivation  ── independent of 1–5, start early
 Phase 7  globalevents                  ── independent
-Phase 8  tests                         ── alongside 4, 5, 6
+Phase 8  tests                         ── alongside 4, 5, 6  — DONE
 ```
 
 Phases 4 and 7 are independent of 2/3 and can run in parallel. **Phase 6.1 is independent of everything** — it is a native derivation plus a golden diff, touches no Lua, and is the only XML removal with real behavioural risk. Start it early rather than saving it for the cleanup commit, so the diff has room to be wrong.

@@ -218,6 +218,37 @@ mod tests {
         );
     }
 
+    /// Missing `scripts/eventcallbacks/` is not an error; bus stays empty after the scan.
+    #[test]
+    fn missing_eventcallbacks_dir_is_ok() {
+        if !workspace_data_root()
+            .join("scripts/lib/event_callbacks.lua")
+            .exists()
+        {
+            eprintln!("data pack not present — skipping");
+            return;
+        }
+
+        let pack = TempDataPack::new();
+        pack.install_event_callbacks();
+        assert!(
+            !pack.0.join("scripts/eventcallbacks").exists(),
+            "fixture must not create scripts/eventcallbacks/"
+        );
+
+        let runtime = LuaRuntime::new().expect("runtime init");
+        load_data_lib(&runtime, &pack.0).expect("data lib");
+        load_scripts_interface(&runtime, &pack.0).expect("scripts interface");
+        assert!(
+            !has_event_callback(&runtime, EVENT_CALLBACK_ONSPAWN),
+            "ONSPAWN must stay unregistered without eventcallbacks/"
+        );
+        assert!(
+            eval_bool(&runtime, "return isScriptsInterface() == false"),
+            "isScriptsInterface must be false after the scan"
+        );
+    }
+
     /// Allowlisted one-liner registers `onSpawn`.
     #[test]
     fn allowlisted_callback_registers() {

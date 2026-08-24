@@ -91,6 +91,8 @@ mod subsystem_counters;
 pub mod talkactions;
 #[cfg(test)]
 mod test_world;
+#[cfg(test)]
+mod data_pack_lua_tests;
 pub mod thing;
 pub mod tile;
 mod tile_specials;

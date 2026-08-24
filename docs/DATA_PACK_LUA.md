@@ -1,6 +1,6 @@
 # Data-pack Lua — 772 corpus policy
 
-**Status:** Phase 7 shipped 2026-08-24 (startup ops + daily save in Rust; `GlobalEvent` drains startup/shutdown/record only; `data/scripts/globalevents/record.lua`; `data/globalevents/` deleted). Phase 8 tests remain.  
+**Status:** Phase 8 shipped 2026-08-24 (spawn/corpse ItemId identity, rarity ACTIONID through death, summon empty corpse, allowlist/isScriptsInterface, AoL + `onDeath` zero item delta, 1098 twins). Phase 7: startup ops + daily save in Rust; `GlobalEvent` drains startup/shutdown/record only; `data/scripts/globalevents/record.lua`; `data/globalevents/` deleted.  
 **Execution plan:** [tasks/data-pack-lua-implementation-plan.md](../tasks/data-pack-lua-implementation-plan.md).  
 **Corpus:** 772 behaviour for **every** `clientVersion`. One pack, one timing. No 1098 death-time loot roll, no stamina-empty corpses, no `data/1098/` tree.  
 **Companions:** [DATA_FORMAT_MIGRATION.md](DATA_FORMAT_MIGRATION.md), [tasks/monsters-lua-plan.md](../tasks/monsters-lua-plan.md).
@@ -483,7 +483,7 @@ These are **not** “core + mutate.” Either native primitive, Lua one-liner, o
 
 **In this document (policy decided):** loot timing; Lua vs native; one script tree with zero script-registry XML; `scripts/lib`; eventcallbacks; event bodies and where their content lands; `data/lib` need/works; globalevents; player.lua API; dispatch list; anti-patterns.
 
-**Still implementation, not more design:** `isScriptsInterface` global + scoped loader; **Monster inventory Lua surface** (prerequisite for `Monster:onSpawn`, does not exist yet); `CreatureEvent` registry drain + `Player:registerEvent`; slim login; stub `createLootItem`; `hasEventCallback`-guarded dispatch sites replacing `events.xml`; `movements.xml` derivation + golden diff; bind gaps (`getPromotion`, `registerEvent`, `sendOutfitWindow`, `removeTotalMoney`, …) as **Rust primitives**. Phasing and dependency order: [implementation plan](../tasks/data-pack-lua-implementation-plan.md).
+**Shipped (Phases 0–8):** `isScriptsInterface` + allowlisted scan; Monster spawn-scoped inventory + `onSpawn`; CreatureEvent drain + `Player:registerEvent`; slim login/death scripts; `hasEventCallback`-guarded dispatch (no `events.xml`); native movements derivation + golden test; spawn/corpse ItemId identity and `onDeath` zero-item-delta tests. Deferred bind-on-demand (`removeTotalMoney`, `addSkill`, …): implementation plan Phase 3.4.
 
 **Other loaders (same Lua-vs-native rule, not catalogued here):** actions, movements, spells, weapons, talkactions, NPCs, monster **defs**.
 
