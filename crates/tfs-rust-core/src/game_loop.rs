@@ -399,6 +399,7 @@ fn begin_player_login_load(
     name: String,
     operating_system: u16,
     otclient_v8: u16,
+    peer_ip: u32,
 ) {
     if pending_login_conns.len() >= MAX_CONCURRENT_LOGIN_LOADS {
         warn!(
@@ -437,6 +438,7 @@ fn begin_player_login_load(
                     name: load_name,
                     operating_system,
                     otclient_v8,
+                    peer_ip,
                     data: OwnedPlayerLoad::new(data),
                 });
             }
@@ -481,6 +483,7 @@ fn handle_player_loaded(
     name: String,
     operating_system: u16,
     otclient_v8: u16,
+    peer_ip: u32,
     data: OwnedPlayerLoad,
     output_sinks: &mut OutputSinkMap,
     out_registry: &Option<OutRegistry>,
@@ -520,7 +523,7 @@ fn handle_player_loaded(
             return;
         }
     };
-    match login::apply_loaded_player(world, loaded, operating_system, otclient_v8) {
+    match login::apply_loaded_player(world, loaded, operating_system, otclient_v8, peer_ip) {
         Ok(login::ApplyPlayerOutcome::Spawned(cid)) => {
             world.register_conn_mapping(conn_id, cid);
             crate::login_out::enqueue_initial_login_packets(world, conn_id, cid);
@@ -1136,6 +1139,7 @@ fn dispatch_command(
             name,
             operating_system,
             otclient_v8,
+            peer_ip,
         } => {
             begin_player_login_load(
                 world,
@@ -1146,6 +1150,7 @@ fn dispatch_command(
                 name,
                 operating_system,
                 otclient_v8,
+                peer_ip,
             );
             ControlFlow::Continue(())
         }
@@ -1154,6 +1159,7 @@ fn dispatch_command(
             name,
             operating_system,
             otclient_v8,
+            peer_ip,
             data,
         } => {
             handle_player_loaded(
@@ -1164,6 +1170,7 @@ fn dispatch_command(
                 name,
                 operating_system,
                 otclient_v8,
+                peer_ip,
                 data,
                 output_sinks,
                 out_registry,
@@ -2006,6 +2013,7 @@ mod f8_s6_handler_routing_tests {
             "DelayedHero".to_string(),
             0,
             0,
+            0,
         );
         assert!(
             pending_logins.contains(&login_conn),
@@ -2090,6 +2098,7 @@ mod f8_s6_handler_routing_tests {
                 format!("Hero{i}"),
                 0,
                 0,
+                0,
             );
         }
         assert_eq!(pending_logins.len(), MAX_CONCURRENT_LOGIN_LOADS);
@@ -2101,6 +2110,7 @@ mod f8_s6_handler_routing_tests {
             &mut login_started,
             ConnId(9000),
             "Overflow".to_string(),
+            0,
             0,
             0,
         );
@@ -2367,6 +2377,7 @@ mod f8_s6_handler_routing_tests {
             &mut login_started,
             login_conn,
             "SlowHero".to_string(),
+            0,
             0,
             0,
         );

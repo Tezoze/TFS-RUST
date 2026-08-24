@@ -229,6 +229,15 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
     // Disables Nagle — small move packets hit the wire immediately instead of waiting for
     // delayed ACKs (~40ms). Critical for walk smoothness.
     let _ = stream.set_nodelay(true);
+    let peer_ip = match stream.peer_addr() {
+        Ok(std::net::SocketAddr::V4(v)) => u32::from_le_bytes(v.ip().octets()),
+        Ok(std::net::SocketAddr::V6(v)) => v
+            .ip()
+            .to_ipv4_mapped()
+            .map(|ip| u32::from_le_bytes(ip.octets()))
+            .unwrap_or(0),
+        Err(_) => 0,
+    };
     let conn_id = ConnId(NEXT_CONN_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
     trace!(
         conn_id = conn_id.0,
@@ -349,6 +358,7 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
             name: character_name,
             operating_system: game.operating_system,
             otclient_v8: game.otclient_v8,
+            peer_ip,
         })
         .map_err(|_| anyhow::anyhow!("game command channel closed"))?;
 

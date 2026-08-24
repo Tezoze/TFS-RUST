@@ -34,7 +34,8 @@ impl ServerSaveConfig {
     pub fn from_config(cfg: &ConfigManager) -> Result<Self> {
         let raw = get_string_or(cfg, "serverSaveTime", "04:30:00")?;
         let (hour, minute, second) = parse_hms(&raw)?;
-        let notify_minutes = get_i64_or(cfg, "serverSaveNotifyDuration", 5)?.clamp(0, 24 * 60) as u32;
+        let notify_minutes =
+            get_i64_or(cfg, "serverSaveNotifyDuration", 5)?.clamp(0, 24 * 60) as u32;
         Ok(Self {
             hour,
             minute,

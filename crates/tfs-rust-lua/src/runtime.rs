@@ -356,7 +356,8 @@ impl LuaRuntime {
         if areas_path.exists() {
             let path_str = areas_path.display().to_string();
             let src = std::fs::read_to_string(&areas_path).map_err(|e| e.to_string())?;
-            self.exec_chunk(&path_str, &src).map_err(|e| e.to_string())?;
+            self.exec_chunk(&path_str, &src)
+                .map_err(|e| e.to_string())?;
         }
         self.spell_areas_loaded.set(true);
         Ok(())
@@ -2139,7 +2140,8 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
     game.set(
         "getPlayers",
         lua.create_function(|lua, ()| {
-            let ids = crate::context::current_ctx(|ctx| ctx.online_player_ids()).unwrap_or_default();
+            let ids =
+                crate::context::current_ctx(|ctx| ctx.online_player_ids()).unwrap_or_default();
             let table = lua.create_table()?;
             for (i, id) in ids.into_iter().enumerate() {
                 let ud = lua.create_userdata(CreatureRef(id))?;

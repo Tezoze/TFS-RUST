@@ -484,6 +484,13 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             unsafe { &mut *world }.lua_script_save_server();
             Ok(())
         }
+        LuaMutation::PlayerSetGhostMode {
+            creature_id,
+            enabled,
+        } => unsafe { &mut *world }.lua_script_set_ghost_mode(creature_id, enabled),
+        LuaMutation::CreatureRemove { creature_id } => {
+            unsafe { &mut *world }.lua_script_creature_remove(creature_id)
+        }
     }
 }
 

@@ -18,15 +18,16 @@ pub mod creature;
 mod creature_think;
 mod creature_todo;
 pub mod cylinder;
+#[cfg(test)]
+mod data_pack_lua_tests;
 mod death;
 mod decay;
 mod decay_apply;
 pub mod event_dispatcher;
-mod game_state;
-mod server_save;
 mod floor_change_use;
 pub mod formulas;
 pub mod game_loop;
+mod game_state;
 pub mod game_world;
 mod game_world_chat;
 mod game_world_inventory;
@@ -77,6 +78,7 @@ pub mod protocol_hooks;
 pub mod return_value;
 mod run_server;
 pub mod scheduler;
+mod server_save;
 mod sim_glibc_rand;
 /// Headless simulation harness — test/diagnostic only.
 /// Compiled when `cfg(test)` or `--features sim`; excluded from production builds.
@@ -91,8 +93,6 @@ mod subsystem_counters;
 pub mod talkactions;
 #[cfg(test)]
 mod test_world;
-#[cfg(test)]
-mod data_pack_lua_tests;
 pub mod thing;
 pub mod tile;
 mod tile_specials;

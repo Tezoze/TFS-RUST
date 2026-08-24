@@ -239,6 +239,99 @@ impl GameWorld {
         }
         Ok(true)
     }
+
+    /// `player:setGhostMode(enabled)` — TFS `luaPlayerSetGhostMode`.
+    /// Flip `ghost_mode` then appear/disappear to spectators (`can_see_creature`).
+    pub fn lua_script_set_ghost_mode(
+        &mut self,
+        creature_u64: u64,
+        enabled: bool,
+    ) -> Result<(), String> {
+        let Some(cid) = self.resolve_creature_u64(creature_u64) else {
+            return Ok(());
+        };
+        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return Ok(());
+        };
+        if p.ghost_mode == enabled {
+            return Ok(());
+        }
+        let pos = p.base.position;
+        let spectators: Vec<(tfs_rust_common::ConnId, crate::ids::CreatureId)> = self
+            .spectator_conns_via_grid(pos)
+            .into_iter()
+            .filter_map(|conn| {
+                let viewer = *self.conn_to_creature.get(&conn)?;
+                (viewer != cid).then_some((conn, viewer))
+            })
+            .collect();
+
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.ghost_mode = enabled;
+        }
+
+        // TFS `Player::sendCreatureChangeVisible`: lookType 0 is the 772 sparkle.
+        // Send to self and any spectator who can still see (other ghosts); others get
+        // tile remove / appear.
+        let outfit_bytes = {
+            let Some(kind) = self.creatures.get(cid) else {
+                return Ok(());
+            };
+            let wire_id = crate::login_out::creature_wire_id(cid, kind);
+            let outfit = if enabled {
+                tfs_rust_net::creature_encode::OutfitWire::default()
+            } else {
+                let o = &kind.base().outfit;
+                tfs_rust_net::creature_encode::OutfitWire {
+                    look_type: o.look_type.max(0) as u16,
+                    look_head: o.look_head.clamp(0, 255) as u8,
+                    look_body: o.look_body.clamp(0, 255) as u8,
+                    look_legs: o.look_legs.clamp(0, 255) as u8,
+                    look_feet: o.look_feet.clamp(0, 255) as u8,
+                    look_addons: o.look_addons.clamp(0, 255) as u8,
+                    look_mount: 0,
+                    look_type_ex: 0,
+                }
+            };
+            self.codec
+                .encode_creature_outfit(wire_id, &outfit)
+                .into_bytes()
+        };
+        if let Some(own) = self.creature_to_conn.get(&cid).copied() {
+            self.enqueue_outgoing(own, outfit_bytes.clone());
+        }
+
+        for (conn, viewer) in spectators {
+            if self.can_see_creature(viewer, cid) {
+                self.enqueue_outgoing(conn, outfit_bytes.clone());
+            } else if enabled {
+                let stack_raw = self
+                    .map
+                    .get_tile(pos)
+                    .map(|t| crate::tile::client_creature_stack_pos(t.body(), cid))
+                    .unwrap_or(-1);
+                self.send_creature_remove_to_conn(conn, cid, pos, stack_raw);
+            } else {
+                self.send_creature_appear_to_conn(conn, viewer, cid, pos);
+            }
+        }
+        Ok(())
+    }
+
+    /// `creature:remove()` — TFS `luaCreatureRemove`. Players: forced logout.
+    pub fn lua_script_creature_remove(&mut self, creature_u64: u64) -> Result<(), String> {
+        let Some(cid) = self.resolve_creature_u64(creature_u64) else {
+            return Ok(());
+        };
+        if matches!(self.creatures.get(cid), Some(CreatureKind::Player(_)))
+            && let Some(conn) = self.creature_to_conn.get(&cid).copied()
+        {
+            self.player_logout(conn, cid, true, true);
+            return Ok(());
+        }
+        self.remove_creature(cid);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -700,5 +793,63 @@ mod tests {
             hp_after < hp_before,
             "expected HP loss: {hp_before} → {hp_after}"
         );
+    }
+
+    #[test]
+    fn set_ghost_mode_is_readable() {
+        let mut world = minimal_world();
+        let pos = Position::new(50, 50, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+        let cid = insert_player(&mut world, test_player("Ghost", pos));
+        let id = cid.data().as_ffi();
+        assert!(!world.is_creature_in_ghost_mode(id));
+        world.lua_script_set_ghost_mode(id, true).unwrap();
+        assert!(world.is_creature_in_ghost_mode(id));
+        world.lua_script_set_ghost_mode(id, false).unwrap();
+        assert!(!world.is_creature_in_ghost_mode(id));
+    }
+
+    #[test]
+    fn set_ghost_mode_sends_empty_outfit_to_self() {
+        use tfs_rust_common::ConnId;
+        use tfs_rust_common::protocol_opcodes::server;
+
+        let mut world = minimal_world();
+        let pos = Position::new(50, 50, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+        let cid = insert_player(&mut world, test_player("Sparkle", pos));
+        let guid = match world.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.guid,
+            _ => panic!("player"),
+        };
+        let conn = ConnId(1);
+        world.register_conn_mapping(conn, cid);
+        world
+            .lua_script_set_ghost_mode(cid.data().as_ffi(), true)
+            .unwrap();
+        let pkts = world.pending_outgoing.get(&conn).expect("outfit packet");
+        assert!(
+            pkts.iter().any(|p| {
+                p.first() == Some(&server::CREATURE_OUTFIT)
+                    && p.get(1..5) == Some(&guid.to_le_bytes())
+                    && p.get(5..7) == Some(&[0, 0])
+            }),
+            "ghost should send 0x8E lookType 0 (invisible animation) to self: {pkts:?}"
+        );
+    }
+
+    #[test]
+    fn creature_remove_unknown_id_is_ok() {
+        let mut world = minimal_world();
+        world.lua_script_creature_remove(0).unwrap();
+    }
+
+    #[test]
+    fn session_ipv4_packs_low_octet_first() {
+        let packed = u32::from_le_bytes([127, 0, 0, 1]);
+        // Game.convertIpToString: band(ip, 0xFF) is first octet.
+        assert_eq!(packed & 0xFF, 127);
+        assert_eq!((packed >> 8) & 0xFF, 0);
+        assert_eq!((packed >> 24) & 0xFF, 1);
     }
 }

@@ -28,6 +28,8 @@ pub enum GameCommand {
         operating_system: u16,
         /// `0` = not detected; else OTCv8 build (253, 260, …) after `"OTCv8"` probe.
         otclient_v8: u16,
+        /// TCP peer IPv4 packed for `luaPlayerGetIp` (`0` if unknown / non-v4).
+        peer_ip: u32,
     },
     /// Async character load finished — apply on the game thread only if `conn_id` is still current.
     PlayerLoaded {
@@ -35,6 +37,8 @@ pub enum GameCommand {
         name: String,
         operating_system: u16,
         otclient_v8: u16,
+        /// TCP peer IPv4 packed for `luaPlayerGetIp`.
+        peer_ip: u32,
         data: OwnedPlayerLoad,
     },
     /// Async character load failed (not found / DB error / overload reject).

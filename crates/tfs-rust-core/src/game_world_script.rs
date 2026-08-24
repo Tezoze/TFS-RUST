@@ -989,6 +989,16 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         )
     }
 
+    fn get_player_ip(&self, creature_id: tfs_rust_common::ScriptCreatureId) -> u32 {
+        let Some(cid) = self.resolve_creature_from_script(creature_id) else {
+            return 0;
+        };
+        match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.lastip,
+            _ => 0,
+        }
+    }
+
     fn register_script_item_uid(&self, item_id: ScriptItemId) -> u32 {
         // TFS `ScriptEnvironment::addThing` (`luascript.cpp:110-134`):
         // if the item has ATTR_UNIQUE_ID, return it; otherwise add to local map.

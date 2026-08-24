@@ -620,6 +620,22 @@ mod tests {
             creature.methods.contains("getTown"),
             "Creature:getTown is a native method"
         );
+        assert!(
+            creature.methods.contains("getIp"),
+            "Creature:getIp is a native method"
+        );
+        assert!(
+            creature.methods.contains("setGhostMode"),
+            "Creature:setGhostMode is a native method"
+        );
+        assert!(
+            creature.methods.contains("popupFYI"),
+            "Creature:popupFYI is a native method"
+        );
+        assert!(
+            creature.methods.contains("remove"),
+            "Creature:remove is a native method (luaCreatureRemove)"
+        );
 
         let game = snap.classes.get("Game").expect("Game");
         assert!(

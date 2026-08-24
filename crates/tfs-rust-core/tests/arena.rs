@@ -87,6 +87,7 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
         operating_system: 0,
         otclient_v8: 0,
         ghost_mode: false,
+        lastip: 0,
         equipment_slots: std::array::from_fn(|_| None),
         inventory_weight: 0,
         items_light: tfs_rust_core::LightInfo::default(),

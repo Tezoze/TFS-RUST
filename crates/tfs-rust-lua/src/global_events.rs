@@ -204,9 +204,7 @@ mod tests {
         );
         assert!(runtime.has_global_event("Alpha"));
 
-        runtime
-            .reset_pending_script_event_tables()
-            .expect("reset");
+        runtime.reset_pending_script_event_tables().expect("reset");
         runtime
             .exec_chunk(
                 "ge_replace",

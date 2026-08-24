@@ -359,6 +359,15 @@ pub enum LuaMutation {
     },
     /// `saveServer()` / `Game.saveServer()` — TFS `luaSaveServer` → `Game::saveGameState`.
     SaveServer,
+    /// `player:setGhostMode(enabled)` — TFS `luaPlayerSetGhostMode`.
+    PlayerSetGhostMode {
+        creature_id: u64,
+        enabled: bool,
+    },
+    /// `creature:remove()` — TFS `luaCreatureRemove` (kick / despawn; not `item:remove`).
+    CreatureRemove {
+        creature_id: u64,
+    },
 }
 
 /// Snapshot of a Lua `ConditionBuilder` for the mutation / combat-execute seam.
@@ -1122,4 +1131,17 @@ pub fn call_lua_set_direction(creature_id: u64, direction: u8) -> Result<bool, S
 /// `saveServer()` / `Game.saveServer()` — TFS `luaSaveServer` → `Game::saveGameState`.
 pub fn call_lua_save_server() -> Result<(), String> {
     apply_mutation(LuaMutation::SaveServer)
+}
+
+/// `player:setGhostMode(enabled)` — TFS `luaPlayerSetGhostMode`.
+pub fn call_lua_set_ghost_mode(creature_id: u64, enabled: bool) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerSetGhostMode {
+        creature_id,
+        enabled,
+    })
+}
+
+/// `creature:remove()` — TFS `luaCreatureRemove`.
+pub fn call_lua_creature_remove(creature_id: u64) -> Result<(), String> {
+    apply_mutation(LuaMutation::CreatureRemove { creature_id })
 }

@@ -6,18 +6,18 @@ use mlua::{MetaMethod, UserData, UserDataFields, UserDataMethods, Value};
 use std::cell::RefCell;
 
 use crate::context::{CURRENT_CTX, CreatureData, CreatureRef, ItemRef, LuaContext};
-use crate::userdata::item::push_item_userdata;
 use crate::lua_mutation::{
     call_lua_add_condition, call_lua_add_health, call_lua_add_item, call_lua_add_item_full,
-    call_lua_add_mana, call_lua_add_mana_spent, call_lua_add_skill_tries, call_lua_feed,
-    call_lua_get_depot_chest, call_lua_get_depot_locker, call_lua_get_inbox, call_lua_player_say,
-    call_lua_remove_condition, call_lua_remove_item, call_lua_send_cancel_message,
-    call_lua_send_outfit_window, call_lua_set_direction, call_lua_set_in_fight,
-    call_lua_set_outfit, call_lua_set_vocation, call_lua_show_text_dialog,
-    call_player_register_creature_event,
+    call_lua_add_mana, call_lua_add_mana_spent, call_lua_add_skill_tries, call_lua_creature_remove,
+    call_lua_feed, call_lua_get_depot_chest, call_lua_get_depot_locker, call_lua_get_inbox,
+    call_lua_player_say, call_lua_remove_condition, call_lua_remove_item,
+    call_lua_send_cancel_message, call_lua_send_outfit_window, call_lua_set_direction,
+    call_lua_set_ghost_mode, call_lua_set_in_fight, call_lua_set_outfit, call_lua_set_vocation,
+    call_lua_show_text_dialog, call_player_register_creature_event,
 };
 use crate::userdata::container::ContainerRef;
 use crate::userdata::group::GroupRef;
+use crate::userdata::item::push_item_userdata;
 use crate::userdata::position::PositionRef;
 use crate::userdata::town::TownRef;
 use crate::userdata::vocation::VocationRef;
@@ -820,6 +820,29 @@ impl UserData for CreatureRef {
         // (`player.h:363`). Used by `tiles.lua` step events (`luascript.cpp:7515`).
         methods.add_method("isInGhostMode", |_, this, ()| {
             with_ctx(|ctx| Ok(ctx.is_creature_in_ghost_mode(this.0)))
+        });
+
+        // `player:getIp()` — TFS `luaPlayerGetIp` returns packed `uint32`.
+        methods.add_method("getIp", |_, this, ()| {
+            with_ctx(|ctx| Ok(ctx.get_player_ip(this.0)))
+        });
+
+        // `player:setGhostMode(bool)` — TFS `luaPlayerSetGhostMode`.
+        methods.add_method("setGhostMode", |_, this, enabled: bool| {
+            call_lua_set_ghost_mode(this.0, enabled).map_err(mlua::Error::runtime)?;
+            Ok(())
+        });
+
+        // `player:popupFYI(text)` — 772 has no FYI opcode; `0x96` letter dialog (item 1950).
+        methods.add_method("popupFYI", |_, this, text: String| {
+            call_lua_show_text_dialog(this.0, 1950, text).map_err(mlua::Error::runtime)?;
+            Ok(true)
+        });
+
+        // `creature:remove()` — TFS `luaCreatureRemove` (kick / despawn; not `item:remove`).
+        methods.add_method("remove", |_, this, ()| {
+            call_lua_creature_remove(this.0).map_err(mlua::Error::runtime)?;
+            Ok(true)
         });
 
         // `creature:isItem()` — Thing discriminator (`data/lib/core/creature.lua`).
@@ -1769,10 +1792,7 @@ mod tests {
                 .eval()
                 .expect("Creature(name)");
             assert_eq!(id, 7);
-            let missing: mlua::Value = lua
-                .load("return Creature('nope')")
-                .eval()
-                .expect("missing");
+            let missing: mlua::Value = lua.load("return Creature('nope')").eval().expect("missing");
             assert!(matches!(missing, mlua::Value::Nil));
         });
     }
@@ -1941,6 +1961,13 @@ mod tests {
             fn get_player_last_logout(&self, id: ScriptCreatureId) -> Option<i64> {
                 (id == GM_CID).then_some(1_699_000_000)
             }
+            fn get_player_ip(&self, id: ScriptCreatureId) -> u32 {
+                if id == GM_CID {
+                    u32::from_le_bytes([192, 168, 1, 10])
+                } else {
+                    0
+                }
+            }
             fn get_player_sex(&self, id: ScriptCreatureId) -> Option<u8> {
                 (id == GM_CID).then_some(1)
             }
@@ -1998,6 +2025,8 @@ mod tests {
             assert_eq!(prem, 0);
             let missing: mlua::Value = lua.load("return Outfit(1)").eval().expect("missing outfit");
             assert!(matches!(missing, mlua::Value::Nil));
+            let ip: u32 = lua.load("return player:getIp()").eval().expect("getIp");
+            assert_eq!(ip, u32::from_le_bytes([192, 168, 1, 10]));
         });
     }
 }

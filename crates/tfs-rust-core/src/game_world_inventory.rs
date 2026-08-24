@@ -2129,10 +2129,7 @@ mod add_health_tests {
         let cid = crate::sim_harness::insert_monster(&mut world, "Demon", pos, 200);
         let id = cid.data().as_ffi();
         world.lua_script_player_add_health(id, -40).expect("hurt");
-        assert_eq!(
-            world.creatures.get(cid).unwrap().base().health,
-            60
-        );
+        assert_eq!(world.creatures.get(cid).unwrap().base().health, 60);
         world
             .lua_script_player_add_health(id, -10_000)
             .expect("kill");

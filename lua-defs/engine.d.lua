@@ -69,6 +69,7 @@ function Creature:getGuid(...) end
 function Creature:getId(...) end
 function Creature:getInbox(...) end
 function Creature:getInstantSpells(...) end
+function Creature:getIp(...) end
 function Creature:getItemById(...) end
 function Creature:getItemCount(...) end
 function Creature:getLastLoginSaved(...) end
@@ -104,7 +105,9 @@ function Creature:isPremium(...) end
 function Creature:isPzLocked(...) end
 function Creature:isTile(...) end
 function Creature:move(...) end
+function Creature:popupFYI(...) end
 function Creature:registerEvent(...) end
+function Creature:remove(...) end
 function Creature:removeCondition(...) end
 function Creature:removeItem(...) end
 function Creature:say(...) end
@@ -112,6 +115,7 @@ function Creature:sendCancelMessage(...) end
 function Creature:sendOutfitWindow(...) end
 function Creature:sendTextMessage(...) end
 function Creature:setDirection(...) end
+function Creature:setGhostMode(...) end
 function Creature:setInFight(...) end
 function Creature:setOutfit(...) end
 function Creature:setPremiumEndsAt(...) end

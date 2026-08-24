@@ -190,6 +190,7 @@ impl GameWorld {
             .map(|d| d.as_secs())
             .unwrap_or(0);
         row.lastlogout = now;
+        row.lastip = player.lastip;
         if baseline.player_row.lastlogin > 0 {
             let delta = (now.saturating_sub(baseline.player_row.lastlogin)) as i64;
             row.onlinetime = baseline.player_row.onlinetime.saturating_add(delta);

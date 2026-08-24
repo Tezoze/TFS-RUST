@@ -33,8 +33,8 @@ use crate::creature::{
 };
 use crate::event_dispatcher::NullEventDispatcher;
 use crate::game_world::GameWorld;
-use crate::inventory::SLOTP_BACKPACK;
 use crate::ids::CreatureId;
+use crate::inventory::SLOTP_BACKPACK;
 use crate::map::{Map, SparseGrid};
 use crate::pathfinding::{REVERSE_PATH_VIEW_RADIUS, scan_min_terrain_waypoints};
 use crate::spawn::SpawnManager;
@@ -189,6 +189,7 @@ fn test_player_base(name: &str, pos: Position) -> Player {
         operating_system: 0,
         otclient_v8: 0,
         ghost_mode: false,
+        lastip: 0,
         equipment_slots: std::array::from_fn(|_| None),
         inventory_weight: 0,
         items_light: Default::default(),

@@ -693,6 +693,12 @@ pub trait ScriptContext {
         false
     }
 
+    /// `player:getIp()` — TFS `luaPlayerGetIp` (`uint32`). `0` if offline / unknown.
+    fn get_player_ip(&self, creature_id: ScriptCreatureId) -> u32 {
+        let _ = creature_id;
+        0
+    }
+
     /// `item:getUniqueId()` fallback — TFS `ScriptEnvironment::addThing`
     /// (`luascript.cpp:110-134`): returns `ATTR_UNIQUE_ID` if set, otherwise
     /// registers the item in the script env local map with a generated UID > 65535.

@@ -188,7 +188,11 @@ fn player_to_add_creature_wire(
         name: p.base.name.clone(),
         health_percent: hp,
         direction: p.base.direction as u8,
-        outfit: outfit_wire_visible(&p.base),
+        outfit: if p.ghost_mode {
+            OutfitWire::default()
+        } else {
+            outfit_wire_visible(&p.base)
+        },
         light_level: light.level,
         light_color: light.color,
         step_speed,
@@ -928,5 +932,22 @@ mod map_creature_wire_tests {
         );
         assert_eq!(wire.outfit.look_type, 0);
         assert_eq!(wire.outfit.look_type_ex, 0);
+    }
+
+    #[test]
+    fn ghost_player_add_creature_uses_empty_outfit() {
+        let mut p = test_player("Ghost", Position::new(100, 100, 7));
+        p.base.outfit.look_type = 128;
+        p.ghost_mode = true;
+        let mech = Mechanics::for_version(ProtocolVersion::V772);
+        let wire = player_to_add_creature_wire(
+            &p,
+            true,
+            LightInfo::default(),
+            false,
+            &mech,
+            SkullType::None,
+        );
+        assert_eq!(wire.outfit.look_type, 0);
     }
 }

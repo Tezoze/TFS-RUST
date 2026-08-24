@@ -233,6 +233,9 @@ pub struct Player {
     pub otclient_v8: u16,
     /// GM / spectator ghost — hidden from other players’ maps (`Player::isInGhostMode` in TFS).
     pub ghost_mode: bool,
+    /// Session IPv4 packed for `player:getIp()` / `players.lastip`.
+    /// First octet in the low byte (`luaPlayerGetIp` + `Game.convertIpToString`).
+    pub lastip: u32,
     /// Runtime equipment + store inbox: `CONST_SLOT_HEAD`..=`CONST_SLOT_AMMO` + `CONST_SLOT_STORE_INBOX`.
     /// Array index `i` = slot `i + 1` for 0..9, index 10 = store inbox (`src/creature.h` `slots_t`).
     pub equipment_slots: [Option<ItemId>; 11],

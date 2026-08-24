@@ -219,6 +219,7 @@ pub fn player_from_loaded(
         operating_system: 0,
         otclient_v8: 0,
         ghost_mode: false,
+        lastip: 0,
         equipment_slots: std::array::from_fn(|_| None),
         inventory_weight: 0,
         items_light: crate::creature::LightInfo::default(),
@@ -362,6 +363,7 @@ pub fn apply_loaded_player(
     loaded: LoadedPlayerData,
     operating_system: u16,
     otclient_v8: u16,
+    peer_ip: u32,
 ) -> Result<ApplyPlayerOutcome> {
     let name = loaded.player.name.clone();
     let inventory_rows = loaded.items.inventory.clone();
@@ -377,6 +379,12 @@ pub fn apply_loaded_player(
     if let Some((cid, old_conn)) =
         world.player_try_takeover_for_login(guid, &name, operating_system, otclient_v8)?
     {
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            p.lastip = peer_ip;
+            if let Some(persist) = p.persist.as_mut() {
+                persist.player_row.lastip = peer_ip;
+            }
+        }
         // Live body kept — do not rehydrate inventory / place / onLogin from this load.
         return Ok(ApplyPlayerOutcome::TakenOver { cid, old_conn });
     }
@@ -404,6 +412,10 @@ pub fn apply_loaded_player(
     );
     player.operating_system = operating_system;
     player.otclient_v8 = otclient_v8;
+    player.lastip = peer_ip;
+    if let Some(persist) = player.persist.as_mut() {
+        persist.player_row.lastip = peer_ip;
+    }
     // Debug aid: confirm vocation/level/speed wiring (PC-0 base_speed + level scaling).
     // 772: base_speed/speed store GoStrength `Act` (decompile `crskill.cc:19` `Get()`);
     //      effective_speed = 2*Act + 80 (`crmain.cc:484` `GetSpeed()`), computed on demand.
@@ -481,7 +493,7 @@ pub async fn login_player(
     otclient_v8: u16,
 ) -> Result<CreatureId> {
     let loaded = load_player_data(&world.db, name).await?;
-    Ok(apply_loaded_player(world, loaded, operating_system, otclient_v8)?.creature_id())
+    Ok(apply_loaded_player(world, loaded, operating_system, otclient_v8, 0)?.creature_id())
 }
 
 #[cfg(test)]

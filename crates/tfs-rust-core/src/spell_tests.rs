@@ -89,6 +89,7 @@ fn minimal_player(next_action_until: Option<u64>) -> Player {
         operating_system: 0,
         otclient_v8: 0,
         ghost_mode: false,
+        lastip: 0,
         equipment_slots: std::array::from_fn(|_| None),
         inventory_weight: 0,
         items_light: crate::creature::LightInfo::default(),
