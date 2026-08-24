@@ -102,6 +102,7 @@ function Creature:isMonster(...) end
 function Creature:isPlayer(...) end
 function Creature:isPremium(...) end
 function Creature:isPzLocked(...) end
+function Creature:isTile(...) end
 function Creature:move(...) end
 function Creature:registerEvent(...) end
 function Creature:removeCondition(...) end
@@ -136,7 +137,9 @@ function Game.createItem(...) end
 function Game.createMonster(...) end
 function Game.createTile(...) end
 function Game.getInstantSpells(...) end
+function Game.getPlayers(...) end
 function Game.getWorldType(...) end
+function Game.saveServer(...) end
 
 ---@class GlobalEvent
 GlobalEvent = {}
@@ -213,9 +216,6 @@ function ItemType:isFluidContainer(...) end
 function ItemType:isGroundTile(...) end
 function ItemType:isMovable(...) end
 function ItemType:isStackable(...) end
-
----@class Monster
-Monster = {}
 
 ---@class MonsterType
 MonsterType = {}
@@ -330,6 +330,8 @@ function Spell:words(...) end
 ---@class TalkAction
 TalkAction = {}
 
+function TalkAction:access(...) end
+function TalkAction:accountType(...) end
 function TalkAction:register(...) end
 function TalkAction:separator(...) end
 
@@ -357,6 +359,7 @@ function Tile:getTopDownItem(...) end
 function Tile:getTopVisibleThing(...) end
 function Tile:hasFlag(...) end
 function Tile:hasProperty(...) end
+function Tile:isTile(...) end
 function Tile:isWalkable(...) end
 function Tile:queryAdd(...) end
 
@@ -419,11 +422,17 @@ function Container:getItemCountById(...) end
 function Container:getItemHoldingCount(...) end
 function Container:getItems(...) end
 function Container:getName(...) end
+function Container:getPosition(...) end
 function Container:getSize(...) end
 function Container:getType(...) end
 function Container:getWeight(...) end
 function Container:hasItem(...) end
+function Container:isContainer(...) end
+function Container:isTile(...) end
 function Container:remove(...) end
+
+---@class Monster : Creature
+Monster = {}
 
 ---@class Player : Creature
 Player = {}

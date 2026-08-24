@@ -18,6 +18,8 @@ pub enum CreatureEventKind {
     Logout,
     Death,
     Kill,
+    /// OTClient extended opcode (`0x32`). Pack: `onExtendedOpcode`.
+    ExtendedOpcode,
 }
 
 /// Names that must never enter the registry (Phase 2.4).
@@ -60,7 +62,7 @@ impl LuaRuntime {
             let Some(kind) = infer_creature_event_kind(&table)? else {
                 tracing::warn!(
                     name = %name,
-                    "CreatureEvent has no onLogin/onLogout/onDeath/onKill"
+                    "CreatureEvent has no onLogin/onLogout/onDeath/onKill/onExtendedOpcode"
                 );
                 continue;
             };
@@ -191,6 +193,10 @@ impl LuaRuntime {
                     (actor, Value::Nil, killer, Value::Nil, false, false),
                 )?
             }
+            CreatureEventKind::ExtendedOpcode => {
+                // Wired at packet time later; install-time only needs a valid arm.
+                self.call_lua(&function, (actor, 0u8, ""))?
+            }
         };
         Ok(lua_truthy(value))
     }
@@ -217,6 +223,9 @@ fn infer_creature_event_kind(table: &Table) -> Result<Option<CreatureEventKind>,
     if has_function(table, "onKill")? {
         return Ok(Some(CreatureEventKind::Kill));
     }
+    if has_function(table, "onExtendedOpcode")? {
+        return Ok(Some(CreatureEventKind::ExtendedOpcode));
+    }
     let type_name: Option<String> = match table.get::<Value>("_type")? {
         Value::String(s) => Some(s.to_str()?.to_owned()),
         _ => None,
@@ -237,6 +246,7 @@ fn kind_from_type_name(name: &str) -> Option<CreatureEventKind> {
         "logout" => Some(CreatureEventKind::Logout),
         "death" => Some(CreatureEventKind::Death),
         "kill" => Some(CreatureEventKind::Kill),
+        "extendedopcode" => Some(CreatureEventKind::ExtendedOpcode),
         _ => None,
     }
 }
@@ -248,6 +258,7 @@ impl CreatureEventKind {
             Self::Logout => "onLogout",
             Self::Death => "onDeath",
             Self::Kill => "onKill",
+            Self::ExtendedOpcode => "onExtendedOpcode",
         }
     }
 }
@@ -385,5 +396,18 @@ mod tests {
             .expect("fire death");
         let fired: i32 = runtime.lua.globals().get("DEATH_FIRED").expect("counter");
         assert_eq!(fired, 1);
+    }
+
+    #[test]
+    fn extendedopcode_registers() {
+        let runtime = runtime_with_event(
+            r#"
+            local e = CreatureEvent("ExtendedOpcode")
+            function e.onExtendedOpcode(player, opcode, buffer)
+            end
+            e:register()
+            "#,
+        );
+        assert!(runtime.has_creature_event("ExtendedOpcode"));
     }
 }

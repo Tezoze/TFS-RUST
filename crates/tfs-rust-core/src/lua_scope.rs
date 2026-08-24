@@ -480,6 +480,10 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             set_mutation_bool_result(ok);
             Ok(())
         }
+        LuaMutation::SaveServer => {
+            unsafe { &mut *world }.lua_script_save_server();
+            Ok(())
+        }
     }
 }
 

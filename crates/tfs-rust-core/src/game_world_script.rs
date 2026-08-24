@@ -402,6 +402,16 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             .map(|(_, cid)| Self::creature_to_script_id(*cid))
     }
 
+    /// TFS `Game::getCreatureByName` — case-insensitive, first live match.
+    fn get_creature_by_name(&self, name: &str) -> Option<tfs_rust_common::ScriptCreatureId> {
+        self.creatures.iter().find_map(|(cid, kind)| {
+            kind.base()
+                .name
+                .eq_ignore_ascii_case(name)
+                .then(|| Self::creature_to_script_id(cid))
+        })
+    }
+
     fn get_player_town_id(&self, creature_id: tfs_rust_common::ScriptCreatureId) -> Option<i32> {
         let cid = self.resolve_creature_from_script(creature_id)?;
         self.creatures.get(cid).and_then(|k| match k {

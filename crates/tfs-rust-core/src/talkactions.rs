@@ -20,6 +20,10 @@ pub struct TalkActionEntry {
     pub words: String,
     pub separator: String,
     pub on_say: Arc<mlua::RegistryKey>,
+    /// TFS `TalkAction::needAccess`.
+    pub need_access: bool,
+    /// TFS `TalkAction::requiredAccountType`.
+    pub min_account_type: u8,
 }
 
 /// Indexed talkaction registry — materialized once at startup, immutable on
@@ -59,6 +63,8 @@ impl TalkActionRegistry {
                         words: word.to_string(),
                         separator: def.separator.clone(),
                         on_say: Arc::clone(&on_say),
+                        need_access: def.need_access,
+                        min_account_type: def.min_account_type,
                     },
                 );
             }

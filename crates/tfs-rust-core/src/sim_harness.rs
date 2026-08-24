@@ -33,6 +33,7 @@ use crate::creature::{
 };
 use crate::event_dispatcher::NullEventDispatcher;
 use crate::game_world::GameWorld;
+use crate::inventory::SLOTP_BACKPACK;
 use crate::ids::CreatureId;
 use crate::map::{Map, SparseGrid};
 use crate::pathfinding::{REVERSE_PATH_VIEW_RADIUS, scan_min_terrain_waypoints};
@@ -374,6 +375,7 @@ pub fn bag_item_type(server_id: u16) -> ItemType {
         group: ItemType::GROUP_CONTAINER,
         allow_pickupable: true,
         server_id,
+        slot_position: SLOTP_BACKPACK,
         ..Default::default()
     };
     it.xml_attributes

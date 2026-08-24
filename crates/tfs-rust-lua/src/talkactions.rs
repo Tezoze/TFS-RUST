@@ -18,6 +18,10 @@ pub struct TalkActionDef {
     pub words: String,
     pub separator: String,
     pub on_say: Option<Arc<mlua::RegistryKey>>,
+    /// TFS `TalkAction::needAccess` — `talkaction:access(true)`.
+    pub need_access: bool,
+    /// TFS `TalkAction::requiredAccountType` — `talkaction:accountType(...)`.
+    pub min_account_type: u8,
 }
 
 impl From<PendingTalkAction> for TalkActionDef {
@@ -26,6 +30,8 @@ impl From<PendingTalkAction> for TalkActionDef {
             words: pending.words,
             separator: pending.separator,
             on_say: pending.on_say.map(Arc::new),
+            need_access: pending.need_access,
+            min_account_type: pending.min_account_type,
         }
     }
 }
@@ -47,6 +53,10 @@ pub fn load_talkaction_scripts(
     if !dir.exists() {
         tracing::warn!("Talkactions directory not found: {}", dir.display());
         return Ok(Vec::new());
+    }
+
+    if let Err(e) = runtime.load_spell_areas(data_dir) {
+        tracing::warn!("Failed to load spells/areas.lua before talkactions: {e}");
     }
 
     let entries = std::fs::read_dir(&dir)
@@ -85,6 +95,10 @@ pub fn load_all_talkaction_scripts(
     if !dir.exists() {
         tracing::warn!("Talkactions directory not found: {}", dir.display());
         return Ok(Vec::new());
+    }
+
+    if let Err(e) = runtime.load_spell_areas(data_dir) {
+        tracing::warn!("Failed to load spells/areas.lua before talkactions: {e}");
     }
 
     let mut files = Vec::new();
@@ -193,5 +207,33 @@ mod tests {
         assert!(registry.contains("/t"), "missing /t in {registry:?}");
         assert!(registry.contains("/home"), "missing /home in {registry:?}");
         assert!(registry.contains("omani"), "missing omani in {registry:?}");
+    }
+
+    #[test]
+    fn god_access_gated_talkactions_and_killall_load() {
+        let data_root = workspace_data_root();
+        let god_dir = data_root.join("scripts/talkactions/god");
+        if !god_dir.exists() {
+            eprintln!("god/ talkactions directory not found — skipping");
+            return;
+        }
+
+        let mut runtime = LuaRuntime::new().expect("runtime init");
+        let defs = load_talkaction_scripts(&mut runtime, &data_root, "god")
+            .expect("god talkactions should load");
+
+        let save = defs.iter().find(|d| d.words == "/save");
+        assert!(save.is_some(), "expected /save after TalkAction:access");
+        let save = save.unwrap();
+        assert!(save.need_access, "/save must need access");
+        assert!(save.on_say.is_some());
+
+        let killall = defs.iter().find(|d| d.words == "/killall");
+        assert!(
+            killall.is_some(),
+            "expected /killall (areas.lua + createCombatArea); got {:?}",
+            defs.iter().map(|d| d.words.as_str()).collect::<Vec<_>>()
+        );
+        assert!(killall.unwrap().need_access);
     }
 }

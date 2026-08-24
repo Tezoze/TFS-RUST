@@ -117,6 +117,10 @@ impl ServerSaveController {
         std::mem::replace(&mut self.pending, ServerSaveTick::None)
     }
 
+    pub(crate) fn request_flush_stay(&mut self) {
+        self.pending = ServerSaveTick::FlushStay;
+    }
+
     pub fn from_world_config(cfg: &ConfigManager) -> Result<Self> {
         let save_cfg = ServerSaveConfig::from_config(cfg)?;
         Ok(Self::new(save_cfg, Local::now().timestamp()))
@@ -192,6 +196,12 @@ impl GameWorld {
 
     pub fn take_save_tick(&mut self) -> ServerSaveTick {
         self.server_save.take_pending()
+    }
+
+    /// `/save` / `saveServer()` — TFS `luaSaveServer` queues `Game::saveGameState`
+    /// without the daily-save close/shutdown side effects.
+    pub fn lua_script_save_server(&mut self) {
+        self.server_save.request_flush_stay();
     }
 }
 

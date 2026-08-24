@@ -17,6 +17,7 @@ function getWorldLight(...) end
 function getWorldTime(...) end
 function hasEventCallback(...) end
 function isScriptsInterface(...) end
+function saveServer(...) end
 function sendChannelMessage(...) end
 function setWorldLight(...) end
 function stopEvent(...) end

@@ -6,6 +6,7 @@ use mlua::{MetaMethod, UserData, UserDataFields, UserDataMethods, Value};
 use std::cell::RefCell;
 
 use crate::context::{CURRENT_CTX, CreatureData, CreatureRef, ItemRef, LuaContext};
+use crate::userdata::item::push_item_userdata;
 use crate::lua_mutation::{
     call_lua_add_condition, call_lua_add_health, call_lua_add_item, call_lua_add_item_full,
     call_lua_add_mana, call_lua_add_mana_spent, call_lua_add_skill_tries, call_lua_feed,
@@ -551,10 +552,7 @@ impl UserData for CreatureRef {
                         call_lua_add_item_full(this.0, item_type, count, sub_type, can_drop, slot)
                             .map_err(mlua::Error::runtime)?;
                     match id_opt {
-                        Some(iid) => {
-                            let ud = lua.create_userdata(ItemRef(iid))?;
-                            Ok(Value::UserData(ud))
-                        }
+                        Some(iid) => push_item_userdata(lua, iid),
                         None => Ok(Value::Nil),
                     }
                 } else {
@@ -1734,6 +1732,48 @@ mod tests {
             assert_eq!(via_id, 42);
             let nobody: mlua::Value = lua.load("return Player(99)").eval().expect("Player(99)");
             assert!(matches!(nobody, mlua::Value::Nil));
+        });
+    }
+
+    #[test]
+    fn creature_constructor_resolves_by_name() {
+        use crate::context::with_lua_context;
+        use tfs_rust_common::{
+            ScriptContext, ScriptCreatureData, ScriptCreatureId, ScriptItemId, ScriptItemRef,
+        };
+
+        struct CtorCtx;
+        impl ScriptContext for CtorCtx {
+            fn get_creature(&self, id: ScriptCreatureId) -> Option<ScriptCreatureData> {
+                (id == 7).then_some(ScriptCreatureData {
+                    name: "Demon".into(),
+                    guid: 0,
+                })
+            }
+            fn get_item(&self, _: ScriptItemId) -> Option<ScriptItemRef> {
+                None
+            }
+            fn get_config_string(&self, _: &str) -> Option<String> {
+                None
+            }
+            fn get_creature_by_name(&self, name: &str) -> Option<ScriptCreatureId> {
+                name.eq_ignore_ascii_case("demon").then_some(7)
+            }
+        }
+
+        let runtime = crate::runtime::LuaRuntime::new().expect("runtime");
+        let lua = &runtime.lua;
+        with_lua_context(&CtorCtx, || {
+            let id: u64 = lua
+                .load("return Creature('demon'):getId()")
+                .eval()
+                .expect("Creature(name)");
+            assert_eq!(id, 7);
+            let missing: mlua::Value = lua
+                .load("return Creature('nope')")
+                .eval()
+                .expect("missing");
+            assert!(matches!(missing, mlua::Value::Nil));
         });
     }
 

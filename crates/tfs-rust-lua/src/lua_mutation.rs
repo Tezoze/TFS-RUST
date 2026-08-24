@@ -357,6 +357,8 @@ pub enum LuaMutation {
         creature_id: u64,
         direction: u8,
     },
+    /// `saveServer()` / `Game.saveServer()` — TFS `luaSaveServer` → `Game::saveGameState`.
+    SaveServer,
 }
 
 /// Snapshot of a Lua `ConditionBuilder` for the mutation / combat-execute seam.
@@ -1115,4 +1117,9 @@ pub fn call_lua_set_direction(creature_id: u64, direction: u8) -> Result<bool, S
         direction,
     })?;
     Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// `saveServer()` / `Game.saveServer()` — TFS `luaSaveServer` → `Game::saveGameState`.
+pub fn call_lua_save_server() -> Result<(), String> {
+    apply_mutation(LuaMutation::SaveServer)
 }

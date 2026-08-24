@@ -332,6 +332,13 @@ pub trait ScriptContext {
         None
     }
 
+    /// `Creature(name)` — TFS `luaCreatureCreate` string arm (`Game::getCreatureByName`).
+    /// Case-insensitive; first match among players, monsters, and NPCs.
+    fn get_creature_by_name(&self, name: &str) -> Option<ScriptCreatureId> {
+        let _ = name;
+        None
+    }
+
     /// `player:getTown()` backing read — `players.town_id` (`player.h`).
     /// Defaults to `None` (not a player).
     fn get_player_town_id(&self, creature_id: ScriptCreatureId) -> Option<i32> {

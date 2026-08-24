@@ -779,6 +779,28 @@ mod tests {
         );
     }
 
+    #[test]
+    fn map_quests_action_is_utf8_and_loads() {
+        let data_root = workspace_data_root();
+        let path = data_root.join("scripts/actions/map/quests.lua");
+        if !path.exists() {
+            eprintln!("map/quests.lua not found — skipping");
+            return;
+        }
+        let bytes = std::fs::read(&path).expect("read quests.lua");
+        assert!(
+            std::str::from_utf8(&bytes).is_ok(),
+            "quests.lua must be UTF-8"
+        );
+
+        let mut runtime = LuaRuntime::new().expect("runtime init");
+        inject_door_tables_from_global(&runtime, &data_root).expect("door tables");
+        let _ = load_data_lib(&runtime, &data_root);
+        runtime
+            .load_action_script(path.to_str().expect("utf8 path"))
+            .expect("quests.lua should load");
+    }
+
     /// All 9 `data/scripts/actions/tools/*.lua` must load and register their
     /// item ids, including `fishing_rod.lua` (`Action:allowFarUse`).
     #[test]

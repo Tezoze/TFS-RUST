@@ -484,6 +484,9 @@ impl GameWorld {
             CylinderFlags::NONE,
         ) == ReturnValue::NoError
         {
+            // TFS `Item::CreateItem` / `internalPlayerAddItem` hydrates bags so
+            // `player:addItem(1987)` returns Container (`firstlogin.lua`).
+            self.hydrate_container_if_needed(iid);
             Ok(Some(iid.data().as_ffi()))
         } else {
             self.items.remove(iid);
@@ -822,9 +825,11 @@ impl GameWorld {
     }
 
     /// Lua `creature:addHealth(healthChange)` — TFS `luaCreatureAddHealth`.
-    /// E4: HP clamp like `addMana` (not `combatChangeHealth` / death).
+    /// E4: HP clamp like `addMana` (not `combatChangeHealth` / death) **for players**.
     /// 772 `Heal` in `DrinkPotion` (`magic.cc:2086`) → `TSkill::Change`
     /// (`crskill.cc:58`) clamps Act to Max; no-op when hitpoints are already 0.
+    /// Monsters / NPCs: same clamp; HP ≤ 0 runs [`Self::apply_creature_death`]
+    /// so `/killall` (`addHealth(-getMaxHealth())`) actually removes them.
     pub fn lua_script_player_add_health(
         &mut self,
         creature_u64: u64,
@@ -833,29 +838,39 @@ impl GameWorld {
         let cid = self
             .resolve_creature_u64(creature_u64)
             .ok_or_else(|| "creature not found".to_string())?;
+        let is_player = matches!(self.creatures.get(cid), Some(CreatureKind::Player(_)));
+        let max_hp = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.effective_max_health(),
+            Some(kind) => kind.base().max_health,
+            None => return Err("creature not found".into()),
+        };
         let (before, after) = {
-            let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
-                return Err("not a player".into());
-            };
-            // 772 `Heal` (`magic.cc:2107`): `if(HitPoints->Get() > 0)` then Change.
-            if p.base.health <= 0 && health_change > 0 {
+            let kind = self
+                .creatures
+                .get_mut(cid)
+                .ok_or_else(|| "creature not found".to_string())?;
+            if kind.base().health <= 0 && health_change > 0 {
                 return Ok(());
             }
-            let max_hp = p.effective_max_health();
-            let before = p.base.health;
-            let after = (p.base.health + health_change).clamp(0, max_hp);
-            p.base.health = after;
+            let before = kind.base().health;
+            let after = (before + health_change).clamp(0, max_hp);
+            kind.base_mut().health = after;
             (before, after)
         };
-        if after > before {
-            // 772 `THealingImpact` (`magic.cc:191`) — health bar, no animated text.
-            if let Some(snap) = self.combat_notify_snapshot(cid) {
-                self.notify_creature_healed(cid, snap);
+        if !is_player && after == 0 {
+            self.apply_creature_death(cid);
+            return Ok(());
+        }
+        if is_player {
+            if after > before {
+                if let Some(snap) = self.combat_notify_snapshot(cid) {
+                    self.notify_creature_healed(cid, snap);
+                } else {
+                    self.send_player_stats(cid);
+                }
             } else {
                 self.send_player_stats(cid);
             }
-        } else {
-            self.send_player_stats(cid);
         }
         Ok(())
     }
@@ -2004,6 +2019,40 @@ mod look_tests {
             Some(0)
         );
     }
+
+    /// `player:addItem(1987, 1, false, 1, CONST_SLOT_BACKPACK)` — hydrate so
+    /// `container:addItem` is Container userdata (`firstlogin.lua`).
+    #[test]
+    fn add_item_full_backpack_hydrates_container_registry() {
+        use crate::inventory::InventorySlot;
+        use crate::sim_harness::{ensure_walkable_tile, insert_player, minimal_world, test_player};
+        use slotmap::Key;
+        use tfs_rust_common::{Position, ScriptContext};
+
+        let mut world = minimal_world();
+        let pos = Position::new(50, 50, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+        let cid = insert_player(&mut world, test_player("Newbie", pos));
+        let bag = world
+            .lua_script_player_add_item_full(
+                cid.data().as_ffi(),
+                1987,
+                1,
+                1,
+                false,
+                InventorySlot::Backpack as u8,
+            )
+            .expect("addItem")
+            .expect("backpack id");
+        assert!(
+            world.is_registered_container(bag),
+            "backpack must be a registered Container"
+        );
+        let ham = world
+            .lua_script_container_add_item(bag, 2674, 1, -1, 0)
+            .expect("addItem into backpack");
+        assert!(ham.is_some(), "hydrated backpack accepts addItem");
+    }
 }
 
 #[cfg(test)]
@@ -2071,5 +2120,25 @@ mod add_health_tests {
             .lua_script_player_add_health(cid.data().as_ffi(), 50)
             .expect("heal");
         assert_eq!(player_health(&world, cid), 120);
+    }
+
+    #[test]
+    fn add_health_on_monster_kills_at_zero() {
+        let mut world = minimal_world();
+        let pos = Position::new(50, 50, 7);
+        let cid = crate::sim_harness::insert_monster(&mut world, "Demon", pos, 200);
+        let id = cid.data().as_ffi();
+        world.lua_script_player_add_health(id, -40).expect("hurt");
+        assert_eq!(
+            world.creatures.get(cid).unwrap().base().health,
+            60
+        );
+        world
+            .lua_script_player_add_health(id, -10_000)
+            .expect("kill");
+        assert!(
+            world.creatures.get(cid).is_none(),
+            "monster at 0 HP must be removed"
+        );
     }
 }

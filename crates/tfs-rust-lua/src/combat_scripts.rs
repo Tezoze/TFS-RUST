@@ -191,16 +191,8 @@ impl LuaRuntime {
             )
             .map_err(|e| e.to_string())?;
 
-        // Load areas.lua first — it defines AREA_* tables referenced by spell scripts.
-        let areas_path = spells_dir.join("areas.lua");
-        if areas_path.exists() {
-            let path_str = areas_path.display().to_string();
-            if let Err(e) = self.exec_chunk(
-                &path_str,
-                &std::fs::read_to_string(&areas_path).map_err(|e| e.to_string())?,
-            ) {
-                tracing::warn!("Failed to load areas.lua: {}", e);
-            }
+        if let Err(e) = self.load_spell_areas(data_dir) {
+            tracing::warn!("Failed to load areas.lua: {}", e);
         }
 
         // PC-3a Phase 1: Load `data/lib/core/*.lua` + `data/scripts/functions.lua`

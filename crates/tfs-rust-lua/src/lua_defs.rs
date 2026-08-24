@@ -634,6 +634,14 @@ mod tests {
             game.table_functions.contains("getInstantSpells"),
             "Game.getInstantSpells lists instant defs (E6)"
         );
+        assert!(
+            game.table_functions.contains("saveServer"),
+            "Game.saveServer is a class-table function (luaSaveServer)"
+        );
+        assert!(
+            snap.functions.contains("saveServer"),
+            "saveServer is a global (luaSaveServer)"
+        );
 
         let item_type = snap.classes.get("ItemType").expect("ItemType");
         assert!(

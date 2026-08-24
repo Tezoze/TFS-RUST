@@ -94,6 +94,8 @@ pub struct LuaRuntime {
     /// on boot) must not re-exec `event_callbacks.lua`, which ends in
     /// `EventCallback:clear()` and would wipe scripts-interface registrations.
     data_lib_loaded: Cell<bool>,
+    /// `data/scripts/spells/areas.lua` already exec'd (`AREA_*` matrices).
+    spell_areas_loaded: Cell<bool>,
     /// Revscript `CreatureEvent` registry (name → callback). Replaced wholesale
     /// by [`LuaRuntime::install_pending_creature_events`] (reload stance a).
     pub(crate) creature_events:
@@ -138,6 +140,11 @@ pub struct PendingTalkAction {
     pub words: String,
     pub separator: String,
     pub on_say: Option<mlua::RegistryKey>,
+    /// TFS `TalkAction::needAccess` — `talkaction:access(true)`.
+    pub need_access: bool,
+    /// TFS `TalkAction::requiredAccountType` — `talkaction:accountType(...)`.
+    /// Default `ACCOUNT_TYPE_NORMAL` (1).
+    pub min_account_type: u8,
 }
 
 /// Pending action definition from Lua Action:register().
@@ -301,6 +308,7 @@ impl LuaRuntime {
             instruction_budget: Cell::new(DEFAULT_LUA_INSTRUCTION_BUDGET),
             scripts_interface,
             data_lib_loaded: Cell::new(false),
+            spell_areas_loaded: Cell::new(false),
             creature_events: RefCell::new(HashMap::new()),
             global_events: RefCell::new(HashMap::new()),
         })
@@ -332,6 +340,26 @@ impl LuaRuntime {
 
     pub(crate) fn mark_data_lib_loaded(&self) {
         self.data_lib_loaded.set(true);
+    }
+
+    /// Exec `data/scripts/spells/areas.lua` (`AREA_*` matrices). Idempotent.
+    ///
+    /// Spell scripts and talkactions (`/killall`) both call
+    /// `createCombatArea(AREA_SQUARE1X1)` at load time. TFS loads this file
+    /// with the spell lib; we share it so talkaction boot does not depend on
+    /// spell-scan order.
+    pub fn load_spell_areas(&self, data_dir: &Path) -> Result<(), String> {
+        if self.spell_areas_loaded.get() {
+            return Ok(());
+        }
+        let areas_path = data_dir.join("scripts/spells/areas.lua");
+        if areas_path.exists() {
+            let path_str = areas_path.display().to_string();
+            let src = std::fs::read_to_string(&areas_path).map_err(|e| e.to_string())?;
+            self.exec_chunk(&path_str, &src).map_err(|e| e.to_string())?;
+        }
+        self.spell_areas_loaded.set(true);
+        Ok(())
     }
 
     /// Set the Lua VM memory limit (in bytes). Returns the previous limit.
@@ -513,10 +541,15 @@ impl LuaRuntime {
                     .transpose()
                     .map_err(LuaError::Init)?;
 
+                let need_access: bool = ta_table.get("_need_access").unwrap_or(false);
+                let min_account_type: u8 = ta_table.get("_account_type").unwrap_or(1);
+
                 self.pending_talkactions.push(PendingTalkAction {
                     words,
                     separator,
                     on_say,
+                    need_access,
+                    min_account_type,
                 });
             }
         }
@@ -736,6 +769,38 @@ impl LuaRuntime {
         t.set("actionid", 0).map_err(LuaError::Init)?;
         t.set("type", 0).map_err(LuaError::Init)?;
         Ok(Value::Table(t))
+    }
+
+    /// TFS `TalkActions::playerSaySpell` Lua gates (`talkaction.cpp`).
+    ///
+    /// When `needAccess` is set, speakers without `group.access` do not run
+    /// `onSay` (`TALKACTION_CONTINUE`). When `requiredAccountType` is above
+    /// `ACCOUNT_TYPE_NORMAL`, lower account types are skipped the same way.
+    /// Missing script context: ungated commands still pass; gated ones fail closed.
+    pub fn talkaction_permission_ok(
+        &self,
+        player: crate::context::CreatureId,
+        need_access: bool,
+        min_account_type: u8,
+    ) -> bool {
+        crate::context::current_ctx(|ctx| {
+            if need_access {
+                let access = ctx
+                    .get_player_group_id(player)
+                    .is_some_and(|gid| ctx.get_group_access(gid));
+                if !access {
+                    return false;
+                }
+            }
+            if min_account_type > 1 {
+                let account_type = ctx.get_player_account_type(player).unwrap_or(0);
+                if account_type < min_account_type {
+                    return false;
+                }
+            }
+            true
+        })
+        .unwrap_or(!need_access && min_account_type <= 1)
     }
 
     /// Call a talkaction `onSay` hook — `(player, words, param) -> bool`.
@@ -1480,6 +1545,8 @@ pub(crate) fn register_event_script_bootstrap_with(
         // TFS `TalkAction(words...)` joins with `;` (`TalkAction::setWords`).
         ta.set("words", words.join(";"))?;
         ta.set("_separator", " ")?;
+        ta.set("_need_access", false)?;
+        ta.set("_account_type", 1u8)?; // ACCOUNT_TYPE_NORMAL (`enums.h`)
         // `talkaction:separator(sep)` fluent setter (mirrors C++
         // `TalkAction::setSeparator`).
         ta.set(
@@ -1487,6 +1554,25 @@ pub(crate) fn register_event_script_bootstrap_with(
             lua.create_function(|_, (this, sep): (mlua::Table, String)| {
                 this.set("_separator", sep)?;
                 Ok(())
+            })?,
+        )?;
+        // `talkaction:access(needAccess)` — TFS `luaTalkActionAccess`
+        // (`luascript.cpp`). Default false. `playerSaySpell` skips `onSay`
+        // with TALKACTION_CONTINUE when true and the speaker's group has no
+        // `access` flag (`talkaction.cpp`).
+        ta.set(
+            "access",
+            lua.create_function(|_, (this, need): (mlua::Table, Option<bool>)| {
+                this.set("_need_access", need.unwrap_or(false))?;
+                Ok(true)
+            })?,
+        )?;
+        // `talkaction:accountType(type)` — TFS `luaTalkActionAccountType`.
+        ta.set(
+            "accountType",
+            lua.create_function(|_, (this, ty): (mlua::Table, Option<u8>)| {
+                this.set("_account_type", ty.unwrap_or(1))?;
+                Ok(true)
             })?,
         )?;
         // `talkaction:register()` — push the talkaction table into the loader's
@@ -1806,17 +1892,53 @@ pub(crate) fn register_event_script_bootstrap_with(
     // userdata or `nil`. PC-3a Phase 3: `envenom_rune` / `soulfire_rune` use
     // `Creature(variant.number)`. C++ `luascript.cpp` `luaCreatureCreate`.
     // Same `register_class` shape as `Player`: class table + `__call` ctor.
-    let creature_ctor = lua.create_function(|lua, id: u64| {
-        if id == 0 {
-            return Ok(mlua::Value::Nil);
+    // `Creature(id or name or userdata)` — TFS `luaCreatureCreate`.
+    // String arm: `Game::getCreatureByName` (case-insensitive).
+    let creature_ctor = lua.create_function(|lua, arg: mlua::Value| match arg {
+        mlua::Value::Nil => Ok(mlua::Value::Nil),
+        mlua::Value::UserData(ud) => {
+            if ud.borrow::<crate::context::CreatureRef>().is_ok() {
+                Ok(mlua::Value::UserData(ud))
+            } else {
+                Ok(mlua::Value::Nil)
+            }
         }
-        let exists =
-            crate::context::current_ctx(|ctx| ctx.get_creature(id).is_some()).unwrap_or(true);
-        if !exists {
-            return Ok(mlua::Value::Nil);
+        mlua::Value::String(s) => {
+            let name = s.to_str()?.to_string();
+            if name.is_empty() {
+                return Ok(mlua::Value::Nil);
+            }
+            let id_opt =
+                crate::context::current_ctx(|ctx| ctx.get_creature_by_name(&name)).flatten();
+            match id_opt {
+                Some(id) => {
+                    let ud = lua.create_userdata(crate::context::CreatureRef(id))?;
+                    Ok(mlua::Value::UserData(ud))
+                }
+                None => Ok(mlua::Value::Nil),
+            }
         }
-        let ud = lua.create_userdata(crate::context::CreatureRef(id))?;
-        Ok(mlua::Value::UserData(ud))
+        mlua::Value::Integer(n) if n > 0 => {
+            let id = n as u64;
+            let exists =
+                crate::context::current_ctx(|ctx| ctx.get_creature(id).is_some()).unwrap_or(true);
+            if !exists {
+                return Ok(mlua::Value::Nil);
+            }
+            let ud = lua.create_userdata(crate::context::CreatureRef(id))?;
+            Ok(mlua::Value::UserData(ud))
+        }
+        mlua::Value::Number(n) if n > 0.0 => {
+            let id = n as u64;
+            let exists =
+                crate::context::current_ctx(|ctx| ctx.get_creature(id).is_some()).unwrap_or(true);
+            if !exists {
+                return Ok(mlua::Value::Nil);
+            }
+            let ud = lua.create_userdata(crate::context::CreatureRef(id))?;
+            Ok(mlua::Value::UserData(ud))
+        }
+        _ => Ok(mlua::Value::Nil),
     })?;
     crate::class_registry::register_class(lua, "Creature", Some(creature_ctor))?;
 
@@ -1834,6 +1956,15 @@ pub(crate) fn register_event_script_bootstrap_with(
             Ok(())
         })?;
     globals.set("sendChannelMessage", send_channel)?;
+
+    // TFS `luaSaveServer` — also exposed as `Game.saveServer`.
+    globals.set(
+        "saveServer",
+        lua.create_function(|_, ()| {
+            crate::lua_mutation::call_lua_save_server().map_err(mlua::Error::runtime)?;
+            Ok(true)
+        })?,
+    )?;
 
     // `nextUseStaminaTime` — a mutable per-player stamina gate table read by
     // `data/events/scripts/player.lua` `onGainSkillTries`. Not a constant;
@@ -2015,6 +2146,13 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
                 table.set(i + 1, ud)?;
             }
             Ok(table)
+        })?,
+    )?;
+    game.set(
+        "saveServer",
+        lua.create_function(|_, ()| {
+            crate::lua_mutation::call_lua_save_server().map_err(mlua::Error::runtime)?;
+            Ok(true)
         })?,
     )?;
     game.set(

@@ -453,6 +453,15 @@ impl EventDispatcher for LuaEventDispatcher {
         let Some((entry, param)) = self.talkactions.find_match(text) else {
             return TalkActionResult::NotMatched;
         };
+        // TFS `playerSaySpell`: Lua `access` / `accountType` fail → TALKACTION_CONTINUE
+        // (fall through to spells / chat; do not run onSay).
+        if !self.runtime.talkaction_permission_ok(
+            creature.data().as_ffi(),
+            entry.need_access,
+            entry.min_account_type,
+        ) {
+            return TalkActionResult::Continue;
+        }
         match self.runtime.call_talkaction_on_say(
             &entry.on_say,
             creature.data().as_ffi(),
