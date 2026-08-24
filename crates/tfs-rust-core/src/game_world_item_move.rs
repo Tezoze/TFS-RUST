@@ -365,55 +365,15 @@ impl GameWorld {
 
         let dest_id = (|| {
             match (&from_cylinder, &to_work) {
-            (Cylinder::Tile { pos: from_pos }, Cylinder::Tile { pos: to_pos }) => {
-                let from_pos = *from_pos;
-                let to_pos = *to_pos;
+                (Cylinder::Tile { pos: from_pos }, Cylinder::Tile { pos: to_pos }) => {
+                    let from_pos = *from_pos;
+                    let to_pos = *to_pos;
 
-                if is_stackable && m < item_count {
-                    // Partial stack move — reduce source count, create new item for destination
-                    if let Some(src) = self.items.get_mut(item_id) {
-                        src.count -= m;
-                    }
-                    let (tvp_src_stack_pos, cip_src_stack_pos) =
-                        self.item_stack_pos_pair(from_pos, item_id);
-                    self.broadcast_tile_item_update(
-                        from_pos,
-                        item_id,
-                        tvp_src_stack_pos,
-                        cip_src_stack_pos,
-                    );
-
-                    // Create new item for the moved portion
-                    let new_item = self
-                        .items
-                        .get(item_id)
-                        .ok_or(ReturnValue::NotPossible)?
-                        .clone_for_split(m);
-                    let new_id = self.items.insert(new_item);
-                    self.internal_add_item_to_tile(to_pos, new_id, flags)?;
-                    Ok(new_id)
-                } else {
-                    // Full move — reset source tile flags (TFS `removeThing`/`resetTileFlags`).
-                    self.detach_item_from_tile(from_pos, item_id)?;
-                    self.internal_add_item_to_tile(to_pos, item_id, flags)
-                }
-            }
-            (Cylinder::Tile { pos: from_pos }, Cylinder::Container { .. }) => {
-                let Cylinder::Container {
-                    item_id: dest_cid,
-                    index: dest_idx,
-                } = to_work
-                else {
-                    return Err(ReturnValue::NotPossible);
-                };
-                let from_pos = *from_pos;
-                if is_stackable && m_move < item_count {
-                    if let Some(merge_id) = to_merge_item {
-                        if merge_id == item_id {
-                            return Ok(item_id);
+                    if is_stackable && m < item_count {
+                        // Partial stack move — reduce source count, create new item for destination
+                        if let Some(src) = self.items.get_mut(item_id) {
+                            src.count -= m;
                         }
-                        self.merge_check(item_id, merge_id, m_move)?;
-                        self.merge_partial_stack_counts(item_id, merge_id, m_move);
                         let (tvp_src_stack_pos, cip_src_stack_pos) =
                             self.item_stack_pos_pair(from_pos, item_id);
                         self.broadcast_tile_item_update(
@@ -422,40 +382,100 @@ impl GameWorld {
                             tvp_src_stack_pos,
                             cip_src_stack_pos,
                         );
+
+                        // Create new item for the moved portion
+                        let new_item = self
+                            .items
+                            .get(item_id)
+                            .ok_or(ReturnValue::NotPossible)?
+                            .clone_for_split(m);
+                        let new_id = self.items.insert(new_item);
+                        self.internal_add_item_to_tile(to_pos, new_id, flags)?;
+                        Ok(new_id)
+                    } else {
+                        // Full move — reset source tile flags (TFS `removeThing`/`resetTileFlags`).
+                        self.detach_item_from_tile(from_pos, item_id)?;
+                        self.internal_add_item_to_tile(to_pos, item_id, flags)
+                    }
+                }
+                (Cylinder::Tile { pos: from_pos }, Cylinder::Container { .. }) => {
+                    let Cylinder::Container {
+                        item_id: dest_cid,
+                        index: dest_idx,
+                    } = to_work
+                    else {
+                        return Err(ReturnValue::NotPossible);
+                    };
+                    let from_pos = *from_pos;
+                    if is_stackable && m_move < item_count {
+                        if let Some(merge_id) = to_merge_item {
+                            if merge_id == item_id {
+                                return Ok(item_id);
+                            }
+                            self.merge_check(item_id, merge_id, m_move)?;
+                            self.merge_partial_stack_counts(item_id, merge_id, m_move);
+                            let (tvp_src_stack_pos, cip_src_stack_pos) =
+                                self.item_stack_pos_pair(from_pos, item_id);
+                            self.broadcast_tile_item_update(
+                                from_pos,
+                                item_id,
+                                tvp_src_stack_pos,
+                                cip_src_stack_pos,
+                            );
+                            self.notify_container_stack_merge(dest_cid, merge_id);
+                            return Ok(merge_id);
+                        }
+                        return Err(ReturnValue::NotPossible);
+                    }
+                    let dest_has_room = self
+                        .container_registry
+                        .get(dest_cid)
+                        .map(|c| !c.is_full())
+                        .ok_or(ReturnValue::NotPossible)?;
+                    if !dest_has_room {
+                        return Err(ReturnValue::ContainerNotEnoughRoom);
+                    }
+                    self.detach_item_from_tile(from_pos, item_id)?;
+                    if let Some(merge_id) = to_merge_item {
+                        self.merge_check(item_id, merge_id, m_move)?;
+                        self.merge_detached_stack_counts(merge_id, m_move);
+                        self.items.remove(item_id);
                         self.notify_container_stack_merge(dest_cid, merge_id);
                         return Ok(merge_id);
                     }
-                    return Err(ReturnValue::NotPossible);
+                    self.container_add_thing(dest_cid, dest_idx, item_id)?;
+                    Ok(item_id)
                 }
-                let dest_has_room = self
-                    .container_registry
-                    .get(dest_cid)
-                    .map(|c| !c.is_full())
-                    .ok_or(ReturnValue::NotPossible)?;
-                if !dest_has_room {
-                    return Err(ReturnValue::ContainerNotEnoughRoom);
-                }
-                self.detach_item_from_tile(from_pos, item_id)?;
-                if let Some(merge_id) = to_merge_item {
-                    self.merge_check(item_id, merge_id, m_move)?;
-                    self.merge_detached_stack_counts(merge_id, m_move);
-                    self.items.remove(item_id);
-                    self.notify_container_stack_merge(dest_cid, merge_id);
-                    return Ok(merge_id);
-                }
-                self.container_add_thing(dest_cid, dest_idx, item_id)?;
-                Ok(item_id)
-            }
-            (Cylinder::Container { .. }, Cylinder::Tile { pos: to_pos }) => {
-                let Cylinder::Container {
-                    item_id: from_cid, ..
-                } = from_cylinder
-                else {
-                    return Err(ReturnValue::NotPossible);
-                };
-                let to_pos = *to_pos;
+                (Cylinder::Container { .. }, Cylinder::Tile { pos: to_pos }) => {
+                    let Cylinder::Container {
+                        item_id: from_cid, ..
+                    } = from_cylinder
+                    else {
+                        return Err(ReturnValue::NotPossible);
+                    };
+                    let to_pos = *to_pos;
 
-                if is_stackable && m_move < item_count {
+                    if is_stackable && m_move < item_count {
+                        let rv = self.container_query_remove(
+                            from_cid,
+                            item_id,
+                            u32::from(m_move),
+                            flags,
+                            acting_player,
+                        );
+                        if rv.is_error() {
+                            return Err(rv);
+                        }
+                        self.container_remove_thing(from_cid, item_id, u32::from(m_move))?;
+                        let new_item = self
+                            .items
+                            .get(item_id)
+                            .ok_or(ReturnValue::NotPossible)?
+                            .clone_for_split(m_move);
+                        let new_id = self.items.insert(new_item);
+                        self.internal_add_item_to_tile(to_pos, new_id, flags)?;
+                        return Ok(new_id);
+                    }
                     let rv = self.container_query_remove(
                         from_cid,
                         item_id,
@@ -466,50 +486,52 @@ impl GameWorld {
                     if rv.is_error() {
                         return Err(rv);
                     }
-                    self.container_remove_thing(from_cid, item_id, u32::from(m_move))?;
-                    let new_item = self
-                        .items
-                        .get(item_id)
-                        .ok_or(ReturnValue::NotPossible)?
-                        .clone_for_split(m_move);
-                    let new_id = self.items.insert(new_item);
-                    self.internal_add_item_to_tile(to_pos, new_id, flags)?;
-                    return Ok(new_id);
+                    self.container_detach_item(from_cid, item_id)?;
+                    self.internal_add_item_to_tile(to_pos, item_id, flags)
                 }
-                let rv = self.container_query_remove(
-                    from_cid,
-                    item_id,
-                    u32::from(m_move),
-                    flags,
-                    acting_player,
-                );
-                if rv.is_error() {
-                    return Err(rv);
-                }
-                self.container_detach_item(from_cid, item_id)?;
-                self.internal_add_item_to_tile(to_pos, item_id, flags)
-            }
-            (Cylinder::Container { .. }, Cylinder::Container { .. }) => {
-                let Cylinder::Container {
-                    item_id: from_cid, ..
-                } = from_cylinder
-                else {
-                    return Err(ReturnValue::NotPossible);
-                };
-                let Cylinder::Container {
-                    item_id: dest_cid,
-                    index: dest_idx,
-                } = to_work
-                else {
-                    return Err(ReturnValue::NotPossible);
-                };
+                (Cylinder::Container { .. }, Cylinder::Container { .. }) => {
+                    let Cylinder::Container {
+                        item_id: from_cid, ..
+                    } = from_cylinder
+                    else {
+                        return Err(ReturnValue::NotPossible);
+                    };
+                    let Cylinder::Container {
+                        item_id: dest_cid,
+                        index: dest_idx,
+                    } = to_work
+                    else {
+                        return Err(ReturnValue::NotPossible);
+                    };
 
-                if let Some(merge_id) = to_merge_item {
-                    if merge_id == item_id {
-                        return Ok(item_id);
-                    }
-                    self.merge_check(item_id, merge_id, m_move)?;
-                    if m == item_count {
+                    if let Some(merge_id) = to_merge_item {
+                        if merge_id == item_id {
+                            return Ok(item_id);
+                        }
+                        self.merge_check(item_id, merge_id, m_move)?;
+                        if m == item_count {
+                            let rv = self.container_query_remove(
+                                from_cid,
+                                item_id,
+                                u32::from(m),
+                                flags,
+                                acting_player,
+                            );
+                            if rv.is_error() {
+                                return Err(rv);
+                            }
+                            if m_move == m {
+                                self.container_remove_thing(from_cid, item_id, u32::from(m))?;
+                                self.merge_detached_stack_counts(merge_id, m);
+                            } else {
+                                self.merge_partial_stack_counts(item_id, merge_id, m_move);
+                                self.container_detach_item(from_cid, item_id)?;
+                                self.container_add_thing(dest_cid, 0, item_id)?;
+                            }
+                            self.notify_container_stack_merge(dest_cid, merge_id);
+                            return Ok(merge_id);
+                        }
+                        // m < item_count: split the moved count off the source stack.
                         let rv = self.container_query_remove(
                             from_cid,
                             item_id,
@@ -521,45 +543,52 @@ impl GameWorld {
                             return Err(rv);
                         }
                         if m_move == m {
-                            self.container_remove_thing(from_cid, item_id, u32::from(m))?;
-                            self.merge_detached_stack_counts(merge_id, m);
+                            self.merge_partial_stack_counts(item_id, merge_id, m);
                         } else {
-                            self.merge_partial_stack_counts(item_id, merge_id, m_move);
-                            self.container_detach_item(from_cid, item_id)?;
-                            self.container_add_thing(dest_cid, 0, item_id)?;
+                            self.container_remove_thing(from_cid, item_id, u32::from(m))?;
+                            let moved = self
+                                .items
+                                .get(item_id)
+                                .ok_or(ReturnValue::NotPossible)?
+                                .clone_for_split(m);
+                            let moved = self.items.insert(moved);
+                            self.merge_partial_stack_counts(moved, merge_id, m_move);
+                            self.container_add_thing(dest_cid, dest_idx, moved)?;
                         }
                         self.notify_container_stack_merge(dest_cid, merge_id);
                         return Ok(merge_id);
                     }
-                    // m < item_count: split the moved count off the source stack.
-                    let rv = self.container_query_remove(
-                        from_cid,
-                        item_id,
-                        u32::from(m),
-                        flags,
-                        acting_player,
-                    );
-                    if rv.is_error() {
-                        return Err(rv);
-                    }
-                    if m_move == m {
-                        self.merge_partial_stack_counts(item_id, merge_id, m);
-                    } else {
+
+                    if is_stackable && m < item_count {
+                        let rv = self.container_query_remove(
+                            from_cid,
+                            item_id,
+                            u32::from(m),
+                            flags,
+                            acting_player,
+                        );
+                        if rv.is_error() {
+                            return Err(rv);
+                        }
                         self.container_remove_thing(from_cid, item_id, u32::from(m))?;
-                        let moved = self
+                        let new_item = self
                             .items
                             .get(item_id)
                             .ok_or(ReturnValue::NotPossible)?
                             .clone_for_split(m);
-                        let moved = self.items.insert(moved);
-                        self.merge_partial_stack_counts(moved, merge_id, m_move);
-                        self.container_add_thing(dest_cid, dest_idx, moved)?;
+                        let new_id = self.items.insert(new_item);
+                        self.container_add_thing(dest_cid, dest_idx, new_id)?;
+                        return Ok(new_id);
                     }
-                    self.notify_container_stack_merge(dest_cid, merge_id);
-                    return Ok(merge_id);
-                }
 
-                if is_stackable && m < item_count {
+                    let dest_has_room = self
+                        .container_registry
+                        .get(dest_cid)
+                        .map(|c| !c.is_full() || self.container_is_chest(dest_cid))
+                        .ok_or(ReturnValue::NotPossible)?;
+                    if !dest_has_room {
+                        return Err(ReturnValue::ContainerNotEnoughRoom);
+                    }
                     let rv = self.container_query_remove(
                         from_cid,
                         item_id,
@@ -570,50 +599,49 @@ impl GameWorld {
                     if rv.is_error() {
                         return Err(rv);
                     }
-                    self.container_remove_thing(from_cid, item_id, u32::from(m))?;
-                    let new_item = self
-                        .items
-                        .get(item_id)
-                        .ok_or(ReturnValue::NotPossible)?
-                        .clone_for_split(m);
-                    let new_id = self.items.insert(new_item);
-                    self.container_add_thing(dest_cid, dest_idx, new_id)?;
-                    return Ok(new_id);
+                    self.container_detach_item(from_cid, item_id)?;
+                    self.container_add_thing(dest_cid, dest_idx, item_id)?;
+                    Ok(item_id)
                 }
-
-                let dest_has_room = self
-                    .container_registry
-                    .get(dest_cid)
-                    .map(|c| !c.is_full() || self.container_is_chest(dest_cid))
-                    .ok_or(ReturnValue::NotPossible)?;
-                if !dest_has_room {
-                    return Err(ReturnValue::ContainerNotEnoughRoom);
-                }
-                let rv = self.container_query_remove(
-                    from_cid,
-                    item_id,
-                    u32::from(m),
-                    flags,
-                    acting_player,
-                );
-                if rv.is_error() {
-                    return Err(rv);
-                }
-                self.container_detach_item(from_cid, item_id)?;
-                self.container_add_thing(dest_cid, dest_idx, item_id)?;
-                Ok(item_id)
-            }
-            (
-                Cylinder::Container {
-                    item_id: from_container,
-                    ..
-                },
-                Cylinder::Inventory { player_id, slot },
-            ) => {
-                let cid = *player_id;
-                let slot = *slot;
-                let from_container = *from_container;
-                if is_stackable && m_move < item_count {
+                (
+                    Cylinder::Container {
+                        item_id: from_container,
+                        ..
+                    },
+                    Cylinder::Inventory { player_id, slot },
+                ) => {
+                    let cid = *player_id;
+                    let slot = *slot;
+                    let from_container = *from_container;
+                    if is_stackable && m_move < item_count {
+                        let rv = self.container_query_remove(
+                            from_container,
+                            item_id,
+                            u32::from(m_move),
+                            flags,
+                            acting_player,
+                        );
+                        if rv.is_error() {
+                            return Err(rv);
+                        }
+                        if self.get_player_inventory_item(cid, slot).is_some() {
+                            return Err(ReturnValue::NeedExchange);
+                        }
+                        self.container_remove_thing(from_container, item_id, u32::from(m_move))?;
+                        let new_item = self
+                            .items
+                            .get(item_id)
+                            .ok_or(ReturnValue::NotPossible)?
+                            .clone_for_split(m_move);
+                        let new_id = self.items.insert(new_item);
+                        self.equip_item_to_inventory_slot(
+                            cid,
+                            slot,
+                            new_id,
+                            NotificationParent::Container(from_container),
+                        )?;
+                        return Ok(new_id);
+                    }
                     let rv = self.container_query_remove(
                         from_container,
                         item_id,
@@ -624,188 +652,173 @@ impl GameWorld {
                     if rv.is_error() {
                         return Err(rv);
                     }
-                    if self.get_player_inventory_item(cid, slot).is_some() {
-                        return Err(ReturnValue::NeedExchange);
-                    }
-                    self.container_remove_thing(from_container, item_id, u32::from(m_move))?;
-                    let new_item = self
-                        .items
-                        .get(item_id)
-                        .ok_or(ReturnValue::NotPossible)?
-                        .clone_for_split(m_move);
-                    let new_id = self.items.insert(new_item);
-                    self.equip_item_to_inventory_slot(
-                        cid,
-                        slot,
-                        new_id,
-                        NotificationParent::Container(from_container),
-                    )?;
-                    return Ok(new_id);
-                }
-                let rv = self.container_query_remove(
-                    from_container,
-                    item_id,
-                    u32::from(m_move),
-                    flags,
-                    acting_player,
-                );
-                if rv.is_error() {
-                    return Err(rv);
-                }
-                if let Some(dest_id) = self.get_player_inventory_item(cid, slot) {
-                    if dest_id == item_id {
+                    if let Some(dest_id) = self.get_player_inventory_item(cid, slot) {
+                        if dest_id == item_id {
+                            return Ok(item_id);
+                        }
+                        self.container_detach_item(from_container, item_id)?;
+                        self.unequip_item_from_inventory_slot(
+                            cid,
+                            slot,
+                            dest_id,
+                            NotificationParent::Container(from_container),
+                        )?;
+                        // 772 `Move` after `NOROOM`/`HANDSNOTFREE` pushes the swapped item to the
+                        // front of the source container (`cract.cc:610` -> `PlaceObject(..., false)`).
+                        self.container_add_thing(from_container, 0, dest_id)?;
+                        self.equip_item_to_inventory_slot(
+                            cid,
+                            slot,
+                            item_id,
+                            NotificationParent::Container(from_container),
+                        )?;
                         return Ok(item_id);
                     }
                     self.container_detach_item(from_container, item_id)?;
-                    self.unequip_item_from_inventory_slot(
-                        cid,
-                        slot,
-                        dest_id,
-                        NotificationParent::Container(from_container),
-                    )?;
-                    // 772 `Move` after `NOROOM`/`HANDSNOTFREE` pushes the swapped item to the
-                    // front of the source container (`cract.cc:610` -> `PlaceObject(..., false)`).
-                    self.container_add_thing(from_container, 0, dest_id)?;
                     self.equip_item_to_inventory_slot(
                         cid,
                         slot,
                         item_id,
                         NotificationParent::Container(from_container),
                     )?;
-                    return Ok(item_id);
+                    Ok(item_id)
                 }
-                self.container_detach_item(from_container, item_id)?;
-                self.equip_item_to_inventory_slot(
-                    cid,
-                    slot,
-                    item_id,
-                    NotificationParent::Container(from_container),
-                )?;
-                Ok(item_id)
-            }
-            (
-                Cylinder::Inventory { player_id, slot },
-                Cylinder::Container {
-                    item_id: to_container,
-                    index: to_idx,
-                },
-            ) => {
-                let cid = *player_id;
-                let slot = *slot;
-                let to_container = *to_container;
-                let to_idx = *to_idx;
+                (
+                    Cylinder::Inventory { player_id, slot },
+                    Cylinder::Container {
+                        item_id: to_container,
+                        index: to_idx,
+                    },
+                ) => {
+                    let cid = *player_id;
+                    let slot = *slot;
+                    let to_container = *to_container;
+                    let to_idx = *to_idx;
 
-                if let Some(merge_id) = to_merge_item {
-                    if merge_id == item_id {
-                        return Ok(item_id);
-                    }
-                    self.merge_check(item_id, merge_id, m_move)?;
-                    if m == item_count {
-                        self.unequip_item_from_inventory_slot(
-                            cid,
-                            slot,
-                            item_id,
-                            NotificationParent::Container(to_container),
-                        )?;
+                    if let Some(merge_id) = to_merge_item {
+                        if merge_id == item_id {
+                            return Ok(item_id);
+                        }
+                        self.merge_check(item_id, merge_id, m_move)?;
+                        if m == item_count {
+                            self.unequip_item_from_inventory_slot(
+                                cid,
+                                slot,
+                                item_id,
+                                NotificationParent::Container(to_container),
+                            )?;
+                            if m_move == m {
+                                self.merge_detached_stack_counts(merge_id, m);
+                                self.items.remove(item_id);
+                            } else {
+                                self.merge_partial_stack_counts(item_id, merge_id, m_move);
+                                self.container_add_thing(to_container, to_idx, item_id)?;
+                            }
+                            self.notify_container_stack_merge(to_container, merge_id);
+                            return Ok(merge_id);
+                        }
+                        // m < item_count: split the moved count off the hand stack.
                         if m_move == m {
-                            self.merge_detached_stack_counts(merge_id, m);
-                            self.items.remove(item_id);
+                            self.merge_partial_stack_counts(item_id, merge_id, m);
                         } else {
-                            self.merge_partial_stack_counts(item_id, merge_id, m_move);
-                            self.container_add_thing(to_container, to_idx, item_id)?;
+                            if let Some(src) = self.items.get_mut(item_id) {
+                                src.count = src.count.saturating_sub(m);
+                            }
+                            let moved = self
+                                .items
+                                .get(item_id)
+                                .ok_or(ReturnValue::NotPossible)?
+                                .clone_for_split(m);
+                            let moved = self.items.insert(moved);
+                            self.merge_partial_stack_counts(moved, merge_id, m_move);
+                            self.container_add_thing(to_container, to_idx, moved)?;
                         }
                         self.notify_container_stack_merge(to_container, merge_id);
+                        self.notify_player_container_tree_changed(
+                            cid,
+                            to_container,
+                            merge_id,
+                            false,
+                            NotificationParent::Player,
+                        );
+                        self.broadcast_player_inventory_slot(cid, slot, Some(item_id));
                         return Ok(merge_id);
                     }
-                    // m < item_count: split the moved count off the hand stack.
-                    if m_move == m {
-                        self.merge_partial_stack_counts(item_id, merge_id, m);
-                    } else {
-                        if let Some(src) = self.items.get_mut(item_id) {
-                            src.count = src.count.saturating_sub(m);
-                        }
-                        let moved = self
+
+                    if is_stackable && m < item_count {
+                        let new_item = self
                             .items
                             .get(item_id)
                             .ok_or(ReturnValue::NotPossible)?
                             .clone_for_split(m);
-                        let moved = self.items.insert(moved);
-                        self.merge_partial_stack_counts(moved, merge_id, m_move);
-                        self.container_add_thing(to_container, to_idx, moved)?;
-                    }
-                    self.notify_container_stack_merge(to_container, merge_id);
-                    self.notify_player_container_tree_changed(
-                        cid,
-                        to_container,
-                        merge_id,
-                        false,
-                        NotificationParent::Player,
-                    );
-                    self.broadcast_player_inventory_slot(cid, slot, Some(item_id));
-                    return Ok(merge_id);
-                }
-
-                if is_stackable && m < item_count {
-                    let new_item = self
-                        .items
-                        .get(item_id)
-                        .ok_or(ReturnValue::NotPossible)?
-                        .clone_for_split(m);
-                    let new_id = self.items.insert(new_item);
-                    if let Some(src) = self.items.get_mut(item_id) {
-                        src.count = src.count.saturating_sub(m);
-                    }
-                    self.broadcast_player_inventory_slot(cid, slot, Some(item_id));
-                    self.hydrate_container_if_needed(to_container);
-                    self.container_add_thing(to_container, to_idx, new_id)?;
-                    self.notify_player_container_tree_changed(
-                        cid,
-                        to_container,
-                        new_id,
-                        true,
-                        NotificationParent::Player,
-                    );
-                    return Ok(new_id);
-                }
-                let dest_has_room = self
-                    .container_registry
-                    .get(to_container)
-                    .map(|c| !c.is_full() || self.container_is_chest(to_container))
-                    .ok_or(ReturnValue::NotPossible)?;
-                if !dest_has_room {
-                    return Err(ReturnValue::ContainerNotEnoughRoom);
-                }
-                self.unequip_item_from_inventory_slot(
-                    cid,
-                    slot,
-                    item_id,
-                    NotificationParent::Container(to_container),
-                )?;
-                self.hydrate_container_if_needed(to_container);
-                self.container_add_thing(to_container, to_idx, item_id)?;
-                Ok(item_id)
-            }
-            (Cylinder::Tile { pos: from_pos }, Cylinder::Inventory { player_id, slot }) => {
-                let from_pos = *from_pos;
-                let cid = *player_id;
-                let slot = *slot;
-
-                if let Some(merge_id) = to_merge_item {
-                    if merge_id == item_id {
-                        return Ok(item_id);
-                    }
-                    self.merge_check(item_id, merge_id, m_move)?;
-                    if is_stackable && m_move < item_count {
-                        // Partial: source stack stays on tile; only counts change.
-                        self.merge_partial_stack_counts(item_id, merge_id, m_move);
-                        let (tvp_src_stack_pos, cip_src_stack_pos) =
-                            self.item_stack_pos_pair(from_pos, item_id);
-                        self.broadcast_tile_item_update(
-                            from_pos,
-                            item_id,
-                            tvp_src_stack_pos,
-                            cip_src_stack_pos,
+                        let new_id = self.items.insert(new_item);
+                        if let Some(src) = self.items.get_mut(item_id) {
+                            src.count = src.count.saturating_sub(m);
+                        }
+                        self.broadcast_player_inventory_slot(cid, slot, Some(item_id));
+                        self.hydrate_container_if_needed(to_container);
+                        self.container_add_thing(to_container, to_idx, new_id)?;
+                        self.notify_player_container_tree_changed(
+                            cid,
+                            to_container,
+                            new_id,
+                            true,
+                            NotificationParent::Player,
                         );
+                        return Ok(new_id);
+                    }
+                    let dest_has_room = self
+                        .container_registry
+                        .get(to_container)
+                        .map(|c| !c.is_full() || self.container_is_chest(to_container))
+                        .ok_or(ReturnValue::NotPossible)?;
+                    if !dest_has_room {
+                        return Err(ReturnValue::ContainerNotEnoughRoom);
+                    }
+                    self.unequip_item_from_inventory_slot(
+                        cid,
+                        slot,
+                        item_id,
+                        NotificationParent::Container(to_container),
+                    )?;
+                    self.hydrate_container_if_needed(to_container);
+                    self.container_add_thing(to_container, to_idx, item_id)?;
+                    Ok(item_id)
+                }
+                (Cylinder::Tile { pos: from_pos }, Cylinder::Inventory { player_id, slot }) => {
+                    let from_pos = *from_pos;
+                    let cid = *player_id;
+                    let slot = *slot;
+
+                    if let Some(merge_id) = to_merge_item {
+                        if merge_id == item_id {
+                            return Ok(item_id);
+                        }
+                        self.merge_check(item_id, merge_id, m_move)?;
+                        if is_stackable && m_move < item_count {
+                            // Partial: source stack stays on tile; only counts change.
+                            self.merge_partial_stack_counts(item_id, merge_id, m_move);
+                            let (tvp_src_stack_pos, cip_src_stack_pos) =
+                                self.item_stack_pos_pair(from_pos, item_id);
+                            self.broadcast_tile_item_update(
+                                from_pos,
+                                item_id,
+                                tvp_src_stack_pos,
+                                cip_src_stack_pos,
+                            );
+                            self.player_post_add_notification(
+                                cid,
+                                merge_id,
+                                slot,
+                                CylinderLink::TopParent,
+                                NotificationParent::Tile(from_pos),
+                            );
+                            self.broadcast_player_inventory_slot(cid, slot, Some(merge_id));
+                            return Ok(merge_id);
+                        }
+                        self.detach_item_from_tile(from_pos, item_id)?;
+                        // Full: source removed from tile above — only bump hand stack.
+                        self.merge_detached_stack_counts(merge_id, m_move);
                         self.player_post_add_notification(
                             cid,
                             merge_id,
@@ -816,189 +829,176 @@ impl GameWorld {
                         self.broadcast_player_inventory_slot(cid, slot, Some(merge_id));
                         return Ok(merge_id);
                     }
-                    self.detach_item_from_tile(from_pos, item_id)?;
-                    // Full: source removed from tile above — only bump hand stack.
-                    self.merge_detached_stack_counts(merge_id, m_move);
-                    self.player_post_add_notification(
-                        cid,
-                        merge_id,
-                        slot,
-                        CylinderLink::TopParent,
-                        NotificationParent::Tile(from_pos),
-                    );
-                    self.broadcast_player_inventory_slot(cid, slot, Some(merge_id));
-                    return Ok(merge_id);
-                }
 
-                if is_stackable && m_move < item_count {
-                    if self.get_player_inventory_item(cid, slot).is_some() {
-                        return Err(ReturnValue::NeedExchange);
+                    if is_stackable && m_move < item_count {
+                        if self.get_player_inventory_item(cid, slot).is_some() {
+                            return Err(ReturnValue::NeedExchange);
+                        }
+                        if let Some(src) = self.items.get_mut(item_id) {
+                            src.count -= m_move;
+                        }
+                        let (tvp_src_stack_pos, cip_src_stack_pos) =
+                            self.item_stack_pos_pair(from_pos, item_id);
+                        self.broadcast_tile_item_update(
+                            from_pos,
+                            item_id,
+                            tvp_src_stack_pos,
+                            cip_src_stack_pos,
+                        );
+                        let new_item = self
+                            .items
+                            .get(item_id)
+                            .ok_or(ReturnValue::NotPossible)?
+                            .clone_for_split(m_move);
+                        let new_id = self.items.insert(new_item);
+                        self.equip_item_to_inventory_slot(
+                            cid,
+                            slot,
+                            new_id,
+                            NotificationParent::Tile(from_pos),
+                        )?;
+                        return Ok(new_id);
                     }
-                    if let Some(src) = self.items.get_mut(item_id) {
-                        src.count -= m_move;
-                    }
-                    let (tvp_src_stack_pos, cip_src_stack_pos) =
-                        self.item_stack_pos_pair(from_pos, item_id);
-                    self.broadcast_tile_item_update(
-                        from_pos,
-                        item_id,
-                        tvp_src_stack_pos,
-                        cip_src_stack_pos,
-                    );
-                    let new_item = self
-                        .items
-                        .get(item_id)
-                        .ok_or(ReturnValue::NotPossible)?
-                        .clone_for_split(m_move);
-                    let new_id = self.items.insert(new_item);
-                    self.equip_item_to_inventory_slot(
-                        cid,
-                        slot,
-                        new_id,
-                        NotificationParent::Tile(from_pos),
-                    )?;
-                    return Ok(new_id);
-                }
-                if let Some(dest_id) = self.get_player_inventory_item(cid, slot) {
-                    if dest_id == item_id {
+                    if let Some(dest_id) = self.get_player_inventory_item(cid, slot) {
+                        if dest_id == item_id {
+                            return Ok(item_id);
+                        }
+                        self.detach_item_from_tile(from_pos, item_id)?;
+                        self.unequip_item_from_inventory_slot(
+                            cid,
+                            slot,
+                            dest_id,
+                            NotificationParent::Tile(from_pos),
+                        )?;
+                        self.internal_add_item_to_tile(from_pos, dest_id, flags)?;
+                        self.equip_item_to_inventory_slot(
+                            cid,
+                            slot,
+                            item_id,
+                            NotificationParent::Tile(from_pos),
+                        )?;
                         return Ok(item_id);
                     }
                     self.detach_item_from_tile(from_pos, item_id)?;
+                    self.equip_item_to_inventory_slot(
+                        cid,
+                        slot,
+                        item_id,
+                        NotificationParent::Tile(from_pos),
+                    )?;
+                    Ok(item_id)
+                }
+                (Cylinder::Inventory { player_id, slot }, Cylinder::Tile { pos: to_pos }) => {
+                    let cid = *player_id;
+                    let slot = *slot;
+                    let to_pos = *to_pos;
+
                     self.unequip_item_from_inventory_slot(
                         cid,
                         slot,
-                        dest_id,
-                        NotificationParent::Tile(from_pos),
-                    )?;
-                    self.internal_add_item_to_tile(from_pos, dest_id, flags)?;
-                    self.equip_item_to_inventory_slot(
-                        cid,
-                        slot,
                         item_id,
-                        NotificationParent::Tile(from_pos),
+                        NotificationParent::Tile(to_pos),
                     )?;
-                    return Ok(item_id);
+                    self.internal_add_item_to_tile(to_pos, item_id, flags)?;
+                    Ok(item_id)
                 }
-                self.detach_item_from_tile(from_pos, item_id)?;
-                self.equip_item_to_inventory_slot(
-                    cid,
-                    slot,
-                    item_id,
-                    NotificationParent::Tile(from_pos),
-                )?;
-                Ok(item_id)
-            }
-            (Cylinder::Inventory { player_id, slot }, Cylinder::Tile { pos: to_pos }) => {
-                let cid = *player_id;
-                let slot = *slot;
-                let to_pos = *to_pos;
-
-                self.unequip_item_from_inventory_slot(
-                    cid,
-                    slot,
-                    item_id,
-                    NotificationParent::Tile(to_pos),
-                )?;
-                self.internal_add_item_to_tile(to_pos, item_id, flags)?;
-                Ok(item_id)
-            }
-            (
-                Cylinder::Inventory {
-                    player_id: from_pid,
-                    slot: from_slot,
-                },
-                Cylinder::Inventory {
-                    player_id: to_pid,
-                    slot: to_slot,
-                },
-            ) => {
-                // `Game::internalMoveItem` inventory↔inventory — `game.cpp` ~1078 (Player cylinders).
-                if *from_pid != *to_pid {
-                    return Err(ReturnValue::NotPossible);
-                }
-                let cid = *from_pid;
-                if *from_slot == *to_slot {
-                    return Ok(item_id);
-                }
-                if is_stackable && m < item_count {
-                    return Err(ReturnValue::NotPossible);
-                }
-                let dest_id = self.get_player_inventory_item(cid, *to_slot);
-                if let Some(did) = dest_id {
-                    if did == item_id {
+                (
+                    Cylinder::Inventory {
+                        player_id: from_pid,
+                        slot: from_slot,
+                    },
+                    Cylinder::Inventory {
+                        player_id: to_pid,
+                        slot: to_slot,
+                    },
+                ) => {
+                    // `Game::internalMoveItem` inventory↔inventory — `game.cpp` ~1078 (Player cylinders).
+                    if *from_pid != *to_pid {
+                        return Err(ReturnValue::NotPossible);
+                    }
+                    let cid = *from_pid;
+                    if *from_slot == *to_slot {
                         return Ok(item_id);
                     }
-                    let dest_count = self.items.get(did).map(|i| i.count as u32).unwrap_or(1);
-                    let rv = self.player_query_add(cid, *from_slot, did, dest_count, flags);
-                    if rv != ReturnValue::NoError {
-                        return Err(rv);
+                    if is_stackable && m < item_count {
+                        return Err(ReturnValue::NotPossible);
                     }
-                    let idx_f = crate::inventory::slot_to_array_index(*from_slot)
-                        .ok_or(ReturnValue::NotPossible)?;
-                    let idx_t = crate::inventory::slot_to_array_index(*to_slot)
-                        .ok_or(ReturnValue::NotPossible)?;
-                    if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-                        p.equipment_slots[idx_f] = Some(did);
-                        p.equipment_slots[idx_t] = Some(item_id);
+                    let dest_id = self.get_player_inventory_item(cid, *to_slot);
+                    if let Some(did) = dest_id {
+                        if did == item_id {
+                            return Ok(item_id);
+                        }
+                        let dest_count = self.items.get(did).map(|i| i.count as u32).unwrap_or(1);
+                        let rv = self.player_query_add(cid, *from_slot, did, dest_count, flags);
+                        if rv != ReturnValue::NoError {
+                            return Err(rv);
+                        }
+                        let idx_f = crate::inventory::slot_to_array_index(*from_slot)
+                            .ok_or(ReturnValue::NotPossible)?;
+                        let idx_t = crate::inventory::slot_to_array_index(*to_slot)
+                            .ok_or(ReturnValue::NotPossible)?;
+                        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                            p.equipment_slots[idx_f] = Some(did);
+                            p.equipment_slots[idx_t] = Some(item_id);
+                        }
+                        if let Some(item) = self.items.get_mut(item_id) {
+                            item.parent = Some(crate::cylinder::Cylinder::Inventory {
+                                player_id: cid,
+                                slot: *to_slot,
+                            });
+                        }
+                        if let Some(item) = self.items.get_mut(did) {
+                            item.parent = Some(crate::cylinder::Cylinder::Inventory {
+                                player_id: cid,
+                                slot: *from_slot,
+                            });
+                        }
+                        self.player_post_remove_notification(
+                            cid,
+                            item_id,
+                            *from_slot,
+                            CylinderLink::Owner,
+                            NotificationParent::Player,
+                        );
+                        self.player_post_add_notification(
+                            cid,
+                            item_id,
+                            *to_slot,
+                            CylinderLink::Owner,
+                            NotificationParent::Player,
+                        );
+                        self.player_post_remove_notification(
+                            cid,
+                            did,
+                            *to_slot,
+                            CylinderLink::Owner,
+                            NotificationParent::Player,
+                        );
+                        self.player_post_add_notification(
+                            cid,
+                            did,
+                            *from_slot,
+                            CylinderLink::Owner,
+                            NotificationParent::Player,
+                        );
+                        self.broadcast_player_inventory_slot(cid, *from_slot, Some(did));
+                        self.broadcast_player_inventory_slot(cid, *to_slot, Some(item_id));
+                        return Ok(item_id);
                     }
-                    if let Some(item) = self.items.get_mut(item_id) {
-                        item.parent = Some(crate::cylinder::Cylinder::Inventory {
-                            player_id: cid,
-                            slot: *to_slot,
-                        });
-                    }
-                    if let Some(item) = self.items.get_mut(did) {
-                        item.parent = Some(crate::cylinder::Cylinder::Inventory {
-                            player_id: cid,
-                            slot: *from_slot,
-                        });
-                    }
-                    self.player_post_remove_notification(
+                    self.unequip_item_from_inventory_slot(
                         cid,
-                        item_id,
                         *from_slot,
-                        CylinderLink::Owner,
-                        NotificationParent::Player,
-                    );
-                    self.player_post_add_notification(
-                        cid,
                         item_id,
-                        *to_slot,
-                        CylinderLink::Owner,
                         NotificationParent::Player,
-                    );
-                    self.player_post_remove_notification(
+                    )?;
+                    self.equip_item_to_inventory_slot(
                         cid,
-                        did,
                         *to_slot,
-                        CylinderLink::Owner,
+                        item_id,
                         NotificationParent::Player,
-                    );
-                    self.player_post_add_notification(
-                        cid,
-                        did,
-                        *from_slot,
-                        CylinderLink::Owner,
-                        NotificationParent::Player,
-                    );
-                    self.broadcast_player_inventory_slot(cid, *from_slot, Some(did));
-                    self.broadcast_player_inventory_slot(cid, *to_slot, Some(item_id));
-                    return Ok(item_id);
+                    )?;
+                    Ok(item_id)
                 }
-                self.unequip_item_from_inventory_slot(
-                    cid,
-                    *from_slot,
-                    item_id,
-                    NotificationParent::Player,
-                )?;
-                self.equip_item_to_inventory_slot(
-                    cid,
-                    *to_slot,
-                    item_id,
-                    NotificationParent::Player,
-                )?;
-                Ok(item_id)
-            }
             }
         })()?;
 
