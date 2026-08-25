@@ -103,6 +103,7 @@ pub(crate) const HELPER_CTOR_CLASSES: &[&str] = &[
 pub(crate) const CREATURE_INDEX_CHAIN: &[&str] = &["Player", "Creature"];
 pub(crate) const MONSTER_INDEX_CHAIN: &[&str] = &["Monster", "Creature"];
 pub(crate) const TILE_INDEX_CHAIN: &[&str] = &["Tile"];
+pub(crate) const HOUSE_INDEX_CHAIN: &[&str] = &["House"];
 pub(crate) const ITEM_INDEX_CHAIN: &[&str] = &["Item"];
 pub(crate) const CONTAINER_INDEX_CHAIN: &[&str] = &["Container", "Item"];
 pub(crate) const ITEM_TYPE_INDEX_CHAIN: &[&str] = &["ItemType"];

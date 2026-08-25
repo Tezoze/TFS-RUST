@@ -118,11 +118,17 @@ async fn handle_pending_save_tick(world: &mut GameWorld) -> anyhow::Result<bool>
     match world.take_save_tick() {
         crate::server_save::ServerSaveTick::None => Ok(false),
         crate::server_save::ServerSaveTick::FlushStay => {
+            if let Err(e) = world.process_and_persist_houses().await {
+                tracing::warn!(error = %e, "house process/save on daily save failed");
+            }
             flush_online_players_to_db(world).await?;
             Ok(false)
         }
         crate::server_save::ServerSaveTick::FlushShutdown => {
             crate::lua_scope::fire_on_shutdown(world);
+            if let Err(e) = world.process_and_persist_houses().await {
+                tracing::warn!(error = %e, "house process/save on shutdown save failed");
+            }
             flush_online_players_to_db(world).await?;
             Ok(true)
         }
@@ -1090,6 +1096,15 @@ fn handle_game_packet(
                 world.send_cancel_message(conn_id, rv);
             }
         }
+        GamePacket::HouseWindow {
+            door_id,
+            house_id: window_text_id,
+            text,
+        } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                let _ = world.player_update_house_window(cid, door_id, window_text_id, text);
+            }
+        }
         GamePacket::BugReport(payload) => {
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
                 let pos = payload.position.unwrap_or_else(|| {
@@ -1240,6 +1255,15 @@ fn dispatch_command(
         }
         GameCommand::Game { conn_id, packet } => {
             handle_game_packet(world, conn_id, packet, game_rx, pending);
+            ControlFlow::Continue(())
+        }
+        GameCommand::HouseNamesResolved {
+            house_id,
+            list_id,
+            text,
+            resolved,
+        } => {
+            world.apply_house_names_resolved(house_id, list_id, text, resolved);
             ControlFlow::Continue(())
         }
     }
@@ -1483,6 +1507,9 @@ pub async fn run_game_loop(
                 ) {
                     ControlFlow::Break(LoopExit::Shutdown) => {
                         crate::lua_scope::fire_on_shutdown(&mut world);
+                        if let Err(e) = world.process_and_persist_houses().await {
+                            tracing::warn!(error = %e, "house save on SIGINT failed");
+                        }
                         flush_online_players_to_db(&world).await?;
                         break;
                     }
@@ -1509,6 +1536,9 @@ pub async fn run_game_loop(
                             ) {
                                 ControlFlow::Break(LoopExit::Shutdown) => {
                                     crate::lua_scope::fire_on_shutdown(&mut world);
+                                    if let Err(e) = world.process_and_persist_houses().await {
+                                        tracing::warn!(error = %e, "house save on SIGINT failed");
+                                    }
                                     flush_online_players_to_db(&world).await?;
                                     return Ok(());
                                 }
@@ -1555,7 +1585,8 @@ pub async fn wait_for_shutdown_signal() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Reserved for a future "save houses / close pool" pass after the game thread stops.
+/// House items / info are saved from the game thread (`process_and_persist_houses`)
+/// before the loop exits. This hook is reserved for pool teardown.
 pub async fn graceful_shutdown(_db: &tfs_rust_db::DbPool) -> anyhow::Result<()> {
     let _ = _db;
     Ok(())

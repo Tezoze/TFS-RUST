@@ -1,118 +1,53 @@
-//! Houses: access lists, beds, persistence hooks.
+//! Houses: access lists, beds, rent, auctions, persistence, edit windows.
 //!
 //! Domain: TFS `house.cpp` `House` / `Door` / `AccessList`.
-//! Outcomes: door use gate matches TFS/TVP `Door::canUse` (owner/subowner or per-door list).
+//! Outcomes: 772 `houses.cc` rent/eviction/auction settlement; TFS pack lists/XML/Lua.
+
+mod access;
+mod auction;
+mod depot_cash;
+mod look;
+mod ownership;
+mod persist;
+mod registry;
+mod rent;
+mod serialize;
+mod tick;
+mod window;
+
+pub use access::{
+    AccessHouseLevel, AccessList, GUEST_LIST, HouseAccess, SUBOWNER_LIST, can_edit_access_list,
+};
+pub use auction::{AuctionOutcome, auction_paid_until, decide_auction};
+pub use registry::{House, HouseRentPeriod};
+pub use rent::{HOUSE_GRACE_SECS, HOUSE_MONTH_SECS, RentAction, decide_rent};
+pub use serialize::{LoadedHouseItem, decode_tile_store_blob, encode_house_tile_store};
+pub use window::{HouseEditSession, house_window_door_id_ok, house_window_id_ok};
 
 use std::collections::{HashMap, HashSet};
 
+use tfs_rust_common::Position;
+use tfs_rust_content::houses_xml::HouseXmlEntry;
+
 use crate::ids::ItemId;
 
-/// C++ `GUEST_LIST` — `house.h`.
-pub const GUEST_LIST: u32 = 0x100;
-/// C++ `SUBOWNER_LIST` — `house.h`.
-pub const SUBOWNER_LIST: u32 = 0x101;
-
-/// C++ `AccessHouseLevel_t` — `house.h`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum AccessHouseLevel {
-    NotInvited = 0,
-    Guest = 1,
-    SubOwner = 2,
-    Owner = 3,
-}
-
-/// C++ `AccessList` — player GUID set + `*` allow-everyone (`house.cpp` `parseList` / `isInList`).
-/// Guild ranks are ignored until guild house lists are wired (lines with `@` are skipped).
-#[derive(Debug, Clone, Default)]
-pub struct AccessList {
-    pub player_guids: HashSet<u32>,
-    pub allow_everyone: bool,
-    /// Original text for `getAccessList` / save round-trip.
-    pub raw: String,
-}
-
-impl AccessList {
-    /// Collect lowercase player name candidates from a list blob (no DB).
-    pub fn candidate_names(text: &str) -> Vec<String> {
-        let mut out = Vec::new();
-        for (i, line) in text.lines().enumerate() {
-            if i >= 100 {
-                break;
-            }
-            let line = line.trim().trim_matches('\t');
-            if line.is_empty() || line.starts_with('#') || line.len() > 100 {
-                continue;
-            }
-            let lower = line.to_ascii_lowercase();
-            if lower.contains('@') || lower.contains('!') || lower.contains('?') {
-                continue;
-            }
-            if lower == "*" || lower.contains('*') {
-                continue;
-            }
-            out.push(lower);
-        }
-        out
-    }
-
-    /// C++ `AccessList::parseList` — resolve player names via `resolve` (name → guid).
-    pub fn parse_list(text: &str, mut resolve: impl FnMut(&str) -> Option<u32>) -> Self {
-        let mut list = Self {
-            raw: text.to_string(),
-            ..Self::default()
-        };
-        if text.is_empty() {
-            return list;
-        }
-        for (i, line) in text.lines().enumerate() {
-            if i >= 100 {
-                break;
-            }
-            let line = line.trim().trim_matches('\t');
-            if line.is_empty() || line.starts_with('#') || line.len() > 100 {
-                continue;
-            }
-            let lower = line.to_ascii_lowercase();
-            if lower.contains('@') {
-                // Guild / guild-rank — deferred (no-op until guild house lists).
-                continue;
-            }
-            if lower == "*" {
-                list.allow_everyone = true;
-                continue;
-            }
-            if lower.contains('!') || lower.contains('*') || lower.contains('?') {
-                continue;
-            }
-            if let Some(guid) = resolve(&lower) {
-                list.player_guids.insert(guid);
-            }
-        }
-        list
-    }
-
-    /// C++ `AccessList::isInList` (player GUID path; guild ranks omitted).
-    pub fn is_in_list(&self, player_guid: u32) -> bool {
-        self.allow_everyone || self.player_guids.contains(&player_guid)
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct HouseAccess {
-    pub owner_guid: Option<u32>,
-    pub subowners: HashSet<u32>,
-    pub guests: HashSet<u32>,
-    /// Guest-list `*` — everyone is invited (`AccessList::allowEveryone` on guest list).
-    pub guests_allow_everyone: bool,
-}
-
+/// Runtime house registry + access lists (`Houses` / `House` in TFS).
 #[derive(Debug, Default)]
 pub struct HouseManager {
     pub houses: HashMap<u32, HouseAccess>,
+    pub records: HashMap<u32, House>,
     /// Per-door access lists keyed by `(house_id, door_id)` — C++ `Door::accessList`.
     pub door_lists: HashMap<(u32, u8), AccessList>,
     /// TFS `Game::bedSleepersMap` — sleeper GUID → occupied bed item (`game.cpp`).
     pub bed_sleepers: HashMap<u32, ItemId>,
+    /// `Player::setEditHouse` session keyed by player GUID.
+    pub edit_sessions: HashMap<u32, HouseEditSession>,
+    /// Name → GUID cache for access-list parse (boot + logins).
+    pub name_to_guid: HashMap<String, u32>,
+    /// Offline eviction: item ids waiting to be written into `player_depotitems`.
+    pub pending_depot_dumps: HashMap<u32, Vec<ItemId>>,
+    pub pending_depot_town: HashMap<u32, u32>,
+    pub last_process_unix: i64,
 }
 
 impl HouseManager {
@@ -120,12 +55,84 @@ impl HouseManager {
     pub fn ensure_houses(&mut self, ids: impl IntoIterator<Item = u32>) {
         for id in ids {
             self.houses.entry(id).or_default();
+            self.records.entry(id).or_insert_with(|| House::new(id));
+        }
+    }
+
+    pub fn apply_xml_entries(&mut self, entries: &[HouseXmlEntry]) {
+        for e in entries {
+            self.houses.entry(e.id).or_default();
+            let rec = self.records.entry(e.id).or_insert_with(|| House::new(e.id));
+            rec.name = e.name.clone();
+            rec.rent = e.rent;
+            rec.town_id = e.town_id;
+            rec.size = e.size;
+            rec.entry_pos = e.entry;
+        }
+    }
+
+    pub fn attach_tile(&mut self, house_id: u32, pos: Position) {
+        self.houses.entry(house_id).or_default();
+        let rec = self
+            .records
+            .entry(house_id)
+            .or_insert_with(|| House::new(house_id));
+        if !rec.tiles.contains(&pos) {
+            rec.tiles.push(pos);
+        }
+    }
+
+    pub fn attach_door(&mut self, house_id: u32, door_id: u8, item_id: ItemId) {
+        let rec = self
+            .records
+            .entry(house_id)
+            .or_insert_with(|| House::new(house_id));
+        if !rec.doors.iter().any(|(d, i)| *d == door_id && *i == item_id) {
+            rec.doors.push((door_id, item_id));
+        }
+    }
+
+    pub fn attach_bed(&mut self, house_id: u32, item_id: ItemId) {
+        let rec = self
+            .records
+            .entry(house_id)
+            .or_insert_with(|| House::new(house_id));
+        if !rec.beds.contains(&item_id) {
+            rec.beds.push(item_id);
         }
     }
 
     pub fn set_owner(&mut self, house_id: u32, guid: u32) {
         let access = self.houses.entry(house_id).or_default();
         access.owner_guid = if guid == 0 { None } else { Some(guid) };
+        access.owner_name.clear();
+        self.records.entry(house_id).or_insert_with(|| House::new(house_id));
+    }
+
+    /// TFS `House::ownerName` after `IOLoginData::getNameByGuid`.
+    pub fn set_owner_name(&mut self, house_id: u32, name: String) {
+        if let Some(access) = self.houses.get_mut(&house_id) {
+            access.owner_name = name;
+        }
+    }
+
+    /// Login / takeover: fill `ownerName` for every house this GUID owns.
+    pub fn set_owner_name_for_guid(&mut self, guid: u32, name: &str) {
+        for access in self.houses.values_mut() {
+            if access.owner_guid == Some(guid) {
+                access.owner_name = name.to_string();
+            }
+        }
+    }
+
+    pub fn apply_owner_names(&mut self, guid_to_name: &HashMap<u32, String>) {
+        for access in self.houses.values_mut() {
+            if let Some(g) = access.owner_guid
+                && let Some(n) = guid_to_name.get(&g)
+            {
+                access.owner_name = n.clone();
+            }
+        }
     }
 
     /// C++ `House::getHouseAccessLevel` — `house.cpp` (~112).
@@ -169,7 +176,6 @@ impl HouseManager {
     }
 
     /// C++ `Door::canUse` — `house.cpp` (~535) / TVP `house.cpp` (~600).
-    /// Owner / subowner / `CanEditHouses`, else per-door access list.
     pub fn door_can_use(
         &self,
         house_id: u32,
@@ -185,6 +191,30 @@ impl HouseManager {
             .is_some_and(|list| list.is_in_list(player_guid))
     }
 
+    pub fn can_edit_list(&self, house_id: u32, list_id: u32, player_guid: u32, can_edit_houses: bool) -> bool {
+        can_edit_access_list(self.access_level(house_id, player_guid, can_edit_houses), list_id)
+    }
+
+    pub fn get_access_list_text(&self, house_id: u32, list_id: u32) -> Option<String> {
+        match list_id {
+            GUEST_LIST => self
+                .houses
+                .get(&house_id)
+                .map(|a| a.guest_list_raw.clone()),
+            SUBOWNER_LIST => self
+                .houses
+                .get(&house_id)
+                .map(|a| a.subowner_list_raw.clone()),
+            door => {
+                let door_id = u8::try_from(door).ok()?;
+                self.door_lists
+                    .get(&(house_id, door_id))
+                    .map(|l| l.raw.clone())
+                    .or(Some(String::new()))
+            }
+        }
+    }
+
     /// Apply one `house_lists` row (`IOMapSerialize::loadHouseInfo` / `House::setAccessList`).
     pub fn apply_list_row(
         &mut self,
@@ -198,6 +228,7 @@ impl HouseManager {
             GUEST_LIST => {
                 let access = self.houses.entry(house_id).or_default();
                 access.guests_allow_everyone = parsed.allow_everyone;
+                access.guest_list_raw = parsed.raw.clone();
                 access.guests = if parsed.allow_everyone {
                     HashSet::new()
                 } else {
@@ -206,6 +237,7 @@ impl HouseManager {
             }
             SUBOWNER_LIST => {
                 let access = self.houses.entry(house_id).or_default();
+                access.subowner_list_raw = parsed.raw.clone();
                 access.subowners = parsed.player_guids;
             }
             door => {
@@ -220,9 +252,25 @@ impl HouseManager {
         }
     }
 
-    pub fn kick_player(&mut self, _house_id: u32, _player_guid: u32) {
-        // Optional follow-up: teleport / close door.
+    pub fn clear_lists(&mut self, house_id: u32) {
+        if let Some(access) = self.houses.get_mut(&house_id) {
+            access.guests.clear();
+            access.subowners.clear();
+            access.guests_allow_everyone = false;
+            access.guest_list_raw.clear();
+            access.subowner_list_raw.clear();
+        }
+        self.door_lists.retain(|(hid, _), _| *hid != house_id);
     }
+
+    pub fn list_ids(&self) -> Vec<u32> {
+        let mut ids: Vec<u32> = self.records.keys().copied().collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// Stub kept for call-site compatibility; teleport lives on [`GameWorld::house_kick_player`].
+    pub fn kick_player(&mut self, _house_id: u32, _player_guid: u32) {}
 }
 
 #[cfg(test)]
@@ -237,7 +285,6 @@ mod tests {
         h.houses.entry(1).or_default().guests.insert(30);
         assert!(h.door_can_use(1, 1, 10, false));
         assert!(h.door_can_use(1, 1, 20, false));
-        // Guest alone cannot open house door (needs door list).
         assert!(!h.door_can_use(1, 1, 30, false));
         assert!(!h.door_can_use(1, 1, 99, false));
     }
@@ -294,14 +341,5 @@ mod tests {
         h.apply_list_row(1, GUEST_LIST, "*", |_| None);
         assert!(h.is_invited(1, 999));
         assert!(!h.door_can_use(1, 1, 999, false));
-    }
-
-    #[test]
-    fn access_list_skips_comments_and_guild() {
-        let list = AccessList::parse_list("# comment\n@guild\nalice", |n| {
-            if n == "alice" { Some(1) } else { None }
-        });
-        assert!(list.is_in_list(1));
-        assert_eq!(list.player_guids.len(), 1);
     }
 }

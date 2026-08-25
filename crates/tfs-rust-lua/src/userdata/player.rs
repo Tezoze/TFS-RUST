@@ -1088,6 +1088,45 @@ impl UserData for CreatureRef {
             call_player_register_creature_event(this.0, name, false).map_err(mlua::Error::runtime)
         });
 
+        // `creature:getTile()` — TFS `luaCreatureGetTile`.
+        methods.add_method("getTile", |lua, this, ()| {
+            let pos = crate::context::current_ctx(|ctx| ctx.get_player_position(this.0)).flatten();
+            match pos {
+                Some(p) => {
+                    let ud = lua.create_userdata(crate::userdata::tile::TileRef {
+                        x: p.x,
+                        y: p.y,
+                        z: p.z,
+                    })?;
+                    Ok(Value::UserData(ud))
+                }
+                None => Ok(Value::Nil),
+            }
+        });
+
+        // `player:setEditHouse(house, listId)` — TFS `luaPlayerSetEditHouse`.
+        methods.add_method("setEditHouse", |_, this, (house, list_id): (Value, u32)| {
+            let house_id = match house {
+                Value::UserData(ud) => ud.borrow::<crate::userdata::HouseRef>()?.0,
+                _ => return Ok(false),
+            };
+            crate::lua_mutation::call_player_set_edit_house(this.0, house_id, list_id)
+                .map_err(mlua::Error::runtime)
+        });
+
+        // `player:sendHouseWindow(house, listId)` — TFS `luaPlayerSendHouseWindow`.
+        methods.add_method(
+            "sendHouseWindow",
+            |_, this, (house, list_id): (Value, u32)| {
+                let house_id = match house {
+                    Value::UserData(ud) => ud.borrow::<crate::userdata::HouseRef>()?.0,
+                    _ => return Ok(false),
+                };
+                crate::lua_mutation::call_player_send_house_window(this.0, house_id, list_id)
+                    .map_err(mlua::Error::runtime)
+            },
+        );
+
         // `player:setInFight(bool)` — PC-3a Phase 3 (`poison_storm.lua`).
         methods.add_method("setInFight", |_, this, in_fight: bool| {
             call_lua_set_in_fight(this.0, in_fight).map_err(mlua::Error::runtime)?;

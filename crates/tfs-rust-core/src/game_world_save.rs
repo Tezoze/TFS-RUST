@@ -29,7 +29,7 @@ fn direction_to_u8(d: Direction) -> u8 {
     }
 }
 
-fn item_to_record(world: &GameWorld, pid: i32, sid: i32, item_id: ItemId) -> Result<ItemRecord> {
+pub(crate) fn item_to_record(world: &GameWorld, pid: i32, sid: i32, item_id: ItemId) -> Result<ItemRecord> {
     let Some(item) = world.items.get(item_id) else {
         return Err(TfsRustError::Protocol(format!(
             "build_player_save_data: item {item_id:?} missing from SlotMap",
@@ -55,7 +55,7 @@ fn item_to_record(world: &GameWorld, pid: i32, sid: i32, item_id: ItemId) -> Res
 }
 
 /// C++ `IOLoginData::saveItems` — `runningId` starts at 100; BFS over open containers.
-fn append_save_item_tree(
+pub(crate) fn append_save_item_tree(
     world: &GameWorld,
     roots: &[(i32, ItemId)],
     out: &mut Vec<ItemRecord>,

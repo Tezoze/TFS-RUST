@@ -1,4 +1,5 @@
 use crate::groups::GroupDatabase;
+use crate::houses_xml::{HouseXmlEntry, load_houses_xml};
 use crate::items::ItemDatabase;
 use crate::monsters::MonsterDatabase;
 use crate::mounts::MountDatabase;
@@ -6,7 +7,7 @@ use crate::otbm::{MapData, OtbmLoader};
 use crate::outfits::OutfitDatabase;
 use crate::spawns::load_spawn_xml;
 use crate::vocations::VocationRegistry;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tfs_rust_common::error::Result;
 use tracing::info;
 
@@ -18,6 +19,8 @@ pub struct Content {
     pub mounts: MountDatabase,
     pub groups: GroupDatabase,
     pub map: MapData,
+    /// `{map}-houses.xml` entries (`Houses::loadHousesXML`). Empty when the file is missing.
+    pub houses: Vec<HouseXmlEntry>,
 }
 
 /// Load server content. `map_otbm_relative` is under `data_dir` (e.g. `world/world.otbm`);
@@ -118,6 +121,18 @@ pub async fn load_all(data_dir: &Path, map_otbm_relative: Option<&str>) -> Resul
         );
     }
 
+    // Associated house XML is `{mapName}-houses.xml` next to the OTBM
+    // (`forgotten` → `forgotten-houses.xml`). TFS `iomap.h` uses `{map}-house.xml`;
+    // OTBM `OTBM_ATTR_EXT_HOUSE_FILE` is a last-resort path.
+    let house_path = resolve_house_xml_path(base, stem, map.house_file.as_deref());
+
+    let houses = if let Some(house_path) = house_path {
+        info!(house_file = %house_path.display(), "loading house XML");
+        load_houses_xml(&house_path)?
+    } else {
+        Vec::new()
+    };
+
     info!("Content pipeline loaded successfully.");
 
     Ok(Content {
@@ -128,5 +143,52 @@ pub async fn load_all(data_dir: &Path, map_otbm_relative: Option<&str>) -> Resul
         mounts: mounts_res.unwrap()?,
         groups: groups_res.unwrap()?,
         map,
+        houses,
     })
 }
+
+/// House XML next to the OTBM: `{stem}-houses.xml`, then TFS `{stem}-house.xml`, then OTBM attr.
+pub(crate) fn house_xml_candidate_names(stem: &str, otbm_house: Option<&str>) -> Vec<String> {
+    let mut names = vec![format!("{stem}-houses.xml"), format!("{stem}-house.xml")];
+    if let Some(rel) = otbm_house.map(str::trim).filter(|s| !s.is_empty()) {
+        let leaf = Path::new(rel)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(rel);
+        if !names.iter().any(|n| n == leaf || n == rel) {
+            names.push(rel.to_string());
+        }
+    }
+    names
+}
+
+fn resolve_house_xml_path(base: &Path, stem: &str, otbm_house: Option<&str>) -> Option<PathBuf> {
+    for name in house_xml_candidate_names(stem, otbm_house) {
+        let path = base.join(&name);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    tracing::warn!(
+        dir = %base.display(),
+        stem,
+        "no house XML found for map"
+    );
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::house_xml_candidate_names;
+
+    #[test]
+    fn house_xml_prefers_plural_houses_file() {
+        let names = house_xml_candidate_names("forgotten", None);
+        assert_eq!(names[0], "forgotten-houses.xml");
+        assert_eq!(names[1], "forgotten-house.xml");
+        let names = house_xml_candidate_names("map", Some("map-houses.xml"));
+        assert_eq!(names[0], "map-houses.xml");
+        assert!(!names.iter().skip(1).any(|n| n == "map-houses.xml"));
+    }
+}
+

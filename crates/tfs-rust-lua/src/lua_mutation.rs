@@ -368,6 +368,39 @@ pub enum LuaMutation {
     CreatureRemove {
         creature_id: u64,
     },
+    /// `house:setOwnerGuid(guid)` — TFS `luaHouseSetOwnerGuid`.
+    HouseSetOwner {
+        house_id: u32,
+        guid: u32,
+    },
+    /// `house:setAccessList(listId, text)` — TFS `luaHouseSetAccessList`.
+    HouseSetAccessList {
+        house_id: u32,
+        list_id: u32,
+        text: String,
+    },
+    /// `house:kickPlayer(player, target)` — TFS `luaHouseKickPlayer`.
+    HouseKickPlayer {
+        house_id: u32,
+        kicker_id: u64,
+        target_id: u64,
+    },
+    /// `house:save()` — TFS `luaHouseSave` (marks house info dirty for persist).
+    HouseSave {
+        house_id: u32,
+    },
+    /// `player:setEditHouse(house, listId)` — TFS `luaPlayerSetEditHouse`.
+    PlayerSetEditHouse {
+        creature_id: u64,
+        house_id: u32,
+        list_id: u32,
+    },
+    /// `player:sendHouseWindow(house, listId)` — TFS `luaPlayerSendHouseWindow`.
+    PlayerSendHouseWindow {
+        creature_id: u64,
+        house_id: u32,
+        list_id: u32,
+    },
 }
 
 /// Snapshot of a Lua `ConditionBuilder` for the mutation / combat-execute seam.
@@ -1144,4 +1177,65 @@ pub fn call_lua_set_ghost_mode(creature_id: u64, enabled: bool) -> Result<(), St
 /// `creature:remove()` — TFS `luaCreatureRemove`.
 pub fn call_lua_creature_remove(creature_id: u64) -> Result<(), String> {
     apply_mutation(LuaMutation::CreatureRemove { creature_id })
+}
+
+/// `house:setOwnerGuid(guid)`.
+pub fn call_house_set_owner(house_id: u32, guid: u32) -> Result<(), String> {
+    apply_mutation(LuaMutation::HouseSetOwner { house_id, guid })
+}
+
+/// `house:setAccessList(listId, text)`.
+pub fn call_house_set_access_list(house_id: u32, list_id: u32, text: String) -> Result<(), String> {
+    apply_mutation(LuaMutation::HouseSetAccessList {
+        house_id,
+        list_id,
+        text,
+    })
+}
+
+/// `house:kickPlayer(player, target)`.
+pub fn call_house_kick_player(
+    house_id: u32,
+    kicker_id: u64,
+    target_id: u64,
+) -> Result<bool, String> {
+    apply_mutation(LuaMutation::HouseKickPlayer {
+        house_id,
+        kicker_id,
+        target_id,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// `house:save()`.
+pub fn call_house_save(house_id: u32) -> Result<(), String> {
+    apply_mutation(LuaMutation::HouseSave { house_id })
+}
+
+/// `player:setEditHouse(house, listId)`.
+pub fn call_player_set_edit_house(
+    creature_id: u64,
+    house_id: u32,
+    list_id: u32,
+) -> Result<bool, String> {
+    apply_mutation(LuaMutation::PlayerSetEditHouse {
+        creature_id,
+        house_id,
+        list_id,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// `player:sendHouseWindow(house, listId)`.
+pub fn call_player_send_house_window(
+    creature_id: u64,
+    house_id: u32,
+    list_id: u32,
+) -> Result<bool, String> {
+    apply_mutation(LuaMutation::PlayerSendHouseWindow {
+        creature_id,
+        house_id,
+        list_id,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
 }

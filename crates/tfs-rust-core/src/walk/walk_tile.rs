@@ -13,7 +13,7 @@ use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::map::Map;
-use crate::player_flags::PLAYER_FLAG_IGNORE_PROTECTION_ZONE;
+use crate::player_flags::{PLAYER_FLAG_CAN_EDIT_HOUSES, PLAYER_FLAG_IGNORE_PROTECTION_ZONE};
 use crate::return_value::ReturnValue;
 use crate::tile::flags as tilestate;
 
@@ -637,6 +637,17 @@ pub(crate) fn tile_query_add_player(
         return ReturnValue::NoError;
     }
 
+    // TVP `HouseTile::queryAdd` (`housetile.cpp` ~64–70): uninvited players cannot step
+    // onto a house tile. 772 `TPlayer::MovePossible` (`crplayer.cc:372-377`) throws
+    // `NOTINVITED` for the same dest. `CanEditHouses` / `ENTER_HOUSES` bypasses.
+    if let crate::tile::Tile::House(h) = tile
+        && let Some(CreatureKind::Player(p)) = world.creatures.get(mover)
+        && !world.player_has_flag(mover, PLAYER_FLAG_CAN_EDIT_HOUSES)
+        && !world.houses.is_invited(h.house_id, p.guid)
+    {
+        return ReturnValue::PlayerIsNotInvited;
+    }
+
     if body.ground.is_none() {
         return ReturnValue::NotPossible;
     }
@@ -815,6 +826,87 @@ mod pz_entry_lock_tests {
             p.earliest_protection_zone_round = 160;
         }
         let dest = world.map.get_tile(to).expect("pz tile");
+        assert_eq!(
+            tile_query_add_player(&world, dest, cid, 0),
+            ReturnValue::NoError
+        );
+    }
+
+    fn ensure_house_tile(map: &mut crate::map::Map, pos: Position, house_id: u32) {
+        map.insert_tile(
+            pos,
+            Tile::House(crate::tile::HouseTile {
+                inner: TileBody {
+                    ground: Some(TEST_SYNTHETIC_GROUND_WP),
+                    ground_item: None,
+                    down_items: Vec::new(),
+                    top_items: Vec::new(),
+                    creatures: Vec::new(),
+                    flags: 0,
+                    zone: ZoneType::Normal,
+                },
+                house_id,
+            }),
+        );
+    }
+
+    /// TVP `HouseTile::queryAdd` / 772 `crplayer.cc:372-377` — uninvited cannot enter.
+    #[test]
+    fn uninvited_player_cannot_enter_house() {
+        let mut world = beat_driven_test_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, from, TEST_SYNTHETIC_GROUND_WP);
+        ensure_house_tile(&mut world.map, to, 1);
+        world.houses.ensure_houses([1]);
+        world.houses.set_owner(1, 99);
+        let cid = insert_player(&mut world, test_player("Walker", from));
+        let dest = world.map.get_tile(to).expect("house");
+        assert_eq!(
+            tile_query_add_player(&world, dest, cid, 0),
+            ReturnValue::PlayerIsNotInvited
+        );
+    }
+
+    #[test]
+    fn unowned_house_blocks_non_owner() {
+        let mut world = beat_driven_test_world();
+        let to = Position::new(101, 100, 7);
+        ensure_house_tile(&mut world.map, to, 1);
+        world.houses.ensure_houses([1]);
+        let cid = insert_player(&mut world, test_player("Walker", Position::new(100, 100, 7)));
+        let dest = world.map.get_tile(to).expect("house");
+        assert_eq!(
+            tile_query_add_player(&world, dest, cid, 0),
+            ReturnValue::PlayerIsNotInvited
+        );
+    }
+
+    #[test]
+    fn house_owner_can_enter() {
+        let mut world = beat_driven_test_world();
+        let to = Position::new(101, 100, 7);
+        ensure_house_tile(&mut world.map, to, 1);
+        world.houses.ensure_houses([1]);
+        world.houses.set_owner(1, 1);
+        let cid = insert_player(&mut world, test_player("Owner", Position::new(100, 100, 7)));
+        let dest = world.map.get_tile(to).expect("house");
+        assert_eq!(
+            tile_query_add_player(&world, dest, cid, 0),
+            ReturnValue::NoError
+        );
+    }
+
+    #[test]
+    fn house_guest_can_enter() {
+        let mut world = beat_driven_test_world();
+        let to = Position::new(101, 100, 7);
+        ensure_house_tile(&mut world.map, to, 1);
+        world.houses.ensure_houses([1]);
+        world.houses.set_owner(1, 99);
+        world.houses.houses.entry(1).or_default().guests.insert(1);
+        let cid = insert_player(&mut world, test_player("Guest", Position::new(100, 100, 7)));
+        let dest = world.map.get_tile(to).expect("house");
         assert_eq!(
             tile_query_add_player(&world, dest, cid, 0),
             ReturnValue::NoError

@@ -536,6 +536,7 @@ pub fn send_outfit_window(
 pub fn send_house_window(window_text_id: u32, text: &str) -> NetworkMessage {
     let mut m = NetworkMessage::new();
     m.write_u8(0x97);
+    m.write_u8(0x00);
     m.write_u32(window_text_id);
     m.write_string(text);
     m

@@ -104,5 +104,9 @@ serverSaveNotifyDuration = 5
 serverSaveClose = true
 serverSaveShutdown = true
 
--- Map file is TFS_MAP_OTBM under TFS_DATA_DIR (default data/world/forgotten.otbm),
--- not a config.lua key.
+-- Map Settings --
+-- mapName selects the OTBM under data/world/: "forgotten" → forgotten.otbm,
+-- "map" → map.otbm. The associated house file is always {mapName}-houses.xml
+-- (forgotten-houses.xml / map-houses.xml). TFS_MAP_OTBM overrides mapName.
+mapName = "forgotten"
+mapAuthor = ""

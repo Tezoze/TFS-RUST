@@ -7,7 +7,9 @@
 # mysqlPass, mysqlDatabase, mysqlPort) — same as TFS C++. Set DATABASE_URL only to override, e.g. Docker:
 #   export DATABASE_URL='mysql://tfs@127.0.0.1:3306/TFS'
 #
-# Optional: TFS_DATA_DIR (default `data` at repo root), TFS_MAP_OTBM (default world/forgotten.otbm),
+# Optional: TFS_DATA_DIR (default `data` at repo root), config.lua mapName
+# (default forgotten → world/forgotten.otbm + forgotten-houses.xml),
+# TFS_MAP_OTBM (overrides mapName),
 # TFS_CONFIG (default config.lua), TFS_RSA_PEM, TFS_MIGRATIONS_DIR, TFS_LOGIN_ADDR, TFS_GAME_ADDR
 
 set -euo pipefail

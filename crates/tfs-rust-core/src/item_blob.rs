@@ -42,6 +42,9 @@ pub struct ParsedItemBlob {
     pub attrs: ItemAttributes,
     /// `ATTR_COUNT` / `ATTR_RUNE_CHARGES` — overrides `Item::count` like C++ `setSubType`.
     pub subtype_override: Option<u8>,
+    /// `ATTR_CONTAINER_ITEMS` child count when the attr loop ended on that tag
+    /// (`Item::unserializeAttr` / `loadContainer` in `iomapserialize.cpp`).
+    pub container_item_count: Option<u32>,
 }
 
 /// Parse `attributes` BLOB from `player_items` / depot tables.
@@ -83,6 +86,57 @@ fn parse_item_blob_from(
     Ok(ParsedItemBlob {
         attrs,
         subtype_override,
+        container_item_count: None,
+    })
+}
+
+/// Parse attrs from an existing [`PropStream`] (house `tile_store` / nested `saveItem`).
+/// On `ATTR_CONTAINER_ITEMS` the stream is left pointing at nested child items.
+pub fn parse_item_blob_from_stream(
+    stream: &mut PropStream<'_>,
+    is_container: bool,
+) -> TfsResult<ParsedItemBlob> {
+    parse_item_blob_from_stream_src(stream, is_container, ItemBlobSource::Database)
+}
+
+fn parse_item_blob_from_stream_src(
+    stream: &mut PropStream<'_>,
+    is_container: bool,
+    source: ItemBlobSource,
+) -> TfsResult<ParsedItemBlob> {
+    let mut attrs = ItemAttributes::new();
+    let mut subtype_override: Option<u8> = None;
+    let mut container_item_count = None;
+    while let Ok(attr_type) = stream.read_u8() {
+        if attr_type == 0 {
+            break;
+        }
+        if attr_type == AttrType::ContainerItems as u8 {
+            let n = stream.read_u32()?;
+            if !is_container {
+                return Err(tfs_rust_common::error::TfsRustError::PropStream(
+                    "ATTR_CONTAINER_ITEMS on non-container".into(),
+                ));
+            }
+            container_item_count = Some(n);
+            break;
+        }
+        let cont = read_one_attr(
+            attr_type,
+            stream,
+            &mut attrs,
+            &mut subtype_override,
+            is_container,
+            source,
+        )?;
+        if !cont {
+            break;
+        }
+    }
+    Ok(ParsedItemBlob {
+        attrs,
+        subtype_override,
+        container_item_count,
     })
 }
 

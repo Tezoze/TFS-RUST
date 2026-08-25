@@ -1442,10 +1442,12 @@ mod tests {
     use std::sync::Arc;
     use tfs_rust_common::ConnId;
     use tfs_rust_common::ProtocolVersion;
+    use tfs_rust_content::items::ItemDatabase;
     use tfs_rust_content::monsters::{
-        MonsterDatabase, MonsterDefenses, MonsterOutfit, MonsterSpellNode, MonsterType,
-        MonsterTypeFlags,
+        LootBlock, MAX_LOOTCHANCE, MonsterDatabase, MonsterDefenses, MonsterOutfit,
+        MonsterSpellNode, MonsterType, MonsterTypeFlags,
     };
+    use tfs_rust_content::otb::ItemType;
     use tfs_rust_content::spawns::{SpawnEntry, SpawnZone};
     use tfs_rust_net::Codec;
 
@@ -1527,6 +1529,64 @@ mod tests {
             }
         }
         world
+    }
+
+    fn gold_loot_rat() -> MonsterType {
+        let mut t = rat_type();
+        t.loot = vec![LootBlock {
+            id: 2148,
+            countmax: 4,
+            chance: MAX_LOOTCHANCE,
+            sub_type: 0,
+            action_id: 0,
+            text: String::new(),
+            child_loot: Vec::new(),
+        }];
+        t
+    }
+
+    fn stackable_gold_type() -> ItemType {
+        let mut it = crate::sim_harness::pickup_item_type(2148);
+        it.flags |= 1 << 7;
+        it
+    }
+
+    /// `/m` → `Game.createMonster` must roll the same spawn inventory as map `spawn_monster`.
+    /// Pack: `data/scripts/talkactions/god/place_monster.lua` (force = place, not summon).
+    #[test]
+    fn lua_create_monster_rolls_spawn_loot_like_map_spawn() {
+        let mut world = world_with_spawn();
+        let mut monsters = HashMap::new();
+        monsters.insert("rat".into(), gold_loot_rat());
+        world.monsters_db = Arc::new(MonsterDatabase { monsters });
+        let mut items = HashMap::new();
+        items.insert(1987u16, crate::sim_harness::bag_item_type(1987));
+        items.insert(2148u16, stackable_gold_type());
+        world.items_db = Arc::new(ItemDatabase {
+            items,
+            client_to_server: HashMap::new(),
+        });
+        world.seed_parity_rng(42);
+
+        let home = Position::new(100, 100, 7);
+        let id = world
+            .lua_script_create_monster("Rat", home.x, home.y, home.z, false, true)
+            .expect("createMonster")
+            .expect("placed");
+        let cid = world
+            .resolve_creature_u64(id)
+            .expect("created creature");
+        let Some(CreatureKind::Monster(m)) = world.creatures.get(cid) else {
+            panic!("expected monster");
+        };
+        assert!(m.base.master.is_none(), "/m must not attach a master");
+        let has_loot = m.inventory.bag.is_some()
+            || m.inventory.equipment.iter().any(|s| s.is_some())
+            || !m.inventory.body.is_empty();
+        assert!(
+            has_loot,
+            "Game.createMonster must roll spawn loot like map spawn"
+        );
     }
 
     #[test]

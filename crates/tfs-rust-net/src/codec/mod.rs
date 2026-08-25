@@ -227,6 +227,10 @@ pub trait ProtocolCodec {
     /// 772: `gameserver/src/protocolgame.cpp:1925`; 1098: `src/protocolgame.cpp:2999`.
     fn encode_text_window(&self, w: &wire::TextWindowWire) -> NetworkMessage;
 
+    /// `ProtocolGame::sendHouseWindow` — `0x97 | 0x00 | u32 windowTextId | string`.
+    /// Identical on 772 and 1098.
+    fn encode_house_window(&self, window_text_id: u32, text: &str) -> NetworkMessage;
+
     /// Era-correct wire value for the "cancel / failure" text-message channel used by
     /// `sendCancelMessage` (1098) / `SendResult` (772).
     ///
@@ -526,6 +530,10 @@ impl ProtocolCodec for Codec1098 {
         Codec1098::encode_text_window(self, w)
     }
 
+    fn encode_house_window(&self, window_text_id: u32, text: &str) -> NetworkMessage {
+        crate::outgoing_extra::send_house_window(window_text_id, text)
+    }
+
     fn failure_message_type(&self) -> u8 {
         21 // MESSAGE_STATUS_SMALL — `src/const.h:190`
     }
@@ -812,6 +820,10 @@ impl ProtocolCodec for Codec772 {
         Codec772::encode_text_window(self, w)
     }
 
+    fn encode_house_window(&self, window_text_id: u32, text: &str) -> NetworkMessage {
+        crate::outgoing_extra::send_house_window(window_text_id, text)
+    }
+
     fn failure_message_type(&self) -> u8 {
         23 // TALK_FAILURE_MESSAGE — `sending.cc:339`, `enums.hh:674`
     }
@@ -997,6 +1009,8 @@ impl Codec {
         encode_create_private_channel(w: &wire::CreatePrivateChannelWire) -> NetworkMessage;
 
         encode_text_window(w: &wire::TextWindowWire) -> NetworkMessage;
+
+        encode_house_window(window_text_id: u32, text: &str) -> NetworkMessage;
 
         failure_message_type() -> u8;
 
@@ -1280,6 +1294,10 @@ impl ProtocolCodec for Codec {
 
     fn encode_text_window(&self, w: &wire::TextWindowWire) -> NetworkMessage {
         Codec::encode_text_window(self, w)
+    }
+
+    fn encode_house_window(&self, window_text_id: u32, text: &str) -> NetworkMessage {
+        Codec::encode_house_window(self, window_text_id, text)
     }
 
     fn failure_message_type(&self) -> u8 {

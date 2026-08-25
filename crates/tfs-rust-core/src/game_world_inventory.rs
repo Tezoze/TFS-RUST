@@ -1496,6 +1496,11 @@ impl GameWorld {
                 gm_item_type = Some(item.item_type);
                 gm_action_id = item.action_id();
                 gm_unique_id = item.unique_id();
+                let door_id = item
+                    .attributes
+                    .as_deref()
+                    .map(|a| a.get_door_id())
+                    .unwrap_or(0);
                 let container_capacity = self.container_registry.get(item_id).map(|c| c.capacity);
                 let rune_vocs = self
                     .spells
@@ -1503,19 +1508,22 @@ impl GameWorld {
                     .map(|r| r.vocations.clone());
                 if let Some(it) = self.items_db.items.get(&item.item_type) {
                     let fluid_name = self.fluid_look_type_name(item, it);
-                    format!(
-                        "You see {}",
-                        item_get_description_cpp(
-                            item,
-                            it,
-                            w,
-                            look_d,
-                            container_capacity,
-                            show_duration_ms,
-                            rune_vocs.as_deref(),
-                            fluid_name.as_deref(),
-                        )
-                    )
+                    let is_door = it.is_door();
+                    let mut desc = item_get_description_cpp(
+                        item,
+                        it,
+                        w,
+                        look_d,
+                        container_capacity,
+                        show_duration_ms,
+                        rune_vocs.as_deref(),
+                        fluid_name.as_deref(),
+                    );
+                    // 772 `operate.cc` NAMEDOOR — map tiles only (not inventory).
+                    if pos.x != 0xFFFF && (is_door || door_id != 0) {
+                        desc = self.apply_namedoor_house_look(thing_pos, desc);
+                    }
+                    format!("You see {desc}")
                 } else {
                     format!("You see an item of type {}.", item.item_type)
                 }

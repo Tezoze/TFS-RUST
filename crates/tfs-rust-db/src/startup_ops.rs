@@ -1,7 +1,7 @@
 //! Boot-time DB ops that TFS ran from `data/globalevents/scripts/startup.lua`.
 //!
 //! Pack surface: TFS `globalevent.cpp` `GLOBALEVENT_STARTUP` → Lua `onStartup`.
-//! House auctions (`bid_end` / bank pay) are later-era and are **not** ported here.
+//! House auctions are settled by the native house tick (`house/tick.rs`).
 // C++ reference: TFS `data/globalevents/scripts/startup.lua` (ops, not 772 combat).
 
 use sqlx::Row;

@@ -610,6 +610,20 @@ fn text_window_1098_has_mark_and_date() {
     assert_eq!(b, helper);
 }
 
+/// TVP `ProtocolGame::sendHouseWindow` — `0x97 | 0x00 | u32 windowTextId | string`.
+#[test]
+fn house_window_0x97_layout() {
+    let m = tfs_rust_net::outgoing_extra::send_house_window(0x0102_0304, "alice");
+    let b = m.as_bytes();
+    assert_eq!(b[0], 0x97);
+    assert_eq!(b[1], 0x00);
+    assert_eq!(&b[2..6], &[0x04, 0x03, 0x02, 0x01]);
+    assert_eq!(&b[6..8], &[5, 0]);
+    assert_eq!(&b[8..], b"alice");
+    let via = codec().encode_house_window(0x0102_0304, "alice").into_bytes();
+    assert_eq!(via, b);
+}
+
 /// 1098 `sendClosePrivate` — `0xB3 + u16 channelId`. Era-identical.
 #[test]
 fn close_private_1098_layout() {

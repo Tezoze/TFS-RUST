@@ -71,6 +71,10 @@ impl Map {
         self.grid.find_item_position(item_id)
     }
 
+    pub fn for_each_tile(&self, f: impl FnMut(Position, &Tile)) {
+        self.grid.for_each_tile(f);
+    }
+
     /// True if tile blocks movement (no tile = blocked).
     pub fn is_walkable(&self, pos: Position) -> bool {
         match self.get_tile(pos) {

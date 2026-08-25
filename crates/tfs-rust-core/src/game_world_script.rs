@@ -1595,6 +1595,71 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             _ => None,
         }
     }
+
+    fn get_house(&self, house_id: u32) -> Option<tfs_rust_common::ScriptHouseData> {
+        let rec = self.houses.records.get(&house_id)?;
+        let owner = self
+            .houses
+            .houses
+            .get(&house_id)
+            .and_then(|a| a.owner_guid)
+            .unwrap_or(0);
+        let mut player_ids = Vec::new();
+        for &pos in &rec.tiles {
+            if let Some(tile) = self.map.get_tile(pos) {
+                for &cid in &tile.body().creatures {
+                    if matches!(self.creatures.get(cid), Some(crate::creature::CreatureKind::Player(_))) {
+                        player_ids.push(cid.data().as_ffi());
+                    }
+                }
+            }
+        }
+        Some(tfs_rust_common::ScriptHouseData {
+            id: rec.id,
+            name: rec.name.clone(),
+            town_id: rec.town_id,
+            rent: rec.rent,
+            owner_guid: owner,
+            exit: rec.entry_pos,
+            tiles: rec.tiles.clone(),
+            door_item_ids: rec.doors.iter().map(|(_, iid)| iid.data().as_ffi()).collect(),
+            bed_item_ids: rec.beds.iter().map(|iid| iid.data().as_ffi()).collect(),
+            player_ids,
+        })
+    }
+
+    fn list_house_ids(&self) -> Vec<u32> {
+        self.houses.list_ids()
+    }
+
+    fn house_access_list(&self, house_id: u32, list_id: u32) -> Option<String> {
+        self.houses.get_access_list_text(house_id, list_id)
+    }
+
+    fn house_door_id_at(&self, house_id: u32, x: u16, y: u16, z: u8) -> Option<u8> {
+        let rec = self.houses.records.get(&house_id)?;
+        let pos = tfs_rust_common::Position { x, y, z };
+        rec.door_id_at(pos, |iid| self.map.find_item_position(iid))
+    }
+
+    fn house_can_edit_access_list(
+        &self,
+        house_id: u32,
+        list_id: u32,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+    ) -> bool {
+        let Some(cid) = self.resolve_creature_from_script(creature_id) else {
+            return false;
+        };
+        let Some(crate::creature::CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return false;
+        };
+        let edit = crate::player_flags::has_player_flag(
+            self.player_group_flags(cid),
+            crate::player_flags::PLAYER_FLAG_CAN_EDIT_HOUSES,
+        );
+        self.houses.can_edit_list(house_id, list_id, p.guid, edit)
+    }
 }
 
 #[cfg(test)]

@@ -91,6 +91,7 @@ function Creature:getSlotItem(...) end
 function Creature:getSpellCoeff(...) end
 function Creature:getStorageValue(...) end
 function Creature:getSummons(...) end
+function Creature:getTile(...) end
 function Creature:getTown(...) end
 function Creature:getType(...) end
 function Creature:getVocation(...) end
@@ -112,9 +113,11 @@ function Creature:removeCondition(...) end
 function Creature:removeItem(...) end
 function Creature:say(...) end
 function Creature:sendCancelMessage(...) end
+function Creature:sendHouseWindow(...) end
 function Creature:sendOutfitWindow(...) end
 function Creature:sendTextMessage(...) end
 function Creature:setDirection(...) end
+function Creature:setEditHouse(...) end
 function Creature:setGhostMode(...) end
 function Creature:setInFight(...) end
 function Creature:setOutfit(...) end
@@ -140,6 +143,7 @@ function Game.clearField(...) end
 function Game.createItem(...) end
 function Game.createMonster(...) end
 function Game.createTile(...) end
+function Game.getHouses(...) end
 function Game.getInstantSpells(...) end
 function Game.getPlayers(...) end
 function Game.getWorldType(...) end
@@ -166,7 +170,25 @@ function Group:hasFlag(...) end
 ---@class House
 House = {}
 
+function House:canEditAccessList(...) end
+function House:getAccessList(...) end
+function House:getBeds(...) end
+function House:getDoorIdByPosition(...) end
+function House:getDoors(...) end
+function House:getExitPosition(...) end
 function House:getId(...) end
+function House:getName(...) end
+function House:getOwnerGuid(...) end
+function House:getPlayers(...) end
+function House:getRent(...) end
+function House:getTileCount(...) end
+function House:getTiles(...) end
+function House:getTown(...) end
+function House:getTownId(...) end
+function House:kickPlayer(...) end
+function House:save(...) end
+function House:setAccessList(...) end
+function House:setOwnerGuid(...) end
 
 ---@class Item
 ---@field actionid any

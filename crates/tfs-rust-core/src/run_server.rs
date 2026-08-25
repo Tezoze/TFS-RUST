@@ -59,7 +59,9 @@ fn resolve_pem_path() -> anyhow::Result<PathBuf> {
 /// **login** (`TFS_LOGIN_ADDR`) + **game** (`TFS_GAME_ADDR`) with `run_game_loop` + `out_registry`.
 ///
 /// Env: `DATABASE_URL` (if set, wins over `config.lua` MySQL keys), else URL is built from `config.lua` via `DbConfig`.
-/// `TFS_DATA_DIR` (default `data` — use repo `data/` from project root), `TFS_MAP_OTBM` (default `world/forgotten.otbm`),
+/// `TFS_DATA_DIR` (default `data` — use repo `data/` from project root),
+/// `config.lua` `mapName` (default `forgotten` → `world/forgotten.otbm` + `world/forgotten-houses.xml`),
+/// `TFS_MAP_OTBM` (overrides `mapName`),
 /// `TFS_CONFIG` (default `config.lua`),
 /// `TFS_LOGIN_ADDR` / `TFS_GAME_ADDR` / `TFS_PUBLIC_IP` / `TFS_GAME_PORT` / `TFS_SERVER_NAME` / `TFS_MOTD` / `TFS_MOTD_NUM`.
 pub async fn run() -> anyhow::Result<()> {
@@ -144,26 +146,46 @@ pub async fn run() -> anyhow::Result<()> {
 
     let data_dir = std::env::var("TFS_DATA_DIR").unwrap_or_else(|_| "data".to_string());
     let data_path = PathBuf::from(&data_dir);
-    let map_rel =
-        std::env::var("TFS_MAP_OTBM").unwrap_or_else(|_| "world/forgotten.otbm".to_string());
+    let map_name = config
+        .map_name()
+        .map_err(|e| anyhow::anyhow!("config mapName: {e}"))?;
+    let map_author = config
+        .map_author()
+        .map_err(|e| anyhow::anyhow!("config mapAuthor: {e}"))?;
+    let map_rel = match std::env::var("TFS_MAP_OTBM") {
+        Ok(p) if !p.is_empty() => {
+            info!(otbm = %p, "map: TFS_MAP_OTBM overrides config.lua mapName");
+            p
+        }
+        _ => config
+            .map_otbm_relative()
+            .map_err(|e| anyhow::anyhow!("config mapName: {e}"))?,
+    };
     let map_file = data_path.join(&map_rel);
     if !map_file.is_file() {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         anyhow::bail!(
             "map not found: {}\n\
-             Set TFS_MAP_OTBM to the OTBM path under TFS_DATA_DIR (e.g. world/forgotten.otbm). Current TFS_DATA_DIR={:?}, cwd {}.\n\
-             Copy your C++/Forgotten Server `data` folder here or: export TFS_DATA_DIR=/path/to/your-server/data",
+             Set config.lua mapName (e.g. mapName = \"forgotten\" → data/world/forgotten.otbm) \
+             or TFS_MAP_OTBM under TFS_DATA_DIR. Current TFS_DATA_DIR={:?}, cwd {}.",
             map_file.display(),
             data_dir,
             cwd.display()
         );
     }
-    info!(dir = %data_path.display(), otbm = %map_rel, "loading content (OTBM, items, …)");
+    info!(
+        dir = %data_path.display(),
+        map_name = %map_name,
+        map_author = %map_author,
+        otbm = %map_rel,
+        "loading content (OTBM, items, …)"
+    );
     let mut content = tfs_rust_content::pipeline::load_all(&data_path, Some(map_rel.as_str()))
         .await
         .map_err(|e| anyhow::anyhow!("content load: {e}"))?;
 
     let spawn_zones = std::mem::take(&mut content.map.spawn_zones);
+    let houses_xml = std::mem::take(&mut content.houses);
     let mut items_db = std::sync::Arc::new(content.items);
     let monsters_db = std::sync::Arc::new(content.monsters);
     let groups = std::sync::Arc::new(content.groups);
@@ -451,15 +473,37 @@ pub async fn run() -> anyhow::Result<()> {
     world.weapons = Arc::new(weapon_registry);
     world.spells = Arc::new(spell_registry);
 
-    // House owners + access lists (`IOMapSerialize::loadHouseInfo` — `iomapserialize.cpp`).
+    // House XML + map tiles, then DB owner/lists/`tile_store` (`IOMapSerialize::loadHouseInfo`).
+    world.houses.apply_xml_entries(&houses_xml);
     world.houses.ensure_houses(map_house_ids.iter().copied());
+    world.house_scan_map();
     {
         let house_store = tfs_rust_db::HouseStore::new(&db);
         match house_store.load_house_owners().await {
             Ok(owners) => {
                 for row in &owners {
-                    world.houses.set_owner(row.id, row.owner);
+                    world.houses.apply_owner_row(row);
                 }
+                let mut owner_names: std::collections::HashMap<u32, String> =
+                    std::collections::HashMap::new();
+                for row in &owners {
+                    if row.owner_u32() == 0 || owner_names.contains_key(&row.owner_u32()) {
+                        continue;
+                    }
+                    let owner = row.owner_u32();
+                    match house_store.name_by_guid(owner).await {
+                        Ok(Some(name)) => {
+                            owner_names.insert(owner, name);
+                        }
+                        Ok(None) => {}
+                        Err(e) => tracing::warn!(
+                            guid = owner,
+                            error = %e,
+                            "house owner name resolve failed"
+                        ),
+                    }
+                }
+                world.houses.apply_owner_names(&owner_names);
                 info!(count = owners.len(), "loaded house owners");
             }
             Err(e) => tracing::warn!(error = %e, "house owners load failed"),
@@ -483,16 +527,38 @@ pub async fn run() -> anyhow::Result<()> {
                         name_cache.insert(name, guid);
                     }
                 }
+                for (name, guid) in &name_cache {
+                    if let Some(g) = guid {
+                        world.houses.name_to_guid.insert(name.clone(), *g);
+                    }
+                }
                 for row in &lists {
-                    world
-                        .houses
-                        .apply_list_row(row.house_id, row.listid, &row.list, |n| {
-                            name_cache.get(n).copied().flatten()
-                        });
+                    world.houses.apply_list_row(
+                        row.house_id_u32(),
+                        row.listid_u32(),
+                        &row.list,
+                        |n| name_cache.get(n).copied().flatten(),
+                    );
                 }
                 info!(count = lists.len(), "loaded house access lists");
             }
             Err(e) => tracing::warn!(error = %e, "house lists load failed"),
+        }
+        match house_store.load_tile_store().await {
+            Ok(rows) => {
+                world.load_house_tile_store(&rows);
+                info!(count = rows.len(), "loaded house tile_store");
+            }
+            Err(e) => tracing::warn!(error = %e, "house tile_store load failed"),
+        }
+        if let Err(e) = house_store
+            .upsert_house_info(&world.houses.house_info_upserts())
+            .await
+        {
+            tracing::warn!(error = %e, "house XML metadata upsert failed");
+        }
+        if let Err(e) = world.process_and_persist_houses().await {
+            tracing::warn!(error = %e, "boot house process failed");
         }
     }
 

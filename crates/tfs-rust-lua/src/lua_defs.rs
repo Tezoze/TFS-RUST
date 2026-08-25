@@ -28,7 +28,8 @@ use crate::userdata::monster_type::MonsterTypeRef;
 use crate::userdata::npc::NpcRef;
 use crate::userdata::position::PositionRef;
 use crate::userdata::spell::{PendingSpell, SpellBuilder};
-use crate::userdata::tile::{HouseRef, TileRef};
+use crate::userdata::house::HouseRef;
+use crate::userdata::tile::TileRef;
 use crate::userdata::town::TownRef;
 use crate::userdata::vocation::VocationRef;
 use crate::userdata::weapon::{PendingWeapon, WeaponBuilder};
@@ -575,9 +576,18 @@ mod tests {
         );
 
         let house = snap.classes.get("House").expect("House");
+        assert!(house.callable, "House(id) is callable");
         assert!(
             house.methods.contains("getId"),
             "House:getId is a native method (E7)"
+        );
+        assert!(
+            house.methods.contains("getName"),
+            "House:getName is a native method"
+        );
+        assert!(
+            house.methods.contains("kickPlayer"),
+            "House:kickPlayer is a native method"
         );
 
         let town = snap.classes.get("Town").expect("Town");
@@ -621,6 +631,18 @@ mod tests {
             "Creature:getTown is a native method"
         );
         assert!(
+            creature.methods.contains("getTile"),
+            "Creature:getTile is a native method"
+        );
+        assert!(
+            creature.methods.contains("setEditHouse"),
+            "Creature:setEditHouse is a native method"
+        );
+        assert!(
+            creature.methods.contains("sendHouseWindow"),
+            "Creature:sendHouseWindow is a native method"
+        );
+        assert!(
             creature.methods.contains("getIp"),
             "Creature:getIp is a native method"
         );
@@ -653,6 +675,10 @@ mod tests {
         assert!(
             game.table_functions.contains("saveServer"),
             "Game.saveServer is a class-table function (luaSaveServer)"
+        );
+        assert!(
+            game.table_functions.contains("getHouses"),
+            "Game.getHouses is a class-table function"
         );
         assert!(
             snap.functions.contains("saveServer"),

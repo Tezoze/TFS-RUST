@@ -318,6 +318,9 @@ fn register_misc(globals: &mlua::Table) -> Result<(), mlua::Error> {
     // `onGainSkillTries` to gate the skill-rate multiplier path. TFS default
     // is `true`; kept as a boolean global (not an enum).
     globals.set("APPLY_SKILL_MULTIPLIER", true)?;
+    // TFS `house.h` `GUEST_LIST` / `SUBOWNER_LIST` — access-list window ids.
+    globals.set("GUEST_LIST", 0x100i32)?;
+    globals.set("SUBOWNER_LIST", 0x101i32)?;
     Ok(())
 }
 
@@ -444,6 +447,9 @@ mod tests {
 
         // VOCATION_NONE (enums.h:297)
         assert_eq!(get("VOCATION_NONE"), 0);
+
+        assert_eq!(get("GUEST_LIST"), 0x100);
+        assert_eq!(get("SUBOWNER_LIST"), 0x101);
 
         // CONDITION_* (enums.h:266-268,275,136,146,147,179)
         assert_eq!(get("CONDITION_SOUL"), 1 << 13);

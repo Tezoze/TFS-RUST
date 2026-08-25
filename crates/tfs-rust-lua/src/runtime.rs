@@ -35,7 +35,7 @@ use crate::userdata::{
     register_item_type_constructor, register_item_type_metatable, register_monster_metatable,
     register_monster_type_constructor, register_npc_metatable, register_outfit_constructor,
     register_position_metatable, register_spell_metatable, register_tile_constructor,
-    register_town_constructor, register_vocation_constructor, register_vocation_metatable,
+    register_house_constructor, register_town_constructor, register_vocation_constructor, register_vocation_metatable,
     register_weapon_metatable,
 };
 use tfs_rust_common::Position;
@@ -224,6 +224,7 @@ impl LuaRuntime {
         register_event_script_bootstrap_with(&lua, Rc::clone(&scripts_interface))
             .map_err(LuaError::Registration)?;
         register_tile_constructor(&lua).map_err(LuaError::Registration)?;
+        register_house_constructor(&lua).map_err(LuaError::Registration)?;
         register_town_constructor(&lua).map_err(LuaError::Registration)?;
         register_vocation_constructor(&lua).map_err(LuaError::Registration)?;
         register_outfit_constructor(&lua).map_err(LuaError::Registration)?;
@@ -2145,6 +2146,19 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
             let table = lua.create_table()?;
             for (i, id) in ids.into_iter().enumerate() {
                 let ud = lua.create_userdata(CreatureRef(id))?;
+                table.set(i + 1, ud)?;
+            }
+            Ok(table)
+        })?,
+    )?;
+    game.set(
+        "getHouses",
+        lua.create_function(|lua, ()| {
+            let ids =
+                crate::context::current_ctx(|ctx| ctx.list_house_ids()).unwrap_or_default();
+            let table = lua.create_table()?;
+            for (i, id) in ids.into_iter().enumerate() {
+                let ud = lua.create_userdata(crate::userdata::HouseRef(id))?;
                 table.set(i + 1, ud)?;
             }
             Ok(table)

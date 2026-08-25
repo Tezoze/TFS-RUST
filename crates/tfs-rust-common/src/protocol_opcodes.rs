@@ -308,6 +308,10 @@ pub mod server {
     /// 772: `gameserver/src/protocolgame.cpp:1925`; 1098: `src/protocolgame.cpp:2999`.
     /// Layout differs (772 has no date; 772 `addItem` has no MARK); opcode is shared.
     pub const TEXT_WINDOW: u8 = 0x96;
+    /// `ProtocolGame::sendHouseWindow` — house access-list editor.
+    /// 772: `gameserver/src/protocolgame.cpp:1937`; 1098: `src/protocolgame.cpp:3012`.
+    /// Layout: `0x97 | u8 0x00 | u32 windowTextId | string text`.
+    pub const HOUSE_WINDOW: u8 = 0x97;
 
     /// Self-appear opcode (`ProtocolGame::sendAddCreature` self branch). Version-keyed:
     /// 772 = `0x0A` (`gameserver/src/protocolgame.cpp`), 1098 = `0x17` (repo-root `src/protocolgame.cpp`).

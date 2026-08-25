@@ -60,4 +60,12 @@ pub enum GameCommand {
     UnregisterOutputSink { conn_id: ConnId },
     /// One decoded client game packet.
     Game { conn_id: ConnId, packet: GamePacket },
+    /// Access-list names resolved off the game thread (`guid_by_name`).
+    /// Re-apply the list text with the new GUID map.
+    HouseNamesResolved {
+        house_id: u32,
+        list_id: u32,
+        text: String,
+        resolved: Vec<(String, u32)>,
+    },
 }

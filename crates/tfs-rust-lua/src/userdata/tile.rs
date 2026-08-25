@@ -8,6 +8,7 @@ use mlua::{MetaMethod, UserData, UserDataMethods, Value};
 
 use crate::context::{CURRENT_CTX, CreatureRef, ItemRef};
 use crate::lua_mutation::call_lua_tile_add_item;
+use crate::userdata::house::HouseRef;
 use crate::userdata::item::parse_lua_item_type_id;
 use crate::userdata::position::PositionRef;
 
@@ -17,22 +18,6 @@ pub struct TileRef {
     pub x: u16,
     pub y: u16,
     pub z: u8,
-}
-
-/// House handle for `tile:getHouse()` — TFS `luaTileGetHouse`.
-/// Truthy userdata (never `0`). E7; 772 `IsHouse` (`map.cc:2474`).
-#[derive(Clone, Copy, Debug)]
-pub struct HouseRef(pub u32);
-
-impl UserData for HouseRef {
-    fn register(registry: &mut mlua::UserDataRegistry<Self>) {
-        crate::class_registry::register_with_recording(registry, "House");
-    }
-
-    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        // `house:getId()` — TFS `luaHouseGetId`.
-        methods.add_method("getId", |_, this, ()| Ok(this.0));
-    }
 }
 
 impl UserData for TileRef {
@@ -546,8 +531,6 @@ pub(crate) fn parse_create_tile_args(
 /// `__call` ctor. Gap 7a — C++ `LuaScriptInterface::registerClass`.
 pub fn register_tile_constructor(lua: &mlua::Lua) -> Result<(), mlua::Error> {
     lua.register_userdata_type::<TileRef>(|_registry| {})?;
-    lua.register_userdata_type::<HouseRef>(|_registry| {})?;
-    crate::class_registry::register_class(lua, "House", None)?;
     let tile_new = lua.create_function(|lua, args: mlua::MultiValue| {
         let (x, y, z) = parse_tile_args(args)?;
         let exists = CURRENT_CTX.with(|c| {
@@ -658,6 +641,7 @@ mod tests {
     fn e7_get_house_is_nil_or_userdata_never_zero() {
         let lua = Lua::new();
         register_tile_constructor(&lua).expect("tile");
+        crate::userdata::register_house_constructor(&lua).expect("house");
 
         with_lua_context(&TileCtx, || {
             let house_tile = lua

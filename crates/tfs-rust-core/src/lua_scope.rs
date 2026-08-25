@@ -491,6 +491,61 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
         LuaMutation::CreatureRemove { creature_id } => {
             unsafe { &mut *world }.lua_script_creature_remove(creature_id)
         }
+        LuaMutation::HouseSetOwner { house_id, guid } => {
+            unsafe { &mut *world }.lua_script_house_set_owner(house_id, guid);
+            Ok(())
+        }
+        LuaMutation::HouseSetAccessList {
+            house_id,
+            list_id,
+            text,
+        } => {
+            unsafe { &mut *world }.lua_script_house_set_access_list(house_id, list_id, text);
+            Ok(())
+        }
+        LuaMutation::HouseKickPlayer {
+            house_id,
+            kicker_id,
+            target_id,
+        } => {
+            let ok = unsafe { &mut *world }.lua_script_house_kick_player(
+                house_id,
+                kicker_id,
+                target_id,
+            );
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
+        LuaMutation::HouseSave { house_id } => {
+            let _ = house_id;
+            Ok(())
+        }
+        LuaMutation::PlayerSetEditHouse {
+            creature_id,
+            house_id,
+            list_id,
+        } => {
+            let ok = unsafe { &mut *world }.lua_script_player_set_edit_house(
+                creature_id,
+                house_id,
+                list_id,
+            );
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
+        LuaMutation::PlayerSendHouseWindow {
+            creature_id,
+            house_id,
+            list_id,
+        } => {
+            let ok = unsafe { &mut *world }.lua_script_player_send_house_window(
+                creature_id,
+                house_id,
+                list_id,
+            );
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
     }
 }
 

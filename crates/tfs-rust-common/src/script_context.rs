@@ -1017,6 +1017,51 @@ pub trait ScriptContext {
         let _ = (x, y, z);
         None
     }
+
+    /// `House(id)` / `Game.getHouses()` — TFS `luaHouseCreate` / `luaGameGetHouses`.
+    fn get_house(&self, house_id: u32) -> Option<ScriptHouseData> {
+        let _ = house_id;
+        None
+    }
+
+    fn list_house_ids(&self) -> Vec<u32> {
+        Vec::new()
+    }
+
+    fn house_access_list(&self, house_id: u32, list_id: u32) -> Option<String> {
+        let _ = (house_id, list_id);
+        None
+    }
+
+    fn house_door_id_at(&self, house_id: u32, x: u16, y: u16, z: u8) -> Option<u8> {
+        let _ = (house_id, x, y, z);
+        None
+    }
+
+    fn house_can_edit_access_list(
+        &self,
+        house_id: u32,
+        list_id: u32,
+        creature_id: ScriptCreatureId,
+    ) -> bool {
+        let _ = (house_id, list_id, creature_id);
+        false
+    }
+}
+
+/// House snapshot for Lua `House` userdata (`luascript.cpp` house bindings).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScriptHouseData {
+    pub id: u32,
+    pub name: String,
+    pub town_id: u32,
+    pub rent: u32,
+    pub owner_guid: u32,
+    pub exit: Position,
+    pub tiles: Vec<Position>,
+    pub door_item_ids: Vec<ScriptItemId>,
+    pub bed_item_ids: Vec<ScriptItemId>,
+    pub player_ids: Vec<ScriptCreatureId>,
 }
 
 /// Town snapshot for Lua `Town` userdata (`luascript.cpp` `luaTownCreate`).

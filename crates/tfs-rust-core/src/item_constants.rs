@@ -7,5 +7,7 @@ pub const ITEM_LOCKER1: u16 = 2589;
 pub const ITEM_DEPOT: u16 = 2594;
 /// Player inbox — `ITEM_INBOX`.
 pub const ITEM_INBOX: u16 = 14404;
+/// Stamped letter — `ITEM_LETTER_STAMPED` (`const.h`).
+pub const ITEM_LETTER_STAMPED: u16 = 2598;
 /// Market slot inside virtual depot locker — `ITEM_MARKET`.
 pub const ITEM_MARKET: u16 = 14405;

@@ -197,7 +197,7 @@ mysqlPort = 3306
 | `TFS_LOGIN_ADDR` / `TFS_GAME_ADDR` | Bind addresses |
 | `TFS_GAME_PORT` / `TFS_PUBLIC_IP` | What clients are told for the game server |
 | `TFS_SERVER_NAME` / `TFS_MOTD` | Override `serverName` / `motd` from `config.lua` |
-| `TFS_MAP_OTBM` | OTBM path under `TFS_DATA_DIR` (not a `config.lua` key) |
+| `TFS_MAP_OTBM` | Overrides `config.lua` `mapName` OTBM path under `TFS_DATA_DIR` |
 | `RUST_LOG` | Log filter, e.g. `info,tfs_rust_core=debug` |
 
 ### 6.2 Database

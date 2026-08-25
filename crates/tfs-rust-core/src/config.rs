@@ -231,6 +231,27 @@ impl ConfigManager {
         get_bool_or(self, "defaultWorldLight", true)
     }
 
+    /// TVP/TFS `mapName` — stem of `data/world/{name}.otbm` (default `forgotten`).
+    pub fn map_name(&self) -> Result<String> {
+        let raw = get_string_or(self, "mapName", "forgotten")?;
+        Ok(normalize_map_name(&raw))
+    }
+
+    /// TVP/TFS `mapAuthor` (informational; unused by mechanics).
+    pub fn map_author(&self) -> Result<String> {
+        get_string_or(self, "mapAuthor", "")
+    }
+
+    /// OTBM path under the data dir: `world/{mapName}.otbm`.
+    pub fn map_otbm_relative(&self) -> Result<String> {
+        Ok(otbm_relative_for_map_name(&self.map_name()?))
+    }
+
+    /// Associated house XML under the data dir: `world/{mapName}-houses.xml`.
+    pub fn map_houses_xml_relative(&self) -> Result<String> {
+        Ok(houses_xml_relative_for_map_name(&self.map_name()?))
+    }
+
     /// Scale try gains by a config rate — TFS `Player:onGainSkillTries`
     /// (`tries = tries * rateSkill` / `rateMagic`). Uses `floor(base * rate)`.
     #[inline]
@@ -770,6 +791,31 @@ pub fn resolve_protocol_version(cfg: &ConfigManager) -> Result<ProtocolVersion> 
     protocol_version_from_config(cfg)
 }
 
+/// Strip `.otbm` and empty/whitespace from `mapName`.
+pub fn normalize_map_name(raw: &str) -> String {
+    let t = raw.trim();
+    let t = t
+        .strip_suffix(".otbm")
+        .or_else(|| t.strip_suffix(".OTBM"))
+        .unwrap_or(t)
+        .trim();
+    if t.is_empty() {
+        "forgotten".to_string()
+    } else {
+        t.to_string()
+    }
+}
+
+/// `world/{mapName}.otbm` under the data dir.
+pub fn otbm_relative_for_map_name(map_name: &str) -> String {
+    format!("world/{}.otbm", normalize_map_name(map_name))
+}
+
+/// Associated house XML: `world/{mapName}-houses.xml`.
+pub fn houses_xml_relative_for_map_name(map_name: &str) -> String {
+    format!("world/{}-houses.xml", normalize_map_name(map_name))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1044,5 +1090,32 @@ mod tests {
         let cfg = config_from_lua("clientVersion = 999");
         let err = protocol_version_from_config(&cfg).expect_err("unsupported");
         assert!(matches!(err, TfsRustError::Config(_)));
+    }
+
+    #[test]
+    fn map_name_defaults_to_forgotten() {
+        let cfg = config_from_lua("");
+        assert_eq!(cfg.map_name().expect("default"), "forgotten");
+        assert_eq!(
+            cfg.map_otbm_relative().expect("otbm"),
+            "world/forgotten.otbm"
+        );
+        assert_eq!(
+            cfg.map_houses_xml_relative().expect("houses"),
+            "world/forgotten-houses.xml"
+        );
+    }
+
+    #[test]
+    fn map_name_selects_otbm_and_houses_xml() {
+        let cfg = config_from_lua(r#"mapName = "map""#);
+        assert_eq!(cfg.map_name().expect("name"), "map");
+        assert_eq!(cfg.map_otbm_relative().expect("otbm"), "world/map.otbm");
+        assert_eq!(
+            cfg.map_houses_xml_relative().expect("houses"),
+            "world/map-houses.xml"
+        );
+        let cfg = config_from_lua(r#"mapName = "forgotten.otbm""#);
+        assert_eq!(cfg.map_name().expect("strip"), "forgotten");
     }
 }
