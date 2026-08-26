@@ -1,18 +1,11 @@
-# 772 client crash on map teleporters
+# Depot locker open freeze
 
 **Status:** complete.
 
-Walk `NotifyGo` must precede teleport `0x64`. Specials ran inside `internal_move_creature_step` and crashed official 772.
-
-## Done
-
-1. Defer `apply_tile_creature_specials` until after walk packets
-2. FX after the teleport move
-3. Spectator notify on teleport path
-4. Test: `0x6D` before dest `0x64`
+Virtual locker `Item.parent` is `None`. Open packet `has_parent` used `discover_item_parent` → full-map `find_item_position` (~518 ms). Skip that scan for unmapped virtual roots.
 
 ## Verify
 
-`rtk cargo test -p tfs-rust-core --lib -- stepping_on_teleport teleport_772`
+`rtk cargo test -p tfs-rust-core --lib -- virtual_depot_locker_parent_is_none_without_tile`
 
-Restart the server, then step on a forcefield.
+Restart the server and open a depot locker; it should no longer hitch ~0.5 s.

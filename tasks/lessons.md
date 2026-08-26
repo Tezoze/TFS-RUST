@@ -839,3 +839,18 @@
 387. **Map teleport specials must run after walk self-packets** (`walk/mod.rs` `on_walk`; `tile_specials.rs`; TFS `tile.cpp` `postAddNotification` after `sendCreatureMove`; 772 `CollisionEvent` after `NotifyCreature`): Firing `Teleport::addThing` inside `internal_move_creature_step` emitted `0x6C`+`0x64` **before** `NotifyGo`. Official 772 still had the player at the origin, so pad-remove / dest fullscreen hit the wrong map centre (`Map.cpp` assert). Then `on_walk` sent a second `NotifyGo` origin→dest. Defer specials until after walk packets; FX after the move (TFS `addMagicEffect` after `moveCreature`).
     *(August 2026)*
 
+388. **Logout puff is `CONST_ME_POFF` (3), not block-hit (4)** (`broadcast_player_logout_poff`; TFS `ProtocolGame::logout` `addMagicEffect(..., CONST_ME_POFF)`): Disconnect/logout sent wire 4 (`CONST_ME_BLOCKHIT`). Kick-kill uses 4 on purpose (`monster_push.rs`); logout must use 3.
+    *(August 2026)*
+
+389. **Login `placeCreature` must `sendAddCreature` to spectators** (`place_player_on_login` → `broadcast_creature_appear`; TFS `Game::placeCreature` `game.cpp` ~552): Map register alone updates the sim; nearby clients already ran `removeCreature` on logout and never got `0x6A` on relog, so the tile stayed empty. Monster respawn already broadcast appear; player login did not. Skip self — the logging-in client gets the 0x64 burst.
+    *(August 2026)*
+
+390. **Login sparkle is `CONST_ME_TELEPORT` (11), including 772** (TVP `game.cpp:537-540` `addMagicEffect` after `sendAddCreature` when the placed creature is a player): Spectator appear without `0x83` looks like a silent pop-in. The 772 login burst comment treated teleport as 10.98-only — TVP `sendAddCreature` self has no effect, but `Game::placeCreature` always broadcasts 11 afterward. Spectators get it from `notify_player_login_placed`; self 772 burst enqueues it after icons.
+    *(August 2026)*
+
+391. **Lua `sendCancelMessage(RETURNVALUE_*)` must use `getReturnMessage`, not `"Return code: N"`** (`userdata/player.rs` `return_value_message`; TVP `tools.cpp:982`): Levitate (`exani hur`) and magic rope (`exani tera`) pass `NOTPOSSIBLE` (1) / `NOTENOUGHROOM` (2). The Lua mapper only listed a few channel codes, so 1/2 became `"Return code: …"` and 0 became `"No error."`. C++ `default` is `"Sorry, not possible."`; room is `"There is not enough room."`. Also bind `Game.getReturnMessage`.
+    *(August 2026)*
+
+392. **Virtual depot locker open must not `map.find_item_position`** (`discover_item_parent`; `container_ui.rs` `build_container_open_packet`): Clicking a map locker opens a per-player virtual `DepotLocker` with `Item.parent = None`. `has_parent` called `resolve_item_parent_cylinder` → full-world tile scan (~8.5M items, ~518 ms) that never finds it. Skip the map scan for unmapped virtual roots (locker / depot chest / inbox). Ground bags still use `Item.parent` (hubs) or the map fallback.
+    *(August 2026)*
+

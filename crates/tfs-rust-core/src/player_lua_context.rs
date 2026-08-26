@@ -5,7 +5,7 @@
 use slotmap::Key;
 use tfs_rust_common::{ScriptContainerData, ScriptCylinder, ScriptItemId};
 
-use crate::container::ContainerIterator;
+use crate::container::{ContainerIterator, ContainerType};
 use crate::creature::CreatureKind;
 use crate::cylinder::Cylinder;
 use crate::game_world::GameWorld;
@@ -227,9 +227,27 @@ impl GameWorld {
                 }
             }
         }
+        // Virtual depot locker / inbox / depot chest live only in the registry — they are
+        // never on a tile. `map.find_item_position` is a full-world scan (~8.5M items) and
+        // always misses them (`build_container_open_packet` `has_parent` on locker open).
+        if self.container_is_unmapped_virtual_root(item_id) {
+            return None;
+        }
         self.map
             .find_item_position(item_id)
             .map(|pos| Cylinder::Tile { pos })
+    }
+
+    /// Per-player virtual container roots (`DepotLocker` / inbox / depot chest before locker attach).
+    fn container_is_unmapped_virtual_root(&self, item_id: ItemId) -> bool {
+        let Some(c) = self.container_registry.get(item_id) else {
+            return false;
+        };
+        c.depot_locker_town_id.is_some()
+            || matches!(
+                c.container_type,
+                ContainerType::Depot | ContainerType::Inbox | ContainerType::StoreInbox
+            )
     }
 
     /// Like [`Self::resolve_item_parent_cylinder`], but writes back a discovered parent.

@@ -575,4 +575,40 @@ mod tests {
             .expect("depot_chests entry");
         assert_eq!(stored_chest, chest);
     }
+
+    /// Virtual locker is not on a tile — `resolve_item_parent_cylinder` must not
+    /// fall through to `map.find_item_position` (`build_container_open_packet` has_parent).
+    #[test]
+    fn virtual_depot_locker_parent_is_none_without_tile() {
+        let mut world = minimal_world();
+        world.mechanics.profile.depot_locker_structure =
+            crate::formulas::DepotLockerStructure::ClassicDepotChest;
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("locker", pos));
+        let locker = world.player_get_depot_locker(cid, 1).expect("locker");
+        assert!(
+            world.items.get(locker).is_some_and(|i| i.parent.is_none()),
+            "virtual locker has no cylinder parent"
+        );
+        assert_eq!(
+            world.resolve_item_parent_cylinder(locker),
+            None,
+            "locker open must not invent a tile parent"
+        );
+        let chest = world
+            .creatures
+            .get(cid)
+            .and_then(|k| match k {
+                CreatureKind::Player(p) => p.depot_chests.get(&1).copied(),
+                _ => None,
+            })
+            .expect("chest");
+        assert!(
+            matches!(
+                world.resolve_item_parent_cylinder(chest),
+                Some(crate::cylinder::Cylinder::Container { item_id, .. }) if item_id == locker
+            ),
+            "chest parent is the virtual locker"
+        );
+    }
 }
