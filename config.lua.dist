@@ -110,3 +110,10 @@ serverSaveShutdown = true
 -- (forgotten-houses.xml / map-houses.xml). TFS_MAP_OTBM overrides mapName.
 mapName = "forgotten"
 mapAuthor = ""
+
+-- House talkactions (`!buyhouse` / `!leavehouse`). AAC auction settlement is
+-- unchanged; these keys only gate in-game purchase scripts.
+-- housePriceEachSQM: gold per tile; 0 = free buy for testing; -1 = use XML rent.
+housesOnlyPremium = false
+guildHallsOnlyForLeaders = false
+housePriceEachSQM = 0

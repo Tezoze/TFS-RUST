@@ -589,6 +589,10 @@ mod tests {
             house.methods.contains("kickPlayer"),
             "House:kickPlayer is a native method"
         );
+        assert!(
+            house.methods.contains("isGuildHall"),
+            "House:isGuildHall is a native method"
+        );
 
         let town = snap.classes.get("Town").expect("Town");
         assert!(town.callable, "Town(id or name) is callable");
@@ -602,6 +606,10 @@ mod tests {
         );
 
         let creature = snap.classes.get("Creature").expect("Creature");
+        assert!(
+            creature.methods.contains("getHouse"),
+            "Creature:getHouse is a native method"
+        );
         assert!(
             creature.methods.contains("addHealth"),
             "Creature:addHealth is a native method (E4)"

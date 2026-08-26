@@ -2433,9 +2433,15 @@ impl RegisterLuaFunctions for MinimalGlobalFunctions {
         )?;
         config_manager.set(
             "getNumber",
-            lua.create_function(|_, _key: mlua::Value| {
-                // TODO: broader integer config map
-                Ok(Some(0i64))
+            lua.create_function(|_, key: mlua::Value| {
+                let name = config_key_to_lua_number(&key);
+                let Some(name) = name else {
+                    return Ok(Some(0i64));
+                };
+                Ok(Some(
+                    crate::context::current_ctx(|ctx| ctx.get_config_number(name).unwrap_or(0))
+                        .unwrap_or(0),
+                ))
             })?,
         )?;
         config_manager.set(
@@ -2491,22 +2497,41 @@ fn config_key_to_lua_bool(key: &mlua::Value) -> Option<&'static str> {
         mlua::Value::String(s) => match s.to_str().ok()?.as_ref() {
             "freePremium" | "FREE_PREMIUM" => Some("freePremium"),
             "defaultWorldLight" | "DEFAULT_WORLD_LIGHT" => Some("defaultWorldLight"),
+            "housesOnlyPremium" | "HOUSES_ONLY_PREMIUM" => Some("housesOnlyPremium"),
+            "guildHallsOnlyForLeaders" | "GUILHALLS_ONLYFOR_LEADERS" => {
+                Some("guildHallsOnlyForLeaders")
+            }
             _ => None,
         },
         mlua::Value::Integer(i) => match *i {
             // TVP `boolean_config_t::FREE_PREMIUM`
             7 => Some("freePremium"),
-            // TVP `boolean_config_t::DEFAULT_WORLD_LIGHT`
+            // TVP `boolean_config_t::DEFAULT_WORLD_LIGHT` (legacy map; TVP is 19)
             18 => Some("defaultWorldLight"),
+            // TVP `boolean_config_t::GUILHALLS_ONLYFOR_LEADERS`
+            49 => Some("guildHallsOnlyForLeaders"),
+            // TVP `boolean_config_t::HOUSES_ONLY_PREMIUM`
+            50 => Some("housesOnlyPremium"),
             _ => None,
         },
-        mlua::Value::Number(n) => {
-            if (*n as i64) == 7 {
-                Some("freePremium")
-            } else {
-                None
-            }
-        }
+        mlua::Value::Number(n) => config_key_to_lua_bool(&mlua::Value::Integer(*n as i64)),
+        _ => None,
+    }
+}
+
+/// Map `configKeys.HOUSE_PRICE` / `"housePriceEachSQM"` → `config.lua` key.
+fn config_key_to_lua_number(key: &mlua::Value) -> Option<&'static str> {
+    match key {
+        mlua::Value::String(s) => match s.to_str().ok()?.as_ref() {
+            "housePriceEachSQM" | "HOUSE_PRICE" => Some("housePriceEachSQM"),
+            _ => None,
+        },
+        mlua::Value::Integer(i) => match *i {
+            // TVP `integer_config_t::HOUSE_PRICE`
+            8 => Some("housePriceEachSQM"),
+            _ => None,
+        },
+        mlua::Value::Number(n) => config_key_to_lua_number(&mlua::Value::Integer(*n as i64)),
         _ => None,
     }
 }

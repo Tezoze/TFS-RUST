@@ -66,6 +66,7 @@ function Creature:getFood(...) end
 function Creature:getFreeCapacity(...) end
 function Creature:getGroup(...) end
 function Creature:getGuid(...) end
+function Creature:getHouse(...) end
 function Creature:getId(...) end
 function Creature:getInbox(...) end
 function Creature:getInstantSpells(...) end
@@ -111,11 +112,13 @@ function Creature:registerEvent(...) end
 function Creature:remove(...) end
 function Creature:removeCondition(...) end
 function Creature:removeItem(...) end
+function Creature:removeMoney(...) end
 function Creature:say(...) end
 function Creature:sendCancelMessage(...) end
 function Creature:sendHouseWindow(...) end
 function Creature:sendOutfitWindow(...) end
 function Creature:sendTextMessage(...) end
+function Creature:setBankBalance(...) end
 function Creature:setDirection(...) end
 function Creature:setEditHouse(...) end
 function Creature:setGhostMode(...) end
@@ -185,6 +188,7 @@ function House:getTileCount(...) end
 function House:getTiles(...) end
 function House:getTown(...) end
 function House:getTownId(...) end
+function House:isGuildHall(...) end
 function House:kickPlayer(...) end
 function House:save(...) end
 function House:setAccessList(...) end

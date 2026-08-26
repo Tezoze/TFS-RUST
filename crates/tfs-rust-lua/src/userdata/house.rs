@@ -1,7 +1,7 @@
 //! House userdata for Lua (`House` in TFS scripts).
 //!
 //! Pack surface: TFS `luascript.cpp` `luaHouseCreate` / house methods.
-//! Acquisition (`startTrade`) is omitted — AAC-only.
+//! `startTrade` omitted until player trade; `!buyhouse` uses `setOwnerGuid`.
 
 use mlua::{MetaMethod, UserData, UserDataMethods, Value};
 
@@ -46,6 +46,9 @@ impl UserData for HouseRef {
         methods.add_method("getRent", |_, this, ()| {
             Ok(current_ctx(|ctx| ctx.get_house(this.0).map(|h| h.rent)).flatten())
         });
+
+        // `house:isGuildHall()` — TFS `luaHouseIsGuildHall`. No guildhall XML yet → false.
+        methods.add_method("isGuildHall", |_, _this, ()| Ok(false));
 
         methods.add_method("getOwnerGuid", |_, this, ()| {
             Ok(current_ctx(|ctx| ctx.get_house(this.0).map(|h| h.owner_guid)).flatten())

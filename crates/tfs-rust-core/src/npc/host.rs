@@ -481,4 +481,30 @@ impl GameWorld {
         }
         self.player_create_money(cid, amount_i)
     }
+
+    /// TFS `Player::removeMoney` — inventory gold/platinum/crystal only.
+    pub fn player_remove_money_u64(&mut self, player_u64: u64, amount: u64) -> bool {
+        let Some(cid) = self.resolve_creature_u64(player_u64) else {
+            return false;
+        };
+        if amount == 0 {
+            return true;
+        }
+        let Ok(amount_i) = i32::try_from(amount) else {
+            return false;
+        };
+        self.player_delete_money(cid, amount_i).is_ok()
+    }
+
+    /// TFS `Player::setBankBalance`.
+    pub fn player_set_bank_balance_u64(&mut self, player_u64: u64, balance: u64) -> bool {
+        let Some(cid) = self.resolve_creature_u64(player_u64) else {
+            return false;
+        };
+        let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
+            return false;
+        };
+        p.economy.balance = balance;
+        true
+    }
 }

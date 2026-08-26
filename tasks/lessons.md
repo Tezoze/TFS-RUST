@@ -799,7 +799,7 @@
 376. **House system: corpus rent/eviction, TFS lists/XML/Lua, AAC auctions** (`house/`; `houses_xml.rs`; `houses.cc` `CollectRent`/`CleanHouse`/`FinishAuctions`; TFS `house.cpp` / `iomapserialize.cpp`):
     - **Eviction target:** town depot (corpus `CleanHouse`), not 1098 inbox.
     - **Rent source:** depot cash (corpus), not 1098 bank balance. Monthly `paid_until += 30d`, 7-day grace, one warning letter.
-    - **Auctions:** MyAAC writes `bid`/`bid_end`/`highest_bidder`; the server only **settles** when `bid_end` elapses (`rent + bid` from depot). No native `StartAuctions`, no in-game `!buyhouse`/`!sellhouse` / `house:startTrade`. Failed payment leaves the house free and clears bid columns.
+    - **Auctions:** MyAAC writes `bid`/`bid_end`/`highest_bidder`; the server only **settles** when `bid_end` elapses (`rent + bid` from depot). No native `StartAuctions`. In-game `!buyhouse` / `!leavehouse` are wired for testing (`setOwnerGuid`); `!sellhouse` / `house:startTrade` still wait on player trade.
     - **Access lists:** TFS `GUEST_LIST` 0x100 / `SUBOWNER_LIST` 0x101 / door byte (`house_lists` + MyAAC). Syntax is TFS (`*`, skip `@guild`) — not corpus `MatchString` wildcards / `!` negation.
     - **XML rent:** pack ships per-house `rent`; do not recompute `SQMPrice * Size + RentOffset`.
     - **Wire:** `sendHouseWindow` is `0x97 | u8 0x00 | u32 windowTextId | string`. Incoming `0x8A` requires `doorId == 0`; the following u32 is `windowTextId` (not house id).
@@ -816,5 +816,11 @@
     *(August 2026)*
 
 379. **`mapName` selects `world/{name}.otbm` and `{name}-houses.xml`** (`config.lua` `mapName` / `mapAuthor`; `pipeline.rs` `house_xml_candidate_names`): `mapName = "forgotten"` → `forgotten.otbm` + **`forgotten-houses.xml`**. `"map"` → `map.otbm` + `map-houses.xml`. TFS `iomap.h` `{map}-house.xml` is fallback only. `TFS_MAP_OTBM` still overrides the OTBM path.
+    *(August 2026)*
+
+381. **`!buyhouse` / `!leavehouse` for testing** (`configKeys.HOUSES_ONLY_PREMIUM` / `GUILHALLS_ONLYFOR_LEADERS` / `HOUSE_PRICE`; `player:getHouse` / `removeMoney` / `setBankBalance`; `house:isGuildHall` → false): pack talkactions need real `configManager.getNumber` (`housePriceEachSQM`; `0` = free buy, `-1` = XML rent) and inventory/bank money APIs for `Player.removeTotalMoney`. AAC auction settlement unchanged. `!sellhouse` still blocked on missing `house:startTrade` / player trade.
+    *(August 2026)*
+
+382. **House door open state must transform OTBM door, not stack** (`house/serialize.rs`; TFS `IOMapSerialize::loadItem` ~150–175): `tile_store` correctly saves the open door type id. Boot loads OTBM **closed** door then tile_store; matching required the **same** server id, so the open door was **added** on top. Fix: door↔door / bed↔bed match, then `change_item_type`; unmatched stationary is discarded (TFS dummy path), not placed.
     *(August 2026)*
 

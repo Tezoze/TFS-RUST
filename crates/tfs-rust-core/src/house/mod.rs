@@ -109,6 +109,13 @@ impl HouseManager {
         self.records.entry(house_id).or_insert_with(|| House::new(house_id));
     }
 
+    /// TFS `Map::getHouseByPlayerId` — first house owned by `guid`, if any.
+    pub fn house_id_for_owner(&self, guid: u32) -> Option<u32> {
+        self.houses.iter().find_map(|(id, access)| {
+            (access.owner_guid == Some(guid)).then_some(*id)
+        })
+    }
+
     /// TFS `House::ownerName` after `IOLoginData::getNameByGuid`.
     pub fn set_owner_name(&mut self, house_id: u32, name: String) {
         if let Some(access) = self.houses.get_mut(&house_id) {
@@ -341,5 +348,17 @@ mod tests {
         h.apply_list_row(1, GUEST_LIST, "*", |_| None);
         assert!(h.is_invited(1, 999));
         assert!(!h.door_can_use(1, 1, 999, false));
+    }
+
+    #[test]
+    fn house_id_for_owner_finds_owned_house() {
+        let mut h = HouseManager::default();
+        h.set_owner(7, 42);
+        h.set_owner(8, 99);
+        assert_eq!(h.house_id_for_owner(42), Some(7));
+        assert_eq!(h.house_id_for_owner(99), Some(8));
+        assert_eq!(h.house_id_for_owner(1), None);
+        h.set_owner(7, 0);
+        assert_eq!(h.house_id_for_owner(42), None);
     }
 }

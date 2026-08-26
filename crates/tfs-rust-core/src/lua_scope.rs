@@ -303,6 +303,25 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             creature_id,
             amount,
         } => unsafe { &mut *world }.player_bank_withdraw_u64(creature_id, amount),
+        LuaMutation::PlayerRemoveMoney {
+            creature_id,
+            amount,
+        } => {
+            let ok = unsafe { &mut *world }.player_remove_money_u64(creature_id, amount);
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
+        LuaMutation::PlayerSetBankBalance {
+            creature_id,
+            balance,
+        } => {
+            let ok = unsafe { &mut *world }.player_set_bank_balance_u64(creature_id, balance);
+            if ok {
+                Ok(())
+            } else {
+                Err("player not found".into())
+            }
+        }
         LuaMutation::PlayerSetPremiumEndsAt {
             creature_id,
             ends_at,

@@ -230,6 +230,16 @@ pub enum LuaMutation {
         creature_id: u64,
         amount: u64,
     },
+    /// `player:removeMoney(amount)` — inventory coins only (`Player::removeMoney`).
+    PlayerRemoveMoney {
+        creature_id: u64,
+        amount: u64,
+    },
+    /// `player:setBankBalance(balance)` — TFS `luaPlayerSetBankBalance`.
+    PlayerSetBankBalance {
+        creature_id: u64,
+        balance: u64,
+    },
     /// `player:setPremiumEndsAt(timestamp)` — `Player::setPremiumTime` + DB.
     PlayerSetPremiumEndsAt {
         creature_id: u64,
@@ -939,6 +949,23 @@ pub fn call_lua_bank_withdraw(creature_id: u64, amount: u64) -> Result<(), Strin
     apply_mutation(LuaMutation::PlayerBankWithdraw {
         creature_id,
         amount,
+    })
+}
+
+/// `player:removeMoney(amount)` — returns whether inventory coins covered `amount`.
+pub fn call_lua_remove_money(creature_id: u64, amount: u64) -> Result<bool, String> {
+    apply_mutation(LuaMutation::PlayerRemoveMoney {
+        creature_id,
+        amount,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// `player:setBankBalance(balance)`.
+pub fn call_lua_set_bank_balance(creature_id: u64, balance: u64) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerSetBankBalance {
+        creature_id,
+        balance,
     })
 }
 

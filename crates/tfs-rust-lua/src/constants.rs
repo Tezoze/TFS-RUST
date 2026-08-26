@@ -324,12 +324,17 @@ fn register_misc(globals: &mlua::Table) -> Result<(), mlua::Error> {
     Ok(())
 }
 
-/// `configKeys` table — TVP `configmanager.h` `boolean_config_t` indices used by
-/// `configManager.getBoolean(configKeys.…)`.
+/// `configKeys` table — TVP `configmanager.h` enum indices used by
+/// `configManager.getBoolean` / `getNumber(configKeys.…)`.
 fn register_config_keys(lua: &Lua) -> Result<(), mlua::Error> {
     let keys = lua.create_table()?;
     // `boolean_config_t::FREE_PREMIUM` — index 7 in TVP `configmanager.h`.
     keys.set("FREE_PREMIUM", 7i32)?;
+    // TVP `boolean_config_t::GUILHALLS_ONLYFOR_LEADERS` / `HOUSES_ONLY_PREMIUM`.
+    keys.set("GUILHALLS_ONLYFOR_LEADERS", 49i32)?;
+    keys.set("HOUSES_ONLY_PREMIUM", 50i32)?;
+    // TVP `integer_config_t::HOUSE_PRICE` → `housePriceEachSQM`.
+    keys.set("HOUSE_PRICE", 8i32)?;
     lua.globals().set("configKeys", keys)?;
     Ok(())
 }
@@ -410,6 +415,22 @@ mod tests {
                 .get::<i32>("FREE_PREMIUM")
                 .expect("FREE_PREMIUM"),
             7
+        );
+        assert_eq!(
+            config_keys
+                .get::<i32>("GUILHALLS_ONLYFOR_LEADERS")
+                .expect("GUILHALLS_ONLYFOR_LEADERS"),
+            49
+        );
+        assert_eq!(
+            config_keys
+                .get::<i32>("HOUSES_ONLY_PREMIUM")
+                .expect("HOUSES_ONLY_PREMIUM"),
+            50
+        );
+        assert_eq!(
+            config_keys.get::<i32>("HOUSE_PRICE").expect("HOUSE_PRICE"),
+            8
         );
         assert_eq!(get("ITEM_ATTRIBUTE_ACTIONID"), 1 << 0);
         assert_eq!(get("ITEM_ATTRIBUTE_UNIQUEID"), 1 << 1);

@@ -966,6 +966,12 @@ pub trait ScriptContext {
         None
     }
 
+    /// `config.lua` integer (`housePriceEachSQM`, …) — `ConfigManager::getNumber`.
+    fn get_config_number(&self, key: &str) -> Option<i64> {
+        let _ = key;
+        None
+    }
+
     /// `player:getPremiumEndsAt()` — `accounts.premium_ends_at` unix seconds.
     fn get_player_premium_ends_at(&self, creature_id: ScriptCreatureId) -> Option<u32> {
         let _ = creature_id;
@@ -1026,6 +1032,12 @@ pub trait ScriptContext {
 
     fn list_house_ids(&self) -> Vec<u32> {
         Vec::new()
+    }
+
+    /// `player:getHouse()` — first house owned by this player GUID, if any.
+    fn house_id_for_owner_guid(&self, owner_guid: u32) -> Option<u32> {
+        let _ = owner_guid;
+        None
     }
 
     fn house_access_list(&self, house_id: u32, list_id: u32) -> Option<String> {

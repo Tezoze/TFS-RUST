@@ -95,6 +95,22 @@ impl UserData for CreatureRef {
             })
         });
 
+        // `player:getHouse()` — TFS `luaPlayerGetHouse` / `Map::getHouseByPlayerId`.
+        methods.add_method("getHouse", |lua, this, ()| {
+            let house_id = crate::context::current_ctx(|ctx| {
+                ctx.get_creature(this.0)
+                    .and_then(|c: CreatureData| ctx.house_id_for_owner_guid(c.guid))
+            })
+            .flatten();
+            match house_id {
+                Some(id) => {
+                    let ud = lua.create_userdata(crate::userdata::HouseRef(id))?;
+                    Ok(Value::UserData(ud))
+                }
+                None => Ok(Value::Nil),
+            }
+        });
+
         // `player:getLevel()` — `Player::getLevel` (`player.h`). LUA-2 read;
         // channel `onSpeak` gating (advertising.lua level-1 cancel).
         methods.add_method("getLevel", |_, this, ()| {
@@ -205,6 +221,18 @@ impl UserData for CreatureRef {
                     .unwrap_or(0) as u64;
                 Ok(g + p * 100 + c * 10_000)
             })
+        });
+
+        // `player:removeMoney(amount)` — TFS `luaPlayerRemoveMoney` / inventory coins.
+        methods.add_method("removeMoney", |_, this, amount: u64| {
+            crate::lua_mutation::call_lua_remove_money(this.0, amount).map_err(mlua::Error::runtime)
+        });
+
+        // `player:setBankBalance(balance)` — TFS `luaPlayerSetBankBalance`.
+        methods.add_method("setBankBalance", |_, this, balance: u64| {
+            crate::lua_mutation::call_lua_set_bank_balance(this.0, balance)
+                .map_err(mlua::Error::runtime)?;
+            Ok(())
         });
 
         methods.add_method_mut("depositMoney", |_, this, amount: u64| {

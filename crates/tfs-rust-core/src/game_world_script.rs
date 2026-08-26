@@ -1531,6 +1531,10 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         self.config.get_bool(key).ok()
     }
 
+    fn get_config_number(&self, key: &str) -> Option<i64> {
+        self.config.get_i64(key).ok()
+    }
+
     fn get_player_premium_ends_at(&self, creature_id: ScriptCreatureId) -> Option<u32> {
         let cid = self.resolve_creature_u64(creature_id)?;
         match self.creatures.get(cid)? {
@@ -1630,6 +1634,10 @@ impl tfs_rust_common::ScriptContext for GameWorld {
 
     fn list_house_ids(&self) -> Vec<u32> {
         self.houses.list_ids()
+    }
+
+    fn house_id_for_owner_guid(&self, owner_guid: u32) -> Option<u32> {
+        self.houses.house_id_for_owner(owner_guid)
     }
 
     fn house_access_list(&self, house_id: u32, list_id: u32) -> Option<String> {

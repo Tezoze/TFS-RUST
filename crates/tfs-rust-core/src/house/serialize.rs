@@ -43,6 +43,10 @@ pub fn should_save_house_item(world: &GameWorld, item_id: ItemId) -> bool {
     if it.moveable() {
         return true;
     }
+    // TFS `saveTile`: doors by type, not only ATTR_HOUSEDOORID.
+    if it.is_door() {
+        return true;
+    }
     if item_door_id(item) != 0 {
         return true;
     }
@@ -190,25 +194,40 @@ pub fn decode_tile_store_blob(
 }
 
 fn place_loaded_item(world: &mut GameWorld, pos: Position, loaded: LoadedHouseItem) -> Option<ItemId> {
-    if world.items_db.items.get(&loaded.server_id).is_none() {
+    let Some(loaded_it) = world.items_db.items.get(&loaded.server_id).cloned() else {
         tracing::warn!(itemtype = loaded.server_id, "house tile_store unknown item — skipped");
         return None;
-    }
-    // Stationary door/bed: match existing map item and overlay attrs (TFS `loadItem`).
-    if let Some(existing) = find_matching_stationary(world, pos, &loaded) {
-        if let Some(dst) = world.items.get_mut(existing) {
-            dst.attributes = loaded.item.attributes;
-            if loaded.item.count > 0 {
-                dst.count = loaded.item.count;
+    };
+    // Stationary door/bed/blackboard: match map item, attrs, then transform (TFS `loadItem`).
+    // Moveable (or force-serialize) items are always created fresh.
+    if !loaded_it.moveable() {
+        if let Some(existing) = find_matching_stationary(world, pos, &loaded) {
+            let new_type = loaded.server_id;
+            if let Some(dst) = world.items.get_mut(existing) {
+                dst.attributes = loaded.item.attributes;
+                if loaded.item.count > 0 {
+                    dst.count = loaded.item.count;
+                }
             }
+            // TFS `g_game.transformItem(item, id)` after unserializeAttr — open/closed door.
+            world.change_item_type(existing, new_type);
+            for child in loaded.children {
+                let Some(cid) = place_loaded_item(world, pos, child) else {
+                    continue;
+                };
+                add_child_to_container(world, existing, cid);
+            }
+            return Some(existing);
         }
-        for child in loaded.children {
-            let Some(cid) = place_loaded_item(world, pos, child) else {
-                continue;
-            };
-            add_child_to_container(world, existing, cid);
-        }
-        return Some(existing);
+        // Map changed since save — TFS discards stationary via dummy read; do not add a 2nd door.
+        tracing::debug!(
+            itemtype = loaded.server_id,
+            x = pos.x,
+            y = pos.y,
+            z = pos.z,
+            "house tile_store stationary item with no map match — discarded"
+        );
+        return None;
     }
     let mut item = loaded.item;
     item.item_type = loaded.server_id;
@@ -229,12 +248,16 @@ fn place_loaded_item(world: &mut GameWorld, pos: Position, loaded: LoadedHouseIt
     Some(iid)
 }
 
+/// TFS `IOMapSerialize::loadItem` stationary match (`iomapserialize.cpp` ~152–165):
+/// same id, else door↔door, else bed↔bed.
 fn find_matching_stationary(world: &GameWorld, pos: Position, loaded: &LoadedHouseItem) -> Option<ItemId> {
     let it = world.items_db.items.get(&loaded.server_id)?;
     if it.moveable() {
         return None;
     }
     let tile = world.map.get_tile(pos)?;
+    let loaded_is_door = it.is_door();
+    let loaded_is_bed = it.is_bed();
     let want_door = item_door_id(&loaded.item);
     for &id in tile
         .body()
@@ -245,13 +268,22 @@ fn find_matching_stationary(world: &GameWorld, pos: Position, loaded: &LoadedHou
         let Some(item) = world.items.get(id) else {
             continue;
         };
-        if item.item_type != loaded.server_id {
+        let Some(map_it) = world.items_db.items.get(&item.item_type) else {
             continue;
+        };
+        if item.item_type == loaded.server_id {
+            return Some(id);
         }
-        if want_door != 0 && item_door_id(item) != want_door {
-            continue;
+        if loaded_is_door && map_it.is_door() {
+            // Prefer same house door id when both sides have one (multi-door tiles).
+            if want_door != 0 && item_door_id(item) != 0 && item_door_id(item) != want_door {
+                continue;
+            }
+            return Some(id);
         }
-        return Some(id);
+        if loaded_is_bed && map_it.is_bed() {
+            return Some(id);
+        }
     }
     None
 }
@@ -367,5 +399,163 @@ mod tests {
         assert_eq!(tiles[0].1[0].children.len(), 1);
         assert_eq!(tiles[0].1[0].children[0].server_id, gold);
         assert_eq!(tiles[0].1[0].children[0].item.count, 5);
+    }
+
+    fn door_item_type(server_id: u16) -> ItemType {
+        ItemType {
+            server_id,
+            type_tag: tfs_rust_content::items::ITEM_TYPE_DOOR,
+            // Not moveable — stationary house door.
+            ..Default::default()
+        }
+    }
+
+    fn world_with_doors(closed: u16, open: u16) -> crate::game_world::GameWorld {
+        use std::sync::Arc;
+        let mut world = crate::sim_harness::minimal_world();
+        let mut db = (*world.items_db).clone();
+        db.items.insert(closed, door_item_type(closed));
+        db.items.insert(open, door_item_type(open));
+        world.items_db = Arc::new(db);
+        world
+    }
+
+    #[test]
+    fn open_door_tile_store_transforms_closed_map_door() {
+        use crate::cylinder::CylinderFlags;
+        use crate::item_attributes::ItemAttributes;
+        use crate::tile::{HouseTile, Tile, TileBody};
+        use tfs_rust_common::enums::ZoneType;
+
+        let closed = 1219u16;
+        let open = 1220u16;
+        let mut world = world_with_doors(closed, open);
+        let pos = Position::new(50, 50, 7);
+
+        world.map.insert_tile(
+            pos,
+            Tile::House(HouseTile {
+                inner: TileBody {
+                    flags: 0,
+                    zone: ZoneType::Protection,
+                    ..TileBody::new()
+                },
+                house_id: 1,
+            }),
+        );
+        world.houses.ensure_houses([1]);
+        if let Some(rec) = world.houses.records.get_mut(&1) {
+            rec.tiles.push(pos);
+        }
+
+        // OTBM-style closed door with house door id.
+        let mut closed_item = Item::new_single(closed);
+        let mut attrs = ItemAttributes::default();
+        attrs.set_door_id(3);
+        closed_item.attributes = Some(Box::new(attrs));
+        let door_iid = world.items.insert(closed_item);
+        world
+            .internal_add_item_to_tile(pos, door_iid, CylinderFlags::NO_LIMIT)
+            .expect("place closed door");
+        world.houses.attach_door(1, 3, door_iid);
+
+        // Simulate save after player opened the door (type transform keeps door_id).
+        world.change_item_type(door_iid, open);
+        assert_eq!(world.items.get(door_iid).unwrap().item_type, open);
+
+        let rows = encode_house_tile_store(&world);
+        assert_eq!(rows.len(), 1);
+
+        // Restart: map again has closed door; tile_store has open type.
+        let mut world2 = world_with_doors(closed, open);
+        world2.map.insert_tile(
+            pos,
+            Tile::House(HouseTile {
+                inner: TileBody {
+                    flags: 0,
+                    zone: ZoneType::Protection,
+                    ..TileBody::new()
+                },
+                house_id: 1,
+            }),
+        );
+        world2.houses.ensure_houses([1]);
+        if let Some(rec) = world2.houses.records.get_mut(&1) {
+            rec.tiles.push(pos);
+        }
+        let mut closed_item = Item::new_single(closed);
+        let mut attrs = ItemAttributes::default();
+        attrs.set_door_id(3);
+        closed_item.attributes = Some(Box::new(attrs));
+        let door_iid = world2.items.insert(closed_item);
+        world2
+            .internal_add_item_to_tile(pos, door_iid, CylinderFlags::NO_LIMIT)
+            .expect("place closed door");
+
+        load_tile_store_into_world(&mut world2, &rows);
+
+        let tile = world2.map.get_tile(pos).expect("tile");
+        let body = tile.body();
+        let door_ids: Vec<_> = body
+            .down_items
+            .iter()
+            .chain(body.top_items.iter())
+            .copied()
+            .filter(|&id| {
+                world2
+                    .items
+                    .get(id)
+                    .is_some_and(|i| i.item_type == closed || i.item_type == open)
+            })
+            .collect();
+        assert_eq!(
+            door_ids.len(),
+            1,
+            "must not spawn a second door under the open one"
+        );
+        let only = world2.items.get(door_ids[0]).unwrap();
+        assert_eq!(only.item_type, open);
+        assert_eq!(item_door_id(only), 3);
+    }
+
+    #[test]
+    fn stationary_door_without_map_match_is_discarded() {
+        use crate::item_attributes::ItemAttributes;
+        use crate::tile::{HouseTile, Tile, TileBody};
+        use tfs_rust_common::enums::ZoneType;
+
+        let closed = 1219u16;
+        let open = 1220u16;
+        let mut world = world_with_doors(closed, open);
+        let pos = Position::new(60, 60, 7);
+        world.map.insert_tile(
+            pos,
+            Tile::House(HouseTile {
+                inner: TileBody {
+                    flags: 0,
+                    zone: ZoneType::Protection,
+                    ..TileBody::new()
+                },
+                house_id: 2,
+            }),
+        );
+
+        let mut loaded = Item::new_single(open);
+        let mut attrs = ItemAttributes::default();
+        attrs.set_door_id(1);
+        loaded.attributes = Some(Box::new(attrs));
+        let placed = place_loaded_item(
+            &mut world,
+            pos,
+            LoadedHouseItem {
+                server_id: open,
+                item: loaded,
+                children: Vec::new(),
+            },
+        );
+        assert!(placed.is_none());
+        let tile = world.map.get_tile(pos).unwrap();
+        assert!(tile.body().down_items.is_empty());
+        assert!(tile.body().top_items.is_empty());
     }
 }
