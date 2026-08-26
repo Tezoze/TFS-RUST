@@ -643,6 +643,25 @@ mod write_roundtrip_tests {
     }
 
     #[test]
+    fn otbm_tele_dest_only_parses_without_attribute_bits() {
+        // ATTR_TELE_DEST (8) + x=32189 y=31625 z=4 — dest-only map pads have bits == 0.
+        let mut blob = vec![AttrType::TeleDest as u8];
+        blob.extend_from_slice(&32189u16.to_le_bytes());
+        blob.extend_from_slice(&31625u16.to_le_bytes());
+        blob.push(4);
+        let parsed = parse_otbm_item_blob(&blob, false).expect("tele dest");
+        assert_eq!(parsed.attrs.attribute_bits(), 0);
+        assert_eq!(
+            parsed.attrs.tele_dest(),
+            Some(tfs_rust_common::Position {
+                x: 32189,
+                y: 31625,
+                z: 4
+            })
+        );
+    }
+
+    #[test]
     fn house_door_id_attr_sets_door_id() {
         // ATTR_HOUSEDOORID (14) + door id 3
         let blob = [AttrType::HouseDoorId as u8, 3];

@@ -1,10 +1,13 @@
 //! Character login: DB load → `Player` → world + indices (or 772 TakeOver).
 //!
 //! - Domain: `Game::placeCreature`, `IOLoginData::loadPlayer`.
+//! - Pack: `Player::onPlacedCreature` → `playerLogin`; `lastLoginSaved` stamped after
+//!   `placeCreature` (`protocolgame.cpp`).
 //! - 772 outcomes: `connections.cc:224-253` (existing body / reject / TakeOver),
 //!   `TPlayer::TakeOver` — `crplayer.cc:721-775`.
 
 use std::collections::{HashMap, HashSet};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
@@ -385,6 +388,8 @@ pub fn apply_loaded_player(
                 persist.player_row.lastip = peer_ip;
             }
         }
+        // TFS `ProtocolGame::connect` stamps `lastLoginSaved` without re-firing onLogin.
+        stamp_last_login_saved(world, cid);
         // Live body kept — do not rehydrate inventory / place / onLogin from this load.
         world.houses.name_to_guid.insert(name.to_ascii_lowercase(), guid);
         world.houses.set_owner_name_for_guid(guid, &name);
@@ -486,8 +491,27 @@ pub fn apply_loaded_player(
     }
 
     fire_on_login(world, cid);
+    // After onLogin — TFS `protocolgame.cpp` `lastLoginSaved = max(now, lastLoginSaved + 1)`.
+    stamp_last_login_saved(world, cid);
     after_player_online(world, guid);
     Ok(ApplyPlayerOutcome::Spawned(cid))
+}
+
+/// TFS `protocolgame.cpp` after `placeCreature` / `connect`:
+/// `player->lastLoginSaved = std::max<time_t>(time(nullptr), player->lastLoginSaved + 1);`
+///
+/// Must run **after** `onLogin` so `getLastLoginSaved() == 0` still means first login
+/// (`firstlogin.lua` / `login.lua` outfit window). Save then writes `players.lastlogin`.
+fn stamp_last_login_saved(world: &mut GameWorld, cid: CreatureId) {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid)
+        && let Some(persist) = p.persist.as_mut()
+    {
+        persist.player_row.lastlogin = now.max(persist.player_row.lastlogin.saturating_add(1));
+    }
 }
 
 /// Load + apply in one call (tests / tools). Production game loop must not await this.
@@ -505,11 +529,57 @@ pub async fn login_player(
 mod tests {
     use super::*;
     use crate::game_state::GameState;
+    use crate::sim_harness::{insert_player, minimal_world, test_player};
+    use slotmap::Key;
+    use tfs_rust_common::{Position, ScriptContext};
 
     #[test]
     fn permits_new_login_only_when_normal() {
         assert!(permits_new_login(GameState::Normal));
         assert!(!permits_new_login(GameState::Closed));
         assert!(!permits_new_login(GameState::Shutdown));
+    }
+
+    fn lastlogin(world: &GameWorld, cid: CreatureId) -> u64 {
+        match world.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p
+                .persist
+                .as_ref()
+                .map(|b| b.player_row.lastlogin)
+                .unwrap_or(0),
+            _ => 0,
+        }
+    }
+
+    #[test]
+    fn lastlogin_stays_zero_until_stamp_after_on_login() {
+        let mut world = minimal_world();
+        let cid = insert_player(&mut world, test_player("Newbie", Position::new(50, 50, 7)));
+        assert_eq!(lastlogin(&world, cid), 0);
+        assert_eq!(
+            world.get_player_last_login_saved(cid.data().as_ffi()),
+            Some(0),
+            "firstlogin.lua / login.lua must still see 0 during onLogin"
+        );
+        stamp_last_login_saved(&mut world, cid);
+        let stamped = lastlogin(&world, cid);
+        assert!(stamped > 0, "stamp must write current unix seconds");
+        assert_eq!(
+            world.get_player_last_login_saved(cid.data().as_ffi()),
+            Some(stamped as i64)
+        );
+        let save = world.build_player_save_data(cid).expect("save");
+        assert_eq!(save.player.lastlogin, stamped);
+    }
+
+    #[test]
+    fn lastlogin_stamp_is_strictly_increasing() {
+        let mut world = minimal_world();
+        let cid = insert_player(&mut world, test_player("Hero", Position::new(50, 50, 7)));
+        stamp_last_login_saved(&mut world, cid);
+        let first = lastlogin(&world, cid);
+        stamp_last_login_saved(&mut world, cid);
+        let second = lastlogin(&world, cid);
+        assert!(second > first, "TFS max(now, lastLoginSaved + 1)");
     }
 }

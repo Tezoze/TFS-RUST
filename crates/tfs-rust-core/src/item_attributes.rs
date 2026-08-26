@@ -511,6 +511,8 @@ impl ItemAttributes {
         self.tele_dest
     }
 
+    /// Pack: `Teleport::destPos` is a subclass field, not `itemAttrTypes` (`enums.h`).
+    /// Do not insert a bitflag — Lua `hasAttribute` has no teleport-dest key.
     pub fn set_tele_dest(&mut self, dest: tfs_rust_common::Position) {
         self.tele_dest = Some(dest);
     }

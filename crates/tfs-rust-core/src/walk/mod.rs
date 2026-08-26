@@ -315,6 +315,8 @@ pub(crate) fn internal_teleport_player(
 
     if teleport {
         world.emit_teleport_move_packet(cid, conn_id, old_pos, new_pos, old_stack);
+        // Self is excluded from spectator fan-out (`viewer == mover`).
+        world.broadcast_spectator_move(cid, old_pos, new_pos, &old_creatures);
     } else {
         // Walk animation path — same self-packet routing as `on_walk`.
         let is_772 = !world.codec.caps().move_creature_self_packet;
@@ -1864,6 +1866,12 @@ impl GameWorld {
                         // the move for per-viewer stack position computation.
                         self.broadcast_spectator_move(cid, old_pos, new_pos, &old_creatures);
 
+                        // TFS `Tile::postAddNotification` teleport — after walk packets.
+                        // Pad specials must not emit 0x64 before NotifyGo (official 772 crash).
+                        if let Some(landed) = self.creatures.get(cid).map(|k| k.position()) {
+                            self.apply_tile_creature_specials(cid, landed);
+                        }
+
                         // Emit deferred chain turn `0x6B` AFTER move packets — matches C++ wire
                         // order: `Map::moveCreature` sends `sendMoveCreature` during the move
                         // loop (`map.cpp:316`), THEN `Game::internalMoveCreature` calls
@@ -2237,7 +2245,10 @@ impl GameWorld {
 
         // TFS `StepInField` after walk lands — `movement.cpp:658` / tile fields.
         self.apply_magic_fields_under_creature(cid, final_pos);
-        self.apply_tile_creature_specials(cid, final_pos);
+        // Teleport pads run *after* walk self/spectator packets (`on_walk` /
+        // `try_creature_walk_step`). Emitting 0x64 here crashes official 772
+        // (remove/map-refresh before NotifyGo). TFS `postAddNotification` is
+        // after `sendCreatureMove`; 772 `CollisionEvent` is after NotifyCreature.
 
         // Ghost diagnostic: after all moves, verify the creature is ONLY on the final tile.
         // Scan the old position and any intermediate positions for stale registrations.
@@ -2303,6 +2314,9 @@ impl GameWorld {
             Ok((_segments, pending_turn)) => {
                 if let Some(pt) = pending_turn {
                     internal_creature_turn_with_broadcast(self, pt.cid, pt.dir);
+                }
+                if let Some(landed) = self.creatures.get(cid).map(|k| k.position()) {
+                    self.apply_tile_creature_specials(cid, landed);
                 }
                 true
             }

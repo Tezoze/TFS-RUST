@@ -170,7 +170,10 @@ fn apply_otbm_item_node_attrs(
     // Remere OTBM attrs 23–28 (key/door) — not DB `AttrTypes_t` NAME/WEIGHT.
     match crate::item_blob::parse_otbm_item_blob(blob, is_container) {
         Ok(parsed) => {
-            if parsed.attrs.attribute_bits() != 0 {
+            // `ATTR_TELE_DEST` lives on TFS `Teleport::destPos`, not `itemAttrTypes`
+            // (`teleport.cpp` / `enums.h`). `set_tele_dest` therefore does not set bits —
+            // dest-only OTBM pads (most magic forcefields) must still keep attributes.
+            if parsed.attrs.attribute_bits() != 0 || parsed.attrs.tele_dest().is_some() {
                 item.attributes = Some(Box::new(parsed.attrs));
             }
             if let Some(st) = parsed.subtype_override {
@@ -729,6 +732,54 @@ mod tile_flag_tests {
         assert_eq!(item.item_type, GROUND);
         assert_eq!(item.action_id(), 1001);
         assert_eq!(item.unique_id(), 2001);
+    }
+
+    #[test]
+    fn otbm_teleport_dest_only_is_kept() {
+        // Dest-only OTBM_ITEM: u16 id + ATTR_TELE_DEST(8) + x/y/z. No action/unique bits.
+        const GROUND: u16 = 100;
+        const TELEPORT: u16 = 1387;
+        let dest = Position::new(110, 120, 7);
+        let mut raw = Vec::new();
+        raw.extend_from_slice(&TELEPORT.to_le_bytes());
+        raw.push(8); // ATTR_TELE_DEST
+        raw.extend_from_slice(&dest.x.to_le_bytes());
+        raw.extend_from_slice(&dest.y.to_le_bytes());
+        raw.push(dest.z);
+
+        let db = item_db(vec![
+            (GROUND, ground_item_type(GROUND)),
+            (
+                TELEPORT,
+                ItemType {
+                    id: TELEPORT,
+                    server_id: TELEPORT,
+                    type_tag: ITEM_TYPE_TELEPORT,
+                    ..ItemType::default()
+                },
+            ),
+        ]);
+        let pos = Position::new(100, 100, 7);
+        let (map, items) = map_and_items_from_single_tile(
+            pos,
+            vec![
+                TileThing::EmbeddedItemId(GROUND),
+                TileThing::ItemNodeProps(raw),
+            ],
+            &db,
+        );
+        let tile = map.get_tile(pos).expect("tile");
+        assert_ne!(tile.body().flags & flags::TELEPORT, 0);
+        let tele_id = tile
+            .body()
+            .down_items
+            .first()
+            .copied()
+            .or_else(|| tile.body().top_items.first().copied())
+            .expect("teleport item");
+        let item = items.get(tele_id).expect("item");
+        assert_eq!(item.item_type, TELEPORT);
+        assert_eq!(item.tele_dest(), Some(dest));
     }
 
     #[test]

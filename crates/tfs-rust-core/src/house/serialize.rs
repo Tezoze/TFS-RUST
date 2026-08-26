@@ -1,5 +1,7 @@
 //! House `tile_store` blobs — TFS `IOMapSerialize::{saveTile,saveItem,loadHouseItems}`.
 //! C++ reference: `iomapserialize.cpp` `saveTile` / `saveItem` / `loadItem` / `loadContainer`.
+//! Pack: TFS DB blob format. Overlay: TVP `cleanHouseItems` for moveables so OTBM
+//! chairs are not stacked with `tile_store` copies (`item.cpp` `isHouseItem`).
 //!
 //! Per-tile: `u16 x, u16 y, u8 z, u32 item_count`, then nested `saveItem` payloads.
 //! Ground is never stored. Nested containers use `ATTR_CONTAINER_ITEMS` (23).
@@ -193,6 +195,56 @@ pub fn decode_tile_store_blob(
     Ok(out)
 }
 
+/// TVP `Item::isHouseItem` subset used before overlay: strip OTBM moveables so
+/// `tile_store` does not stack another copy (`iomapserialize.cpp` `cleanHouseItems`).
+/// Doors/beds stay — `place_loaded_item` still matches and `change_item_type`.
+fn is_moveable_house_overlay(world: &GameWorld, item_id: ItemId) -> bool {
+    let Some(item) = world.items.get(item_id) else {
+        return false;
+    };
+    world
+        .items_db
+        .items
+        .get(&item.item_type)
+        .is_some_and(|t| t.moveable() || t.force_serialize)
+}
+
+fn house_container_tree(world: &GameWorld, root: ItemId) -> Vec<ItemId> {
+    let mut out = Vec::new();
+    let mut stack = vec![root];
+    while let Some(id) = stack.pop() {
+        out.push(id);
+        if let Some(c) = world.container_registry.get(id) {
+            stack.extend(c.items.iter().copied());
+        }
+    }
+    out
+}
+
+fn strip_moveable_house_items(world: &mut GameWorld, pos: Position) {
+    let roots: Vec<ItemId> = world
+        .map
+        .get_tile(pos)
+        .map(|tile| {
+            let body = tile.body();
+            body.down_items
+                .iter()
+                .copied()
+                .chain(body.top_items.iter().copied())
+                .filter(|&id| is_moveable_house_overlay(world, id))
+                .collect()
+        })
+        .unwrap_or_default();
+    for root in roots {
+        let tree = house_container_tree(world, root);
+        let _ = world.internal_remove_item_from_tile(pos, root, u16::MAX);
+        for id in tree {
+            world.container_registry.remove(id);
+            world.items.remove(id);
+        }
+    }
+}
+
 fn place_loaded_item(world: &mut GameWorld, pos: Position, loaded: LoadedHouseItem) -> Option<ItemId> {
     let Some(loaded_it) = world.items_db.items.get(&loaded.server_id).cloned() else {
         tracing::warn!(itemtype = loaded.server_id, "house tile_store unknown item — skipped");
@@ -306,7 +358,9 @@ pub fn load_tile_store_into_world(world: &mut GameWorld, rows: &[TileStoreRow]) 
         match decode_tile_store_blob(&row.data, &world.items_db) {
             Ok(tiles) => {
                 for (pos, items) in tiles {
-                    // Dynamic (moveable) contents are extra; stationary doors/beds overlay attrs.
+                    // TVP `.tvph` `cleanHouseItems` before re-add — OTBM chairs are moveable
+                    // and `saveTile` persists them; classic load would stack a second copy.
+                    strip_moveable_house_items(world, pos);
                     for item in items {
                         let _ = place_loaded_item(world, pos, item);
                     }
@@ -557,5 +611,77 @@ mod tests {
         let tile = world.map.get_tile(pos).unwrap();
         assert!(tile.body().down_items.is_empty());
         assert!(tile.body().top_items.is_empty());
+    }
+
+    fn chair_type(server_id: u16) -> ItemType {
+        let mut it = ItemType {
+            server_id,
+            ..Default::default()
+        };
+        it.flags |= 1 << 6; // FLAG_MOVEABLE — stock house chairs
+        it
+    }
+
+    fn house_tile_world(house_id: u32, pos: Position, chair: u16) -> crate::game_world::GameWorld {
+        use std::sync::Arc;
+        use crate::tile::{HouseTile, Tile, TileBody};
+        use tfs_rust_common::enums::ZoneType;
+
+        let mut world = crate::sim_harness::minimal_world();
+        let mut db = (*world.items_db).clone();
+        db.items.insert(chair, chair_type(chair));
+        world.items_db = Arc::new(db);
+        world.map.insert_tile(
+            pos,
+            Tile::House(HouseTile {
+                inner: TileBody {
+                    flags: 0,
+                    zone: ZoneType::Protection,
+                    ..TileBody::new()
+                },
+                house_id,
+            }),
+        );
+        world.houses.ensure_houses([house_id]);
+        if let Some(rec) = world.houses.records.get_mut(&house_id) {
+            rec.tiles.push(pos);
+        }
+        world
+    }
+
+    /// OTBM stock chair + `tile_store` chair must not stack on restart (TVP `cleanHouseItems`).
+    #[test]
+    fn moveable_chair_tile_store_does_not_stack_on_otbm() {
+        use crate::cylinder::CylinderFlags;
+
+        let chair = 1650u16;
+        let pos = Position::new(55, 55, 7);
+        let mut world = house_tile_world(3, pos, chair);
+        let iid = world.items.insert(Item::new_single(chair));
+        world
+            .internal_add_item_to_tile(pos, iid, CylinderFlags::NO_LIMIT)
+            .expect("otbm chair");
+
+        let rows = encode_house_tile_store(&world);
+        assert_eq!(rows.len(), 1);
+
+        let mut world2 = house_tile_world(3, pos, chair);
+        let iid2 = world2.items.insert(Item::new_single(chair));
+        world2
+            .internal_add_item_to_tile(pos, iid2, CylinderFlags::NO_LIMIT)
+            .expect("otbm chair again");
+
+        load_tile_store_into_world(&mut world2, &rows);
+
+        let tile = world2.map.get_tile(pos).expect("tile");
+        let body = tile.body();
+        let chairs: Vec<_> = body
+            .down_items
+            .iter()
+            .chain(body.top_items.iter())
+            .copied()
+            .filter(|&id| world2.items.get(id).is_some_and(|i| i.item_type == chair))
+            .collect();
+        assert_eq!(chairs.len(), 1, "OTBM chair must be replaced, not stacked");
     }
 }

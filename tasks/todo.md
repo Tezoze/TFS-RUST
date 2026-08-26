@@ -1,20 +1,18 @@
-# House door tile_store open/closed restore
+# 772 client crash on map teleporters
 
 **Status:** complete.
 
-Bug: open house door + restart → closed OTBM door remained and open door was added on top.
-Fix: TFS `loadItem` door↔door / bed↔bed match + `change_item_type`; unmatched stationary discarded.
+Walk `NotifyGo` must precede teleport `0x64`. Specials ran inside `internal_move_creature_step` and crashed official 772.
 
 ## Done
 
-1. `find_matching_stationary` — exact id, else door↔door, else bed↔bed
-2. `place_loaded_item` — overlay attrs then `change_item_type`; no add on stationary miss
-3. `should_save_house_item` — also save by `is_door()`
-4. Tests: open-door restore (single item) + unmatched discard
-5. Lesson 382
+1. Defer `apply_tile_creature_specials` until after walk packets
+2. FX after the teleport move
+3. Spectator notify on teleport path
+4. Test: `0x6D` before dest `0x64`
 
 ## Verify
 
-`rtk cargo test -p tfs-rust-core house::serialize`
+`rtk cargo test -p tfs-rust-core --lib -- stepping_on_teleport teleport_772`
 
-In-game: open house door → server save / restart → one open door, no closed under it.
+Restart the server, then step on a forcefield.

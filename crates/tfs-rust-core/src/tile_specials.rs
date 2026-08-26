@@ -40,14 +40,16 @@ impl GameWorld {
         if dest == pos {
             return;
         }
-        if effect != 0 {
-            self.broadcast_magic_effect(pos, effect);
-            self.broadcast_magic_effect(dest, effect);
-        }
+        // TFS `Teleport::addThing`: `map.moveCreature` then `addMagicEffect` on orig+dest.
+        // 0x83/0x64 before the walk self-packet crashes official 772 (`Map.cpp` assert).
         if let Some(conn) = self.conn_for_creature(cid) {
             let _ = internal_teleport_player(self, conn, cid, dest, false);
         } else {
             self.move_creature_on_map(cid, pos, dest);
+        }
+        if effect != 0 {
+            self.broadcast_magic_effect(pos, effect);
+            self.broadcast_magic_effect(dest, effect);
         }
     }
 
@@ -157,11 +159,18 @@ impl GameWorld {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::creature::CreatureKind;
     use crate::item::Item;
-    use crate::sim_harness::{beat_driven_test_world, ensure_walkable_tile};
+    use crate::sim_harness::{
+        beat_driven_test_world, ensure_walkable_tile, insert_player, insert_spectator_player,
+        test_player, walk_player_adjacent,
+    };
     use crate::tile::flags as tile_flags;
     use std::sync::Arc;
-    use tfs_rust_content::items::ITEM_TYPE_TRASHHOLDER;
+    use std::time::Instant;
+    use tfs_rust_common::ConnId;
+    use tfs_rust_common::enums::Direction;
+    use tfs_rust_content::items::{ITEM_TYPE_TELEPORT, ITEM_TYPE_TRASHHOLDER};
     use tfs_rust_content::otb::ItemType;
 
     #[test]
@@ -249,5 +258,125 @@ mod tests {
             world.items.get(dirt).is_some(),
             "immovable dirt floor must not be swallowed by water trashholder"
         );
+    }
+
+    #[test]
+    fn stepping_on_teleport_moves_player_to_dest() {
+        let mut world = beat_driven_test_world();
+        let mut db = (*world.items_db).clone();
+        db.items.insert(
+            1387,
+            ItemType {
+                id: 1387,
+                server_id: 1387,
+                type_tag: ITEM_TYPE_TELEPORT,
+                magic_effect: 11,
+                ..ItemType::default()
+            },
+        );
+        world.items_db = Arc::new(db);
+
+        let start = Position::new(80, 80, 7);
+        let pad = Position::new(80, 81, 7);
+        let dest = Position::new(90, 90, 7);
+        ensure_walkable_tile(&mut world.map, start, 100);
+        ensure_walkable_tile(&mut world.map, pad, 100);
+        ensure_walkable_tile(&mut world.map, dest, 100);
+
+        let mut portal = Item::new_single(1387);
+        portal.set_tele_dest(dest);
+        let portal_id = world.items.insert(portal);
+        world
+            .internal_add_item_to_tile(pad, portal_id, CylinderFlags::NO_LIMIT)
+            .expect("place portal");
+
+        let cid = insert_player(&mut world, test_player("Hero", start));
+        world.map.register_creature_at(start, cid);
+        walk_player_adjacent(&mut world, cid, pad).expect("step onto forcefield");
+        assert_eq!(
+            world.creatures.get(cid).map(|k| k.position()),
+            Some(dest),
+            "OTBM dest must fire on step-in (TFS Teleport::addThing)"
+        );
+    }
+
+    #[test]
+    fn teleport_772_walk_packets_precede_dest_map_description() {
+        // Official 772 crashes if 0x64 dest arrives before NotifyGo for the step onto the pad
+        // (0x6C remove on a tile the client has not walked onto — Map.cpp assert).
+        let mut world = beat_driven_test_world();
+        let mut db = (*world.items_db).clone();
+        db.items.insert(
+            1387,
+            ItemType {
+                id: 1387,
+                server_id: 1387,
+                type_tag: ITEM_TYPE_TELEPORT,
+                magic_effect: 11,
+                ..ItemType::default()
+            },
+        );
+        world.items_db = Arc::new(db);
+
+        let start = Position::new(80, 80, 7);
+        let pad = Position::new(80, 81, 7);
+        let dest = Position::new(90, 90, 7);
+        ensure_walkable_tile(&mut world.map, start, 100);
+        ensure_walkable_tile(&mut world.map, pad, 100);
+        ensure_walkable_tile(&mut world.map, dest, 100);
+
+        let mut portal = Item::new_single(1387);
+        portal.set_tele_dest(dest);
+        let portal_id = world.items.insert(portal);
+        world
+            .internal_add_item_to_tile(pad, portal_id, CylinderFlags::NO_LIMIT)
+            .expect("place portal");
+
+        let conn = ConnId(1);
+        let cid = insert_spectator_player(&mut world, conn, test_player("Hero", start));
+        world
+            .known_creatures_by_conn
+            .insert(conn, std::collections::HashSet::new());
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            p.base.walk_queue.push_back(Direction::South);
+            p.base.walk_destinations.push_back(pad);
+        }
+        world.pending_outgoing.clear();
+        world.on_walk(cid, false, Instant::now(), None);
+
+        assert_eq!(
+            world.creatures.get(cid).map(|k| k.position()),
+            Some(dest),
+            "step-in must still teleport"
+        );
+
+        let packets = world
+            .pending_outgoing
+            .get(&conn)
+            .cloned()
+            .unwrap_or_default();
+        let first_6d = packets.iter().position(|p| !p.is_empty() && p[0] == 0x6D);
+        let first_64 = packets.iter().position(|p| !p.is_empty() && p[0] == 0x64);
+        assert!(
+            first_6d.is_some(),
+            "772 adjacent step onto pad must NotifyGo with 0x6D"
+        );
+        assert!(
+            first_64.is_some(),
+            "far dest must SendFullScreen 0x64 after the walk"
+        );
+        assert!(
+            first_6d.unwrap() < first_64.unwrap(),
+            "walk NotifyGo must precede teleport 0x64 (got 0x6D at {:?}, 0x64 at {:?})",
+            first_6d,
+            first_64
+        );
+        let first_6c = packets.iter().position(|p| !p.is_empty() && p[0] == 0x6C);
+        if let (Some(c), Some(d)) = (first_6c, first_6d) {
+            assert!(
+                c > d,
+                "0x6C pad-remove must not precede NotifyGo (official 772 crash)"
+            );
+        }
     }
 }

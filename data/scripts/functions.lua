@@ -71,10 +71,9 @@ function onUseQuest(player, item, chest)
 	if player:getFreeCapacity() >= reward:getWeight() then
 		if player:addItemEx(reward) == RETURNVALUE_NOERROR then
 			player:sendTextMessage(MESSAGE_INFO_DESCR, "You have found " .. rewardName .. ".")
-			
-			if not getPlayerFlagValue(player, PlayerFlag_HasInfiniteCapacity) then
-				player:setStorageValue(storageValue, 1)
-			end
+			-- 772 `UseChest` always `SetQuestValue(QuestNr, 1)` after a successful take
+			-- (`moveuse.cc`). `HasInfiniteCapacity` only skips the weight gate, not the lock.
+			player:setStorageValue(storageValue, 1)
 		else
 			player:sendTextMessage(MESSAGE_INFO_DESCR, "You have found " .. rewardName .. ", but you have no room to take it.")
 			reward:remove()

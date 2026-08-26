@@ -824,3 +824,18 @@
 382. **House door open state must transform OTBM door, not stack** (`house/serialize.rs`; TFS `IOMapSerialize::loadItem` ~150–175): `tile_store` correctly saves the open door type id. Boot loads OTBM **closed** door then tile_store; matching required the **same** server id, so the open door was **added** on top. Fix: door↔door / bed↔bed match, then `change_item_type`; unmatched stationary is discarded (TFS dummy path), not placed.
     *(August 2026)*
 
+383. **Stamp `lastlogin` after `onLogin`, never before** (`login.rs` `stamp_last_login_saved`; TFS `protocolgame.cpp` `lastLoginSaved = max(now, lastLoginSaved + 1)` after `placeCreature`; lesson 369): `getLastLoginSaved` is the load snapshot so `firstlogin.lua` can run. If we never write it back, DB `lastlogin` stays 0, returning characters re-enter first-login, `addItem(..., CONST_SLOT_BACKPACK)` returns nil on an occupied slot, and `container:addItem` crashes. Stamp after `fire_on_login` (and on TakeOver / `connect`). Do not nil-guard pack `firstlogin.lua` — that would still `setOutfit` on veterans.
+    *(August 2026)*
+
+384. **Quest chest lock is not skipped for infinite capacity** (`data/scripts/functions.lua` `onUseQuest`; `moveuse.cc` `UseChest`): TFS pack skipped `setStorageValue` when `PlayerFlag_HasInfiniteCapacity` (God/GM/CM). Native always `SetQuestValue(QuestNr, 1)` after a successful take; unlimited cap only bypasses weight. Keep the weight skip; always stamp storage so GM loot still locks `player_storage`.
+    *(August 2026)*
+
+385. **House `tile_store` must strip OTBM moveables before overlay** (`house/serialize.rs` `strip_moveable_house_items`; TVP `cleanHouseItems` / `Item::isHouseItem`): Stock chairs are OTB `FLAG_MOVEABLE`, so `saveTile` writes them. Classic `loadItem` always `CreateItem`+add for moveables and does not clear the tile — each restart stacked another chair on the OTBM copy. Strip moveable/`forceSerialize` items on a tile before applying its blob; keep door/bed stationary match (`change_item_type`). Existing `tile_store` piles do not shrink; they stop growing.
+    *(August 2026)*
+
+386. **OTBM teleport dest is not an `itemAttrTypes` bit** (`map/mod.rs` `apply_otbm_item_node_attrs`; TFS `Teleport::destPos` / `ATTR_TELE_DEST=8`): Step-in already ran (`tile_specials.rs` → `Teleport::addThing`). Dest-only map pads (204/253 forcefields on forgotten) parse `u16 x, u16 y, u8 z` but `set_tele_dest` does not set `attribute_bits`, and load kept attrs only when bits ≠ 0 — dest was discarded. Keep attrs when `tele_dest` is set. Do not invent a Lua `hasAttribute` bit; TFS has none. Dest `(0,0,0)` is a disabled/scripted pad (`getTile` fails).
+    *(August 2026)*
+
+387. **Map teleport specials must run after walk self-packets** (`walk/mod.rs` `on_walk`; `tile_specials.rs`; TFS `tile.cpp` `postAddNotification` after `sendCreatureMove`; 772 `CollisionEvent` after `NotifyCreature`): Firing `Teleport::addThing` inside `internal_move_creature_step` emitted `0x6C`+`0x64` **before** `NotifyGo`. Official 772 still had the player at the origin, so pad-remove / dest fullscreen hit the wrong map centre (`Map.cpp` assert). Then `on_walk` sent a second `NotifyGo` origin→dest. Defer specials until after walk packets; FX after the move (TFS `addMagicEffect` after `moveCreature`).
+    *(August 2026)*
+

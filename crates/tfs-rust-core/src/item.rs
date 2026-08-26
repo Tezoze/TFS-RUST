@@ -164,6 +164,13 @@ impl Item {
         self.attributes.as_deref().and_then(|a| a.tele_dest())
     }
 
+    /// TFS `Teleport::setDestPos` — not an `itemAttrTypes` bit (`teleport.h`).
+    pub fn set_tele_dest(&mut self, dest: tfs_rust_common::Position) {
+        self.attributes
+            .get_or_insert_with(|| Box::new(ItemAttributes::new()))
+            .set_tele_dest(dest);
+    }
+
     pub fn description(&self) -> &str {
         self.attributes
             .as_deref()
