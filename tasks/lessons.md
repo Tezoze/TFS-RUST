@@ -881,3 +881,6 @@
 401. **`Player:conjureItem` is native** (`conjure.rs`; `formulas.conjureFromHandsOnly`): Pack Lua hardcoded `conjureFromHandsOnly = true`; the backpack `getItemById` arm was dead. Profile bool (default true on 772 and 1098) turns that arm on. Spell scripts still call `creature:conjureItem(...)`. First arg may be a mana integer (runes) or Spell userdata (arrows / enchant staff) — dual-hand extra cost uses `Spell.mana`, not a Lua table multiply. Charge fallback matches `ItemType:getCharges()` when count is nil/0.
     *(August 2026)*
 
+402. **772 re-enter viewport name/HP/target** (`spawn_lifecycle.rs` `send_creature_remove_to_conn`, `codec/v772.rs` `write_add_creature`): Decompile `SendDeleteField` does not FREE `KnownCreatureTable`. `SendMapObject` is three-way — UPTODATE `0x63` (id+dir), OUTDATED `0x62` (no name), FREE `0x61` (name). Erasing the server slot on `0x6C` made reappear a second `0x61` while the client still had the id → blank bar, cannot target, until `0x64`. Keep the slot; 772 `known && uptodate` writes `0x63`. 1098 stays `0x61`/`0x62`.
+    *(August 2026)*
+

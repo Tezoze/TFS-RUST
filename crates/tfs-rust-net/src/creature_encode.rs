@@ -67,6 +67,10 @@ pub struct AddCreatureWire {
     pub id: u32,
     pub remove_known: u32,
     pub known: bool,
+    /// Decompile `KNOWNCREATURE_UPTODATE` (`sending.cc` `SendMapObject`).
+    /// 772 writes `0x63` + id + direction only when `known && uptodate`; 1098 ignores this
+    /// (always `0x62` when `known`).
+    pub uptodate: bool,
     /// Final type byte including summon adjustments (`creatureType` in C++).
     pub creature_type: u8,
     pub name: String,
@@ -87,12 +91,23 @@ pub struct AddCreatureWire {
     pub access_player: bool,
 }
 
+impl AddCreatureWire {
+    /// `ProtocolGame::checkCreatureAsKnown` / decompile `TConnection::KnownCreature`.
+    /// `already_known` means the 150-slot table already had this id (UPTODATE until marked stale).
+    pub fn apply_known_check(&mut self, already_known: bool, remove_known: u32) {
+        self.known = already_known;
+        self.remove_known = remove_known;
+        self.uptodate = already_known;
+    }
+}
+
 impl Default for AddCreatureWire {
     fn default() -> Self {
         Self {
             id: 0,
             remove_known: 0,
             known: false,
+            uptodate: false,
             creature_type: 0,
             name: String::new(),
             health_percent: 100,

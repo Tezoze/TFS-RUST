@@ -369,6 +369,7 @@ fn add_creature_known_header_via_codec() {
         id: 0x11223344,
         remove_known: 0,
         known: true,
+        uptodate: false,
         creature_type: 0,
         name: String::new(),
         health_percent: 100,
@@ -737,6 +738,7 @@ mod v772 {
             id: 0x11223344,
             remove_known: 0xAABBCCDD,
             known: false,
+            uptodate: false,
             creature_type: 1,
             name: "Rat".to_string(),
             health_percent: 80,
@@ -791,6 +793,7 @@ mod v772 {
         let c = AddCreatureWire {
             id: 0x11223344,
             known: true,
+            uptodate: false,
             outfit: OutfitWire {
                 look_type: 0,
                 look_type_ex: 1234,
@@ -802,6 +805,32 @@ mod v772 {
         let mut m = NetworkMessage::new();
         codec().write_add_creature(&mut m, &c);
         assert_eq!(m.as_bytes()[0], 0x62);
+        assert_eq!(m.as_bytes().len(), codec().add_creature_wire_len(&c));
+    }
+
+    /// Decompile `SendMapObject` UPTODATE: `SendWord(99)` + id + direction (`sending.cc` ~218–221).
+    #[test]
+    fn add_creature_uptodate_772_is_0x63_id_direction_only() {
+        let c = AddCreatureWire {
+            id: 0x11223344,
+            known: true,
+            uptodate: true,
+            direction: 3,
+            outfit: OutfitWire {
+                look_type: 21,
+                ..Default::default()
+            },
+            health_percent: 40,
+            name: "ShouldNotAppear".into(),
+            ..Default::default()
+        };
+        let mut m = NetworkMessage::new();
+        codec().write_add_creature(&mut m, &c);
+        assert_eq!(
+            m.as_bytes(),
+            &[0x63, 0x00, 0x44, 0x33, 0x22, 0x11, 3],
+            "0x63 is id + direction only — no name/HP/outfit"
+        );
         assert_eq!(m.as_bytes().len(), codec().add_creature_wire_len(&c));
     }
 
@@ -1006,6 +1035,7 @@ mod v772 {
             id: 0x11223344,
             remove_known: 0,
             known: false,
+            uptodate: false,
             name: "Orc".to_string(),
             health_percent: 100,
             direction: 2,

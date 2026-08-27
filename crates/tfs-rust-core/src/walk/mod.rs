@@ -3148,6 +3148,66 @@ mod monster_walk_tests {
         );
     }
 
+    /// Decompile `SendDeleteField` does not FREE the known-creature slot (`sending.cc` ~637).
+    /// Re-enter is `SendAddField` → `SendMapObject` UPTODATE (`0x63`), not a second `0x61`.
+    /// A second `0x61` while the 772 client still has the id drops name/HP and targeting.
+    #[test]
+    fn spectator_reenter_viewport_772_sends_0x63_not_second_0x61() {
+        let mut world = support::beat_driven_test_world();
+        let spectator_pos = Position::new(100, 100, 7);
+        let monster_pos = Position::new(101, 100, 7);
+        support::ensure_walkable_tile(
+            &mut world.map,
+            spectator_pos,
+            support::TEST_SYNTHETIC_GROUND_WP,
+        );
+        support::ensure_walkable_tile(
+            &mut world.map,
+            monster_pos,
+            support::TEST_SYNTHETIC_GROUND_WP,
+        );
+
+        let conn = ConnId(44);
+        let viewer = support::insert_spectator_player(
+            &mut world,
+            conn,
+            support::test_player("SpecReenter", spectator_pos),
+        );
+        let monster = support::insert_monster(&mut world, "Rat", monster_pos, 200);
+        let wire_id = creature_wire_id(monster, world.creatures.get(monster).unwrap());
+
+        assert!(world.send_creature_appear_to_conn(conn, viewer, monster, monster_pos));
+        let first: Vec<u8> = world
+            .pending_outgoing
+            .get(&conn)
+            .and_then(|ps| ps.iter().find(|p| p.first() == Some(&0x6A)).cloned())
+            .expect("first 0x6A");
+        assert_eq!(first[6], 0x61, "first sighting is FREE / 0x61");
+
+        world.pending_outgoing.clear();
+        world.send_creature_remove_to_conn(conn, monster, monster_pos, 1);
+        assert!(
+            world
+                .known_creatures_by_conn
+                .get(&conn)
+                .is_some_and(|s| s.contains(&wire_id)),
+            "0x6C must not FREE the known-creature slot"
+        );
+
+        world.pending_outgoing.clear();
+        assert!(world.send_creature_appear_to_conn(conn, viewer, monster, monster_pos));
+        let reenter: Vec<u8> = world
+            .pending_outgoing
+            .get(&conn)
+            .and_then(|ps| ps.iter().find(|p| p.first() == Some(&0x6A)).cloned())
+            .expect("re-enter 0x6A");
+        assert_eq!(
+            reenter[6], 0x63,
+            "re-enter UPTODATE is 0x63, not a second 0x61 (got {:#04x})",
+            reenter[6]
+        );
+    }
+
     /// Wire ids must be auto-incrementing and never reused (C++ `Monster::setID`,
     /// `monster.h:43-46`). When a monster dies and a new monster spawns at the same
     /// SlotMap slot, they must have different wire ids — otherwise the client caches

@@ -98,10 +98,20 @@ impl Codec772 {
         2 + usize::from(stackable || is_splash_or_fluid)
     }
 
-    /// 7.72 `ProtocolGame::AddCreature` (`gameserver/src/protocolgame.cpp` ~L2051). No creature-type
-    /// byte (unknown header), no guild emblem, no second creature-type, no speech bubble, no MARK,
-    /// no helpers, no walkthrough byte; **full** `getStepSpeed()` (not halved); raw light level.
+    /// 7.72 map-object creature block — decompile `SendMapObject` (`sending.cc` ~217–268).
+    ///
+    /// - UPTODATE: `SendWord(99)` → `0x63` + id + direction only.
+    /// - OUTDATED: `SendWord(98)` → `0x62` + id + HP/outfit/light/speed/skull/party (no name).
+    /// - FREE: `SendWord(97)` → `0x61` + removeId + id + name + same tail as 0x62.
+    ///
+    /// TVP `AddCreature` has no 0x63; 1098 stays on `creature_encode::write_add_creature`.
     pub fn write_add_creature(&self, msg: &mut NetworkMessage, c: &AddCreatureWire) {
+        if c.known && c.uptodate {
+            msg.write_u16(0x63);
+            msg.write_u32(c.id);
+            msg.write_u8(c.direction);
+            return;
+        }
         if c.known {
             msg.write_u16(0x62);
             msg.write_u32(c.id);
@@ -127,6 +137,9 @@ impl Codec772 {
 
     /// Byte length of [`Codec772::write_add_creature`].
     pub fn add_creature_wire_len(&self, c: &AddCreatureWire) -> usize {
+        if c.known && c.uptodate {
+            return 2 + 4 + 1;
+        }
         let head = if c.known {
             2 + 4
         } else {

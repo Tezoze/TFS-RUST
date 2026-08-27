@@ -1,6 +1,7 @@
 //! Spawn placement, respawn consumption, and creature appear/disappear broadcasts.
 // C++ reference: `game.cpp` `internalPlaceCreature` / `placeCreature` / `removeCreature`,
 // `spawn.cpp` `Spawn::spawnMonster`, `protocolgame.cpp` `sendAddCreature`.
+// 772 appear/remove wire: `sending.cc` `SendMapObject` / `SendAddField` / `SendDeleteField`.
 // 772 placement: `spawn_placement.rs` (`info.cc` `SearchSpawnField`, `crnonpl.cc` `LoadMonsterhomes`).
 
 use rand::seq::SliceRandom;
@@ -1283,15 +1284,13 @@ impl GameWorld {
         let (known_flag, remove_known) =
             check_creature_known(wire_id, &mut known, &mut can_see, limit);
         let mut wire = build_add_creature_wire(self, cid, viewer);
-        wire.known = known_flag;
-        wire.remove_known = remove_known;
+        wire.apply_known_check(known_flag, remove_known);
         wire.id = wire_id;
         let packet = self
             .codec
             .encode_add_tile_creature(pos, stack_pos, &wire, false)
             .into_bytes();
-        // Commit replaces both sets: `remove_known` must drop `creature_fully_sent` too,
-        // or a later 0x6D treats the forgotten id as still named.
+        // Commit keeps `remove_known` eviction in both sets (table slot reuse).
         self.commit_known_creatures_after_send(conn, &known);
         self.enqueue_outgoing(conn, packet);
         true
@@ -1319,12 +1318,9 @@ impl GameWorld {
                 .into_bytes()
         };
         self.enqueue_outgoing(conn, packet);
-        if let Some(known) = self.known_creatures_by_conn.get_mut(&conn) {
-            known.remove(&wire_id);
-        }
-        if let Some(sent) = self.creature_fully_sent_by_conn.get_mut(&conn) {
-            sent.remove(&wire_id);
-        }
+        // Decompile `SendDeleteField` (`sending.cc` ~637) does **not** FREE/unchain the
+        // 150-slot table. Erasing here made the next `SendAddField` a 0x61 while the
+        // 772 client still had the id → blank name/HP, cannot target (until 0x64).
     }
 
     /// C++ `Game::placeCreature` → `sendAddCreature` for spectators (`game.cpp` ~552).
