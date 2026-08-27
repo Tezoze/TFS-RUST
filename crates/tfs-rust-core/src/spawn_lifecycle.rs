@@ -1729,10 +1729,7 @@ mod tests {
         for _ in 0..8 {
             world.advance_beat(2000);
         }
-        assert_eq!(
-            world.server_ms, 50,
-            "lag skip must freeze movement clock"
-        );
+        assert_eq!(world.server_ms, 50, "lag skip must freeze movement clock");
         assert!(world.lag);
         let monsters = world
             .creatures

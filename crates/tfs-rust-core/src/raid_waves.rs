@@ -119,7 +119,11 @@ fn announce_message_class(announce_type: &str) -> u8 {
     }
 }
 
-fn enqueue_xml_wave(queue: &mut BinaryHeap<Reverse<AttackWave>>, wave: &RaidWave, start_round: u32) {
+fn enqueue_xml_wave(
+    queue: &mut BinaryHeap<Reverse<AttackWave>>,
+    wave: &RaidWave,
+    start_round: u32,
+) {
     match wave {
         RaidWave::Announce {
             delay_ms,

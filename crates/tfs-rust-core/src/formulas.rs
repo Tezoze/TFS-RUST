@@ -1046,11 +1046,8 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         "classicEquipmentSlots",
         p.classic_equipment_slots,
     );
-    p.conjure_from_hands_only = bool_or(
-        &formulas,
-        "conjureFromHandsOnly",
-        p.conjure_from_hands_only,
-    );
+    p.conjure_from_hands_only =
+        bool_or(&formulas, "conjureFromHandsOnly", p.conjure_from_hands_only);
 
     // distanceKeep: integer = Fixed(n); "perType" string keeps per-type.
     match formulas.get::<Value>("distanceKeep") {

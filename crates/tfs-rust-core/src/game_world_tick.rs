@@ -47,7 +47,9 @@ impl GameWorld {
         if self.round_nr < self.next_minute_round {
             return;
         }
-        let now = chrono::Local::now().timestamp().clamp(0, i64::from(u32::MAX)) as u32;
+        let now = chrono::Local::now()
+            .timestamp()
+            .clamp(0, i64::from(u32::MAX)) as u32;
         let period = self.house_rent_period_from_config();
         let grace = self.house_grace_secs_from_config();
         self.process_houses_online(now, period, grace);
@@ -258,10 +260,10 @@ mod tests {
         world.pending_outgoing.clear();
         world.run_other_subsystems(200);
         assert_eq!(world.round_nr, 1);
-        let has_keepalive_ping = world.pending_outgoing.get(&conn).is_some_and(|q| {
-            q.iter()
-                .any(|b| matches!(b.first(), Some(0x1D | 0x1E)))
-        });
+        let has_keepalive_ping = world
+            .pending_outgoing
+            .get(&conn)
+            .is_some_and(|q| q.iter().any(|b| matches!(b.first(), Some(0x1D | 0x1E))));
         assert!(
             !has_keepalive_ping,
             "772 Other must not emit a 5s wallclock ping (0x1D/0x1E); round-based ping is 30/60"

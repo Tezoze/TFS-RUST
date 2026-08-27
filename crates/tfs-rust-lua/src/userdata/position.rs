@@ -274,9 +274,9 @@ fn register_get_distance_between(lua: &mlua::Lua) -> Result<(), mlua::Error> {
 fn lua_position_xyz(v: &Value) -> Result<(i32, i32, i32), mlua::Error> {
     match v {
         Value::UserData(ud) => {
-            let p = ud.borrow::<PositionRef>().map_err(|_| {
-                mlua::Error::runtime("getDistanceBetween: expected Position")
-            })?;
+            let p = ud
+                .borrow::<PositionRef>()
+                .map_err(|_| mlua::Error::runtime("getDistanceBetween: expected Position"))?;
             Ok((i32::from(p.x), i32::from(p.y), i32::from(p.z)))
         }
         Value::Table(t) => {

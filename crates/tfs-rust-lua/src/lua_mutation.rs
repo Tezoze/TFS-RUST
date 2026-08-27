@@ -664,7 +664,7 @@ fn apply_mutation(mutation: LuaMutation) -> Result<(), String> {
 
 #[cfg(test)]
 mod mutation_scope_tests {
-    use super::{with_lua_mutation_scope, MUTATION_WORLD};
+    use super::{MUTATION_WORLD, with_lua_mutation_scope};
 
     #[test]
     fn nested_mutation_scope_restores_outer_world() {

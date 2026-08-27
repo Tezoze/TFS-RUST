@@ -100,14 +100,9 @@ fn conjure_from_inventory(
     }
 
     let add_count = count.unwrap_or(1);
-    let Ok(Some(iid)) = world.lua_script_player_add_item_full(
-        player,
-        req.conjure_id,
-        add_count,
-        -1,
-        true,
-        0,
-    ) else {
+    let Ok(Some(iid)) =
+        world.lua_script_player_add_item_full(player, req.conjure_id, add_count, -1, true, 0)
+    else {
         return fail(world, cid, ReturnValue::NotPossible);
     };
     if let Some(item) = world.resolve_item_u64(iid) {
@@ -193,14 +188,9 @@ fn conjure_from_hands(
     }
 
     let add_count = count.unwrap_or(1);
-    let Ok(Some(iid)) = world.lua_script_player_add_item_full(
-        player,
-        req.conjure_id,
-        add_count,
-        -1,
-        true,
-        0,
-    ) else {
+    let Ok(Some(iid)) =
+        world.lua_script_player_add_item_full(player, req.conjure_id, add_count, -1, true, 0)
+    else {
         return fail(world, cid, ReturnValue::NotPossible);
     };
     if let Some(item) = world.resolve_item_u64(iid) {
@@ -222,7 +212,8 @@ fn maybe_start_duration_decay(world: &mut GameWorld, iid: ItemId) {
 }
 
 fn fail(world: &mut GameWorld, cid: CreatureId, rv: ReturnValue) -> bool {
-    let _ = world.lua_script_player_send_cancel_message(cid.data().as_ffi(), rv.description().into());
+    let _ =
+        world.lua_script_player_send_cancel_message(cid.data().as_ffi(), rv.description().into());
     if let Some(pos) = world.creatures.get(cid).map(|k| k.position()) {
         world.broadcast_magic_effect(pos, CONST_ME_POFF);
     }

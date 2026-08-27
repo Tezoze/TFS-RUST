@@ -16,9 +16,7 @@ use slotmap::Key;
 use tfs_rust_common::Position;
 use tfs_rust_common::ScriptContext;
 use tfs_rust_common::remere_attr;
-use tfs_rust_lua::{
-    LuaMoveDestination, QuestRewardSpec, ToolUseKind, ToolUseRequest,
-};
+use tfs_rust_lua::{LuaMoveDestination, QuestRewardSpec, ToolUseKind, ToolUseRequest};
 
 use crate::game_world::GameWorld;
 use crate::ids::ItemId;
@@ -562,10 +560,8 @@ fn on_use_scythe(world: &mut GameWorld, req: &ToolUseRequest) -> bool {
         return true;
     }
     if growing.is_some() && req.target_itemid == growing {
-        let _ = world.lua_script_player_send_cancel_message(
-            req.player,
-            "It's not mature yet.".to_string(),
-        );
+        let _ = world
+            .lua_script_player_send_cancel_message(req.player, "It's not mature yet.".to_string());
         return true;
     }
     destroy_item(world, req)

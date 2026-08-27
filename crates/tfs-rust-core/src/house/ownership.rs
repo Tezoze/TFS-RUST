@@ -450,7 +450,9 @@ mod tests {
                 house_id: 9,
             }),
         );
-        world.map.insert_tile(Position::new(1, 1, 7), Tile::empty_normal());
+        world
+            .map
+            .insert_tile(Position::new(1, 1, 7), Tile::empty_normal());
         world.map.house_tiles.push((9, pos, Vec::new()));
         world.house_scan_map();
         let rec = world.houses.records.get(&9).expect("house");
@@ -505,12 +507,10 @@ mod tests {
 
         let table = world.items.insert(Item::new_single(1632));
         let gold = world.items.insert(Item::new_single(2148));
-        let _ = world.internal_add_item_to_tile(
-            pos,
-            table,
-            crate::cylinder::CylinderFlags::NO_LIMIT,
-        );
-        let _ = world.internal_add_item_to_tile(pos, gold, crate::cylinder::CylinderFlags::NO_LIMIT);
+        let _ =
+            world.internal_add_item_to_tile(pos, table, crate::cylinder::CylinderFlags::NO_LIMIT);
+        let _ =
+            world.internal_add_item_to_tile(pos, gold, crate::cylinder::CylinderFlags::NO_LIMIT);
 
         world.house_set_owner(1, 0, 1_000);
 
@@ -524,11 +524,13 @@ mod tests {
             .collect();
         assert!(on_tile.contains(&table), "unmoveable table must stay");
         assert!(!on_tile.contains(&gold), "TAKE gold goes to depot");
-        assert!(world
-            .houses
-            .pending_depot_dumps
-            .get(&10)
-            .is_some_and(|v| v.contains(&gold)));
+        assert!(
+            world
+                .houses
+                .pending_depot_dumps
+                .get(&10)
+                .is_some_and(|v| v.contains(&gold))
+        );
         assert!(
             world.items.get(gold).is_some(),
             "TAKE items must survive tile detach"
@@ -577,7 +579,8 @@ mod tests {
         world.player_by_guid.insert(10, cid);
 
         let gold = world.items.insert(Item::new_single(2148));
-        let _ = world.internal_add_item_to_tile(pos, gold, crate::cylinder::CylinderFlags::NO_LIMIT);
+        let _ =
+            world.internal_add_item_to_tile(pos, gold, crate::cylinder::CylinderFlags::NO_LIMIT);
 
         world.house_set_owner(1, 0, 1_000);
 
