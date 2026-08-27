@@ -14,6 +14,7 @@ mod creature_events;
 mod event_callback;
 mod global_events;
 mod instruction_budget;
+pub mod lua_database;
 pub mod lua_defs;
 pub mod lua_mutation;
 mod monster_spawn;
@@ -47,6 +48,9 @@ pub use event_callback::{
     EVENT_CALLBACK_ONSPAWN,
 };
 pub use instruction_budget::DEFAULT_LUA_INSTRUCTION_BUDGET;
+pub use lua_database::{
+    LuaDbBridge, LuaDbOutcome, LuaDbRequest, register_lua_database, register_lua_db_bridge,
+};
 pub use lua_mutation::{
     CombatExecuteRequest, ConditionApplySpec, ConjureRequest, LuaMoveDestination, LuaMutation,
     QuestChestSpec, QuestRewardSpec, ToolUseKind, ToolUseRequest, call_combat_execute,

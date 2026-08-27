@@ -790,6 +790,21 @@ mod tests {
             tfs.table_functions.contains("appendLog"),
             "tfs.appendLog is the stdlib-allowlist write capability"
         );
+
+        let db = snap.classes.get("db").expect("db");
+        for name in ["storeQuery", "query", "asyncQuery", "escapeString"] {
+            assert!(
+                db.table_functions.contains(name),
+                "db.{name} is a pack SQL table function"
+            );
+        }
+        let result = snap.classes.get("result").expect("result");
+        for name in ["getNumber", "getString", "next", "free"] {
+            assert!(
+                result.table_functions.contains(name),
+                "result.{name} is a pack SQL table function"
+            );
+        }
     }
 
     #[test]

@@ -583,6 +583,7 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
 /// Register the mutation applier once at server startup.
 pub fn register_lua_mutation_hooks() {
     tfs_rust_lua::register_lua_mutation_applier(apply_lua_mutation);
+    tfs_rust_lua::register_lua_db_bridge(crate::lua_database::apply_lua_db);
 }
 
 pub(crate) fn with_lua_script_scope<F, R>(world: &mut GameWorld, f: F) -> R

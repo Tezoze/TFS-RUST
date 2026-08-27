@@ -902,3 +902,6 @@
 408. **772 Other spawn clock is RoundNr, not `server_ms`** (`game_world_tick.rs`, `spawn.rs`): `ProcessMonsterhomes` decrements Timer after `RoundNr++` (`main.cc:350`, `crnonpl.cc:1409`). Lag skip freezes `server_ms` but still runs Other, so a `now_ms()` due check stall respawns. Poll after increment; delay is `ms/1000` rounds. AdvanceGame has no 5s wallclock ping — keepalive is ProcessConnections at LastCommand 30/60. Ingress is one `Game` packet per connection per wakeup (`receiving.cc` WaitingForACK), not a 64-deep same-client drain.
     *(August 2026)*
 
+409. **Pack `db` / `result` is bound; death mechanics stay native** (`lua_database.rs` in lua + core, `tfs-rust-db` `lua_sql.rs`; talkactions Phase 3): Lesson 369’s “no pack `db` global” is superseded **for this Lua surface only**. `db.query` / `storeQuery` / `asyncQuery` / `escapeString` and `result.getNumber` / `getString` / `next` / `free` match TFS `luascript.cpp`. Empty `storeQuery` is Lua `false`. `escapeString` quotes like `Database::escapeBlob`. SQL runs via `Handle::spawn` + game-thread `mpsc::recv` (no `block_in_place` on LocalSet; spawn never touches `GameWorld`). `asyncQuery` currently blocks like `query`. Death rows remain native; GM tools (`/deathlist`, `/ban`, `/ipban`, `/unban`, `/removetutor`) use pack SQL.
+    *(August 2026)*
+

@@ -1,6 +1,7 @@
 pub mod account;
 pub mod house;
 pub mod items;
+pub mod lua_sql;
 pub mod market;
 pub mod migrations;
 pub mod password;
@@ -28,6 +29,6 @@ pub use player::{
 };
 pub use pool::{DbPool, DbPoolConnectOptions};
 pub use startup_ops::{
-    TownInsert, delete_player_online, insert_player_online, load_players_record,
-    run_startup_ops, save_players_record,
+    TownInsert, delete_player_online, insert_player_online, load_players_record, run_startup_ops,
+    save_players_record,
 };

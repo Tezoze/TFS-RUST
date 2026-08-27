@@ -1,25 +1,19 @@
-# 772 beat loop audit — implement canvas fixes
+# Talkactions Lua Phase 3 — `db` / `result`
 
 **Status:** complete.
-**Source:** [772 beat loop audit](/home/jessec/.cursor/projects/mnt-storage2-TFS-RUST/canvases/beat-loop-772-audit.canvas.tsx)
+**Source:** [talkactions-lua-implementation-plan.md](talkactions-lua-implementation-plan.md) Phase 3.
 
-## P1
+## Done
 
-- [x] **B1+G5** Spawn due clock = `round_nr`; `RoundNr++` before homes. Lag skip still ticks homes.
-- [x] **B2** One `GameCommand::Game` per connection per wakeup; 64 is a global cap. Deferred extras stay in `pending`.
-- [x] **G1** RoundNr `AttackWaveQueue` drained from Other after homes; TFS XML + `Game.startRaid`.
+- `crates/tfs-rust-lua/src/lua_database.rs` — TFS `db` / `result` tables; game-thread result store; mock-bridge tests.
+- Core wait-bridge + `bind_lua_db_pool` after `DbPool::connect`; sqlx helpers in `tfs-rust-db` (`lua_sql.rs`).
+- `emit-lua-defs` includes `db` / `result`. Lesson 409 supersedes 369 for this surface only.
 
-## P2
+## Verify
 
-- [x] **B3** `tick_player_pings` removed from Other; 30/60 ProcessConnections remains.
-- [x] **B4** `send_player_icons` sweep at end of `process_creatures`.
-- [x] **B5** Idle-monster skill skip kept (empty conditions ≡ no timer-skills). Raid lifetime is Other, not ProcessSkills.
-- [x] **G2** Minute jobs: `NextMinute` + `process_houses_online` (no reboot/CloseGame sequence).
-- [x] **G3** `NetLoadCheck` every 10 rounds: EmergencyPing + TimeStamp rewind 100 when `lag`.
-- [x] **G4** `CONNECTION_LOGIN` pending conns disconnect when `game_state != Normal`.
-
-## Leave
-
-- **N1** Lua GC only on Other when `Delay < 1000`.
-- **N2** `addEvent` stays TFS wallclock.
-- Coalesced `AdvanceGame(N * Beat)` unchanged.
+```
+rtk cargo test -p tfs-rust-lua --lib lua_database
+rtk cargo test -p tfs-rust-lua --lib lua_defs
+rtk cargo test -p tfs-rust-db --lib
+rtk cargo run -p tfs-rust-lua --bin emit-lua-defs -- --check
+```

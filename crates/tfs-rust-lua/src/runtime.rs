@@ -27,7 +27,7 @@ use crate::constants::register_constants;
 use crate::context::{CreatureRef, ItemRef};
 use crate::npc_dialogue::register_npc_dialogue;
 use crate::npc_type::register_npc_type;
-use crate::timer_events::{execute_timer_event, register_add_event_stop_event, TimerEvents};
+use crate::timer_events::{TimerEvents, execute_timer_event, register_add_event_stop_event};
 use crate::userdata::PositionRef;
 use crate::userdata::{
     register_combat_metatable, register_condition_metatable, register_container_metatable,
@@ -229,6 +229,7 @@ impl LuaRuntime {
         register_vocation_constructor(&lua).map_err(LuaError::Registration)?;
         register_outfit_constructor(&lua).map_err(LuaError::Registration)?;
         register_game_api(&lua).map_err(LuaError::Registration)?;
+        crate::lua_database::register_lua_database(&lua).map_err(LuaError::Registration)?;
         crate::tool_use::register_tool_use_globals(&lua).map_err(LuaError::Registration)?;
         register_variant_constructor(&lua).map_err(LuaError::Registration)?;
         register_monster_type_constructor(&lua).map_err(LuaError::Registration)?;
@@ -1550,8 +1551,8 @@ pub(crate) fn register_event_script_bootstrap_with(
         ta.set("_separator", " ")?;
         ta.set("_need_access", false)?;
         ta.set("_account_type", 1u8)?; // ACCOUNT_TYPE_NORMAL (`enums.h`)
-                                       // `talkaction:separator(sep)` fluent setter (mirrors C++
-                                       // `TalkAction::setSeparator`).
+        // `talkaction:separator(sep)` fluent setter (mirrors C++
+        // `TalkAction::setSeparator`).
         ta.set(
             "separator",
             lua.create_function(|_, (this, sep): (mlua::Table, String)| {

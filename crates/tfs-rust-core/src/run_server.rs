@@ -11,7 +11,7 @@ use anyhow::Context;
 use tfs_rust_common::GameCommand;
 use tokio::net::TcpListener;
 use tokio::task::LocalSet;
-use tracing::{debug, info, Instrument};
+use tracing::{Instrument, debug, info};
 
 use tfs_rust_net::{
     Codec, GameWireConfig, LoginWireConfig, OutRegistry, Server, open_game_command_channels,
@@ -138,6 +138,7 @@ pub async fn run() -> anyhow::Result<()> {
     let db = tfs_rust_db::DbPool::connect(&database_url, &pool_cfg.to_db_pool_options())
         .await
         .map_err(|e| anyhow::anyhow!("database connect: {e}"))?;
+    crate::lua_database::bind_lua_db_pool(db.clone());
     let migrations_dir =
         tfs_rust_db::resolve_migrations_dir().map_err(|e| anyhow::anyhow!("{e}"))?;
     tfs_rust_db::run_migrations(&db, &migrations_dir)

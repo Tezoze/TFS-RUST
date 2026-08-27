@@ -57,6 +57,7 @@ mod item_look;
 pub mod login;
 mod login_out;
 pub mod lua_command;
+mod lua_database;
 pub mod lua_event_dispatcher;
 pub mod lua_scope;
 mod magic_field;

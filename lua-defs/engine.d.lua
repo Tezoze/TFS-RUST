@@ -436,6 +436,22 @@ function configManager.getBoolean(...) end
 function configManager.getNumber(...) end
 function configManager.getString(...) end
 
+---@class db
+db = {}
+
+function db.asyncQuery(...) end
+function db.escapeString(...) end
+function db.query(...) end
+function db.storeQuery(...) end
+
+---@class result
+result = {}
+
+function result.free(...) end
+function result.getNumber(...) end
+function result.getString(...) end
+function result.next(...) end
+
 ---@class tfs
 tfs = {}
 
