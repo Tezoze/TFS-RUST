@@ -593,6 +593,34 @@ mod tests {
             house.methods.contains("isGuildHall"),
             "House:isGuildHall is a native method"
         );
+        assert!(
+            house.methods.contains("startTrade"),
+            "House:startTrade is a native method"
+        );
+        assert!(
+            house.methods.contains("getExitPosition"),
+            "House:getExitPosition is a native method"
+        );
+        assert!(
+            house.methods.contains("setOwnerGuid"),
+            "House:setOwnerGuid is a native method"
+        );
+        assert!(
+            house.methods.contains("getOwnerGuid"),
+            "House:getOwnerGuid is a native method"
+        );
+        assert!(
+            house.methods.contains("getTileCount"),
+            "House:getTileCount is a native method"
+        );
+        assert!(
+            house.methods.contains("getTown"),
+            "House:getTown is a native method"
+        );
+        assert!(
+            house.methods.contains("getRent"),
+            "House:getRent is a native method"
+        );
 
         let town = snap.classes.get("Town").expect("Town");
         assert!(town.callable, "Town(id or name) is callable");

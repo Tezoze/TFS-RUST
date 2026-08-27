@@ -196,6 +196,7 @@ function House:kickPlayer(...) end
 function House:save(...) end
 function House:setAccessList(...) end
 function House:setOwnerGuid(...) end
+function House:startTrade(...) end
 
 ---@class Item
 ---@field actionid any

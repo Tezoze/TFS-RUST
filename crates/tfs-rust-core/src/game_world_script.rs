@@ -1636,6 +1636,9 @@ impl tfs_rust_common::ScriptContext for GameWorld {
                 .collect(),
             bed_item_ids: rec.beds.iter().map(|iid| iid.data().as_ffi()).collect(),
             player_ids,
+            is_guild_hall: rec.is_guild_hall,
+            size: rec.size,
+            highest_bidder: rec.highest_bidder,
         })
     }
 

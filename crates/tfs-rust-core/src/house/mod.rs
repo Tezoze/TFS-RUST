@@ -73,6 +73,7 @@ impl HouseManager {
             rec.rent = e.rent;
             rec.town_id = e.town_id;
             rec.size = e.size;
+            rec.is_guild_hall = e.is_guild_hall;
             rec.entry_pos = e.entry;
         }
     }

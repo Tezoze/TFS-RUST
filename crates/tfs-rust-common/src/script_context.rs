@@ -1080,6 +1080,12 @@ pub struct ScriptHouseData {
     pub door_item_ids: Vec<ScriptItemId>,
     pub bed_item_ids: Vec<ScriptItemId>,
     pub player_ids: Vec<ScriptCreatureId>,
+    /// TFS `House::guildHall` / `luaHouseIsGuildHall`.
+    pub is_guild_hall: bool,
+    /// XML `size` — `luaHouseGetTileCount` fallback when OTBM tiles are not attached.
+    pub size: u32,
+    /// TFS `House::highestBidder` — `luaHouseStartTrade` TRADEPLAYERHIGHESTBIDDER.
+    pub highest_bidder: u32,
 }
 
 /// Town snapshot for Lua `Town` userdata (`luascript.cpp` `luaTownCreate`).

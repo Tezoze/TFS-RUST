@@ -18,6 +18,24 @@ pub struct HouseXmlEntry {
     pub rent: u32,
     pub town_id: u32,
     pub size: u32,
+    /// TFS `House::guildHall` (`luaHouseIsGuildHall`). 772 XML omits `guildhall=`.
+    pub is_guild_hall: bool,
+}
+
+/// TFS `Houses::loadHousesXML` `guildhall` attr; 772 XML omits it.
+/// Infer from name when attr absent: "guildhall" substring, or " guild" / starts with "guild".
+pub fn house_is_guild_hall(name: &str, guildhall_attr: Option<&str>) -> bool {
+    if let Some(raw) = guildhall_attr {
+        let t = raw.trim();
+        if t.eq_ignore_ascii_case("true") || t == "1" {
+            return true;
+        }
+        if t.eq_ignore_ascii_case("false") || t == "0" {
+            return false;
+        }
+    }
+    let n = name.to_ascii_lowercase();
+    n.contains("guildhall") || n.contains(" guild") || n.starts_with("guild")
 }
 
 /// Parse TFS `Houses::loadHousesXML` (`house.cpp` ~586–628).
@@ -86,6 +104,7 @@ pub fn load_houses_xml_str(xml: &str, path: &Path) -> Result<Vec<HouseXmlEntry>>
             .attribute("size")
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(0);
+        let is_guild_hall = house_is_guild_hall(&name, node.attribute("guildhall"));
         out.push(HouseXmlEntry {
             id,
             name,
@@ -93,6 +112,7 @@ pub fn load_houses_xml_str(xml: &str, path: &Path) -> Result<Vec<HouseXmlEntry>>
             rent,
             town_id,
             size,
+            is_guild_hall,
         });
     }
 
@@ -121,8 +141,43 @@ mod tests {
         assert_eq!(houses[0].town_id, 1);
         assert_eq!(houses[0].size, 687);
         assert_eq!(houses[0].entry, Position::new(32265, 32316, 7));
+        assert!(!houses[0].is_guild_hall);
         assert_eq!(houses[1].id, 6);
         assert_eq!(houses[1].rent, 520);
+    }
+
+    #[test]
+    fn house_is_guild_hall_from_attr() {
+        assert!(house_is_guild_hall("Spiritkeep", Some("true")));
+        assert!(house_is_guild_hall("Spiritkeep", Some(" 1 ")));
+        assert!(house_is_guild_hall("Spiritkeep", Some("TRUE")));
+        assert!(!house_is_guild_hall("Warriors Guildhall", Some("false")));
+        assert!(!house_is_guild_hall("Warriors Guildhall", Some("0")));
+    }
+
+    #[test]
+    fn house_is_guild_hall_infers_772_names() {
+        assert!(house_is_guild_hall("Warriors Guildhall", None));
+        assert!(house_is_guild_hall("Sky Lane, Guild 1", None));
+        assert!(house_is_guild_hall("Magic Academy, Guild", None));
+        assert!(!house_is_guild_hall("Spiritkeep", None));
+    }
+
+    #[test]
+    fn house_is_guild_hall_spiritkeep_false() {
+        assert!(!house_is_guild_hall("Spiritkeep", None));
+    }
+
+    #[test]
+    fn parses_guildhall_true_attr() {
+        let xml = r#"<?xml version="1.0"?>
+<houses>
+	<house name="Custom Hall" houseid="9" entryx="1" entryy="1" entryz="7" rent="1" townid="1" size="10" guildhall="true" />
+</houses>
+"#;
+        let houses = load_houses_xml_str(xml, Path::new("guildhall-true.xml")).expect("parse");
+        assert_eq!(houses.len(), 1);
+        assert!(houses[0].is_guild_hall);
     }
 
     #[test]
@@ -138,5 +193,16 @@ mod tests {
         assert_eq!(spirit.rent, 19210);
         assert_eq!(spirit.town_id, 1);
         assert_eq!(spirit.entry, Position::new(32265, 32316, 7));
+        assert!(!spirit.is_guild_hall);
+        let warriors = houses.iter().find(|h| h.id == 77).expect("house 77");
+        assert_eq!(warriors.name, "Warriors Guildhall");
+        assert!(
+            warriors.is_guild_hall,
+            "772 name inference: Warriors Guildhall is a guild hall"
+        );
+        assert!(
+            houses.iter().any(|h| h.is_guild_hall),
+            "forgotten-houses.xml should infer at least one guild hall"
+        );
     }
 }

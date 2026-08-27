@@ -13,6 +13,8 @@ pub struct House {
     pub rent: u32,
     pub town_id: u32,
     pub size: u32,
+    /// TFS `House::guildHall` (`luaHouseIsGuildHall`). Default false — 772 XML omits the attr.
+    pub is_guild_hall: bool,
     pub entry_pos: Position,
     /// Unix `paid` column (`houses.paid`).
     pub paid_until: u32,
@@ -35,6 +37,7 @@ impl House {
             rent: 0,
             town_id: 0,
             size: 0,
+            is_guild_hall: false,
             entry_pos: Position::default(),
             paid_until: 0,
             warnings: 0,
