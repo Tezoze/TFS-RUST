@@ -87,6 +87,7 @@ pub mod sim_harness;
 pub mod spawn;
 mod spawn_lifecycle;
 mod spawn_placement;
+mod stepping_tiles;
 pub mod spell;
 pub mod stability;
 mod subsystem_counters;

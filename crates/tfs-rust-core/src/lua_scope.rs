@@ -527,11 +527,8 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             kicker_id,
             target_id,
         } => {
-            let ok = unsafe { &mut *world }.lua_script_house_kick_player(
-                house_id,
-                kicker_id,
-                target_id,
-            );
+            let ok =
+                unsafe { &mut *world }.lua_script_house_kick_player(house_id, kicker_id, target_id);
             set_mutation_bool_result(ok);
             Ok(())
         }
@@ -902,6 +899,14 @@ pub(crate) fn fire_creature_step_events(
     step_out_items: &[TileMoveEventItem],
     step_in_items: &[TileMoveEventItem],
 ) {
+    crate::stepping_tiles::on_creature_step(
+        world,
+        cid,
+        from,
+        to,
+        step_out_items,
+        step_in_items,
+    );
     let world_ptr = std::ptr::from_mut(world);
     with_lua_mutation_scope(world_ptr as *mut (), || {
         let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };

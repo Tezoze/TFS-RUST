@@ -2,7 +2,7 @@
 //!
 //! C++ reference: `luascript.cpp` `luaTileCreate` / `luaTileHasFlag` /
 //! `luaTileGetGround` / `luaTileGetTopDownItem` / `luaTileGetItems` /
-//! `luaTileGetItemByType` / `luaTileGetCreatures`.
+//! `luaTileGetItemByType` / `luaTileGetCreatures` / `luaTileGetTopCreature`.
 
 use mlua::{MetaMethod, UserData, UserDataMethods, Value};
 
@@ -157,6 +157,27 @@ impl UserData for TileRef {
                 t.set(i + 1, ud)?;
             }
             Ok(Value::Table(t))
+        });
+
+        // `tile:getTopCreature()` — `luascript.cpp` `luaTileGetTopCreature`.
+        // TFS `creatures->begin()` (newest). Rust `push`s newest last → last entry.
+        methods.add_method("getTopCreature", |lua, this, ()| {
+            let id = CURRENT_CTX.with(|c| {
+                let ptr =
+                    (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                if ptr.is_null() {
+                    return Err(mlua::Error::runtime("LuaContext not set"));
+                }
+                let ctx = unsafe { &*ptr };
+                Ok(ctx.tile_get_top_creature(this.x, this.y, this.z))
+            })?;
+            match id {
+                Some(cid) => {
+                    let ud = lua.create_userdata(CreatureRef(cid))?;
+                    Ok(Value::UserData(ud))
+                }
+                None => Ok(Value::Nil),
+            }
         });
 
         // `tile:getBottomCreature()` — `luascript.cpp` `luaTileGetBottomCreature`.
@@ -567,10 +588,17 @@ mod tests {
 
     impl ScriptContext for TileCtx {
         fn get_creature(&self, id: ScriptCreatureId) -> Option<ScriptCreatureData> {
-            (id == 7).then_some(ScriptCreatureData {
-                name: "Bottom".into(),
-                guid: 1,
-            })
+            match id {
+                7 => Some(ScriptCreatureData {
+                    name: "Bottom".into(),
+                    guid: 1,
+                }),
+                8 => Some(ScriptCreatureData {
+                    name: "Top".into(),
+                    guid: 2,
+                }),
+                _ => None,
+            }
         }
         fn get_item(&self, id: ScriptItemId) -> Option<ScriptItemRef> {
             Some(ScriptItemRef(id))
@@ -633,6 +661,12 @@ mod tests {
                 .eval()
                 .unwrap();
             assert_eq!(name, "Bottom");
+
+            let top: String = lua
+                .load("return t:getTopCreature():getName()")
+                .eval()
+                .unwrap();
+            assert_eq!(top, "Top");
         });
     }
 

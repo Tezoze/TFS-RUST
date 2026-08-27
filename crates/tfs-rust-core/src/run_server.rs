@@ -465,6 +465,7 @@ pub async fn run() -> anyhow::Result<()> {
     );
     world.outfits_db = outfits_db;
     world.scheduler = Some(scheduler.clone());
+    world.stepping_tiles = crate::stepping_tiles::load_from_data_dir(&data_path);
 
     // PC-2b/PC-3: Inject the weapon + spell registries drained from Lua scripts.
     // `GameWorld::new` initializes these as empty `Arc<WeaponRegistry::default()>` /

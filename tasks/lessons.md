@@ -854,3 +854,12 @@
 392. **Virtual depot locker open must not `map.find_item_position`** (`discover_item_parent`; `container_ui.rs` `build_container_open_packet`): Clicking a map locker opens a per-player virtual `DepotLocker` with `Item.parent = None`. `has_parent` called `resolve_item_parent_cylinder` → full-world tile scan (~8.5M items, ~518 ms) that never finds it. Skip the map scan for unmapped virtual roots (locker / depot chest / inbox). Ground bags still use `Item.parent` (hubs) or the map fallback.
     *(August 2026)*
 
+393. **Grass hole 293 drop is Lua, not xml `floorchange`** (`transform.lua` StepIn; `items.xml` 293 has no `floorchange`, 294 pitfall does; `#items.lua` wrongly sets both): Push/kick landed on the hole and `broadcast_spectator_move(from, hole)`. StepIn transforms 293→294 then `doRelocate` → `teleportTo(z+1, true)`. Non-player `lua_script_creature_teleport` skipped spectators when `areInRange<1,1,0>` failed (`dz != 0`). Client kept the creature on the hole until relog. Always `broadcast_spectator_move` on teleport; after StepIn flush, spectators must get **from → live pos**, not the hole (a post-flush 0x6D onto the hole undoes the fall). TFS `queryDestination` still chains when the tile flag is set (walk/stairs).
+    *(August 2026)*
+
+394. **`tile:getTopCreature` is native, not Lua `__index`** (`userdata/tile.rs`; `luaTileGetTopCreature`): Pack scripts (`demon_helmet_wall_removal_*.lua`, `compat.lua` `getTopCreature`) call the method. We had `getBottomCreature` / `getCreatures` only, so StepIn died with `attempt to call method 'getTopCreature' (a nil value)`. TFS `creatures->begin()` is newest; Rust `push`s newest last → `.last()`. `getPlayer()` after that is `Creature.getPlayer` in `data/lib/core/creature.lua`.
+    *(August 2026)*
+
+395. **Switch floors are native; Lua only supplies id pairs** (`stepping_tiles.rs`; `data/scripts/movements/other/tiles.lua` `SteppingTiles`): Pack `tiles.lua` MoveEvent pressed stone/wood pads and announced depot count. That is load-bearing, not quest policy. Engine loads `stepIn`/`stepOut` maps at boot and runs transform + PZ facing-locker text from `fire_creature_step_events` **before** Lua, without skipping aid scripts. TFS `getEvent` prefers aid so item-id `tiles.lua` never pressed demon-helmet `426` pads; native still presses mapped ids when `action_id != 0`. Depot “full” is `holding >= max`; pack Lua `max >= count` was inverted. Empty depot still shows `max(1, count)` in the contain message.
+    *(August 2026)*
+

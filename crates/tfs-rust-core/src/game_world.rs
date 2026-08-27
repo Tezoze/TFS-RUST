@@ -120,6 +120,8 @@ pub struct GameWorld {
     pub codec: Codec,
     /// Era-tuned mechanics knobs + Tier-2 Lua formula hooks (GAME THREAD ONLY — Track B §12.11/§12.13).
     pub mechanics: crate::formulas::Mechanics,
+    /// Switch-floor `from → to` maps from `data/scripts/movements/other/tiles.lua`.
+    pub stepping_tiles: crate::stepping_tiles::SteppingTileMaps,
     /// TCP connection → logged-in player (`conn_id` from `tfs-rust-net`).
     pub conn_to_creature: HashMap<ConnId, CreatureId>,
     /// Reverse index of [`Self::conn_to_creature`] — `CreatureId → ConnId`.
@@ -414,6 +416,7 @@ impl GameWorld {
             protocol_hooks: Arc::new(NullProtocolHooks),
             codec,
             mechanics,
+            stepping_tiles: crate::stepping_tiles::SteppingTileMaps::default(),
             conn_to_creature: HashMap::new(),
             creature_to_conn: HashMap::new(),
             dead_connections: HashSet::new(),

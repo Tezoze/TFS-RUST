@@ -1,11 +1,9 @@
-# Depot locker open freeze
+# Switch floors transform even with quest aid
 
 **Status:** complete.
 
-Virtual locker `Item.parent` is `None`. Open packet `has_parent` used `discover_item_parent` → full-map `find_item_position` (~518 ms). Skip that scan for unmapped virtual roots.
+Mapped switch floors press/unpress even when the item has a quest aid (demon helmet 3022/3023). Aid Lua still runs for wall removal.
 
 ## Verify
 
-`rtk cargo test -p tfs-rust-core --lib -- virtual_depot_locker_parent_is_none_without_tile`
-
-Restart the server and open a depot locker; it should no longer hitch ~0.5 s.
+`rtk cargo test -p tfs-rust-core --lib -- stepping_tile`

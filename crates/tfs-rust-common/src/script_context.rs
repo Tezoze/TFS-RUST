@@ -799,6 +799,12 @@ pub trait ScriptContext {
         self.tile_get_creatures(x, y, z).first().copied()
     }
 
+    /// `tile:getTopCreature()` — `luaTileGetTopCreature` → TFS `creatures->begin()`.
+    /// Rust `push`s newest last, so the last creature is the top.
+    fn tile_get_top_creature(&self, x: u16, y: u16, z: u8) -> Option<ScriptCreatureId> {
+        self.tile_get_creatures(x, y, z).last().copied()
+    }
+
     /// `tile:getCreatureCount()` — `Tile::getCreatureCount`.
     fn tile_get_creature_count(&self, x: u16, y: u16, z: u8) -> u32 {
         self.tile_get_creatures(x, y, z).len() as u32

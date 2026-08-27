@@ -548,6 +548,10 @@ mod tests {
             "trap.lua :id(1511) blades"
         );
         assert!(
+            registry.get(MoveEventKind::StepIn, 416).is_none(),
+            "tiles.lua must not register MoveEvents; engine owns switch floors"
+        );
+        assert!(
             registry.get(MoveEventKind::StepIn, 1506).is_none(),
             "fields.lua must not register StepIn 1506"
         );

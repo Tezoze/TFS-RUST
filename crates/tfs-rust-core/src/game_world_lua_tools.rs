@@ -742,6 +742,8 @@ mod tests {
         }
         let bottom = world.tile_get_bottom_creature(50, 50, 7).unwrap();
         assert_eq!(bottom, a.data().as_ffi());
+        let top = world.tile_get_top_creature(50, 50, 7).unwrap();
+        assert_eq!(top, b.data().as_ffi());
     }
 
     #[test]
