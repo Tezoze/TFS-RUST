@@ -77,6 +77,7 @@ mod player;
 mod player_lua_context;
 mod process_skills;
 pub mod protocol_hooks;
+mod raid_waves;
 pub mod return_value;
 mod run_server;
 pub mod scheduler;

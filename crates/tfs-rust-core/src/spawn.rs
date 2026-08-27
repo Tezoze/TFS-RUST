@@ -29,10 +29,9 @@ pub struct SpawnSlot {
     pub respawns: bool,
     /// Live creature occupying this slot, if any.
     pub current: Option<CreatureId>,
-    /// Earliest **logical ms** (`server_ms` on 772) this slot may respawn (set on death).
-    /// C++ 772: `ProcessMonsterhomes` counts respawn delay in logical rounds, not wall time
-    /// (audit Finding 13). Was `Instant`; now on the logical clock so it matches the beat loop.
-    pub respawn_at: Option<u64>,
+    /// Earliest **RoundNr** this slot may respawn (`ProcessMonsterhomes` Timer, `crnonpl.cc:1409`).
+    /// Delay is drawn in rounds, not movement `server_ms` (lag skip must not freeze homes).
+    pub respawn_at: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -47,11 +46,19 @@ pub struct SpawnRequest {
 pub struct SpawnManager {
     pub zones: Vec<SpawnZone>,
     pub slots: Vec<SpawnSlot>,
-    /// GCD of slot spawntimes — C++ `Spawn::interval` (`spawn.cpp` ~409).
+    /// GCD of slot spawntimes in XML ms — kept for pack diagnostics; 772 polls every Other.
     pub check_interval_ms: u64,
-    /// Last respawn-check time in **logical ms** (audit Finding 13).
-    pub last_check: Option<u64>,
+    /// Last Other RoundNr that scanned slots.
+    pub last_check: Option<u32>,
     pub started: bool,
+}
+
+/// XML / TFS `spawntime` is stored as ms; 772 Timer ticks once per Other (`ms/1000` rounds).
+pub fn ms_to_rounds(ms: u64) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    u32::try_from(ms / 1000).unwrap_or(u32::MAX).max(1)
 }
 
 fn gcd_u64(a: u64, b: u64) -> u64 {
@@ -165,26 +172,25 @@ impl SpawnManager {
             .collect()
     }
 
-    /// C++ `Spawn::checkSpawn` — slots due for respawn (`spawn.cpp` ~353). `now_ms` is logical.
-    pub fn due_slot_indices(&self, now_ms: u64) -> Vec<usize> {
+    /// C++ `ProcessMonsterhomes` — empty respawning slots whose Timer has reached 0.
+    /// `now_round` is `RoundNr` after the Other increment (`main.cc:350–354`).
+    pub fn due_slot_indices(&self, now_round: u32) -> Vec<usize> {
         self.slots
             .iter()
             .enumerate()
             .filter(|(_, slot)| slot.current.is_none() && slot.respawns)
-            .filter(|(_, slot)| slot.respawn_at.is_none_or(|at| now_ms >= at))
+            .filter(|(_, slot)| slot.respawn_at.is_none_or(|at| now_round >= at))
             .map(|(i, _)| i)
             .collect()
     }
 
-    pub fn should_run_check(&self, now_ms: u64) -> bool {
-        match self.last_check {
-            Some(last) => now_ms.saturating_sub(last) >= self.check_interval_ms,
-            None => true,
-        }
+    /// 772 scans every Other; GCD interval is TFS `checkSpawn` only.
+    pub fn should_run_check(&self, _now_round: u32) -> bool {
+        true
     }
 
-    pub fn mark_checked(&mut self, now_ms: u64) {
-        self.last_check = Some(now_ms);
+    pub fn mark_checked(&mut self, now_round: u32) {
+        self.last_check = Some(now_round);
     }
 
     /// C++ `StartMonsterhomeTimer` — resets the spawn timer to a fresh `spawntime` cycle
@@ -193,29 +199,29 @@ impl SpawnManager {
     /// `random(spawntime/2, spawntime)`; we use the full `spawntime` as the base (the random
     /// jitter is a minor detail — the key is NOT retrying immediately, which caused the
     /// per-second WARN spam when a player stood near a spawn point after killing the monster).
-    pub fn stall_respawn(&mut self, slot_index: usize, now_ms: u64) {
+    pub fn stall_respawn(&mut self, slot_index: usize, now_round: u32) {
         if let Some(slot) = self.slots.get_mut(slot_index) {
-            slot.respawn_at = Some(now_ms.saturating_add(slot.spawntime_ms));
+            slot.respawn_at = Some(now_round.saturating_add(ms_to_rounds(slot.spawntime_ms)));
         }
     }
 
-    /// C++ `Spawn::checkSpawn` — slots due for respawn (`spawn.cpp` ~353). `now_ms` is logical.
-    pub fn due_spawns<F>(&mut self, now_ms: u64, find_player: F) -> Vec<SpawnRequest>
+    /// C++ `ProcessMonsterhomes` due scan. `now_round` is RoundNr.
+    pub fn due_spawns<F>(&mut self, now_round: u32, find_player: F) -> Vec<SpawnRequest>
     where
         F: Fn(Position) -> bool,
     {
-        if !self.should_run_check(now_ms) {
+        if !self.should_run_check(now_round) {
             return Vec::new();
         }
-        self.mark_checked(now_ms);
+        self.mark_checked(now_round);
 
         let mut out = Vec::new();
-        for slot_index in self.due_slot_indices(now_ms) {
+        for slot_index in self.due_slot_indices(now_round) {
             let Some(slot) = self.slots.get(slot_index) else {
                 continue;
             };
             if find_player(slot.position) {
-                self.stall_respawn(slot_index, now_ms);
+                self.stall_respawn(slot_index, now_round);
                 continue;
             }
             if let Some(req) = build_spawn_request(slot_index, slot, false) {
@@ -233,15 +239,13 @@ impl SpawnManager {
         }
     }
 
-    /// Schedule respawn when spawn-linked creature is removed. `now_ms` is logical (audit Finding 13).
-    /// `delay_ms` is the respawn delay — fixed `spawntime_ms` on 1098, or the 772
-    /// `StartMonsterhomeTimer` draw (`random(regen/2, regen)` scaled by player count) computed by
-    /// [`GameWorld::compute_respawn_delay_ms`] (`crnonpl.cc:1296`).
-    pub fn on_creature_removed(&mut self, slot_index: usize, now_ms: u64, delay_ms: u64) {
+    /// Schedule respawn when spawn-linked creature is removed.
+    /// `now_round` / `delay_rounds` are RoundNr (`StartMonsterhomeTimer`, `crnonpl.cc:1296`).
+    pub fn on_creature_removed(&mut self, slot_index: usize, now_round: u32, delay_rounds: u32) {
         if let Some(slot) = self.slots.get_mut(slot_index) {
             slot.current = None;
             if slot.respawns {
-                slot.respawn_at = Some(now_ms.saturating_add(delay_ms));
+                slot.respawn_at = Some(now_round.saturating_add(delay_rounds));
             }
         }
     }
@@ -362,15 +366,15 @@ mod tests {
     #[test]
     fn due_spawns_respects_timer_and_find_player() {
         let mut mgr = SpawnManager::from_zones(vec![sample_zone()]);
-        let t0: u64 = 0;
-        mgr.on_creature_removed(0, t0, 60_000);
+        let t0: u32 = 0;
+        mgr.on_creature_removed(0, t0, 60);
         assert!(mgr.due_spawns(t0, |_| false).is_empty());
-        let later = t0 + 61_000;
+        let later = t0 + 61;
         let reqs = mgr.due_spawns(later, |_| false);
         assert!(!reqs.is_empty());
 
-        mgr.on_creature_removed(0, t0, 60_000);
-        mgr.due_spawns(t0 + 61_000, |_| true);
+        mgr.on_creature_removed(0, t0, 60);
+        mgr.due_spawns(t0 + 61, |_| true);
         let slot = &mgr.slots[0];
         assert!(slot.respawn_at.is_some());
     }

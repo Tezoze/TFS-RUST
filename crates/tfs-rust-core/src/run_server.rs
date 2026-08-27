@@ -187,6 +187,7 @@ pub async fn run() -> anyhow::Result<()> {
     let spawn_zones = std::mem::take(&mut content.map.spawn_zones);
     let houses_xml = std::mem::take(&mut content.houses);
     let house_prices = content.house_prices.take();
+    let raid_catalog = std::mem::take(&mut content.raids);
     let rent_policy = if config
         .use_house_area_prices()
         .map_err(|e| anyhow::anyhow!("config useHouseAreaPrices: {e}"))?
@@ -494,6 +495,8 @@ pub async fn run() -> anyhow::Result<()> {
     // `player_wand_attack` (`get_wand`) and spell dispatch (`instant_by_words`) resolve.
     world.weapons = Arc::new(weapon_registry);
     world.spells = Arc::new(spell_registry);
+    world.raids = crate::raid_waves::RaidScheduler::from_catalog(raid_catalog);
+    world.schedule_interval_raids_at_boot();
 
     // House XML + map tiles, then DB owner/lists/`tile_store` (`IOMapSerialize::loadHouseInfo`).
     world.houses.apply_xml_entries(&houses_xml);

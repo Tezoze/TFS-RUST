@@ -12,28 +12,64 @@ use crate::game_world::GameWorld;
 const LAG_SKIP_MOVEMENT_MS: u64 = 1000;
 
 impl GameWorld {
-    /// Spawns, player pings, Lua GC — shared by `advance_beat` other counter.
-    pub(crate) fn run_other_subsystems(&mut self, now: Instant, lua_gc_every_five_ticks: bool) {
-        self.poll_spawn_respawns(self.now_ms());
-        if lua_gc_every_five_ticks {
-            if self.tick_counter.is_multiple_of(5) {
-                self.events.lua_gc_step();
-            }
-        } else {
-            self.events.lua_gc_step();
-        }
-        // 1098 proactive `sendPing` uses wallclock `Instant` (`Player::sendPing` `player.cpp` ~902).
-        // 772 `Player::sendPing` (`player.cpp:754`) is also wallclock-based (5000ms from `onThink`)
-        // and runs alongside the round-based `ProcessConnections` idle ping — both eras use it.
-        self.tick_player_pings(now);
-
-        // Phase 6: `beat_driven_loop` collapsed — both eras run the 772 round-based subsystems.
+    /// 772 Other arm — `main.cc:347–437`. Order: RoundNr++ → connections → homes → raids.
+    pub(crate) fn run_other_subsystems(&mut self, delay_ms: u64) {
         self.round_nr = self.round_nr.saturating_add(1);
         let kick = self.process_connections();
+        self.poll_spawn_respawns(self.round_nr);
+        self.process_monster_raids();
         self.tick_ambient_light();
         self.npc_tick_conversation_timeouts();
+        if self.round_nr.is_multiple_of(10) {
+            self.net_load_check();
+        }
+        self.tick_other_minute_jobs();
+        // N1: Lua GC stays off the movement path; skip when this AdvanceGame is already lagging.
+        if delay_ms < LAG_SKIP_MOVEMENT_MS {
+            self.events.lua_gc_step();
+        }
         for kick in kick {
             self.pending_idle_kick.push(kick);
+        }
+    }
+
+    /// `GetRoundForNextMinute` — `time.cc:106–109`.
+    fn get_round_for_next_minute(round_nr: u32) -> u32 {
+        let local = chrono::Local::now();
+        let secs_to_next_minute = 60u32.saturating_sub(local.timestamp() as u32 % 60);
+        round_nr
+            .saturating_add(secs_to_next_minute)
+            .saturating_add(30)
+    }
+
+    /// Minute jobs on Other (`main.cc:375–436`) — house rent/auctions; not a Tokio cron.
+    fn tick_other_minute_jobs(&mut self) {
+        if self.round_nr < self.next_minute_round {
+            return;
+        }
+        let now = chrono::Local::now().timestamp().clamp(0, i64::from(u32::MAX)) as u32;
+        let period = self.house_rent_period_from_config();
+        let grace = self.house_grace_secs_from_config();
+        self.process_houses_online(now, period, grace);
+        self.next_minute_round = Self::get_round_for_next_minute(self.round_nr);
+    }
+
+    /// `NetLoadCheck` / `EmergencyPing` (`main.cc:375–377`) — under lag, rewind command
+    /// stamps 100 rounds and ping so idle timeouts still progress.
+    fn net_load_check(&mut self) {
+        if !self.lag {
+            return;
+        }
+        let online: Vec<(tfs_rust_common::ConnId, crate::ids::CreatureId)> = self
+            .conn_to_creature
+            .iter()
+            .map(|(&conn, &cid)| (conn, cid))
+            .collect();
+        for (conn_id, cid) in online {
+            if let Some(crate::creature::CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                p.last_command_round = p.last_command_round.saturating_sub(100);
+            }
+            self.enqueue_outgoing(conn_id, tfs_rust_net::outgoing::send_ping().into_bytes());
         }
     }
 
@@ -71,8 +107,7 @@ impl GameWorld {
 
         let t0 = Instant::now();
         if fired.other {
-            let now = Instant::now();
-            self.run_other_subsystems(now, false);
+            self.run_other_subsystems(delay_ms);
         }
         let other_us = t0.elapsed().as_micros();
 
@@ -192,10 +227,53 @@ mod tests {
             "round-based decay clock must advance while movement is paused"
         );
         let expired = world.decay.tick(world.decay_clock_now());
-        assert_eq!(
-            expired.len(),
-            1,
+        assert!(
+            expired.len() == 1,
             "scheduled decay must become due after round clock advances"
         );
+    }
+
+    #[test]
+    fn other_does_not_send_5s_wallclock_ping() {
+        use std::time::{Duration, Instant};
+
+        use tfs_rust_common::{ConnId, Position};
+
+        use crate::creature::CreatureKind;
+        use crate::test_world::support::{ensure_walkable_tile, insert_player, test_player};
+
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let player = insert_player(&mut world, test_player("Pinged", pos));
+        let conn = ConnId(1);
+        world.register_conn_mapping(conn, player);
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.last_ping_sent = Instant::now()
+                .checked_sub(Duration::from_secs(30))
+                .unwrap_or_else(Instant::now);
+            p.last_command_round = 0;
+        }
+        world.round_nr = 0;
+        world.pending_outgoing.clear();
+        world.run_other_subsystems(200);
+        assert_eq!(world.round_nr, 1);
+        let has_keepalive_ping = world.pending_outgoing.get(&conn).is_some_and(|q| {
+            q.iter()
+                .any(|b| matches!(b.first(), Some(0x1D | 0x1E)))
+        });
+        assert!(
+            !has_keepalive_ping,
+            "772 Other must not emit a 5s wallclock ping (0x1D/0x1E); round-based ping is 30/60"
+        );
+    }
+
+    #[test]
+    fn spawn_poll_sees_round_nr_after_increment() {
+        let mut world = beat_driven_test_world();
+        world.round_nr = 0;
+        world.run_other_subsystems(200);
+        assert_eq!(world.round_nr, 1);
+        assert_eq!(world.spawns.last_check, Some(1));
     }
 }

@@ -899,3 +899,6 @@
 407. **House area SQM uses XML `size` and house name** (`house_prices.rs`, `house/mod.rs` `apply_sqm_rents`): TFS XML has no `Area`; RON maps house **name** → corpus area (XML `name` = `houses.dat` `Name`). `rent = area.sqm * xml.size`. Do not use DAT `Fields` count or OTBM `tiles.len()`. `RentOffset` is not applied. Flag off + `housePriceEachSQM = -1` keeps XML rent.
     *(August 2026)*
 
+408. **772 Other spawn clock is RoundNr, not `server_ms`** (`game_world_tick.rs`, `spawn.rs`): `ProcessMonsterhomes` decrements Timer after `RoundNr++` (`main.cc:350`, `crnonpl.cc:1409`). Lag skip freezes `server_ms` but still runs Other, so a `now_ms()` due check stall respawns. Poll after increment; delay is `ms/1000` rounds. AdvanceGame has no 5s wallclock ping — keepalive is ProcessConnections at LastCommand 30/60. Ingress is one `Game` packet per connection per wakeup (`receiving.cc` WaitingForACK), not a 64-deep same-client drain.
+    *(August 2026)*
+

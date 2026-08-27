@@ -153,6 +153,7 @@ function Game.getPlayers(...) end
 function Game.getReturnMessage(...) end
 function Game.getWorldType(...) end
 function Game.saveServer(...) end
+function Game.startRaid(...) end
 
 ---@class GlobalEvent
 GlobalEvent = {}

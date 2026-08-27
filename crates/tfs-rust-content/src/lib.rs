@@ -16,6 +16,7 @@ pub mod otb_patch;
 pub mod otbm;
 pub mod outfits;
 pub mod pipeline;
+pub mod raids;
 pub mod spawns;
 pub mod spells;
 pub mod vocations;

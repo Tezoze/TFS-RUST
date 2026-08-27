@@ -5,11 +5,11 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::creature::base::CreatureBase;
-use crate::creature::monster_combat::{MonsterSpell, combat_from_monster_type};
+use crate::creature::monster_combat::{combat_from_monster_type, MonsterSpell};
 use crate::creature::monster_inventory::MonsterInventory;
 use crate::ids::CreatureId;
-use tfs_rust_common::Position;
 use tfs_rust_common::enums::BloodType;
+use tfs_rust_common::Position;
 use tfs_rust_content::monsters::{MonsterType, MonsterTypeFlags};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -295,6 +295,9 @@ pub struct Monster {
     /// at the same slot would share a wire-id without this, making the client show the
     /// stale dragon sprite with no name/HP bar).
     pub wire_id: u32,
+    /// 772 `LifeEndRound` — raid wave despawn (`crmain.cc` ProcessMonsterRaids).
+    /// `None` = no timed despawn (normal spawn / Lua createMonster).
+    pub life_end_round: Option<u32>,
 }
 
 impl Monster {
@@ -362,6 +365,7 @@ impl Monster {
             opponent_ids: Vec::new(),
             friend_ids: Vec::new(),
             wire_id: 0,
+            life_end_round: None,
         }
     }
 

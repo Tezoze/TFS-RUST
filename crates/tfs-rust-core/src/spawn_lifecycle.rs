@@ -199,14 +199,14 @@ impl GameWorld {
         }
     }
 
-    /// Poll respawn timers — C++ `Spawn::checkSpawn`. Driven on the **logical** clock (`now_ms`):
-    /// `server_ms` for both eras (Phase 6 collapse — audit Finding 13).
-    pub fn poll_spawn_respawns(&mut self, now_ms: u64) {
-        if !self.spawns.should_run_check(now_ms) {
+    /// Poll respawn timers — C++ `ProcessMonsterhomes` (`crnonpl.cc:1409`).
+    /// `now_round` is `RoundNr` after Other increments (`main.cc:350–354`).
+    pub fn poll_spawn_respawns(&mut self, now_round: u32) {
+        if !self.spawns.should_run_check(now_round) {
             return;
         }
-        let indices = self.spawns.due_slot_indices(now_ms);
-        self.spawns.mark_checked(now_ms);
+        let indices = self.spawns.due_slot_indices(now_round);
+        self.spawns.mark_checked(now_round);
         for slot_index in indices {
             if self
                 .spawns
@@ -229,7 +229,7 @@ impl GameWorld {
             let stall_on_player =
                 self.mechanics.profile.spawn_near_player == crate::formulas::SpawnNearPlayer::Block;
             if blocked && stall_on_player {
-                self.spawns.stall_respawn(slot_index, now_ms);
+                self.spawns.stall_respawn(slot_index, now_round);
                 continue;
             }
             let Some(slot) = self.spawns.slot(slot_index).cloned() else {
@@ -380,7 +380,7 @@ impl GameWorld {
             );
             self.creatures.remove(cid);
             // Avoid tight respawn loops on blocked tiles — C++ `checkSpawn` only advances timer on success.
-            self.spawns.stall_respawn(slot_index, self.now_ms());
+            self.spawns.stall_respawn(slot_index, self.round_nr);
             return None;
         }
 
@@ -1400,8 +1400,11 @@ impl GameWorld {
                 .map(|s| s.spawntime_ms)
                 .unwrap_or(0);
             let delay_ms = self.compute_respawn_delay_ms(regen_ms);
-            self.spawns
-                .on_creature_removed(slot_index, now_ms, delay_ms);
+            self.spawns.on_creature_removed(
+                slot_index,
+                self.round_nr,
+                crate::spawn::ms_to_rounds(delay_ms),
+            );
         }
     }
 
@@ -1661,12 +1664,9 @@ mod tests {
         world.remove_creature(monster_cid);
         world.pending_outgoing.clear();
 
-        // Respawn runs on `server_ms` (Phase 6: both eras use the unified beat clock).
-        // Advance `server_ms` past the slot's respawn deadline + check interval.
-        world.server_ms = 50_000_000;
-        // `advance_beat` drains `poll_spawn_respawns` via `run_other_subsystems`.
-        // 5 beats × 200 ms = 1000 ms → `other` subsystem fires once.
-        for _ in 0..5 {
+        world.round_nr = 0;
+        // 5s XML delay → 5 Other fires (`ms_to_rounds`). 30 × 200 ms = 6 Other ticks.
+        for _ in 0..30 {
             world.advance_beat(200);
         }
 
@@ -1696,11 +1696,8 @@ mod tests {
         world.remove_creature(monster_cid);
         world.pending_outgoing.clear();
 
-        // Respawn on `server_ms` (Phase 6: unified beat clock) — advance past the deadline.
-        world.server_ms = 50_000_000;
-        // `advance_beat` drains `poll_spawn_respawns` via `run_other_subsystems`.
-        // 5 beats × 200 ms = 1000 ms → `other` subsystem fires once.
-        for _ in 0..5 {
+        world.round_nr = 0;
+        for _ in 0..30 {
             world.advance_beat(200);
         }
         let monsters = world
@@ -1719,6 +1716,33 @@ mod tests {
             "creature marker low byte must follow position"
         );
         assert_eq!(appear[7], 0x00, "unknown creature marker is 0x0061");
+    }
+
+    #[test]
+    fn lag_skip_still_decrements_monsterhome_timer() {
+        let mut world = world_with_spawn();
+        world.startup_spawns();
+        let (monster_cid, _) = world.creatures.iter().next().unwrap();
+        world.remove_creature(monster_cid);
+        world.server_ms = 50;
+        world.round_nr = 0;
+        for _ in 0..8 {
+            world.advance_beat(2000);
+        }
+        assert_eq!(
+            world.server_ms, 50,
+            "lag skip must freeze movement clock"
+        );
+        assert!(world.lag);
+        let monsters = world
+            .creatures
+            .iter()
+            .filter(|(_, k)| matches!(k, CreatureKind::Monster(_)))
+            .count();
+        assert_eq!(
+            monsters, 1,
+            "RoundNr Other must still expire monsterhome Timer while server_ms is frozen"
+        );
     }
 
     #[test]

@@ -203,6 +203,12 @@ pub struct GameWorld {
     pub(crate) parity_rng: crate::sim_glibc_rand::GlibcRngState,
     /// 772 `RoundNr` — incremented each `Other` subsystem tick (`main.cc:350`).
     pub(crate) round_nr: u32,
+    /// `NextMinute` — first minute jobs at round 30 (`main.cc` Other, `time.cc` GetRoundForNextMinute).
+    pub(crate) next_minute_round: u32,
+    /// `CONNECTION_LOGIN` sockets not yet mapped to a creature (`connections.cc:42–44`).
+    pub(crate) login_pending_conns: HashSet<ConnId>,
+    /// RoundNr AttackWaveQueue — `crmain.cc` ProcessMonsterRaids.
+    pub(crate) raids: crate::raid_waves::RaidScheduler,
     /// Last broadcast ambiente brightness — `AdvanceGame` `OldAmbiente` (`main.cc:323`).
     /// Uses `i16` so `0xFF` (255) does not collide with the `-1` sentinel.
     pub(crate) last_ambiente_brightness: i16,
@@ -456,6 +462,9 @@ impl GameWorld {
             monster_viewport_notify_depth: 0,
             parity_rng: crate::sim_glibc_rand::GlibcRngState::default(),
             round_nr: 0,
+            next_minute_round: 30,
+            login_pending_conns: HashSet::new(),
+            raids: crate::raid_waves::RaidScheduler::default(),
             last_ambiente_brightness: -1,
             world_light_override: None,
             lag: false,

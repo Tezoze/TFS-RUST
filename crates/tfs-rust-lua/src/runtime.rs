@@ -27,7 +27,7 @@ use crate::constants::register_constants;
 use crate::context::{CreatureRef, ItemRef};
 use crate::npc_dialogue::register_npc_dialogue;
 use crate::npc_type::register_npc_type;
-use crate::timer_events::{TimerEvents, execute_timer_event, register_add_event_stop_event};
+use crate::timer_events::{execute_timer_event, register_add_event_stop_event, TimerEvents};
 use crate::userdata::PositionRef;
 use crate::userdata::{
     register_combat_metatable, register_condition_metatable, register_container_metatable,
@@ -1550,8 +1550,8 @@ pub(crate) fn register_event_script_bootstrap_with(
         ta.set("_separator", " ")?;
         ta.set("_need_access", false)?;
         ta.set("_account_type", 1u8)?; // ACCOUNT_TYPE_NORMAL (`enums.h`)
-        // `talkaction:separator(sep)` fluent setter (mirrors C++
-        // `TalkAction::setSeparator`).
+                                       // `talkaction:separator(sep)` fluent setter (mirrors C++
+                                       // `TalkAction::setSeparator`).
         ta.set(
             "separator",
             lua.create_function(|_, (this, sep): (mlua::Table, String)| {
@@ -2125,7 +2125,9 @@ end
 /// C++ `luascript.cpp` `luaGameGetWorldType` / `luaGameCreateMonster`.
 fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
     use crate::context::{CreatureRef, ItemRef};
-    use crate::lua_mutation::{call_clear_field, call_create_monster, call_lua_game_create_item};
+    use crate::lua_mutation::{
+        call_clear_field, call_create_monster, call_lua_game_create_item, call_start_raid,
+    };
     use crate::userdata::item::{parse_lua_item_type_id, push_item_userdata};
     use crate::userdata::position::PositionRef;
     // `Game` is a class table (extensible by `function Game:method(...)` in
@@ -2220,6 +2222,10 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
                 }
             },
         )?,
+    )?;
+    game.set(
+        "startRaid",
+        lua.create_function(|_, name: String| call_start_raid(name).map_err(mlua::Error::runtime))?,
     )?;
     // `Game.createItem(itemId[, count[, position]])` — `luaGameCreateItem`
     // + `setItemMetatable` (R2: container types return Container userdata).

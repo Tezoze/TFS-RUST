@@ -42,6 +42,28 @@ fn pending_push(pending: &mut PendingQueue, cmd: GameCommand) {
     pending.push_back((Instant::now(), cmd));
 }
 
+/// 772 `ReceiveData` — one game packet per connection per wakeup (`receiving.cc:1796`).
+fn game_packet_conn(cmd: &GameCommand) -> Option<ConnId> {
+    match cmd {
+        GameCommand::Game { conn_id, .. } => Some(*conn_id),
+        _ => None,
+    }
+}
+
+fn defer_extra_same_conn_game(
+    cmd: GameCommand,
+    served: &HashSet<ConnId>,
+    deferred: &mut VecDeque<GameCommand>,
+) -> Option<GameCommand> {
+    if let Some(conn) = game_packet_conn(&cmd)
+        && served.contains(&conn)
+    {
+        deferred.push_back(cmd);
+        return None;
+    }
+    Some(cmd)
+}
+
 /// Persist every player still tied to a live game connection. Used for SIGINT / graceful shutdown
 /// (awaited; not fire-and-forget).
 ///
@@ -430,6 +452,7 @@ fn begin_player_login_load(
         );
         return;
     }
+    world.login_pending_conns.insert(conn_id);
     login_started.insert(conn_id, Instant::now());
     world.obs.note_concurrent_logins(pending_login_conns.len());
 
@@ -501,6 +524,7 @@ fn handle_player_loaded(
         );
     }
     pending_login_conns.remove(&conn_id);
+    world.login_pending_conns.remove(&conn_id);
     if !conn_still_current(world, output_sinks, out_registry, conn_id) {
         warn!(
             conn_id = conn_id.0,
@@ -541,6 +565,7 @@ fn handle_player_loaded(
             // `StartLogout` on the body (`connections.cc:244-252`).
             if let Some(old) = old_conn {
                 pending_login_conns.remove(&old);
+                world.login_pending_conns.remove(&old);
                 flush_conn_outgoing(world, old, output_sinks, out_registry);
                 close_output_connection(old, output_sinks, out_registry);
             }
@@ -581,6 +606,7 @@ fn handle_player_load_failed(
         );
     }
     pending_login_conns.remove(&conn_id);
+    world.login_pending_conns.remove(&conn_id);
     warn!(
         conn_id = conn_id.0,
         %name,
@@ -610,6 +636,7 @@ fn handle_player_disconnect(
     out_registry: &Option<OutRegistry>,
 ) {
     pending_login_conns.remove(&conn_id);
+    world.login_pending_conns.remove(&conn_id);
     world.dead_connections.remove(&conn_id);
     if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
         if display_effect {
@@ -1491,6 +1518,7 @@ pub async fn run_game_loop(
                     break;
                 }
                 obs_note_ingress(&mut world, &game_rx, &pending);
+                let first_game_conn = cmd.as_ref().and_then(game_packet_conn);
                 match dispatch_command(
                     &mut world,
                     cmd,
@@ -1512,14 +1540,28 @@ pub async fn run_game_loop(
                     }
                     ControlFlow::Break(LoopExit::ChannelClosed) => break,
                     ControlFlow::Continue(()) => {
-                        // GL-2: bounded slice — do not drain the game lane to empty.
+                        // One Game packet per connection per wakeup (`receiving.cc` WaitingForACK);
+                        // 64 is a global safety valve, not the fair-share unit.
+                        let mut served_game_conns = HashSet::new();
+                        if let Some(c) = first_game_conn {
+                            served_game_conns.insert(c);
+                        }
                         let mut processed = 1usize;
+                        let mut deferred = VecDeque::new();
                         while processed < MAX_GAME_COMMANDS_PER_TURN {
                             let Some(more) =
                                 try_recv_next_command(&mut game_rx, &mut ctrl_rx, &mut pending)
                             else {
                                 break;
                             };
+                            let Some(more) =
+                                defer_extra_same_conn_game(more, &served_game_conns, &mut deferred)
+                            else {
+                                continue;
+                            };
+                            if let Some(c) = game_packet_conn(&more) {
+                                served_game_conns.insert(c);
+                            }
                             match dispatch_command(
                                 &mut world,
                                 Some(more),
@@ -1544,6 +1586,9 @@ pub async fn run_game_loop(
                                     processed += 1;
                                 }
                             }
+                        }
+                        while let Some(c) = deferred.pop_back() {
+                            pending.push_front((Instant::now(), c));
                         }
                         world.obs_record_commands(processed);
                         world.obs_maybe_emit();
@@ -2646,6 +2691,38 @@ mod f8_s6_handler_routing_tests {
                 .is_none_or(|pkts| pkts.is_empty()),
             "SendAll on beat must drain queued login 0x0A"
         );
+    }
+
+    #[test]
+    fn one_packet_per_conn_then_beat_under_burst() {
+        use std::collections::HashSet;
+        use std::collections::VecDeque;
+
+        use tfs_rust_common::{ConnId, enums::Direction};
+
+        use super::{defer_extra_same_conn_game, game_packet_conn};
+
+        let mut served = HashSet::new();
+        served.insert(ConnId(1));
+        let mut deferred = VecDeque::new();
+        let extra = GameCommand::Game {
+            conn_id: ConnId(1),
+            packet: GamePacket::Move(Direction::North),
+        };
+        assert!(
+            defer_extra_same_conn_game(extra, &served, &mut deferred).is_none(),
+            "second packet from same conn must wait for the next wakeup"
+        );
+        assert_eq!(deferred.len(), 1);
+
+        let other = GameCommand::Game {
+            conn_id: ConnId(2),
+            packet: GamePacket::Move(Direction::South),
+        };
+        let taken = defer_extra_same_conn_game(other, &served, &mut deferred)
+            .expect("other connection still gets one packet this wakeup");
+        assert_eq!(game_packet_conn(&taken), Some(ConnId(2)));
+        assert_eq!(deferred.len(), 1);
     }
 
     // Suppress unused-import warning for `Player` (re-exported via test_player; kept for

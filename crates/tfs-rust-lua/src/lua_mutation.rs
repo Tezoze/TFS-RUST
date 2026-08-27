@@ -183,6 +183,10 @@ pub enum LuaMutation {
         extended: bool,
         force: bool,
     },
+    /// `Game.startRaid(name)` — TFS `luaGameStartRaid`.
+    StartRaid {
+        name: String,
+    },
     /// `creature:addSummon(monster)` — set master + clear target/follow.
     AddSummon {
         master_id: u64,
@@ -660,7 +664,7 @@ fn apply_mutation(mutation: LuaMutation) -> Result<(), String> {
 
 #[cfg(test)]
 mod mutation_scope_tests {
-    use super::{MUTATION_WORLD, with_lua_mutation_scope};
+    use super::{with_lua_mutation_scope, MUTATION_WORLD};
 
     #[test]
     fn nested_mutation_scope_restores_outer_world() {
@@ -949,6 +953,12 @@ pub fn call_create_monster(
         force,
     })?;
     Ok(take_mutation_item_result())
+}
+
+/// `Game.startRaid(name)` — TFS `luaGameStartRaid`. Returns `RETURNVALUE_*` integer.
+pub fn call_start_raid(name: String) -> Result<i32, String> {
+    apply_mutation(LuaMutation::StartRaid { name })?;
+    Ok(take_mutation_i32_result().unwrap_or(61))
 }
 
 pub fn call_add_summon(master_id: u64, summon_id: u64) -> Result<bool, String> {

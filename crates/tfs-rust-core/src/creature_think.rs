@@ -130,6 +130,17 @@ impl GameWorld {
         for cid in std::mem::take(&mut self.scratch_creature_ids) {
             let _ = self.player_try_finalize_logout(cid);
         }
+
+        // C++ `TPlayer::CheckState` every ProcessCreatures (`crmain.cc:1097–1099`).
+        self.scratch_creature_ids.clear();
+        for (cid, k) in self.creatures.iter() {
+            if matches!(k, CreatureKind::Player(_)) && self.conn_for_creature(cid).is_some() {
+                self.scratch_creature_ids.push(cid);
+            }
+        }
+        for cid in std::mem::take(&mut self.scratch_creature_ids) {
+            self.send_player_icons(cid);
+        }
     }
 }
 

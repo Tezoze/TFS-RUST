@@ -59,6 +59,13 @@ impl GameWorld {
         let idle_kick_rounds = self.connection_config.idle_kick_rounds();
         let mut kick: Vec<(ConnId, bool)> = Vec::new();
 
+        // CONNECTION_LOGIN — `connections.cc:42–44`.
+        if self.game_state != crate::game_state::GameState::Normal {
+            for conn_id in self.login_pending_conns.drain() {
+                kick.push((conn_id, false));
+            }
+        }
+
         let online: Vec<(ConnId, CreatureId)> = self
             .conn_to_creature
             .iter()
@@ -502,5 +509,18 @@ mod tests {
             assert_eq!(p.otclient_v8, 2);
             assert!(!p.logging_out);
         }
+    }
+
+    #[test]
+    fn login_connection_disconnects_when_not_ok() {
+        let mut world = beat_driven_test_world();
+        let conn = tfs_rust_common::ConnId(9);
+        world.login_pending_conns.insert(conn);
+        world.game_state = crate::game_state::GameState::Closed;
+        let kick = world.process_connections();
+        assert_eq!(kick.len(), 1);
+        assert_eq!(kick[0].0, conn);
+        assert!(!kick[0].1, "login disconnect is not StopFight idle kick");
+        assert!(world.login_pending_conns.is_empty());
     }
 }

@@ -413,3 +413,27 @@ fn lua_feed_sets_food_level() {
         "food_level should be set to 12 (default regen interval)"
     );
 }
+
+#[test]
+fn process_creatures_sends_icons_when_round_crosses_logout() {
+    use tfs_rust_common::ConnId;
+
+    let mut world = beat_driven_test_world();
+    let pos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, pos, 150);
+    let player = insert_player(&mut world, test_player("Icons", pos));
+    let conn = ConnId(1);
+    world.register_conn_mapping(conn, player);
+    world.round_nr = 10;
+    if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+        p.earliest_logout_round = 10;
+        p.client_icons = 0x80;
+    }
+    world.pending_outgoing.clear();
+    world.process_creatures();
+    let outgoing = world.pending_outgoing.get(&conn);
+    assert!(
+        outgoing.is_some_and(|q| q.iter().any(|b| !b.is_empty() && b[0] == 0xA2)),
+        "CheckState sweep must send 0xA2 when swords/logout round expires"
+    );
+}

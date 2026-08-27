@@ -240,6 +240,11 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             }
             Ok(())
         }
+        LuaMutation::StartRaid { name } => {
+            let rv = unsafe { &mut *world }.schedule_raid_now(&name);
+            set_mutation_i32_result(crate::raid_waves::raid_return_to_lua_i32(rv));
+            Ok(())
+        }
         LuaMutation::AddSummon {
             master_id,
             summon_id,

@@ -25,10 +25,9 @@ pub(crate) fn poison_factor_percent(additional_value: i32) -> i32 {
 impl GameWorld {
     /// C++ `ProcessSkills` — tick timer-skills for every creature (`crmain.cc:1130-1139`).
     ///
-    /// Skip wild monsters / NPCs with an empty condition list: they have nothing to tick, and
-    /// with ~20k+ spawned creatures a full SlotMap sweep every SkillTimeCounter fire was enough
-    /// to push beat lag over the 1000 ms `MoveCreatures` skip threshold when many nearby
-    /// monsters were also pathfinding.
+    /// Skip wild monsters / NPCs with an empty condition list: TFS timer-skills are conditions,
+    /// so an empty list ≡ empty TimerList. Raid `LifeEndRound` is drained from Other
+    /// (`raid_waves.rs`), not ProcessSkills. Do not invent monster `SKILL_FED` regen.
     pub(crate) fn process_skills(&mut self) {
         self.scratch_creature_ids.clear();
         self.scratch_creature_ids.extend(

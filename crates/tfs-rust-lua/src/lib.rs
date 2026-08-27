@@ -59,7 +59,7 @@ pub use lua_mutation::{
     call_lua_item_transform, call_lua_npc_say, call_lua_npc_set_focus, call_lua_remove_condition,
     call_lua_remove_item, call_lua_send_cancel_message, call_lua_send_channel_message,
     call_lua_send_magic_effect, call_lua_set_action_id, call_lua_set_in_fight,
-    call_lua_set_store_item, call_lua_set_unique_id, call_lua_tile_add_item,
+    call_lua_set_store_item, call_lua_set_unique_id, call_lua_tile_add_item, call_start_raid,
     register_lua_mutation_applier, set_mutation_bool_result, set_mutation_i32_result,
     set_mutation_item_result, with_lua_mutation_scope,
 };

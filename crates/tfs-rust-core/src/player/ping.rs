@@ -35,14 +35,9 @@ impl GameWorld {
         self.enqueue_outgoing(conn_id, send_ping_back().into_bytes());
     }
 
-    /// Periodic `ProtocolGame::sendPing` per online player — called from both 1098 `on_tick` and
-    /// 772 `run_other_subsystems`.
-    //
-    // C++ 1098 (`src/protocolgame.cpp:2530`): always `0x1D`.
-    // TVP 772 (`protocolgame.cpp:1516`): `0x1D` for OTClient (`OS >= CLIENTOS_OTCLIENT_LINUX`),
-    //   `0x1E` for non-OTClient (real Tibia / Forgotten Client). The 772 `Player::sendPing`
-    //   (`player.cpp:754`) is wallclock-based (5000ms from `onThink`) and runs alongside the
-    //   round-based `ProcessConnections` idle ping — both eras use the 5s wallclock ping.
+    /// Periodic OTClient/TFS `sendPing` — not on the 772 Other arm (`main.cc` AdvanceGame).
+    /// Keepalive is `ProcessConnections` at LastCommand 30/60 (`connections.cc:24`).
+    #[allow(dead_code)]
     pub(crate) fn tick_player_pings(&mut self, now: Instant) {
         let online: Vec<(ConnId, CreatureId)> = self
             .conn_to_creature
