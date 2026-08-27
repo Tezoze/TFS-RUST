@@ -13,6 +13,7 @@ quick-xml = { workspace = true }
 roxmltree = "0.21"
 mlua = { workspace = true }
 serde = { version = "1", features = ["derive"] }
+ron = { workspace = true }
 
 [[bin]]
 name = "patch-otb-waypoints"

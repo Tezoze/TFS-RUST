@@ -49,6 +49,7 @@ function Creature:addSummon(...) end
 function Creature:computeDamage(...) end
 function Creature:computeHealing(...) end
 function Creature:computeSkillDamage(...) end
+function Creature:conjureItem(...) end
 function Creature:depositMoney(...) end
 function Creature:feed(...) end
 function Creature:getAccountType(...) end
@@ -149,6 +150,7 @@ function Game.createTile(...) end
 function Game.getHouses(...) end
 function Game.getInstantSpells(...) end
 function Game.getPlayers(...) end
+function Game.getReturnMessage(...) end
 function Game.getWorldType(...) end
 function Game.saveServer(...) end
 
@@ -385,6 +387,7 @@ function Tile:getItems(...) end
 function Tile:getPosition(...) end
 function Tile:getThing(...) end
 function Tile:getThingCount(...) end
+function Tile:getTopCreature(...) end
 function Tile:getTopDownItem(...) end
 function Tile:getTopVisibleThing(...) end
 function Tile:hasFlag(...) end

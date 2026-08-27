@@ -85,6 +85,7 @@ fn build_map(s: &Scenario) -> Map {
         grid: SparseGrid::new(),
         towns: HashMap::new(),
         waypoints: HashMap::new(),
+        house_tiles: Vec::new(),
     };
     let pad = s.visible.max(12) as u16 + 2;
     let min_x = s.start.0.min(s.target.0).saturating_sub(pad);

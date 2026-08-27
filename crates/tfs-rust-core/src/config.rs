@@ -179,6 +179,16 @@ impl ConfigManager {
         Ok(v.max(0) as u32)
     }
 
+    /// `useHouseAreaPrices` — corpus per-area SQM from `house-prices.ron` (default false).
+    pub fn use_house_area_prices(&self) -> Result<bool> {
+        get_bool_or(self, "useHouseAreaPrices", false)
+    }
+
+    /// TFS `housePriceEachSQM`. `-1` keeps XML rent when area prices are off.
+    pub fn house_price_each_sqm(&self) -> Result<i64> {
+        get_i64_or(self, "housePriceEachSQM", -1)
+    }
+
     /// C++ `ConfigManager::RATE_EXPERIENCE` (`rateExp`, default 1.0).
     pub fn rate_experience(&self) -> Result<f64> {
         match self.get_f64("rateExp") {

@@ -50,10 +50,12 @@ function talkaction.onSay(player, words, param)
 		return false
 	end
 
-	local price = house:getRent()	
-	local housePrice = configManager.getNumber(configKeys.HOUSE_PRICE)
-	if housePrice > -1 then 
-		price = house:getTileCount() * housePrice
+	local price = house:getRent()
+	if not configManager.getBoolean(configKeys.USE_HOUSE_AREA_PRICES) then
+		local housePrice = configManager.getNumber(configKeys.HOUSE_PRICE)
+		if housePrice > -1 then
+			price = house:getTileCount() * housePrice
+		end
 	end
 	
 	if not player:removeTotalMoney(price) then

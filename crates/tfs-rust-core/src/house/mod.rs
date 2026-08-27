@@ -21,12 +21,16 @@ pub use access::{
 pub use auction::{AuctionOutcome, auction_paid_until, decide_auction};
 pub use registry::{House, HouseRentPeriod};
 pub use rent::{HOUSE_GRACE_SECS, HOUSE_MONTH_SECS, RentAction, decide_rent};
-pub use serialize::{LoadedHouseItem, decode_tile_store_blob, encode_house_tile_store};
+pub use serialize::{
+    LoadedHouseItem, apply_decoded_house_items, decode_all_tile_store_rows, decode_tile_store_blob,
+    encode_house_tile_store,
+};
 pub use window::{HouseEditSession, house_window_door_id_ok, house_window_id_ok};
 
 use std::collections::{HashMap, HashSet};
 
 use tfs_rust_common::Position;
+use tfs_rust_content::house_prices::{HouseRentPolicy, compute_rent};
 use tfs_rust_content::houses_xml::HouseXmlEntry;
 
 use crate::ids::ItemId;
@@ -48,6 +52,8 @@ pub struct HouseManager {
     pub pending_depot_dumps: HashMap<u32, Vec<ItemId>>,
     pub pending_depot_town: HashMap<u32, u32>,
     pub last_process_unix: i64,
+    /// Rent/auction/owner mutation since last `save_houses` (skip boot `tile_store` rewrite).
+    pub persist_needed: bool,
 }
 
 impl HouseManager {
@@ -71,15 +77,27 @@ impl HouseManager {
         }
     }
 
+    /// `rent = sqm * XML size` (`forgotten-houses.xml` `size`).
+    pub fn apply_sqm_rents(&mut self, policy: &HouseRentPolicy) {
+        for rec in self.records.values_mut() {
+            if let Some(rent) = compute_rent(&rec.name, rec.size, policy) {
+                rec.rent = rent;
+            }
+        }
+    }
+
+    pub fn mark_persist(&mut self) {
+        self.persist_needed = true;
+    }
+
+    /// OTBM housetiles are unique; callers must not attach the same pos twice.
     pub fn attach_tile(&mut self, house_id: u32, pos: Position) {
         self.houses.entry(house_id).or_default();
         let rec = self
             .records
             .entry(house_id)
             .or_insert_with(|| House::new(house_id));
-        if !rec.tiles.contains(&pos) {
-            rec.tiles.push(pos);
-        }
+        rec.tiles.push(pos);
     }
 
     pub fn attach_door(&mut self, house_id: u32, door_id: u8, item_id: ItemId) {

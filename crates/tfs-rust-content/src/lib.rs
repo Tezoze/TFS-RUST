@@ -1,5 +1,6 @@
 pub mod data_lua;
 pub mod groups;
+pub mod house_prices;
 pub mod houses_xml;
 pub mod item_abilities;
 pub mod items;

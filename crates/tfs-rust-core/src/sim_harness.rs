@@ -431,6 +431,7 @@ pub fn minimal_world() -> GameWorld {
         grid: SparseGrid::new(),
         towns: HashMap::new(),
         waypoints: HashMap::new(),
+        house_tiles: Vec::new(),
     };
     map.towns.insert(
         1,
@@ -585,6 +586,7 @@ pub fn beat_driven_world_with_synthetic_ground_data(
         grid: SparseGrid::new(),
         towns: HashMap::new(),
         waypoints: HashMap::new(),
+        house_tiles: Vec::new(),
     };
     map.towns.insert(
         1,

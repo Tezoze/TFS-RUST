@@ -333,6 +333,7 @@ fn register_config_keys(lua: &Lua) -> Result<(), mlua::Error> {
     // TVP `boolean_config_t::GUILHALLS_ONLYFOR_LEADERS` / `HOUSES_ONLY_PREMIUM`.
     keys.set("GUILHALLS_ONLYFOR_LEADERS", 49i32)?;
     keys.set("HOUSES_ONLY_PREMIUM", 50i32)?;
+    keys.set("USE_HOUSE_AREA_PRICES", 51i32)?;
     // TVP `integer_config_t::HOUSE_PRICE` → `housePriceEachSQM`.
     keys.set("HOUSE_PRICE", 8i32)?;
     lua.globals().set("configKeys", keys)?;
@@ -427,6 +428,12 @@ mod tests {
                 .get::<i32>("HOUSES_ONLY_PREMIUM")
                 .expect("HOUSES_ONLY_PREMIUM"),
             50
+        );
+        assert_eq!(
+            config_keys
+                .get::<i32>("USE_HOUSE_AREA_PRICES")
+                .expect("USE_HOUSE_AREA_PRICES"),
+            51
         );
         assert_eq!(
             config_keys.get::<i32>("HOUSE_PRICE").expect("HOUSE_PRICE"),

@@ -11,7 +11,7 @@ use anyhow::Context;
 use tfs_rust_common::GameCommand;
 use tokio::net::TcpListener;
 use tokio::task::LocalSet;
-use tracing::{debug, info};
+use tracing::{debug, info, Instrument};
 
 use tfs_rust_net::{
     Codec, GameWireConfig, LoginWireConfig, OutRegistry, Server, open_game_command_channels,
@@ -186,6 +186,27 @@ pub async fn run() -> anyhow::Result<()> {
 
     let spawn_zones = std::mem::take(&mut content.map.spawn_zones);
     let houses_xml = std::mem::take(&mut content.houses);
+    let house_prices = content.house_prices.take();
+    let rent_policy = if config
+        .use_house_area_prices()
+        .map_err(|e| anyhow::anyhow!("config useHouseAreaPrices: {e}"))?
+    {
+        let prices = house_prices.ok_or_else(|| {
+            anyhow::anyhow!(
+                "useHouseAreaPrices is true but house-prices.ron was not found next to the OTBM"
+            )
+        })?;
+        tfs_rust_content::house_prices::HouseRentPolicy::AreaPrices(prices)
+    } else {
+        let each = config
+            .house_price_each_sqm()
+            .map_err(|e| anyhow::anyhow!("config housePriceEachSQM: {e}"))?;
+        if each < 0 {
+            tfs_rust_content::house_prices::HouseRentPolicy::KeepXml
+        } else {
+            tfs_rust_content::house_prices::HouseRentPolicy::BlanketSqm(each as u32)
+        }
+    };
     let mut items_db = std::sync::Arc::new(content.items);
     let monsters_db = std::sync::Arc::new(content.monsters);
     let groups = std::sync::Arc::new(content.groups);
@@ -476,32 +497,27 @@ pub async fn run() -> anyhow::Result<()> {
 
     // House XML + map tiles, then DB owner/lists/`tile_store` (`IOMapSerialize::loadHouseInfo`).
     world.houses.apply_xml_entries(&houses_xml);
+    world.houses.apply_sqm_rents(&rent_policy);
     world.houses.ensure_houses(map_house_ids.iter().copied());
-    world.house_scan_map();
+    tracing::info_span!("house_scan").in_scope(|| {
+        world.house_scan_map();
+    });
     {
         let house_store = tfs_rust_db::HouseStore::new(&db);
-        match house_store.load_house_owners().await {
+        match house_store
+            .load_house_owners()
+            .instrument(tracing::info_span!("house_owners"))
+            .await
+        {
             Ok(owners) => {
+                let mut owner_names: HashMap<u32, String> = HashMap::new();
                 for row in &owners {
                     world.houses.apply_owner_row(row);
-                }
-                let mut owner_names: std::collections::HashMap<u32, String> =
-                    std::collections::HashMap::new();
-                for row in &owners {
-                    if row.owner_u32() == 0 || owner_names.contains_key(&row.owner_u32()) {
-                        continue;
-                    }
-                    let owner = row.owner_u32();
-                    match house_store.name_by_guid(owner).await {
-                        Ok(Some(name)) => {
-                            owner_names.insert(owner, name);
-                        }
-                        Ok(None) => {}
-                        Err(e) => tracing::warn!(
-                            guid = owner,
-                            error = %e,
-                            "house owner name resolve failed"
-                        ),
+                    if row.owner_u32() != 0
+                        && let Some(name) = row.owner_player_name.as_ref()
+                        && !name.is_empty()
+                    {
+                        owner_names.insert(row.owner_u32(), name.clone());
                     }
                 }
                 world.houses.apply_owner_names(&owner_names);
@@ -511,44 +527,56 @@ pub async fn run() -> anyhow::Result<()> {
         }
         match house_store.load_house_lists().await {
             Ok(lists) => {
-                let mut name_cache: std::collections::HashMap<String, Option<u32>> =
-                    std::collections::HashMap::new();
+                let mut unique = std::collections::HashSet::new();
                 for row in &lists {
                     for name in crate::house::AccessList::candidate_names(&row.list) {
-                        if name_cache.contains_key(&name) {
-                            continue;
-                        }
-                        let guid = match house_store.guid_by_name(&name).await {
-                            Ok(g) => g,
-                            Err(e) => {
-                                tracing::warn!(name = %name, error = %e, "house list name resolve failed");
-                                None
-                            }
-                        };
-                        name_cache.insert(name, guid);
+                        unique.insert(name);
                     }
                 }
-                for (name, guid) in &name_cache {
-                    if let Some(g) = guid {
-                        world.houses.name_to_guid.insert(name.clone(), *g);
+                let names: Vec<String> = unique.into_iter().collect();
+                let resolved = match house_store.guid_by_names(&names).await {
+                    Ok(m) => m,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "house list name bulk resolve failed");
+                        HashMap::new()
                     }
+                };
+                for (name, guid) in &resolved {
+                    world.houses.name_to_guid.insert(name.clone(), *guid);
                 }
                 for row in &lists {
                     world.houses.apply_list_row(
                         row.house_id_u32(),
                         row.listid_u32(),
                         &row.list,
-                        |n| name_cache.get(n).copied().flatten(),
+                        |n| resolved.get(n).copied(),
                     );
                 }
                 info!(count = lists.len(), "loaded house access lists");
             }
             Err(e) => tracing::warn!(error = %e, "house lists load failed"),
         }
-        match house_store.load_tile_store().await {
+        match house_store
+            .load_tile_store()
+            .instrument(tracing::info_span!("tile_store_load"))
+            .await
+        {
             Ok(rows) => {
-                world.load_house_tile_store(&rows);
-                info!(count = rows.len(), "loaded house tile_store");
+                let n = rows.len();
+                let items_db = Arc::clone(&world.items_db);
+                let decoded = tokio::task::spawn_blocking(move || {
+                    crate::house::decode_all_tile_store_rows(&rows, items_db.as_ref())
+                })
+                .await;
+                match decoded {
+                    Ok(tiles) => {
+                        tracing::info_span!("tile_store_overlay").in_scope(|| {
+                            crate::house::apply_decoded_house_items(&mut world, tiles);
+                        });
+                        info!(count = n, "loaded house tile_store");
+                    }
+                    Err(e) => tracing::warn!(error = %e, "house tile_store decode join failed"),
+                }
             }
             Err(e) => tracing::warn!(error = %e, "house tile_store load failed"),
         }
@@ -558,7 +586,11 @@ pub async fn run() -> anyhow::Result<()> {
         {
             tracing::warn!(error = %e, "house XML metadata upsert failed");
         }
-        if let Err(e) = world.process_and_persist_houses().await {
+        if let Err(e) = world
+            .process_houses_at_boot()
+            .instrument(tracing::info_span!("house_boot_save"))
+            .await
+        {
             tracing::warn!(error = %e, "boot house process failed");
         }
     }

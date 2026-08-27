@@ -579,6 +579,13 @@ impl ItemType {
         self.flags & Self::FLAG_PICKUPABLE != 0 || self.allow_pickupable
     }
 
+    /// 772 `TAKE` / OTB `FLAG_PICKUPABLE` only.
+    /// XML `allowpickupable` is place-on-this (tables), not pick-up-this.
+    #[inline]
+    pub fn takeable(&self) -> bool {
+        self.flags & Self::FLAG_PICKUPABLE != 0
+    }
+
     #[inline]
     pub fn moveable(&self) -> bool {
         self.moveable_override

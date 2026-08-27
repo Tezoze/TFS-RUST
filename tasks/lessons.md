@@ -884,3 +884,18 @@
 402. **772 re-enter viewport name/HP/target** (`spawn_lifecycle.rs` `send_creature_remove_to_conn`, `codec/v772.rs` `write_add_creature`): Decompile `SendDeleteField` does not FREE `KnownCreatureTable`. `SendMapObject` is three-way — UPTODATE `0x63` (id+dir), OUTDATED `0x62` (no name), FREE `0x61` (name). Erasing the server slot on `0x6C` made reappear a second `0x61` while the client still had the id → blank bar, cannot target, until `0x64`. Keep the slot; 772 `known && uptodate` writes `0x63`. 1098 stays `0x61`/`0x62`.
     *(August 2026)*
 
+403. **House boot is not XML-bound** (`run_server.rs`, `map/mod.rs` `house_tiles`, `HouseStore`): TFS loads housetiles during OTBM parse (`House::addTile`) and bulk-SELECTs `houses` / `house_lists` / `tile_store`; it does not rewrite furniture on every start. We were walking the whole sparse grid, resolving owner/list names one query each, upserting ~850 houses one-by-one, then `DELETE`+per-row `INSERT` of `tile_store` after hydrate. Fix: index housetiles at map build, JOIN/`IN` name resolve, batched upsert/insert, boot persist only if rent/auction mutated. Overlay still runs at boot (no lazy furniture).
+    *(August 2026)*
+
+404. **sqlx `push_tuples` is for `IN`, not `INSERT VALUES`** (`tfs-rust-db/src/house.rs`): it wraps as `VALUES ((?), (?))`. MariaDB 1241 (`Operand should contain 1 column(s)`). Use `(?), (?)` for house upsert / `tile_store` bulk insert. `IN (...)` name resolve is already the wrapped form.
+    *(August 2026)*
+
+405. **House leave/evict is 772 TAKE, not XML `allowpickupable`** (`house/ownership.rs` `collect_clean_field`; `houses.cc` `CleanField` ~834): `ItemType::pickupable()` ORs `allow_pickupable` (place items **on** a table). Stock tables (1632) have that XML bit and are UNMOVE, so `!leavehouse` / `setOwner(0)` dumped them to depot. Corpus: `!UNMOVE && TAKE` → depot; unmoveable furniture stays; container contents of what remains still dump. `takeable()` is OTB `FLAG_PICKUPABLE` only.
+    *(August 2026)*
+
+406. **House→depot must detach, not `internalRemoveItem`** (`house_transfer_to_depot`; `game_world_item_cylinder.rs` `internal_remove_item_from_tile`): C++ `MoveObject` keeps the instance. Our remove path `detach` then `items.remove`, so leavehouse stuffed **dead** ids into the depot chest. Locker `CountObjects - 1` still counted them (`Your depot contains 5 items`) while `sendContainer` skipped missing SlotMap nodes (empty window). Use `detach_item_from_tile` then add; `refresh_container_chain` so the count matches.
+    *(August 2026)*
+
+407. **House area SQM uses XML `size` and house name** (`house_prices.rs`, `house/mod.rs` `apply_sqm_rents`): TFS XML has no `Area`; RON maps house **name** → corpus area (XML `name` = `houses.dat` `Name`). `rent = area.sqm * xml.size`. Do not use DAT `Fields` count or OTBM `tiles.len()`. `RentOffset` is not applied. Flag off + `housePriceEachSQM = -1` keeps XML rent.
+    *(August 2026)*
+

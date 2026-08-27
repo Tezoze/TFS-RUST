@@ -27,6 +27,9 @@ pub struct Map {
     pub grid: SparseGrid,
     pub towns: HashMap<u32, tfs_rust_content::otbm::TownData>,
     pub waypoints: HashMap<String, Position>,
+    /// OTBM `HOUSETILE` membership collected at build (TFS `House::addTile` during parse).
+    /// Drained by [`crate::house::ownership`] `house_scan_map` — not a full-grid walk.
+    pub house_tiles: Vec<(u32, Position, Vec<ItemId>)>,
 }
 
 impl Map {
@@ -40,8 +43,19 @@ impl Map {
         items: &mut SlotMap<ItemId, Item>,
     ) -> Self {
         let mut grid = SparseGrid::new();
+        let mut house_tiles = Vec::new();
         for (pos, td) in data.tiles {
             let tile = tile_from_data(pos, td, items_db, items);
+            if let Tile::House(h) = &tile {
+                let body = tile.body();
+                let item_ids: Vec<ItemId> = body
+                    .down_items
+                    .iter()
+                    .copied()
+                    .chain(body.top_items.iter().copied())
+                    .collect();
+                house_tiles.push((h.house_id, pos, item_ids));
+            }
             grid.insert_tile(pos.x, pos.y, pos.z, tile);
         }
         Self {
@@ -50,6 +64,7 @@ impl Map {
             grid,
             towns: data.towns,
             waypoints: data.waypoints,
+            house_tiles,
         }
     }
 
@@ -838,5 +853,47 @@ mod tile_flag_tests {
         );
         let tile = map.get_tile(pos).expect("tile");
         assert_ne!(tile.body().flags & flags::FLOORCHANGE_DOWN, 0);
+    }
+
+    #[test]
+    fn from_map_data_indexes_otbm_house_tiles() {
+        const GROUND: u16 = 100;
+        let pos = Position::new(100, 100, 7);
+        let db = item_db(vec![(GROUND, ground_item_type(GROUND))]);
+        let mut items: SlotMap<ItemId, crate::item::Item> = SlotMap::with_key();
+        let mut tiles = HashMap::new();
+        tiles.insert(
+            pos,
+            TileData {
+                position: pos,
+                house_id: Some(7),
+                tile_flags: 0,
+                things: vec![TileThing::EmbeddedItemId(GROUND)],
+            },
+        );
+        tiles.insert(
+            Position::new(101, 100, 7),
+            TileData {
+                position: Position::new(101, 100, 7),
+                house_id: None,
+                tile_flags: 0,
+                things: vec![TileThing::EmbeddedItemId(GROUND)],
+            },
+        );
+        let data = MapData {
+            width: 256,
+            height: 256,
+            spawn_file: None,
+            house_file: None,
+            spawn_zones: Vec::new(),
+            tiles,
+            houses: HashMap::new(),
+            towns: HashMap::new(),
+            waypoints: HashMap::new(),
+        };
+        let map = super::Map::from_map_data(data, &db, &mut items);
+        assert_eq!(map.house_tiles.len(), 1);
+        assert_eq!(map.house_tiles[0].0, 7);
+        assert_eq!(map.house_tiles[0].1, pos);
     }
 }

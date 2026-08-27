@@ -1,7 +1,6 @@
 //! House definitions from `{map}-houses.xml`.
 //! Pack surface: TFS `Houses::loadHousesXML` — `house.cpp` (~586).
-//! Corpus rent formula is `SQMPrice * Size + RentOffset` (`houses.cc` ~1681);
-//! this pack ships explicit per-house `rent`, so XML wins.
+//! Corpus: `SQMPrice * XML size` (`house_prices.rs`); XML `rent=` until then.
 
 use std::path::Path;
 

@@ -2527,6 +2527,7 @@ fn config_key_to_lua_bool(key: &mlua::Value) -> Option<&'static str> {
             "guildHallsOnlyForLeaders" | "GUILHALLS_ONLYFOR_LEADERS" => {
                 Some("guildHallsOnlyForLeaders")
             }
+            "useHouseAreaPrices" | "USE_HOUSE_AREA_PRICES" => Some("useHouseAreaPrices"),
             _ => None,
         },
         mlua::Value::Integer(i) => match *i {
@@ -2538,6 +2539,7 @@ fn config_key_to_lua_bool(key: &mlua::Value) -> Option<&'static str> {
             49 => Some("guildHallsOnlyForLeaders"),
             // TVP `boolean_config_t::HOUSES_ONLY_PREMIUM`
             50 => Some("housesOnlyPremium"),
+            51 => Some("useHouseAreaPrices"),
             _ => None,
         },
         mlua::Value::Number(n) => config_key_to_lua_bool(&mlua::Value::Integer(*n as i64)),

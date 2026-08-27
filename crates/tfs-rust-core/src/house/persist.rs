@@ -125,14 +125,28 @@ impl GameWorld {
     }
 
     /// Corpus `ProcessHouses`: online first, then offline depot rows, then persist.
+    /// Daily / SIGINT always rewrite `tile_store` (furniture may have moved).
     pub async fn process_and_persist_houses(&mut self) -> Result<()> {
+        self.process_and_persist_houses_inner(true).await
+    }
+
+    /// Boot: rent/auction only; skip `tile_store` rewrite unless a house mutated.
+    pub async fn process_houses_at_boot(&mut self) -> Result<()> {
+        self.process_and_persist_houses_inner(false).await
+    }
+
+    async fn process_and_persist_houses_inner(&mut self, force_save: bool) -> Result<()> {
         let now = unix_now();
         let period = self.house_rent_period_from_config();
         let grace = self.house_grace_secs_from_config();
         self.process_houses_online(now, period, grace);
         self.process_houses_offline(now, grace).await?;
         self.flush_pending_depot_dumps().await?;
-        self.save_houses().await
+        if force_save || self.houses.persist_needed {
+            self.save_houses().await?;
+            self.houses.persist_needed = false;
+        }
+        Ok(())
     }
 
     async fn process_houses_offline(&mut self, now: u32, grace_secs: u32) -> Result<()> {
@@ -182,6 +196,7 @@ impl GameWorld {
                     self.house_set_owner(id, bidder, now);
                 } else if let Some(rec) = self.houses.records.get_mut(&id) {
                     rec.clear_bid();
+                    self.houses.mark_persist();
                 }
                 Ok(())
             }
@@ -189,6 +204,7 @@ impl GameWorld {
                 if let Some(rec) = self.houses.records.get_mut(&id) {
                     rec.clear_bid();
                 }
+                self.houses.mark_persist();
                 Ok(())
             }
         }
@@ -243,6 +259,7 @@ impl GameWorld {
                         rec.paid_until = new_paid_until;
                         rec.warnings = 0;
                     }
+                    self.houses.mark_persist();
                 }
                 Ok(())
             }
@@ -257,6 +274,7 @@ impl GameWorld {
                 if let Some(rec) = self.houses.records.get_mut(&id) {
                     rec.warnings = 1;
                 }
+                self.houses.mark_persist();
                 Ok(())
             }
             RentAction::Evict => {

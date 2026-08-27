@@ -368,21 +368,41 @@ fn add_child_to_container(world: &mut GameWorld, parent: ItemId, child: ItemId) 
 
 /// Hydrate `tile_store` rows onto the map (`IOMapSerialize::loadHouseItems`).
 pub fn load_tile_store_into_world(world: &mut GameWorld, rows: &[TileStoreRow]) {
+    let decoded = decode_all_tile_store_rows(rows, &world.items_db);
+    apply_decoded_house_items(world, decoded);
+}
+
+/// Decode all `tile_store` blobs (CPU; safe off the game thread).
+pub fn decode_all_tile_store_rows(
+    rows: &[TileStoreRow],
+    items_db: &tfs_rust_content::items::ItemDatabase,
+) -> Vec<(Position, Vec<LoadedHouseItem>)> {
+    let mut out = Vec::new();
     for row in rows {
-        match decode_tile_store_blob(&row.data, &world.items_db) {
-            Ok(tiles) => {
-                for (pos, items) in tiles {
-                    // TVP `.tvph` `cleanHouseItems` before re-add — OTBM chairs are moveable
-                    // and `saveTile` persists them; classic load would stack a second copy.
-                    strip_moveable_house_items(world, pos);
-                    for item in items {
-                        let _ = place_loaded_item(world, pos, item);
-                    }
-                }
-            }
+        match decode_tile_store_blob(&row.data, items_db) {
+            Ok(tiles) => out.extend(tiles),
             Err(e) => {
-                tracing::warn!(house_id = row.house_id_u32(), error = %e, "tile_store blob parse failed");
+                tracing::warn!(
+                    house_id = row.house_id_u32(),
+                    error = %e,
+                    "tile_store blob parse failed"
+                );
             }
+        }
+    }
+    out
+}
+
+pub fn apply_decoded_house_items(
+    world: &mut GameWorld,
+    tiles: Vec<(Position, Vec<LoadedHouseItem>)>,
+) {
+    for (pos, items) in tiles {
+        // TVP `.tvph` `cleanHouseItems` before re-add — OTBM chairs are moveable
+        // and `saveTile` persists them; classic load would stack a second copy.
+        strip_moveable_house_items(world, pos);
+        for item in items {
+            let _ = place_loaded_item(world, pos, item);
         }
     }
 }

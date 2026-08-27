@@ -1,4 +1,5 @@
 use crate::groups::GroupDatabase;
+use crate::house_prices::{HousePrices, load_house_prices};
 use crate::houses_xml::{HouseXmlEntry, load_houses_xml};
 use crate::items::ItemDatabase;
 use crate::monsters::MonsterDatabase;
@@ -21,6 +22,8 @@ pub struct Content {
     pub map: MapData,
     /// `{map}-houses.xml` entries (`Houses::loadHousesXML`). Empty when the file is missing.
     pub houses: Vec<HouseXmlEntry>,
+    /// `{world}/house-prices.ron` area SQM table. `None` when the file is missing.
+    pub house_prices: Option<HousePrices>,
 }
 
 /// Load server content. `map_otbm_relative` is under `data_dir` (e.g. `world/world.otbm`);
@@ -133,6 +136,13 @@ pub async fn load_all(data_dir: &Path, map_otbm_relative: Option<&str>) -> Resul
         Vec::new()
     };
 
+    let prices_path = base.join("house-prices.ron");
+    let house_prices = if prices_path.is_file() {
+        Some(load_house_prices(&prices_path)?)
+    } else {
+        None
+    };
+
     info!("Content pipeline loaded successfully.");
 
     Ok(Content {
@@ -144,6 +154,7 @@ pub async fn load_all(data_dir: &Path, map_otbm_relative: Option<&str>) -> Resul
         groups: groups_res.unwrap()?,
         map,
         houses,
+        house_prices,
     })
 }
 

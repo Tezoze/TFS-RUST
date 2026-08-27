@@ -65,6 +65,7 @@ impl GameWorld {
                             rec.paid_until = auction_paid_until(now);
                             rec.clear_bid();
                         }
+                        self.houses.mark_persist();
                         self.house_deliver_letter(
                             bidder,
                             town_id,
@@ -76,6 +77,7 @@ impl GameWorld {
                     if let Some(rec) = self.houses.records.get_mut(&id) {
                         rec.clear_bid();
                     }
+                    self.houses.mark_persist();
                 }
             }
         }
@@ -121,6 +123,7 @@ impl GameWorld {
                         rec.paid_until = new_paid_until;
                         rec.warnings = 0;
                     }
+                    self.houses.mark_persist();
                 }
                 RentAction::Warn { days_left } => {
                     self.house_deliver_letter(
@@ -133,6 +136,7 @@ impl GameWorld {
                     if let Some(rec) = self.houses.records.get_mut(&id) {
                         rec.warnings = 1;
                     }
+                    self.houses.mark_persist();
                 }
                 RentAction::Evict => {
                     self.house_set_owner(id, 0, now);

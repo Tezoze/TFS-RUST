@@ -46,6 +46,7 @@ bitflags = "2.13"
 dashmap = "6.2"
 mlua = { version = "0.12", default-features = false, features = ["luajit", "vendored", "serialize"] }
 bcrypt = "0.19"
+ron = "0.12"
 
 [dependencies]
 tfs-rust-core = { workspace = true }
