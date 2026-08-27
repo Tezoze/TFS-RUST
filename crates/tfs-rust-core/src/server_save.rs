@@ -122,6 +122,10 @@ impl ServerSaveController {
         self.pending = ServerSaveTick::FlushStay;
     }
 
+    pub(crate) fn request_flush_shutdown(&mut self) {
+        self.pending = ServerSaveTick::FlushShutdown;
+    }
+
     pub fn from_world_config(cfg: &ConfigManager) -> Result<Self> {
         let save_cfg = ServerSaveConfig::from_config(cfg)?;
         Ok(Self::new(save_cfg, Local::now().timestamp()))

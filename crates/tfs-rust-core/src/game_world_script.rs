@@ -1678,6 +1678,78 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         );
         self.houses.can_edit_list(house_id, list_id, p.guid, edit)
     }
+
+    fn get_creature_speed(&self, creature_id: ScriptCreatureId) -> Option<i32> {
+        let cid = self.resolve_creature_u64(creature_id)?;
+        Some(self.creatures.get(cid)?.base().speed)
+    }
+
+    fn is_creature_npc(&self, creature_id: ScriptCreatureId) -> bool {
+        self.resolve_creature_u64(creature_id)
+            .and_then(|cid| self.creatures.get(cid))
+            .is_some_and(|k| matches!(k, CreatureKind::Npc(_)))
+    }
+
+    fn can_see_creature(&self, viewer: ScriptCreatureId, target: ScriptCreatureId) -> bool {
+        let Some(v) = self.resolve_creature_u64(viewer) else {
+            return false;
+        };
+        let Some(t) = self.resolve_creature_u64(target) else {
+            return false;
+        };
+        GameWorld::can_see_creature(self, v, t)
+    }
+
+    fn get_creature_skull(&self, creature_id: ScriptCreatureId) -> i32 {
+        let Some(cid) = self.resolve_creature_u64(creature_id) else {
+            return 0;
+        };
+        match self.creatures.get(cid) {
+            Some(CreatureKind::Player(_)) => self.player_get_killing_mark(cid, cid) as i32,
+            Some(k) => k.base().skull as i32,
+            None => 0,
+        }
+    }
+
+    fn get_player_account_id(&self, creature_id: ScriptCreatureId) -> Option<u32> {
+        let cid = self.resolve_creature_u64(creature_id)?;
+        match self.creatures.get(cid)? {
+            CreatureKind::Player(p) => Some(p.account_id),
+            _ => None,
+        }
+    }
+
+    fn get_player_party_id(&self, creature_id: ScriptCreatureId) -> Option<u32> {
+        let cid = self.resolve_creature_u64(creature_id)?;
+        match self.creatures.get(cid)? {
+            CreatureKind::Player(p) => p.social.party_id,
+            _ => None,
+        }
+    }
+
+    fn get_party_leader(&self, party_id: u32) -> Option<ScriptCreatureId> {
+        let party = self.parties.get(&party_id)?;
+        self.creatures.get(party.leader)?;
+        Some(party.leader.data().as_ffi())
+    }
+
+    fn party_shared_experience_active(&self, party_id: u32) -> bool {
+        self.parties
+            .get(&party_id)
+            .is_some_and(|p| p.shared_experience_enabled)
+    }
+
+    fn get_world_up_time(&self) -> u64 {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        now.saturating_sub(self.started_at_unix).max(0) as u64
+    }
+
+    fn get_experience_stage(&self, level: i32) -> f64 {
+        self.config.experience_rate_for_level(level).unwrap_or(1.0)
+    }
 }
 
 #[cfg(test)]

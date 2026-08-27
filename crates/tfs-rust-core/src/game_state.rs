@@ -4,7 +4,7 @@
 //! (`game.h`). Closed blocks new logins; shutdown is the save-then-exit path.
 // C++ reference: `Game::setGameState` — `game.cpp`.
 
-/// TFS `GameState_t` subset we actually drive from Rust (no Lua `setGameState`).
+/// TFS `GameState_t` subset we drive from Rust and Lua `Game.setGameState`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GameState {
     #[default]

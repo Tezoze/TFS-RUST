@@ -440,6 +440,7 @@ pub async fn run() -> anyhow::Result<()> {
             // registry holds `mlua::RegistryKey`s tied to the runtime.
             dispatcher.set_talkactions(talkactions);
             dispatcher.set_actions(actions);
+            dispatcher.set_data_dir(data_path.clone());
             tracing::info!(
                 actions = dispatcher.actions_count(),
                 "Action registry attached"

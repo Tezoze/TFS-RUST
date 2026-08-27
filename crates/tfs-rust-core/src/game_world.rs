@@ -92,6 +92,8 @@ pub struct GameWorld {
     pub player_by_guid: HashMap<u32, CreatureId>,
     /// TFS `GAME_STATE_*` — Closed blocks new logins; Shutdown ends the loop after save.
     pub game_state: crate::game_state::GameState,
+    /// Wall-clock unix seconds when this world was constructed (`getWorldUpTime`).
+    pub started_at_unix: i64,
     /// Persisted `server_config.players_record` (TFS `Game::playersRecord`).
     pub players_record: u32,
     pub(crate) server_save: crate::server_save::ServerSaveController,
@@ -392,6 +394,10 @@ impl GameWorld {
             player_by_name: HashMap::new(),
             player_by_guid: HashMap::new(),
             game_state: crate::game_state::GameState::Normal,
+            started_at_unix: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0),
             players_record: 0,
             server_save: crate::server_save::ServerSaveController::from_world_config(
                 config.as_ref(),

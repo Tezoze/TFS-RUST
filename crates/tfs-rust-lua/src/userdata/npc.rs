@@ -7,7 +7,7 @@ use mlua::{UserData, UserDataMethods};
 use std::cell::RefCell;
 
 use crate::context::{CURRENT_CTX, CreatureData, CreatureRef, LuaContext};
-use crate::lua_mutation::{call_lua_npc_say, call_lua_npc_set_focus};
+use crate::lua_mutation::{call_lua_npc_say, call_lua_npc_set_focus, call_npc_set_master_pos};
 use crate::userdata::position::PositionRef;
 
 /// Typed NPC handle passed into custom / lifecycle callbacks.
@@ -76,6 +76,28 @@ impl UserData for NpcRef {
             };
             with_ctx(|ctx| Ok(ctx.npc_is_in_talk_range(this.0, player_id)))
         });
+
+        methods.add_method_mut(
+            "setMasterPos",
+            |_, this, (pos, radius): (mlua::Value, Option<u16>)| {
+                let (x, y, z) = match pos {
+                    mlua::Value::UserData(ud) => {
+                        let p = ud.borrow::<PositionRef>()?;
+                        (p.x, p.y, p.z)
+                    }
+                    mlua::Value::Table(t) => {
+                        let x: i64 = t.get("x").or_else(|_| t.get(1))?;
+                        let y: i64 = t.get("y").or_else(|_| t.get(2))?;
+                        let z: i64 = t.get("z").or_else(|_| t.get(3))?;
+                        (x as u16, y as u16, z as u8)
+                    }
+                    _ => {
+                        return Err(mlua::Error::runtime("setMasterPos: expected Position"));
+                    }
+                };
+                call_npc_set_master_pos(this.0, x, y, z, radius).map_err(mlua::Error::runtime)
+            },
+        );
 
         methods.add_method_mut("say", |_, this, text: String| {
             call_lua_npc_say(this.0, &text).map_err(mlua::Error::runtime)?;

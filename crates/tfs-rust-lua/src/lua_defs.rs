@@ -27,6 +27,7 @@ use crate::userdata::house::HouseRef;
 use crate::userdata::item_type::ItemTypeRef;
 use crate::userdata::monster_type::MonsterTypeRef;
 use crate::userdata::npc::NpcRef;
+use crate::userdata::party::PartyRef;
 use crate::userdata::position::PositionRef;
 use crate::userdata::spell::{PendingSpell, SpellBuilder};
 use crate::userdata::tile::TileRef;
@@ -333,6 +334,7 @@ fn populate_native_members(lua: &Lua) -> Result<(), mlua::Error> {
     let _ = lua.create_userdata(VocationRef(0))?;
     let _ = lua.create_userdata(GroupRef(0))?;
     let _ = lua.create_userdata(NpcRef(0))?;
+    let _ = lua.create_userdata(PartyRef(0))?;
     let _ = lua.create_userdata(CombatRef(Rc::new(RefCell::new(CombatDef::default()))))?;
     let _ = lua.create_userdata(ConditionBuilder::new(0, 0))?;
     let _ = lua.create_userdata(SpellBuilder {
@@ -715,6 +717,26 @@ mod tests {
         assert!(
             game.table_functions.contains("getHouses"),
             "Game.getHouses is a class-table function"
+        );
+        assert!(
+            game.table_functions.contains("createNpc"),
+            "Game.createNpc is a class-table function"
+        );
+        assert!(
+            game.table_functions.contains("setGameState"),
+            "Game.setGameState is a class-table function"
+        );
+        assert!(
+            game.table_functions.contains("reload"),
+            "Game.reload is a class-table function"
+        );
+        assert!(
+            snap.functions.contains("getWorldUpTime"),
+            "getWorldUpTime is a global"
+        );
+        assert!(
+            snap.functions.contains("getIPNumberFromString"),
+            "getIPNumberFromString is a global"
         );
         assert!(
             snap.functions.contains("saveServer"),

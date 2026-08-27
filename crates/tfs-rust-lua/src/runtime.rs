@@ -213,6 +213,7 @@ impl LuaRuntime {
         register_creature_metatable(&lua).map_err(LuaError::Registration)?;
         register_monster_metatable(&lua).map_err(LuaError::Registration)?;
         register_npc_metatable(&lua).map_err(LuaError::Registration)?;
+        crate::userdata::register_party_metatable(&lua).map_err(LuaError::Registration)?;
         register_item_metatable(&lua).map_err(LuaError::Registration)?;
         register_container_metatable(&lua).map_err(LuaError::Registration)?;
         register_vocation_metatable(&lua).map_err(LuaError::Registration)?;
@@ -2228,6 +2229,7 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
         "startRaid",
         lua.create_function(|_, name: String| call_start_raid(name).map_err(mlua::Error::runtime))?,
     )?;
+    crate::lua_game::register_game_admin_api(lua, &game)?;
     // `Game.createItem(itemId[, count[, position]])` — `luaGameCreateItem`
     // + `setItemMetatable` (R2: container types return Container userdata).
     game.set(
@@ -2472,6 +2474,8 @@ impl RegisterLuaFunctions for MinimalGlobalFunctions {
         )?;
         globals.set("configManager", config_manager)?;
 
+        crate::lua_game::register_admin_globals(lua)?;
+
         // getWorldTime() — world time in game-minutes (0..1439).
         globals.set(
             "getWorldTime",
@@ -2559,11 +2563,31 @@ fn config_key_to_lua_number(key: &mlua::Value) -> Option<&'static str> {
     match key {
         mlua::Value::String(s) => match s.to_str().ok()?.as_ref() {
             "housePriceEachSQM" | "HOUSE_PRICE" => Some("housePriceEachSQM"),
+            "rateExp" | "RATE_EXPERIENCE" => Some("rateExp"),
+            "rateSkill" | "RATE_SKILL" => Some("rateSkill"),
+            "rateLoot" | "RATE_LOOT" => Some("rateLoot"),
+            "rateMagic" | "RATE_MAGIC" => Some("rateMagic"),
+            "killsDayRedSkull" | "KILLS_DAY_RED_SKULL" => Some("killsDayRedSkull"),
+            "killsWeekRedSkull" | "KILLS_WEEK_RED_SKULL" => Some("killsWeekRedSkull"),
+            "killsMonthRedSkull" | "KILLS_MONTH_RED_SKULL" => Some("killsMonthRedSkull"),
+            "killsDayBanishment" | "KILLS_DAY_BANISHMENT" => Some("killsDayBanishment"),
+            "killsWeekBanishment" | "KILLS_WEEK_BANISHMENT" => Some("killsWeekBanishment"),
+            "killsMonthBanishment" | "KILLS_MONTH_BANISHMENT" => Some("killsMonthBanishment"),
             _ => None,
         },
         mlua::Value::Integer(i) => match *i {
+            3 => Some("rateExp"),
+            4 => Some("rateSkill"),
+            5 => Some("rateLoot"),
+            6 => Some("rateMagic"),
             // TVP `integer_config_t::HOUSE_PRICE`
             8 => Some("housePriceEachSQM"),
+            30 => Some("killsDayRedSkull"),
+            31 => Some("killsWeekRedSkull"),
+            32 => Some("killsMonthRedSkull"),
+            33 => Some("killsDayBanishment"),
+            34 => Some("killsWeekBanishment"),
+            35 => Some("killsMonthBanishment"),
             _ => None,
         },
         mlua::Value::Number(n) => config_key_to_lua_number(&mlua::Value::Integer(*n as i64)),

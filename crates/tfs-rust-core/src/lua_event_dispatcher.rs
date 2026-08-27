@@ -4,6 +4,7 @@
 //! `MoveEvents::onItemMove` / `executeAddRemItem`, `MoveEvents::getEvent(Item*)`.
 
 use std::any::Any;
+use std::path::PathBuf;
 
 use crate::actions::ActionRegistry;
 use crate::event_dispatcher::{
@@ -16,7 +17,7 @@ use slotmap::Key;
 use tfs_rust_common::Position;
 use tfs_rust_lua::{
     CallbackRef, CreatureEventKind, LuaRuntime, MoveEventKind, MoveEventsRegistry,
-    MoveItemCylinder, with_lua_context,
+    MoveItemCylinder, load_all_talkaction_scripts, load_scripts_interface, with_lua_context,
 };
 
 /// Lua-based event dispatcher.
@@ -28,6 +29,8 @@ pub struct LuaEventDispatcher {
     talkactions: TalkActionRegistry,
     /// Action `onUse` registry — food, doors, levers, …
     actions: ActionRegistry,
+    /// Data pack root for slim `Game.reload` (talkactions / scripts-interface).
+    data_dir: PathBuf,
 }
 
 impl LuaEventDispatcher {
@@ -37,7 +40,13 @@ impl LuaEventDispatcher {
             move_events,
             talkactions: TalkActionRegistry::default(),
             actions: ActionRegistry::default(),
+            data_dir: PathBuf::new(),
         }
+    }
+
+    /// Pack root used by `Game.reload` (talkactions + scripts-interface).
+    pub fn set_data_dir(&mut self, data_dir: PathBuf) {
+        self.data_dir = data_dir;
     }
 
     /// CH-6: Set the talkaction registry (called after loading talkaction scripts).
@@ -820,6 +829,36 @@ impl EventDispatcher for LuaEventDispatcher {
                 tracing::error!(?player, "Lua EventCallback onReportBug failed: {e}");
             }
         });
+    }
+
+    fn reload_scripts(&mut self, reload_type: i32) {
+        const ALL: i32 = 0;
+        const SCRIPTS: i32 = 13;
+        const TALKACTIONS: i32 = 15;
+        if self.data_dir.as_os_str().is_empty() {
+            tracing::info!(reload_type, "Game.reload: no data dir; log-only");
+            return;
+        }
+        if reload_type == TALKACTIONS || reload_type == ALL {
+            match load_all_talkaction_scripts(&mut self.runtime, &self.data_dir) {
+                Ok(defs) => {
+                    self.talkactions = TalkActionRegistry::from_defs(defs);
+                    tracing::info!(
+                        count = self.talkactions.entries.len(),
+                        "Game.reload: talkactions rescanned"
+                    );
+                }
+                Err(e) => tracing::warn!(error = %e, "Game.reload: talkactions failed"),
+            }
+        }
+        if reload_type == SCRIPTS || reload_type == ALL {
+            if let Err(e) = load_scripts_interface(&self.runtime, &self.data_dir) {
+                tracing::warn!(error = %e, "Game.reload: scripts-interface failed");
+            }
+        }
+        if reload_type != ALL && reload_type != SCRIPTS && reload_type != TALKACTIONS {
+            tracing::info!(reload_type, "Game.reload: type not implemented (ok)");
+        }
     }
 
     fn as_any(&self) -> &dyn Any {

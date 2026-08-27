@@ -406,6 +406,9 @@ pub trait EventDispatcher {
     ) {
     }
 
+    /// `Game.reload(type)` — TFS `luaGameReload`. Default no-op (Null dispatcher).
+    fn reload_scripts(&mut self, _reload_type: i32) {}
+
     /// Downcast to `Any` for runtime type checking (e.g., to access Lua runtime).
     fn as_any(&self) -> &dyn Any
     where

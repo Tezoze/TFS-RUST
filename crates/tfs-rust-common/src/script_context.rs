@@ -1065,6 +1065,63 @@ pub trait ScriptContext {
         let _ = (house_id, list_id, creature_id);
         false
     }
+
+    /// `creature:getSpeed()` — `Creature::getSpeed`.
+    fn get_creature_speed(&self, creature_id: ScriptCreatureId) -> Option<i32> {
+        let _ = creature_id;
+        None
+    }
+
+    /// `creature:isNpc()`.
+    fn is_creature_npc(&self, creature_id: ScriptCreatureId) -> bool {
+        let _ = creature_id;
+        false
+    }
+
+    /// `player:canSeeCreature(other)` — `Creature::canSeeCreature`.
+    fn can_see_creature(&self, viewer: ScriptCreatureId, target: ScriptCreatureId) -> bool {
+        let _ = (viewer, target);
+        false
+    }
+
+    /// `creature:getSkull()` — observer = self.
+    fn get_creature_skull(&self, creature_id: ScriptCreatureId) -> i32 {
+        let _ = creature_id;
+        0
+    }
+
+    /// `player:getAccountId()` — `players.account_id`.
+    fn get_player_account_id(&self, creature_id: ScriptCreatureId) -> Option<u32> {
+        let _ = creature_id;
+        None
+    }
+
+    /// `player:getParty()` — party id when in a party.
+    fn get_player_party_id(&self, creature_id: ScriptCreatureId) -> Option<u32> {
+        let _ = creature_id;
+        None
+    }
+
+    fn get_party_leader(&self, party_id: u32) -> Option<ScriptCreatureId> {
+        let _ = party_id;
+        None
+    }
+
+    fn party_shared_experience_active(&self, party_id: u32) -> bool {
+        let _ = party_id;
+        false
+    }
+
+    /// `getWorldUpTime()` — seconds since world construction.
+    fn get_world_up_time(&self) -> u64 {
+        0
+    }
+
+    /// `Game.getExperienceStage(level)` — `rateExp` / stages.
+    fn get_experience_stage(&self, level: i32) -> f64 {
+        let _ = level;
+        1.0
+    }
 }
 
 /// House snapshot for Lua `House` userdata (`luascript.cpp` house bindings).

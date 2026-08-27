@@ -49,7 +49,7 @@ fn monster_outfit_to_base(o: &MonsterOutfit) -> Outfit {
     }
 }
 
-fn npc_appearance_to_outfit(a: &NpcAppearance) -> Outfit {
+pub(crate) fn npc_appearance_to_outfit(a: &NpcAppearance) -> Outfit {
     Outfit {
         look_type: i32::from(a.look_type),
         look_head: i32::from(a.look_head),
@@ -64,7 +64,7 @@ fn npc_appearance_to_outfit(a: &NpcAppearance) -> Outfit {
 ///
 /// TVP-era spawn files sometimes append `" npc"` (`cobra npc`); strip that once
 /// if the primary lookup misses.
-fn resolve_npc_definition(
+pub(crate) fn resolve_npc_definition(
     db: &tfs_rust_content::npcs::NpcDatabase,
     name: &str,
 ) -> Option<std::sync::Arc<tfs_rust_content::npcs::NpcDefinition>> {
@@ -645,6 +645,101 @@ impl GameWorld {
         self.monster_on_creature_appear_self(cid);
         self.broadcast_creature_appear(cid, placed);
         self.finish_monster_spawn(cid, &mtype, false, true);
+        Ok(Some(cid.data().as_ffi()))
+    }
+
+    /// `Game.createNpc(name, pos[, force])` — TFS `luaGameCreateNpc` (no spawn slot).
+    pub fn lua_script_create_npc(
+        &mut self,
+        name: &str,
+        x: u16,
+        y: u16,
+        z: u8,
+        force: bool,
+    ) -> Result<Option<u64>, String> {
+        let center = Position { x, y, z };
+        let Some(def) = resolve_npc_definition(&self.npcs_db, name) else {
+            return Ok(None);
+        };
+        let max_hp = def.health_max.max(1) as i32;
+        let speed = i32::from(def.movement.speed.max(1));
+        let policy = def
+            .dialogue
+            .as_ref()
+            .map(|d| d.policy)
+            .unwrap_or(DialoguePolicy::QueuedSingleFocus);
+        let base = CreatureBase {
+            name: def.name.clone(),
+            position: center,
+            direction: Direction::South,
+            health: max_hp,
+            max_health: max_hp,
+            outfit: npc_appearance_to_outfit(&def.appearance),
+            speed,
+            base_speed: speed,
+            var_speed: 0,
+            skull: SkullType::None,
+            drunkenness: 0,
+            active_conditions: Vec::new(),
+            walk_queue: Default::default(),
+            walk_destinations: Default::default(),
+            last_step: None,
+            last_step_cost: 1,
+            last_step_ground_speed: 150,
+            next_wakeup: None,
+            last_step_server_ms: None,
+            earliest_walk_server_ms: 0,
+            earliest_spell_server_ms: 0,
+            earliest_multiuse_server_ms: 0,
+            cancel_next_walk: false,
+            force_update_follow_path: false,
+            walk_update_ticks: 0,
+            is_updating_path: false,
+            has_follow_path: false,
+            movement_blocked: false,
+            stairhop_blocked_until: None,
+            follow_target: None,
+            attack_target: None,
+            master: None,
+            damage_map: Default::default(),
+            last_hit_by: None,
+            poison_damage_origin: None,
+            fire_damage_origin: None,
+            energy_damage_origin: None,
+            earliest_attack_ms: 0,
+            latest_attack_round: 0,
+            earliest_defend_ms: 0,
+            last_defend_ms: 0,
+            learning_points: 0,
+            todo: Default::default(),
+            chase_mode: Default::default(),
+            last_auto_walk_armed_ms: u64::MAX,
+        };
+        let cid = self.creatures.insert(CreatureKind::Npc(Npc {
+            base,
+            definition: def.id,
+            speech_bubble: def.speech_bubble,
+            wire_id: 0,
+            runtime: NpcRuntimeState::at_home(center, def.movement.radius, policy),
+        }));
+        crate::login_out::assign_creature_wire_id(self, cid);
+        if !self.find_and_place_creature_tfs(cid, center, false, force, 0) {
+            self.creatures.remove(cid);
+            return Ok(None);
+        }
+        if let Some(CreatureKind::Npc(n)) = self.creatures.get_mut(cid) {
+            n.runtime.home_position = n.base.position;
+        }
+        let placed = self
+            .creatures
+            .get(cid)
+            .map(|k| k.position())
+            .unwrap_or(center);
+        self.broadcast_creature_appear(cid, placed);
+        self.creature_todo_yield(cid);
+        if let Some(cb) = def.on_appear {
+            crate::lua_scope::fire_npc_appear(self, cid, cb);
+        }
         Ok(Some(cid.data().as_ffi()))
     }
 
@@ -2355,6 +2450,37 @@ mod tests {
         );
         assert_eq!(world.creatures.len(), before);
         assert!(world.spawns.slot(0).unwrap().current.is_none());
+    }
+
+    #[test]
+    fn lua_script_create_npc_places_without_spawn_slot() {
+        use crate::creature::CreatureKind;
+
+        let mut world = world_with_npc_db(vec![quentin_pending()]);
+        let home = Position::new(100, 100, 7);
+        let id = world
+            .lua_script_create_npc("Quentin", home.x, home.y, home.z, true)
+            .expect("create")
+            .expect("npc id");
+        let cid = world.resolve_creature_u64(id).expect("cid");
+        let CreatureKind::Npc(n) = world.creatures.get(cid).expect("npc") else {
+            panic!("expected Npc");
+        };
+        assert_eq!(n.base.name, "Quentin");
+        assert_eq!(n.runtime.home_position, n.base.position);
+        assert!(world.spawn_slot_by_creature.get(&cid).is_none());
+        assert!(
+            world
+                .lua_script_create_npc("Nobody", home.x, home.y, home.z, true)
+                .expect("unknown")
+                .is_none()
+        );
+        world.lua_script_npc_set_master_pos(id, 101, 102, 7, Some(5));
+        let CreatureKind::Npc(n) = world.creatures.get(cid).expect("npc") else {
+            panic!("expected Npc");
+        };
+        assert_eq!(n.runtime.home_position, Position::new(101, 102, 7));
+        assert_eq!(n.runtime.radius, 5);
     }
 
     #[test]

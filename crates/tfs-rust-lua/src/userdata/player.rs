@@ -13,11 +13,13 @@ use crate::lua_mutation::{
     call_lua_get_depot_locker, call_lua_get_inbox, call_lua_player_say, call_lua_remove_condition,
     call_lua_remove_item, call_lua_send_cancel_message, call_lua_send_outfit_window,
     call_lua_set_direction, call_lua_set_ghost_mode, call_lua_set_in_fight, call_lua_set_outfit,
-    call_lua_set_vocation, call_lua_show_text_dialog, call_player_register_creature_event,
+    call_lua_set_sex, call_lua_set_vocation, call_lua_show_text_dialog,
+    call_player_register_creature_event,
 };
 use crate::userdata::container::ContainerRef;
 use crate::userdata::group::GroupRef;
 use crate::userdata::item::push_item_userdata;
+use crate::userdata::party::PartyRef;
 use crate::userdata::position::PositionRef;
 use crate::userdata::spell::SpellBuilder;
 use crate::userdata::town::TownRef;
@@ -891,6 +893,50 @@ impl UserData for CreatureRef {
             with_ctx(|ctx| Ok(ctx.is_creature_monster(this.0)))
         });
 
+        methods.add_method("isNpc", |_, this, ()| {
+            with_ctx(|ctx| Ok(ctx.is_creature_npc(this.0)))
+        });
+
+        methods.add_method("getSpeed", |_, this, ()| {
+            with_ctx(|ctx| {
+                ctx.get_creature_speed(this.0)
+                    .ok_or_else(|| mlua::Error::runtime("creature not found"))
+            })
+        });
+
+        methods.add_method("getSkull", |_, this, ()| {
+            with_ctx(|ctx| Ok(ctx.get_creature_skull(this.0)))
+        });
+
+        methods.add_method("canSeeCreature", |_, this, other: Value| {
+            let target = match other {
+                Value::UserData(ud) => ud.borrow::<CreatureRef>()?.0,
+                _ => {
+                    return Err(mlua::Error::runtime(
+                        "canSeeCreature: expected Creature userdata",
+                    ));
+                }
+            };
+            with_ctx(|ctx| Ok(ctx.can_see_creature(this.0, target)))
+        });
+
+        methods.add_method("getAccountId", |_, this, ()| {
+            with_ctx(|ctx| {
+                ctx.get_player_account_id(this.0)
+                    .ok_or_else(|| mlua::Error::runtime("player not found"))
+            })
+        });
+
+        methods.add_method("getParty", |lua, this, ()| {
+            with_ctx(|ctx| match ctx.get_player_party_id(this.0) {
+                Some(id) => {
+                    let ud = lua.create_userdata(PartyRef(id))?;
+                    Ok(Value::UserData(ud))
+                }
+                None => Ok(Value::Nil),
+            })
+        });
+
         // `creature:getDirection()` — facing direction 0..=7.
         methods.add_method("getDirection", |_, this, ()| {
             with_ctx(|ctx| Ok(ctx.get_player_direction(this.0).unwrap_or(0)))
@@ -931,6 +977,10 @@ impl UserData for CreatureRef {
                 ctx.get_player_sex(this.0)
                     .ok_or_else(|| mlua::Error::runtime("player not found"))
             })
+        });
+
+        methods.add_method("setSex", |_, this, sex: u8| {
+            call_lua_set_sex(this.0, sex).map_err(mlua::Error::runtime)
         });
 
         // `player:getOutfit()` — table with lookType / colours (`luaPlayerGetOutfit`).

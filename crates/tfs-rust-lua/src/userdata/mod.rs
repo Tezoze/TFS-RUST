@@ -10,6 +10,7 @@ pub mod item_type;
 pub mod monster;
 pub mod monster_type;
 pub mod npc;
+pub mod party;
 pub mod player;
 pub mod position;
 pub mod spell;
@@ -28,6 +29,7 @@ pub use item_type::{ItemTypeRef, register_item_type_constructor, register_item_t
 pub use monster::{MonsterRef, register_monster_metatable};
 pub use monster_type::{MonsterTypeRef, register_monster_type_constructor};
 pub use npc::{NpcRef, register_npc_metatable};
+pub use party::{PartyRef, register_party_metatable};
 pub use player::{register_creature_metatable, register_outfit_constructor};
 pub use position::{PositionRef, register_position_metatable};
 pub use spell::{PendingSpell, SpellBuilder, register_spell_metatable};

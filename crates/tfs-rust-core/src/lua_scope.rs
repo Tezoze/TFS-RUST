@@ -245,6 +245,49 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             set_mutation_i32_result(crate::raid_waves::raid_return_to_lua_i32(rv));
             Ok(())
         }
+        LuaMutation::CreateNpc {
+            name,
+            x,
+            y,
+            z,
+            force,
+        } => {
+            let result = unsafe { &mut *world }.lua_script_create_npc(&name, x, y, z, force)?;
+            if let Some(id) = result {
+                set_mutation_item_result(id);
+            }
+            Ok(())
+        }
+        LuaMutation::NpcSetMasterPos {
+            npc_id,
+            x,
+            y,
+            z,
+            radius,
+        } => {
+            let ok = unsafe { &mut *world }.lua_script_npc_set_master_pos(npc_id, x, y, z, radius);
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
+        LuaMutation::SetGameState { state } => {
+            unsafe { &mut *world }.lua_script_set_game_state(state);
+            Ok(())
+        }
+        LuaMutation::GameReload { reload_type } => {
+            unsafe { &mut *world }.events.reload_scripts(reload_type);
+            Ok(())
+        }
+        LuaMutation::PlayerSetSex { creature_id, sex } => {
+            let ok = unsafe { &mut *world }.lua_script_player_set_sex(creature_id, sex);
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
+        LuaMutation::PartySetSharedExperience { party_id, enabled } => {
+            let ok =
+                unsafe { &mut *world }.lua_script_party_set_shared_experience(party_id, enabled);
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
         LuaMutation::AddSummon {
             master_id,
             summon_id,

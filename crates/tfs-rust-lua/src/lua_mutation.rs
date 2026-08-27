@@ -187,6 +187,40 @@ pub enum LuaMutation {
     StartRaid {
         name: String,
     },
+    /// `Game.createNpc(name, pos[, force])` — TFS `luaGameCreateNpc`.
+    CreateNpc {
+        name: String,
+        x: u16,
+        y: u16,
+        z: u8,
+        force: bool,
+    },
+    /// `npc:setMasterPos(pos[, radius])` — TFS `luaNpcSetMasterPos`.
+    NpcSetMasterPos {
+        npc_id: u64,
+        x: u16,
+        y: u16,
+        z: u8,
+        radius: Option<u16>,
+    },
+    /// `Game.setGameState(state)` — TFS `luaGameSetGameState`.
+    SetGameState {
+        state: i32,
+    },
+    /// `Game.reload(type)` — TFS `luaGameReload` (slim).
+    GameReload {
+        reload_type: i32,
+    },
+    /// `player:setSex(sex)` — TFS `luaPlayerSetSex`.
+    PlayerSetSex {
+        creature_id: u64,
+        sex: u8,
+    },
+    /// `party:setSharedExperience(enabled)` — TFS `luaPartySetSharedExperience`.
+    PartySetSharedExperience {
+        party_id: u32,
+        enabled: bool,
+    },
     /// `creature:addSummon(monster)` — set master + clear target/follow.
     AddSummon {
         master_id: u64,
@@ -959,6 +993,58 @@ pub fn call_create_monster(
 pub fn call_start_raid(name: String) -> Result<i32, String> {
     apply_mutation(LuaMutation::StartRaid { name })?;
     Ok(take_mutation_i32_result().unwrap_or(61))
+}
+
+pub fn call_create_npc(
+    name: String,
+    x: u16,
+    y: u16,
+    z: u8,
+    force: bool,
+) -> Result<Option<u64>, String> {
+    apply_mutation(LuaMutation::CreateNpc {
+        name,
+        x,
+        y,
+        z,
+        force,
+    })?;
+    Ok(take_mutation_item_result())
+}
+
+pub fn call_npc_set_master_pos(
+    npc_id: u64,
+    x: u16,
+    y: u16,
+    z: u8,
+    radius: Option<u16>,
+) -> Result<bool, String> {
+    apply_mutation(LuaMutation::NpcSetMasterPos {
+        npc_id,
+        x,
+        y,
+        z,
+        radius,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+pub fn call_set_game_state(state: i32) -> Result<(), String> {
+    apply_mutation(LuaMutation::SetGameState { state })
+}
+
+pub fn call_game_reload(reload_type: i32) -> Result<(), String> {
+    apply_mutation(LuaMutation::GameReload { reload_type })
+}
+
+pub fn call_lua_set_sex(creature_id: u64, sex: u8) -> Result<bool, String> {
+    apply_mutation(LuaMutation::PlayerSetSex { creature_id, sex })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+pub fn call_party_set_shared_experience(party_id: u32, enabled: bool) -> Result<bool, String> {
+    apply_mutation(LuaMutation::PartySetSharedExperience { party_id, enabled })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
 }
 
 pub fn call_add_summon(master_id: u64, summon_id: u64) -> Result<bool, String> {

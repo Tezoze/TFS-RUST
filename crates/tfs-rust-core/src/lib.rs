@@ -60,6 +60,7 @@ pub mod lua_command;
 mod lua_database;
 pub mod lua_event_dispatcher;
 pub mod lua_scope;
+mod lua_script_talkaction;
 mod magic_field;
 pub mod map;
 pub mod matrix_area;

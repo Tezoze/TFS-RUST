@@ -49,9 +49,11 @@ impl UserData for HouseRef {
 
         // TFS `luaHouseIsGuildHall` / `House::guildHall`.
         methods.add_method("isGuildHall", |_, this, ()| {
-            Ok(current_ctx(|ctx| ctx.get_house(this.0).map(|h| h.is_guild_hall))
-                .flatten()
-                .unwrap_or(false))
+            Ok(
+                current_ctx(|ctx| ctx.get_house(this.0).map(|h| h.is_guild_hall))
+                    .flatten()
+                    .unwrap_or(false),
+            )
         });
 
         methods.add_method("getOwnerGuid", |_, this, ()| {
@@ -198,9 +200,12 @@ impl UserData for HouseRef {
         // TFS `luaHouseStartTrade`. Player-to-player trade is not native — never
         // creates a transfer item. Always returns `RETURNVALUE_*` (never nil) so
         // `!sellhouse` can `sendCancelMessage(returnValue)`.
-        methods.add_method("startTrade", |_, this, (player, partner): (Value, Value)| {
-            Ok(house_start_trade(this.0, &player, &partner))
-        });
+        methods.add_method(
+            "startTrade",
+            |_, this, (player, partner): (Value, Value)| {
+                Ok(house_start_trade(this.0, &player, &partner))
+            },
+        );
 
         methods.add_method("save", |_, this, ()| {
             call_house_save(this.0).map_err(mlua::Error::runtime)?;

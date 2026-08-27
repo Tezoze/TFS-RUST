@@ -46,12 +46,14 @@ function Creature:addMana(...) end
 function Creature:addManaSpent(...) end
 function Creature:addSkillTries(...) end
 function Creature:addSummon(...) end
+function Creature:canSeeCreature(...) end
 function Creature:computeDamage(...) end
 function Creature:computeHealing(...) end
 function Creature:computeSkillDamage(...) end
 function Creature:conjureItem(...) end
 function Creature:depositMoney(...) end
 function Creature:feed(...) end
+function Creature:getAccountId(...) end
 function Creature:getAccountType(...) end
 function Creature:getBankBalance(...) end
 function Creature:getCapacity(...) end
@@ -85,11 +87,14 @@ function Creature:getMoney(...) end
 function Creature:getMurderTimestamps(...) end
 function Creature:getName(...) end
 function Creature:getOutfit(...) end
+function Creature:getParty(...) end
 function Creature:getPlayerKillerEnd(...) end
 function Creature:getPosition(...) end
 function Creature:getPremiumEndsAt(...) end
 function Creature:getSex(...) end
+function Creature:getSkull(...) end
 function Creature:getSlotItem(...) end
+function Creature:getSpeed(...) end
 function Creature:getSpellCoeff(...) end
 function Creature:getStorageValue(...) end
 function Creature:getSummons(...) end
@@ -103,6 +108,7 @@ function Creature:isCreature(...) end
 function Creature:isInGhostMode(...) end
 function Creature:isItem(...) end
 function Creature:isMonster(...) end
+function Creature:isNpc(...) end
 function Creature:isPlayer(...) end
 function Creature:isPremium(...) end
 function Creature:isPzLocked(...) end
@@ -126,6 +132,7 @@ function Creature:setGhostMode(...) end
 function Creature:setInFight(...) end
 function Creature:setOutfit(...) end
 function Creature:setPremiumEndsAt(...) end
+function Creature:setSex(...) end
 function Creature:setStorageValue(...) end
 function Creature:setTown(...) end
 function Creature:setVocation(...) end
@@ -146,14 +153,21 @@ Game = {}
 function Game.clearField(...) end
 function Game.createItem(...) end
 function Game.createMonster(...) end
+function Game.createNpc(...) end
 function Game.createTile(...) end
+function Game.getExperienceStage(...) end
 function Game.getHouses(...) end
 function Game.getInstantSpells(...) end
+function Game.getItemAttributeByName(...) end
 function Game.getPlayers(...) end
 function Game.getReturnMessage(...) end
 function Game.getWorldType(...) end
+function Game.reload(...) end
 function Game.saveServer(...) end
+function Game.setGameState(...) end
 function Game.startRaid(...) end
+function Game.unlockAccount(...) end
+function Game.unlockIp(...) end
 
 ---@class GlobalEvent
 GlobalEvent = {}
@@ -283,6 +297,7 @@ function Npc:getPosition(...) end
 function Npc:isInTalkRange(...) end
 function Npc:say(...) end
 function Npc:setFocus(...) end
+function Npc:setMasterPos(...) end
 
 ---@class NpcType
 NpcType = {}
@@ -307,6 +322,10 @@ function NpcType:voice(...) end
 
 ---@class Party
 Party = {}
+
+function Party:getLeader(...) end
+function Party:isSharedExperienceActive(...) end
+function Party:setSharedExperience(...) end
 
 ---@class Position
 ---@field x any

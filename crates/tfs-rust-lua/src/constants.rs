@@ -42,6 +42,8 @@ pub fn register_constants(lua: &Lua) -> Result<(), mlua::Error> {
     register_item_attributes(&globals)?;
     register_item_groups(&globals)?;
     register_misc(&globals)?;
+    register_game_states(&globals)?;
+    register_reload_types(&globals)?;
     register_config_keys(lua)?;
 
     Ok(())
@@ -324,6 +326,40 @@ fn register_misc(globals: &mlua::Table) -> Result<(), mlua::Error> {
     Ok(())
 }
 
+fn register_game_states(globals: &mlua::Table) -> Result<(), mlua::Error> {
+    // TVP `GameState_t` — `luaGameSetGameState`.
+    globals.set("GAME_STATE_STARTUP", 0i32)?;
+    globals.set("GAME_STATE_INIT", 1i32)?;
+    globals.set("GAME_STATE_NORMAL", 2i32)?;
+    globals.set("GAME_STATE_CLOSED", 3i32)?;
+    globals.set("GAME_STATE_SHUTDOWN", 4i32)?;
+    globals.set("GAME_STATE_CLOSING", 5i32)?;
+    globals.set("GAME_STATE_MAINTAIN", 6i32)?;
+    Ok(())
+}
+
+fn register_reload_types(globals: &mlua::Table) -> Result<(), mlua::Error> {
+    // TVP `ReloadTypes_t` without mounts (talkactions `/reload`).
+    globals.set("RELOAD_TYPE_ALL", 0i32)?;
+    globals.set("RELOAD_TYPE_ACTIONS", 1i32)?;
+    globals.set("RELOAD_TYPE_CHAT", 2i32)?;
+    globals.set("RELOAD_TYPE_CONFIG", 3i32)?;
+    globals.set("RELOAD_TYPE_CREATURESCRIPTS", 4i32)?;
+    globals.set("RELOAD_TYPE_EVENTS", 5i32)?;
+    globals.set("RELOAD_TYPE_GLOBAL", 6i32)?;
+    globals.set("RELOAD_TYPE_GLOBALEVENTS", 7i32)?;
+    globals.set("RELOAD_TYPE_ITEMS", 8i32)?;
+    globals.set("RELOAD_TYPE_MONSTERS", 9i32)?;
+    globals.set("RELOAD_TYPE_MOVEMENTS", 10i32)?;
+    globals.set("RELOAD_TYPE_NPCS", 11i32)?;
+    globals.set("RELOAD_TYPE_RAIDS", 12i32)?;
+    globals.set("RELOAD_TYPE_SCRIPTS", 13i32)?;
+    globals.set("RELOAD_TYPE_SPELLS", 14i32)?;
+    globals.set("RELOAD_TYPE_TALKACTIONS", 15i32)?;
+    globals.set("RELOAD_TYPE_WEAPONS", 16i32)?;
+    Ok(())
+}
+
 /// `configKeys` table — TVP `configmanager.h` enum indices used by
 /// `configManager.getBoolean` / `getNumber(configKeys.…)`.
 fn register_config_keys(lua: &Lua) -> Result<(), mlua::Error> {
@@ -336,6 +372,17 @@ fn register_config_keys(lua: &Lua) -> Result<(), mlua::Error> {
     keys.set("USE_HOUSE_AREA_PRICES", 51i32)?;
     // TVP `integer_config_t::HOUSE_PRICE` → `housePriceEachSQM`.
     keys.set("HOUSE_PRICE", 8i32)?;
+    // TVP `integer_config_t`.
+    keys.set("RATE_EXPERIENCE", 3i32)?;
+    keys.set("RATE_SKILL", 4i32)?;
+    keys.set("RATE_LOOT", 5i32)?;
+    keys.set("RATE_MAGIC", 6i32)?;
+    keys.set("KILLS_DAY_RED_SKULL", 30i32)?;
+    keys.set("KILLS_WEEK_RED_SKULL", 31i32)?;
+    keys.set("KILLS_MONTH_RED_SKULL", 32i32)?;
+    keys.set("KILLS_DAY_BANISHMENT", 33i32)?;
+    keys.set("KILLS_WEEK_BANISHMENT", 34i32)?;
+    keys.set("KILLS_MONTH_BANISHMENT", 35i32)?;
     lua.globals().set("configKeys", keys)?;
     Ok(())
 }
@@ -359,6 +406,11 @@ mod tests {
         assert_eq!(get("ACCOUNT_TYPE_GAMEMASTER"), 4);
         assert_eq!(get("ACCOUNT_TYPE_COMMUNITYMANAGER"), 5);
         assert_eq!(get("ACCOUNT_TYPE_GOD"), 6);
+
+        assert_eq!(get("GAME_STATE_NORMAL"), 2);
+        assert_eq!(get("GAME_STATE_CLOSED"), 3);
+        assert_eq!(get("GAME_STATE_SHUTDOWN"), 4);
+        assert_eq!(get("RELOAD_TYPE_TALKACTIONS"), 15);
 
         // TALKTYPE_* (const.h:62-76 — 772 values)
         assert_eq!(get("TALKTYPE_SAY"), 1);

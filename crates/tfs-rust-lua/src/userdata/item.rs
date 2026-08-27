@@ -393,19 +393,18 @@ impl UserData for ItemRef {
 
         // `item:setAttribute(key, value)` — bitflag ints + Remere string custom attrs.
         methods.add_method("setAttribute", |_, this, (key, value): (Value, Value)| {
-            let int_val = match value {
-                Value::Integer(i) => i,
-                Value::Number(f) => f as i64,
-                _ => {
-                    return Err(mlua::Error::runtime("setAttribute: expected integer value"));
-                }
-            };
             let bits = match &key {
                 Value::Integer(i) => Some(*i as u32),
                 Value::Number(f) => Some(*f as u32),
                 _ => None,
             };
-            if let Some(bits) = bits {
+            let int_val = match &value {
+                Value::Integer(i) => Some(*i),
+                Value::Number(f) => Some(*f as i64),
+                Value::String(s) => s.to_str().ok().and_then(|t| t.parse::<i64>().ok()),
+                _ => None,
+            };
+            if let (Some(bits), Some(int_val)) = (bits, int_val) {
                 const ACTION_ID: u32 = 1 << 0;
                 const UNIQUE_ID: u32 = 1 << 1;
                 if bits == ACTION_ID {
@@ -420,6 +419,9 @@ impl UserData for ItemRef {
             }
             if let Value::String(s) = key {
                 let key = s.to_str()?.to_string();
+                let Some(int_val) = int_val else {
+                    return Ok(false);
+                };
                 call_lua_set_custom_attribute(this.0, key, int_val)
                     .map_err(mlua::Error::runtime)?;
                 return Ok(true);

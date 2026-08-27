@@ -17,8 +17,10 @@ function doTargetCombatHealth(...) end
 function getDepotId(...) end
 function getDistanceBetween(...) end
 function getFormattedWorldTime(...) end
+function getIPNumberFromString(...) end
 function getWorldLight(...) end
 function getWorldTime(...) end
+function getWorldUpTime(...) end
 function hasEventCallback(...) end
 function isScriptsInterface(...) end
 function onUseKnife(...) end
@@ -28,6 +30,7 @@ function onUseQuest(...) end
 function onUseRope(...) end
 function onUseScythe(...) end
 function onUseShovel(...) end
+function refreshMap(...) end
 function saveServer(...) end
 function sendChannelMessage(...) end
 function setWorldLight(...) end
