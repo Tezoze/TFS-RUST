@@ -133,10 +133,13 @@ impl UserData for HouseRef {
             Ok(current_ctx(|ctx| ctx.house_access_list(this.0, list_id)).flatten())
         });
 
-        methods.add_method("setAccessList", |_, this, (list_id, text): (u32, String)| {
-            call_house_set_access_list(this.0, list_id, text).map_err(mlua::Error::runtime)?;
-            Ok(())
-        });
+        methods.add_method(
+            "setAccessList",
+            |_, this, (list_id, text): (u32, String)| {
+                call_house_set_access_list(this.0, list_id, text).map_err(mlua::Error::runtime)?;
+                Ok(())
+            },
+        );
 
         methods.add_method("getDoorIdByPosition", |_, this, pos: Value| {
             let (x, y, z) = match pos {
@@ -159,27 +162,24 @@ impl UserData for HouseRef {
                     Value::UserData(ud) => ud.borrow::<CreatureRef>()?.0,
                     _ => return Ok(false),
                 };
-                Ok(current_ctx(|ctx| {
-                    ctx.house_can_edit_access_list(this.0, list_id, creature_id)
-                })
-                .unwrap_or(false))
+                Ok(
+                    current_ctx(|ctx| ctx.house_can_edit_access_list(this.0, list_id, creature_id))
+                        .unwrap_or(false),
+                )
             },
         );
 
-        methods.add_method(
-            "kickPlayer",
-            |_, this, (kicker, target): (Value, Value)| {
-                let kicker_id = match kicker {
-                    Value::UserData(ud) => ud.borrow::<CreatureRef>()?.0,
-                    _ => return Ok(false),
-                };
-                let target_id = match target {
-                    Value::UserData(ud) => ud.borrow::<CreatureRef>()?.0,
-                    _ => return Ok(false),
-                };
-                call_house_kick_player(this.0, kicker_id, target_id).map_err(mlua::Error::runtime)
-            },
-        );
+        methods.add_method("kickPlayer", |_, this, (kicker, target): (Value, Value)| {
+            let kicker_id = match kicker {
+                Value::UserData(ud) => ud.borrow::<CreatureRef>()?.0,
+                _ => return Ok(false),
+            };
+            let target_id = match target {
+                Value::UserData(ud) => ud.borrow::<CreatureRef>()?.0,
+                _ => return Ok(false),
+            };
+            call_house_kick_player(this.0, kicker_id, target_id).map_err(mlua::Error::runtime)
+        });
 
         methods.add_method("save", |_, this, ()| {
             call_house_save(this.0).map_err(mlua::Error::runtime)?;

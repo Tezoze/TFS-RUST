@@ -528,17 +528,24 @@ impl GameWorld {
                 .get_tile(blocker_pos)
                 .map(|t| t.body().creatures.clone())
                 .unwrap_or_default();
-            // C++ `::Move` order (`operate.cc:1403–1434`): NotifyTurn → AnnounceMoving →
-            // MoveObject → NotifyGo. Broadcast *before* relocate so stackpos matches the
-            // still-occupied tile (C++ `GetObjectRNum` while CrObject is on the old field).
+            // Walk order: NotifyTurn → MoveObject → queryDestination chain → CollisionEvent
+            // → spectator `from → final` (`game.cpp` ~863–880). Broadcast after the chain so
+            // a kick onto a hole is not frozen on the hole tile. `old_creatures` still
+            // matches C++ `GetObjectRNum` while CrObject is on the old field.
             let kick_dir = dir;
             if let Some(k) = self.creatures.get_mut(blocker) {
                 // NotifyTurn — facing only (`cract.cc:1566–1581`); no `0x6B`.
                 crate::walk::set_direction_from_step_for_kick(blocker_pos, try_pos, k);
             }
-            self.broadcast_spectator_move(blocker, blocker_pos, try_pos, &old_creatures);
             self.move_creature_on_map(blocker, blocker_pos, try_pos);
+            let _ = self.apply_query_destination_chain(blocker, try_pos);
             self.flush_pending_creature_step_events();
+            let final_pos = self
+                .creatures
+                .get(blocker)
+                .map(|k| k.position())
+                .unwrap_or(try_pos);
+            self.broadcast_spectator_move(blocker, blocker_pos, final_pos, &old_creatures);
             // C++ `KickCreature` → `::Move` relocates the creature but does NOT clear its
             // ToDoList (`operate.cc:1403-1446`). The displacement is detected on the next
             // `Execute` when `Go(oldDestX, oldDestY, oldDestZ)` checks `Distance > 1`
@@ -547,7 +554,7 @@ impl GameWorld {
             // monsters too) stores the absolute destination of each queued step, so `on_walk`
             // detects the displacement via the same adjacency check as players.
             // NotifyGo already applied facing — pass `apply_notify_turn=false`.
-            self.apply_notify_go_after_relocate(blocker, blocker_pos, try_pos, kick_dir, false);
+            self.apply_notify_go_after_relocate(blocker, blocker_pos, final_pos, kick_dir, false);
             // Pending wakeup may predate the kick; push it out to EarliestWalkTime so a
             // premature `Go` cannot race the client walk animation (OTC dash/skip).
             self.reschedule_wakeup_for_earliest_walk(blocker);

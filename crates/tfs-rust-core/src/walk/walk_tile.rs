@@ -874,7 +874,10 @@ mod pz_entry_lock_tests {
         let to = Position::new(101, 100, 7);
         ensure_house_tile(&mut world.map, to, 1);
         world.houses.ensure_houses([1]);
-        let cid = insert_player(&mut world, test_player("Walker", Position::new(100, 100, 7)));
+        let cid = insert_player(
+            &mut world,
+            test_player("Walker", Position::new(100, 100, 7)),
+        );
         let dest = world.map.get_tile(to).expect("house");
         assert_eq!(
             tile_query_add_player(&world, dest, cid, 0),

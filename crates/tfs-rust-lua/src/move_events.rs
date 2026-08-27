@@ -489,8 +489,8 @@ mod tests {
         collect_lua_files(&dir, &mut files);
         assert_eq!(
             files.len(),
-            133,
-            "expected 133 movement scripts; got {}",
+            130,
+            "expected 130 movement scripts; got {}",
             files.len()
         );
 

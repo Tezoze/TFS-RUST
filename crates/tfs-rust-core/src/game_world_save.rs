@@ -29,7 +29,12 @@ fn direction_to_u8(d: Direction) -> u8 {
     }
 }
 
-pub(crate) fn item_to_record(world: &GameWorld, pid: i32, sid: i32, item_id: ItemId) -> Result<ItemRecord> {
+pub(crate) fn item_to_record(
+    world: &GameWorld,
+    pid: i32,
+    sid: i32,
+    item_id: ItemId,
+) -> Result<ItemRecord> {
     let Some(item) = world.items.get(item_id) else {
         return Err(TfsRustError::Protocol(format!(
             "build_player_save_data: item {item_id:?} missing from SlotMap",

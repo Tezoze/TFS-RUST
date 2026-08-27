@@ -860,6 +860,24 @@
 394. **`tile:getTopCreature` is native, not Lua `__index`** (`userdata/tile.rs`; `luaTileGetTopCreature`): Pack scripts (`demon_helmet_wall_removal_*.lua`, `compat.lua` `getTopCreature`) call the method. We had `getBottomCreature` / `getCreatures` only, so StepIn died with `attempt to call method 'getTopCreature' (a nil value)`. TFS `creatures->begin()` is newest; Rust `push`s newest last → `.last()`. `getPlayer()` after that is `Creature.getPlayer` in `data/lib/core/creature.lua`.
     *(August 2026)*
 
-395. **Switch floors are native; Lua only supplies id pairs** (`stepping_tiles.rs`; `data/scripts/movements/other/tiles.lua` `SteppingTiles`): Pack `tiles.lua` MoveEvent pressed stone/wood pads and announced depot count. That is load-bearing, not quest policy. Engine loads `stepIn`/`stepOut` maps at boot and runs transform + PZ facing-locker text from `fire_creature_step_events` **before** Lua, without skipping aid scripts. TFS `getEvent` prefers aid so item-id `tiles.lua` never pressed demon-helmet `426` pads; native still presses mapped ids when `action_id != 0`. Depot “full” is `holding >= max`; pack Lua `max >= count` was inverted. Empty depot still shows `max(1, count)` in the contain message.
+395. **Switch floors are native; Lua only supplies id pairs** (`stepping_tiles.rs`; `data/defs/tiles.lua`): Pack `tiles.lua` MoveEvent pressed stone/wood pads and announced depot count. Engine loads `stepIn`/`stepOut` maps at boot. Native still presses mapped ids when `action_id != 0`. Depot “full” is `holding >= max`.
+    *(August 2026)*
+
+396. **Door use/step is native; ids live in `data/defs/doors.lua`**: Pack `doors.lua` onUse (quest/level/key/locked/open/close), `closing_doors.lua` StepOut, and `level_doors.lua` StepIn are engine paths in `doors.rs`. Hooked from `fire_on_use_action` (Use + UseItemEx) and `fire_creature_step_events`. Key match is Remere `keynumber` == `keyholenumber`, not ActionID. Lua action/movement scripts for those ids are deleted; later-era sprites are extra rows in the defs table.
+    *(August 2026)*
+
+397. **Tool helpers are native Lua globals** (`tool_use.rs`; `data/defs/tools.lua`): `onUseQuest` / `destroyItem` / `onUseMachete|Pick|Knife|Rope|Shovel|Scythe` / `checkScarabTile` keep pack names so `knife.lua` / `quests.lua` still call them. Observable Lua outcomes kept (unique/AID skip, machete/scythe destroy fallback, scythe cancel text). IDs and scarab coords load at boot; `pick.lua` still owns destroyableStone 40% then `onUsePick`. Do not use combat `parity_random` for tool dice. Item ids / scarab knobs are named keys in `tools.lua` (`ids`, `scarab`, `chances`) — not Rust `const`s. Missing keys skip that arm (no `unwrap_or(4003)`).
+    *(August 2026)*
+
+398. **`getDistanceBetween` is pack Lua, not corpus** (`userdata/position.rs`): Chebyshev XY +15 if Z differs. No decompile equivalent (corpus XY Chebyshev; `TCombat::GetDistance` is weapon class). Native global for future scripts; do not use for walk/combat.
+    *(August 2026)*
+
+399. **`getFormattedWorldTime` is native** (`runtime.rs`; pack `global.lua` / `watch.lua`): `getWorldTime()` minutes → unpadded hours + zero-padded minutes (`1:05`, `0:09`). Calls the Lua `getWorldTime` global so stubs/overrides still apply. No longer injected from `global.lua`.
+    *(August 2026)*
+
+400. **Lua `Player:computeDamage` / `computeHealing` / `computeSkillDamage` removed** from `functions.lua`. Live path is userdata methods + `formulas.spell`. `getSpellCoeff` is our expose of `ComputeDamage`'s inlined 2/3 (`magic.cc:784`), not a decompile API.
+    *(August 2026)*
+
+401. **`Player:conjureItem` is native** (`conjure.rs`; `formulas.conjureFromHandsOnly`): Pack Lua hardcoded `conjureFromHandsOnly = true`; the backpack `getItemById` arm was dead. Profile bool (default true on 772 and 1098) turns that arm on. Spell scripts still call `creature:conjureItem(...)`. First arg may be a mana integer (runes) or Spell userdata (arrows / enchant staff) — dual-hand extra cost uses `Spell.mana`, not a Lua table multiply. Charge fallback matches `ItemType:getCharges()` when count is nil/0.
     *(August 2026)*
 

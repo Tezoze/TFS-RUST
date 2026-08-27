@@ -13,11 +13,11 @@ use crate::game_world::GameWorld;
 use crate::game_world_save::append_save_item_tree;
 use crate::ids::ItemId;
 
-use super::access::{GUEST_LIST, SUBOWNER_LIST};
-use super::auction::{decide_auction, AuctionOutcome};
-use super::depot_cash::{deduct_depot_records, depot_records_money};
-use super::rent::{decide_rent, RentAction};
 use super::HouseManager;
+use super::access::{GUEST_LIST, SUBOWNER_LIST};
+use super::auction::{AuctionOutcome, decide_auction};
+use super::depot_cash::{deduct_depot_records, depot_records_money};
+use super::rent::{RentAction, decide_rent};
 
 pub(crate) fn unix_now() -> u32 {
     SystemTime::now()
@@ -88,11 +88,7 @@ impl HouseManager {
     pub fn house_info_upserts(&self) -> Vec<HouseInfoUpsert> {
         let mut rows = Vec::new();
         for (&id, rec) in &self.records {
-            let owner = self
-                .houses
-                .get(&id)
-                .and_then(|a| a.owner_guid)
-                .unwrap_or(0);
+            let owner = self.houses.get(&id).and_then(|a| a.owner_guid).unwrap_or(0);
             rows.push(HouseInfoUpsert {
                 id,
                 owner,
@@ -198,12 +194,7 @@ impl GameWorld {
         }
     }
 
-    async fn collect_one_offline_rent(
-        &mut self,
-        id: u32,
-        now: u32,
-        grace_secs: u32,
-    ) -> Result<()> {
+    async fn collect_one_offline_rent(&mut self, id: u32, now: u32, grace_secs: u32) -> Result<()> {
         let (owner, paid, warnings, rent, town_id, name) = {
             let rec = match self.houses.records.get(&id) {
                 Some(r) => r,
@@ -290,8 +281,11 @@ impl GameWorld {
                 .await
                 .unwrap_or_default();
             let max_sid = rows.iter().map(|r| r.sid).max().unwrap_or(100);
-            let roots: Vec<(i32, ItemId)> =
-                items.iter().copied().map(|id| (town_id as i32, id)).collect();
+            let roots: Vec<(i32, ItemId)> = items
+                .iter()
+                .copied()
+                .map(|id| (town_id as i32, id))
+                .collect();
             let mut extra: Vec<ItemRecord> = Vec::new();
             if let Err(e) = append_save_item_tree(self, &roots, &mut extra) {
                 tracing::warn!(guid, error = %e, "house depot dump serialize failed");
@@ -305,10 +299,7 @@ impl GameWorld {
                 rec.sid += offset;
             }
             rows.extend(extra);
-            if let Err(e) = store
-                .save_items(guid as i32, ItemTable::Depot, &rows)
-                .await
-            {
+            if let Err(e) = store.save_items(guid as i32, ItemTable::Depot, &rows).await {
                 tracing::warn!(guid, error = %e, "house depot dump save failed");
             }
             self.items_pending_release.extend(items);

@@ -208,6 +208,7 @@ impl GameWorld {
             .get_tile(from_pos)
             .map(|t| t.body().creatures.clone())
             .unwrap_or_default();
+        let old_stack = self.creature_self_stack_at(moving_creature, from_pos);
 
         let kick_dir = crate::walk::direction_from_positions(from_pos, to_pos);
 
@@ -216,15 +217,24 @@ impl GameWorld {
             crate::walk::set_direction_from_step_for_kick(from_pos, to_pos, k);
         }
 
-        // 772 `AnnounceMovingCreature` — `sendMoveCreature` (0x6D) before `MoveObject`.
-        self.broadcast_spectator_move(moving_creature, from_pos, to_pos, &old_creatures);
-
-        // 772 `MoveObject`.
+        // Walk order: land, `queryDestination` chain, CollisionEvent (Lua StepIn /
+        // `doRelocate`), then packets `from → live`. Item 293 has no items.xml
+        // `floorchange` — the drop is `transform.lua` `doRelocate`. Broadcasting the
+        // chained hole after flush would 0x6D them back onto the pitfall.
+        // C++ ref: `game.cpp` ~863–880; 772 `operate.cc` CollisionEvent after NotifyCreature.
         self.move_creature_on_map(moving_creature, from_pos, to_pos);
+        let _ = self.apply_query_destination_chain(moving_creature, to_pos);
         self.flush_pending_creature_step_events();
+        let final_pos = self
+            .creatures
+            .get(moving_creature)
+            .map(|k| k.position())
+            .unwrap_or(to_pos);
+        self.emit_player_relocate_self_packets(moving_creature, from_pos, final_pos, old_stack);
+        self.broadcast_spectator_move(moving_creature, from_pos, final_pos, &old_creatures);
 
-        // 772 `NotifyGo` after `MoveObject`.
-        self.apply_notify_go_after_relocate(moving_creature, from_pos, to_pos, kick_dir, false);
+        // 772 `NotifyGo` after `MoveObject` (destination = live tile after chain/Lua).
+        self.apply_notify_go_after_relocate(moving_creature, from_pos, final_pos, kick_dir, false);
         self.reschedule_wakeup_for_earliest_walk(moving_creature);
 
         // 772 `TCreature::Move` `this->Combat.DelayAttack(2000)`.
@@ -2276,6 +2286,84 @@ mod push_followup_d1_d2_d3_tests {
         assert!(
             dest_creatures.contains(&mover) && dest_creatures.contains(&blocker),
             "D2: both mover and blocker must be registered on the dest tile (stacked)"
+        );
+    }
+}
+
+#[cfg(test)]
+mod push_hole_spectator_tests {
+    //! Push onto `FLOORCHANGE_DOWN` must chain `queryDestination` and notify spectators
+    //! of the final downstairs tile — not freeze the creature on the hole.
+    use super::*;
+    use crate::creature::MonsterAiConfig;
+    use crate::sim_harness::{
+        beat_driven_world, ensure_walkable_tile, insert_monster_with_config,
+        insert_spectator_player, synthetic_ground_item_type, test_player,
+    };
+    use crate::tile::{Tile, TileBody};
+    use tfs_rust_common::ConnId;
+    use tfs_rust_common::Position;
+    use tfs_rust_common::enums::ZoneType;
+
+    fn register_ground_bank(world: &mut GameWorld) {
+        let mut new_db = (*world.items_db).clone();
+        new_db.items.insert(1, synthetic_ground_item_type(1, 150));
+        world.items_db = std::sync::Arc::new(new_db);
+    }
+
+    /// `player_push_creature` onto a `FLOORCHANGE_DOWN` tile lands downstairs
+    /// and sends the actor (spectator conn) a creature-down update — not only a same-z 0x6D
+    /// onto the hole. (Live item 293 has no xml floorchange; Lua `teleportTo` is Test B.)
+    #[test]
+    fn player_push_onto_hole_notifies_spectator_downstairs() {
+        let mut world = beat_driven_world();
+        register_ground_bank(&mut world);
+
+        let from = Position::new(100, 100, 7);
+        let hole = Position::new(101, 100, 7);
+        let below = Position::new(101, 100, 8);
+        let actor_pos = Position::new(100, 99, 7);
+        let conn = ConnId(1);
+
+        ensure_walkable_tile(&mut world.map, from, 1);
+        ensure_walkable_tile(&mut world.map, actor_pos, 1);
+        ensure_walkable_tile(&mut world.map, below, 1);
+        world.map.insert_tile(
+            hole,
+            Tile::Normal(TileBody {
+                ground: Some(1),
+                ground_item: None,
+                down_items: Vec::new(),
+                top_items: Vec::new(),
+                creatures: Vec::new(),
+                flags: tilestate::FLOORCHANGE_DOWN,
+                zone: ZoneType::Normal,
+            }),
+        );
+
+        let actor = insert_spectator_player(&mut world, conn, test_player("Actor", actor_pos));
+        let mover =
+            insert_monster_with_config(&mut world, "Mover", from, 200, MonsterAiConfig::default());
+        world.pending_outgoing.clear();
+
+        let rv = world.player_push_creature(actor, mover, from, hole);
+        assert_eq!(rv, Ok(()));
+
+        let pos = world.creatures.get(mover).map(|k| k.position());
+        assert_eq!(
+            pos,
+            Some(below),
+            "queryDestination must drop the creature downstairs"
+        );
+        let on_hole = world
+            .map
+            .get_tile(hole)
+            .is_some_and(|t| t.body().creatures.contains(&mover));
+        assert!(!on_hole, "creature must not stay registered on the hole");
+        let pkts = world.pending_outgoing.get(&conn);
+        assert!(
+            pkts.is_some_and(|p| p.iter().any(|b| !b.is_empty())),
+            "spectator must receive a creature-down update (remove/appear), not a same-z hole 0x6D only"
         );
     }
 }

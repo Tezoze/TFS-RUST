@@ -968,9 +968,11 @@ impl GameWorld {
                 set_direction_from_step_for_kick(old, dest, k);
             }
             self.move_creature_on_map(cid, old, dest);
-            if !teleport {
-                self.broadcast_spectator_move(cid, old, dest, &old_creatures);
-            }
+            // Always notify spectators (walk and teleport). Skipping when `teleport` is
+            // true dropped z-change packets (`areInRange<1,1,0>` requires `dz==0`), so a
+            // hole `doRelocate` / `teleportTo(z+1)` left other clients on the old floor.
+            // C++ `Map::moveCreature` still `sendMoveCreature`s on the teleport arm.
+            self.broadcast_spectator_move(cid, old, dest, &old_creatures);
             self.flush_pending_creature_step_events();
         }
 
@@ -1173,6 +1175,18 @@ impl GameWorld {
         }
     }
 
+    /// TVP `CONST_ME_TELEPORT` (`const.h:21`) — `Game::placeCreature` player spawn sparkle
+    /// (`game.cpp:537-540`). Self login burst also sends this (772 after icons; 1098 after map).
+    const MAGIC_EFFECT_TELEPORT: u8 = 11;
+
+    fn notify_player_login_placed(&mut self, cid: CreatureId) -> Option<Position> {
+        let pos = self.creatures.get(cid).map(|k| k.position())?;
+        // `Game::placeCreature` spectator `sendAddCreature` then player-only teleport.
+        self.broadcast_creature_appear(cid, pos);
+        self.broadcast_magic_effect(pos, Self::MAGIC_EFFECT_TELEPORT);
+        Some(pos)
+    }
+
     /// Place a player on login — C++ `Game::placeCreature` login flow.
     ///
     /// TFS 1.4.2 (`src/protocolgame.cpp:258-263`): try `placeCreature(loginPos)` → if fail,
@@ -1190,7 +1204,7 @@ impl GameWorld {
     ) -> Option<Position> {
         // 1. Try the saved login position (with neighbor search like `Map::placeCreature`).
         if self.find_and_place_creature_tfs(cid, login_pos, false, false, 0) {
-            return self.creatures.get(cid).map(|k| k.position());
+            return self.notify_player_login_placed(cid);
         }
 
         // 2. Fall back to the town temple position (forced — `FLAG_IGNOREBLOCKITEM`).
@@ -1208,7 +1222,7 @@ impl GameWorld {
                 "login position unplaceable — falling back to town temple"
             );
             if self.find_and_place_creature_tfs(cid, temple, false, true, 0) {
-                return self.creatures.get(cid).map(|k| k.position());
+                return self.notify_player_login_placed(cid);
             }
             tracing::error!(
                 ?temple,
@@ -1573,9 +1587,7 @@ mod tests {
             .lua_script_create_monster("Rat", home.x, home.y, home.z, false, true)
             .expect("createMonster")
             .expect("placed");
-        let cid = world
-            .resolve_creature_u64(id)
-            .expect("created creature");
+        let cid = world.resolve_creature_u64(id).expect("created creature");
         let Some(CreatureKind::Monster(m)) = world.creatures.get(cid) else {
             panic!("expected monster");
         };
@@ -2500,5 +2512,38 @@ mod tests {
             panic!("expected Npc");
         };
         assert_eq!(n.base.name, "Cobra");
+    }
+
+    /// Non-player `creature:teleportTo` with `dz != 0` must still notify spectators
+    /// (`Map::moveCreature` teleport arm). Previously `areInRange<1,1,0>` skipped the
+    /// broadcast and other clients kept the creature on the old floor.
+    #[test]
+    fn lua_monster_teleport_z_plus_one_notifies_spectator() {
+        let mut world = beat_driven_test_world();
+        let old = Position::new(100, 100, 7);
+        let dest = Position::new(100, 100, 8);
+        let spec_pos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, old, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, dest, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, spec_pos, TEST_SYNTHETIC_GROUND_WP);
+
+        let monster = insert_monster(&mut world, "Rat", old, 200);
+        let conn = ConnId(4);
+        let _viewer = insert_spectator_player(&mut world, conn, test_player("Spec", spec_pos));
+        world.pending_outgoing.clear();
+
+        let ok = world
+            .lua_script_creature_teleport(monster.data().as_ffi(), dest.x, dest.y, dest.z, true)
+            .expect("teleportTo");
+        assert!(ok);
+        assert_eq!(
+            world.creatures.get(monster).map(|k| k.position()),
+            Some(dest)
+        );
+        let pkts = world.pending_outgoing.get(&conn);
+        assert!(
+            pkts.is_some_and(|p| p.iter().any(|b| !b.is_empty())),
+            "spectator must receive a remove/appear for teleportTo z+1"
+        );
     }
 }

@@ -3,16 +3,21 @@
 
 use crate::game_world::GameWorld;
 
-use super::auction::{auction_paid_until, decide_auction, AuctionOutcome};
+use super::HOUSE_GRACE_SECS;
+use super::auction::{AuctionOutcome, auction_paid_until, decide_auction};
 use super::depot_cash::{container_tree_delete_money, player_town_depot_money};
 use super::registry::HouseRentPeriod;
-use super::rent::{decide_rent, RentAction};
-use super::HOUSE_GRACE_SECS;
+use super::rent::{RentAction, decide_rent};
 
 impl GameWorld {
     /// Settle due MyAAC bids then collect rent for online owners.
     /// Offline depot cash is handled by the async boot/save path.
-    pub fn process_houses_online(&mut self, now_unix: u32, period: HouseRentPeriod, grace_secs: u32) {
+    pub fn process_houses_online(
+        &mut self,
+        now_unix: u32,
+        period: HouseRentPeriod,
+        grace_secs: u32,
+    ) {
         if period == HouseRentPeriod::Never {
             return;
         }
@@ -93,7 +98,14 @@ impl GameWorld {
                 if owner == 0 {
                     continue;
                 }
-                (owner, rec.paid_until, rec.warnings, rec.rent, rec.town_id, rec.name.clone())
+                (
+                    owner,
+                    rec.paid_until,
+                    rec.warnings,
+                    rec.rent,
+                    rec.town_id,
+                    rec.name.clone(),
+                )
             };
             let Some(&cid) = self.player_by_guid.get(&owner) else {
                 continue;

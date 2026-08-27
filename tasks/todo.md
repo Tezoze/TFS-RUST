@@ -1,9 +1,7 @@
-# Switch floors transform even with quest aid
+# Native Player:conjureItem + formulas.conjureFromHandsOnly
 
 **Status:** complete.
 
-Mapped switch floors press/unpress even when the item has a quest aid (demon helmet 3022/3023). Aid Lua still runs for wall removal.
-
-## Verify
-
-`rtk cargo test -p tfs-rust-core --lib -- stepping_tile`
+- `MechanicsProfile.conjure_from_hands_only` from `formulas.conjureFromHandsOnly` (772/1098 default **true**).
+- Native `creature:conjureItem` in `conjure.rs`; first arg integer mana or Spell userdata (`spell.mana`).
+- Lua `Player:conjureItem` removed; spell scripts unchanged.

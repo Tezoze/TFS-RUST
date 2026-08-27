@@ -282,11 +282,9 @@ pub async fn run() -> anyhow::Result<()> {
             };
             let talkactions = crate::talkactions::TalkActionRegistry::from_defs(talkaction_defs);
 
-            // Phase 1 doors/actions: inject door ID tables (without full global.lua),
-            // load `data/lib/core/*.lua` + `functions.lua` + `scarab_tiles.lua`
-            // (defines onUseRope / onUseShovel / destroyItem / checkScarabTile /
-            // actionIds etc.), then load `data/scripts/actions/**` self-registering
-            // Action scripts.
+            // Phase 1 doors/actions: inject tool ID tables (`defs/tools.lua`) plus
+            // `table.contains` from global.lua, load `data/lib/core/*.lua` +
+            // remaining `functions.lua` helpers, then load `data/scripts/actions/**`.
             if let Err(e) = inject_door_tables_from_global(&lua_runtime, &data_path) {
                 tracing::warn!("Door table inject from global.lua failed: {}", e);
             }
@@ -466,6 +464,8 @@ pub async fn run() -> anyhow::Result<()> {
     world.outfits_db = outfits_db;
     world.scheduler = Some(scheduler.clone());
     world.stepping_tiles = crate::stepping_tiles::load_from_data_dir(&data_path);
+    world.door_ids = crate::doors::load_from_data_dir(&data_path);
+    world.tool_ids = crate::tool_use::load_from_data_dir(&data_path);
 
     // PC-2b/PC-3: Inject the weapon + spell registries drained from Lua scripts.
     // `GameWorld::new` initializes these as empty `Arc<WeaponRegistry::default()>` /

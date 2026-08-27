@@ -411,6 +411,80 @@ pub enum LuaMutation {
         house_id: u32,
         list_id: u32,
     },
+    /// Native pack helpers (`onUseQuest` / `destroyItem` / `onUse*` / `checkScarabTile`).
+    ToolUse {
+        request: ToolUseRequest,
+    },
+    /// Native `Player:conjureItem`.
+    ConjureItem {
+        request: ConjureRequest,
+    },
+}
+
+/// Quest chest reward row — `functions.lua` `chest.item` / `chest.content[]`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct QuestRewardSpec {
+    pub id: u16,
+    pub count: Option<u16>,
+    pub subtype: Option<u16>,
+    pub charges: Option<u16>,
+    pub text: Option<String>,
+    pub keynumber: Option<i64>,
+}
+
+/// Parsed `onUseQuest` chest table.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct QuestChestSpec {
+    pub storage_value: u32,
+    pub item: QuestRewardSpec,
+    pub content: Vec<QuestRewardSpec>,
+}
+
+/// One native tool-use helper. Inner op keeps a single `LuaMutation` variant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolUseKind {
+    DestroyItem,
+    Machete,
+    Pick,
+    Knife,
+    Rope,
+    Shovel,
+    Scythe,
+    Quest,
+    CheckScarab,
+}
+
+/// Arguments for [`LuaMutation::ToolUse`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolUseRequest {
+    pub kind: ToolUseKind,
+    pub player: u64,
+    /// Used item (tool / chest). Unused for `checkScarabTile`.
+    pub item: Option<u64>,
+    /// Target Item/Container userdata id when `target_is_item_userdata`.
+    pub target_item: Option<u64>,
+    pub target_creature: Option<u64>,
+    /// `true` only for Item/Container userdata (`destroyItem` type check).
+    pub target_is_item_userdata: bool,
+    /// `target.itemid` — `None` when the field is Lua nil (creature / missing).
+    pub target_itemid: Option<u16>,
+    pub target_actionid: u16,
+    pub from: (u16, u16, u8),
+    pub to: (u16, u16, u8),
+    pub quest: Option<QuestChestSpec>,
+}
+
+/// Arguments for [`LuaMutation::ConjureItem`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConjureRequest {
+    pub player: u64,
+    /// Extra dual-hand mana (integer first arg, or `Spell.mana`).
+    pub mana_cost: i32,
+    pub reagent_id: u16,
+    pub conjure_id: u16,
+    /// `None` / `Some(0)` trigger `ItemType:getCharges()` fallback.
+    pub conjure_count: Option<u32>,
+    pub effect: u8,
 }
 
 /// Snapshot of a Lua `ConditionBuilder` for the mutation / combat-execute seam.
@@ -1264,5 +1338,17 @@ pub fn call_player_send_house_window(
         house_id,
         list_id,
     })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// Native `onUse*` / `destroyItem` / `onUseQuest` / `checkScarabTile`.
+pub fn call_lua_tool_use(request: ToolUseRequest) -> Result<bool, String> {
+    apply_mutation(LuaMutation::ToolUse { request })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// Native `Player:conjureItem`.
+pub fn call_lua_conjure_item(request: ConjureRequest) -> Result<bool, String> {
+    apply_mutation(LuaMutation::ConjureItem { request })?;
     Ok(take_mutation_bool_result().unwrap_or(false))
 }

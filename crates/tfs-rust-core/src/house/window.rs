@@ -96,9 +96,13 @@ impl GameWorld {
                 online.insert(name.to_ascii_lowercase(), p.guid);
             }
         }
-        self.houses.apply_list_row(session.house_id, session.list_id, &text, |name| {
-            cache.get(name).copied().or_else(|| online.get(name).copied())
-        });
+        self.houses
+            .apply_list_row(session.house_id, session.list_id, &text, |name| {
+                cache
+                    .get(name)
+                    .copied()
+                    .or_else(|| online.get(name).copied())
+            });
         self.houses.edit_sessions.remove(&guid);
         self.queue_unresolved_house_names(session.house_id, session.list_id, &text);
         true
@@ -192,7 +196,9 @@ impl GameWorld {
                 .get_access_list_text(house_id, list_id)
                 .unwrap_or_default();
             if let Some(conn) = self.conn_for_creature(cid) {
-                let msg = self.codec.encode_house_window(session.window_text_id, &text);
+                let msg = self
+                    .codec
+                    .encode_house_window(session.window_text_id, &text);
                 self.enqueue_encoded(conn, msg);
             }
             return true;

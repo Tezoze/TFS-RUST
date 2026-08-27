@@ -886,10 +886,8 @@ fn read_caster_level_magic(caster_id: u64) -> Result<(i32, i32), mlua::Error> {
 /// - `CALLBACK_PARAM_LEVELMAGICVALUE` (0) → `fn(player, level, magic) → (min, max)`
 /// - `CALLBACK_PARAM_SKILLVALUE` (1) → `fn(player, skill, attack, factor) → (min, max)`
 ///
-/// The callback body typically calls `player:computeDamage(...)` /
-/// `player:computeHealing(...)` / `player:computeSkillDamage(...)` from
-/// `data/scripts/functions.lua`, which read `self:getMagicLevel()` and
-/// `self:getLevel()`.
+/// The callback body typically calls native `player:computeDamage(...)` /
+/// `player:computeHealing(...)` / `player:computeSkillDamage(...)`.
 ///
 /// Returns `(0, 0)` if no value callback is registered. Event callbacks
 /// (`TARGETTILE` / `TARGETCREATURE`) are handled separately (Phase 6) and
@@ -1287,7 +1285,7 @@ mod tests {
     /// PC-3a Phase 1: value callback invocation end-to-end.
     ///
     /// Sets up a `Combat` with `CALLBACK_PARAM_LEVELMAGICVALUE` pointing to a
-    /// Lua global that calls `player:computeDamage(...)` (from `functions.lua`),
+    /// Lua global that calls native `player:computeDamage(...)`,
     /// then invokes `combat:execute()` and verifies the callback was called with
     /// the correct `(level, magic_level)` args and produced non-zero damage.
     ///
@@ -1347,30 +1345,12 @@ mod tests {
         crate::userdata::register_creature_metatable(&lua).expect("creature metatable");
         crate::combat_enums::register_combat_enums(&lua).expect("combat enums");
         crate::constants::register_constants(&lua).expect("constants");
-        // Register the event script bootstrap so `Player` is a table and
-        // `function Player:method(...)` definitions in `functions.lua` work.
         crate::runtime::register_event_script_bootstrap_with(
             &lua,
             std::rc::Rc::new(std::cell::Cell::new(false)),
         )
         .expect("bootstrap");
 
-        // Load `functions.lua` so `Player:computeDamage` is available.
-        let functions_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../data/scripts/functions.lua");
-        if !functions_path.exists() {
-            eprintln!(" Skipping — functions.lua not found");
-            return;
-        }
-        let src = std::fs::read_to_string(&functions_path).expect("read functions.lua");
-        lua.load(&src)
-            .set_name("functions.lua")
-            .exec()
-            .expect("functions.lua loads");
-
-        // Register the mutation applier so `call_combat_execute` doesn't panic.
-        // We use a no-op applier — the test only checks that the callback fires
-        // and produces non-zero damage, not that damage is applied to a target.
         crate::lua_mutation::register_lua_mutation_applier(|_, _| Ok(()));
 
         let ctx = Ctx;
@@ -1486,18 +1466,6 @@ mod tests {
             std::rc::Rc::new(std::cell::Cell::new(false)),
         )
         .expect("bootstrap");
-
-        let functions_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../data/scripts/functions.lua");
-        if !functions_path.exists() {
-            eprintln!(" Skipping — functions.lua not found");
-            return;
-        }
-        let src = std::fs::read_to_string(&functions_path).expect("read functions.lua");
-        lua.load(&src)
-            .set_name("functions.lua")
-            .exec()
-            .expect("functions.lua loads");
 
         crate::lua_mutation::register_lua_mutation_applier(|_, mutation| {
             if let crate::lua_mutation::LuaMutation::CombatExecute { request } = mutation {
@@ -1657,9 +1625,7 @@ mod tests {
 
     /// PC-3a Phase 1: `Player:` method bridge via `__index` fallback.
     ///
-    /// Verifies that `CreatureRef` userdata can call `Player:computeDamage`
-    /// defined in `functions.lua` — the `__index` metamethod falls back to
-    /// the `Player` global table when the method isn't a native Rust method.
+    /// Verifies that `CreatureRef` userdata can call native `computeDamage`.
     #[test]
     fn creature_ref_index_fallback_resolves_player_methods() {
         use crate::context::with_lua_context;
@@ -1695,18 +1661,6 @@ mod tests {
             std::rc::Rc::new(std::cell::Cell::new(false)),
         )
         .expect("bootstrap");
-
-        let functions_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../data/scripts/functions.lua");
-        if !functions_path.exists() {
-            eprintln!(" Skipping — functions.lua not found");
-            return;
-        }
-        let src = std::fs::read_to_string(&functions_path).expect("read functions.lua");
-        lua.load(&src)
-            .set_name("functions.lua")
-            .exec()
-            .expect("functions.lua loads");
 
         let ctx = Ctx;
         with_lua_context(&ctx, || {

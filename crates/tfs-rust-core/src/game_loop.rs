@@ -613,10 +613,7 @@ fn handle_player_disconnect(
     world.dead_connections.remove(&conn_id);
     if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
         if display_effect {
-            let pos = world.creatures.get(cid).map(|k| k.position());
-            if let Some(p) = pos {
-                world.broadcast_magic_effect(p, 4);
-            }
+            world.broadcast_player_logout_poff(cid);
         }
         let db = world.db.clone();
         match world.build_player_save_data(cid) {

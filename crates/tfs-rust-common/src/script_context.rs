@@ -657,7 +657,7 @@ pub trait ScriptContext {
         let magic = self.get_player_magic_level(creature_id).unwrap_or(0);
         let (lm, mm) = self.get_spell_coeff();
         let mut formula = lm * level + mm * magic;
-        // Match `functions.lua` / decompile flag clamps (`<=99` floor, `>=101` cap).
+        // Match decompile flag clamps (`<=99` floor, `>=101` cap).
         if (limit_minimum && formula <= 99) || (limit_maximum && formula >= 101) {
             formula = 100;
         }

@@ -36,6 +36,7 @@ formulas = {
   pathForwardFallback = false,       -- TFS falls back to forward search if reverse fails
   corpseDecayOffsetMs = 30000,        -- generic corpse decay +600ms
   classicEquipmentSlots = false,     -- 10.98 hand slots enforce weapon/shield restrictions
+  conjureFromHandsOnly = true,       -- same pack Lua default: hands only, not backpack search
   undergroundSeesSurface = false,   -- TFS canSee: underground cannot see surface (tz < 8 rejects)
   damageTextFormat = "attackerAttribution",  -- "You lose N hitpoints." (no attacker attribution)
 

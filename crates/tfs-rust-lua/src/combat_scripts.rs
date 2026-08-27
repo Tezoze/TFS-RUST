@@ -196,11 +196,8 @@ impl LuaRuntime {
         }
 
         // PC-3a Phase 1: Load `data/lib/core/*.lua` + `data/scripts/functions.lua`
-        // before spell scripts. `functions.lua` defines `Player:conjureItem`,
-        // `Player:computeDamage` / `computeHealing` / `computeSkillDamage` as
-        // `function Player:method` table fields. The `CreatureRef` `__index`
-        // fallback bridges these onto userdata so value-callback spell bodies can
-        // call them. Shared helper also used by `run_server.rs` before actions.
+        // before spell scripts. `Creature:addAttributeCondition` is Lua;
+        // `Player:conjureItem` is native userdata (`formulas.conjureFromHandsOnly`).
         // Gap 5a: lib-stage failures propagate (fatal); per-spell loads below
         // stay warn-and-continue.
         crate::actions::load_data_lib(self, data_dir).map_err(|e| e.to_string())?;

@@ -41,8 +41,7 @@ impl GameWorld {
             && let Some(&cid) = self.player_by_guid.get(&new_guid)
             && let Some(k) = self.creatures.get(cid)
         {
-            self.houses
-                .set_owner_name(house_id, k.base().name.clone());
+            self.houses.set_owner_name(house_id, k.base().name.clone());
         }
         if let Some(rec) = self.houses.records.get_mut(&house_id) {
             rec.clear_bid();
@@ -66,11 +65,7 @@ impl GameWorld {
                 .get(&house_id)
                 .map(|r| r.name.clone())
                 .unwrap_or_default();
-            self.house_deliver_letter(
-                new_guid,
-                town_id,
-                format!("Welcome!\nYou now own {name}."),
-            );
+            self.house_deliver_letter(new_guid, town_id, format!("Welcome!\nYou now own {name}."));
         }
     }
 
@@ -212,7 +207,8 @@ impl GameWorld {
             return false;
         };
         let kicker_guid = kp.guid;
-        let kicker_edit = has_player_flag(self.player_group_flags(kicker), PLAYER_FLAG_CAN_EDIT_HOUSES);
+        let kicker_edit =
+            has_player_flag(self.player_group_flags(kicker), PLAYER_FLAG_CAN_EDIT_HOUSES);
         let Some(CreatureKind::Player(_)) = self.creatures.get(target) else {
             return false;
         };
@@ -220,23 +216,20 @@ impl GameWorld {
             Some(CreatureKind::Player(p)) => p.guid,
             _ => return false,
         };
-        let target_edit = has_player_flag(self.player_group_flags(target), PLAYER_FLAG_CAN_EDIT_HOUSES);
+        let target_edit =
+            has_player_flag(self.player_group_flags(target), PLAYER_FLAG_CAN_EDIT_HOUSES);
         if target_edit {
             return false;
         }
-        let kicker_lv = self
-            .houses
-            .access_level(house_id, kicker_guid, kicker_edit);
-        let target_lv = self
-            .houses
-            .access_level(house_id, target_guid, false);
+        let kicker_lv = self.houses.access_level(house_id, kicker_guid, kicker_edit);
+        let target_lv = self.houses.access_level(house_id, target_guid, false);
         if kicker_lv < target_lv || kicker_lv == AccessHouseLevel::NotInvited {
             return false;
         }
         let pos = self.creatures.get(target).map(|k| k.position());
-        let on_house = pos.is_some_and(|p| {
-            matches!(self.map.get_tile(p), Some(Tile::House(h)) if h.house_id == house_id)
-        });
+        let on_house = pos.is_some_and(
+            |p| matches!(self.map.get_tile(p), Some(Tile::House(h)) if h.house_id == house_id),
+        );
         if !on_house {
             return false;
         }
@@ -268,7 +261,13 @@ impl GameWorld {
         let Some(entry) = self.houses.records.get(&house_id).map(|r| r.entry_pos) else {
             return;
         };
-        let _ = self.lua_script_creature_teleport(cid.data().as_ffi(), entry.x, entry.y, entry.z, false);
+        let _ = self.lua_script_creature_teleport(
+            cid.data().as_ffi(),
+            entry.x,
+            entry.y,
+            entry.z,
+            false,
+        );
     }
 
     pub fn house_deliver_letter(&mut self, owner_guid: u32, town_id: u32, text: String) {
@@ -406,7 +405,9 @@ mod tests {
             rec.town_id = 1;
         }
         world.houses.set_owner(1, 10);
-        world.houses.apply_list_row(1, crate::house::GUEST_LIST, "guest", |_| Some(30));
+        world
+            .houses
+            .apply_list_row(1, crate::house::GUEST_LIST, "guest", |_| Some(30));
         let cid = insert_player(&mut world, test_player("Owner", pos));
         if let crate::creature::CreatureKind::Player(p) = world.creatures.get_mut(cid).unwrap() {
             p.guid = 10;

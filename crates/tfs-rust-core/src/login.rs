@@ -391,7 +391,10 @@ pub fn apply_loaded_player(
         // TFS `ProtocolGame::connect` stamps `lastLoginSaved` without re-firing onLogin.
         stamp_last_login_saved(world, cid);
         // Live body kept — do not rehydrate inventory / place / onLogin from this load.
-        world.houses.name_to_guid.insert(name.to_ascii_lowercase(), guid);
+        world
+            .houses
+            .name_to_guid
+            .insert(name.to_ascii_lowercase(), guid);
         world.houses.set_owner_name_for_guid(guid, &name);
         return Ok(ApplyPlayerOutcome::TakenOver { cid, old_conn });
     }
@@ -474,7 +477,10 @@ pub fn apply_loaded_player(
         }
     };
     world.monster_notify_creature_enter_viewport(cid, placed_pos);
-    world.houses.name_to_guid.insert(name.to_ascii_lowercase(), guid);
+    world
+        .houses
+        .name_to_guid
+        .insert(name.to_ascii_lowercase(), guid);
     world.houses.set_owner_name_for_guid(guid, &name);
     world.house_relocate_if_uninvited(cid);
 

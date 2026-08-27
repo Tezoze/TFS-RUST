@@ -23,7 +23,11 @@ fn namedoor_house_clause(house_name: &str, owner_name: &str) -> String {
 /// Insert the NAMEDOOR clause before the first `.` of `Item::getDescription` output.
 ///
 /// `a closed door.` → `a closed door. It belongs to house 'X'. Y owns this house.`
-pub fn insert_namedoor_house_clause(description: &str, house_name: &str, owner_name: &str) -> String {
+pub fn insert_namedoor_house_clause(
+    description: &str,
+    house_name: &str,
+    owner_name: &str,
+) -> String {
     let clause = namedoor_house_clause(house_name, owner_name);
     match description.find('.') {
         Some(idx) => {

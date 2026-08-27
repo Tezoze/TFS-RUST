@@ -56,12 +56,18 @@ mod tests {
 
     #[test]
     fn skip_when_not_due() {
-        assert_eq!(decide_rent(100, 200, 0, 50, 0, HOUSE_GRACE_SECS), RentAction::Skip);
+        assert_eq!(
+            decide_rent(100, 200, 0, 50, 0, HOUSE_GRACE_SECS),
+            RentAction::Skip
+        );
     }
 
     #[test]
     fn skip_unowned_rent_zero() {
-        assert_eq!(decide_rent(100, 0, 0, 0, 0, HOUSE_GRACE_SECS), RentAction::Skip);
+        assert_eq!(
+            decide_rent(100, 0, 0, 0, 0, HOUSE_GRACE_SECS),
+            RentAction::Skip
+        );
     }
 
     #[test]
@@ -92,6 +98,9 @@ mod tests {
     fn evicts_after_grace() {
         let paid = 10;
         let now = paid + HOUSE_GRACE_SECS;
-        assert_eq!(decide_rent(now, paid, 1, 50, 0, HOUSE_GRACE_SECS), RentAction::Evict);
+        assert_eq!(
+            decide_rent(now, paid, 1, 50, 0, HOUSE_GRACE_SECS),
+            RentAction::Evict
+        );
     }
 }

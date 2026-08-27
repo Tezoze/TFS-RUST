@@ -1181,6 +1181,78 @@ impl GameWorld {
         }
     }
 
+    /// Self `oldStackPos` at `pos` for relocate packets (`Tile::getClientIndexOfCreature`).
+    /// C++ ref: `map.cpp` ~292–301 (captured before `moveCreature` removes the body).
+    pub(crate) fn creature_self_stack_at(&self, cid: CreatureId, pos: Position) -> i32 {
+        self.map
+            .get_tile(pos)
+            .map(|t| self_move_stack_pos(self, cid, t.body()))
+            .filter(|s| *s >= 0)
+            .unwrap_or(1)
+    }
+
+    /// TFS `Game::internalMoveCreature` `queryDestination` while-loop (`game.cpp` ~863–880).
+    ///
+    /// Chains `Tile::queryDestination` (`tile.cpp` ~735–830) up to `MAP_MAX_LAYERS` (16).
+    /// Each hop that yields a different tile calls `move_creature_on_map`. Used by push/kick
+    /// so the creature is downstairs before spectator packets (walk already has this loop
+    /// inside `internal_move_creature_step`).
+    pub(crate) fn apply_query_destination_chain(
+        &mut self,
+        cid: CreatureId,
+        landed: Position,
+    ) -> Position {
+        const MAP_MAX_LAYERS: usize = 16;
+        let mut pos = landed;
+        for _ in 0..MAP_MAX_LAYERS {
+            let tile_flags = match self.map.get_tile(pos) {
+                Some(t) => t.body().flags,
+                None => break,
+            };
+            let Some((new_pos, _extra)) = query_destination(&self.map, pos, tile_flags) else {
+                break;
+            };
+            if new_pos == pos {
+                break;
+            }
+            self.move_creature_on_map(cid, pos, new_pos);
+            pos = new_pos;
+        }
+        pos
+    }
+
+    /// Self-view packets after a forced relocate (push onto a hole, Lua `teleportTo` walk arm).
+    ///
+    /// Mirrors `on_walk` / `internal_teleport_player` walk routing: 772 real client
+    /// `NotifyGo` (`cract.cc:1400–1465`); otherwise `sendMoveCreature` teleport vs adjacent
+    /// (`protocolgame.cpp` ~1766–1829). No-op when there is no connection or `old_pos == new_pos`.
+    pub(crate) fn emit_player_relocate_self_packets(
+        &mut self,
+        cid: CreatureId,
+        old_pos: Position,
+        new_pos: Position,
+        old_stack: i32,
+    ) {
+        if old_pos == new_pos {
+            return;
+        }
+        let Some(conn) = self.conn_for_creature(cid) else {
+            return;
+        };
+        let is_772 = !self.codec.caps().move_creature_self_packet;
+        let otclient = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.is_otclient()));
+        if is_772 && !otclient {
+            self.emit_notify_go(cid, conn, old_pos, new_pos, old_stack);
+        } else if !is_adjacent_move(&self.codec, otclient, old_pos, new_pos) {
+            self.emit_teleport_move_packet(cid, conn, old_pos, new_pos, old_stack);
+        } else {
+            self.emit_move_packet(cid, conn, old_pos, new_pos, old_stack);
+        }
+    }
+
     /// After KickCreature `NotifyGo`, push any armed wakeup out to `EarliestWalkTime`.
     ///
     /// A pre-kick `next_wakeup` can fire a `Go` before the client finishes the push
@@ -1860,11 +1932,16 @@ impl GameWorld {
                         // ordering while keeping the 0x6B-after-NotifyGo safety invariant.
                         self.flush_pending_creature_step_events();
 
-                        // Broadcast to spectators using overall old→new for now.
-                        // C++ broadcasts per moveCreature call, but the initial step is most
-                        // important for spectator rendering. `old_creatures` was captured before
-                        // the move for per-viewer stack position computation.
-                        self.broadcast_spectator_move(cid, old_pos, new_pos, &old_creatures);
+                        // Spectators must see the live tile after StepIn (`doRelocate` on
+                        // grass 293 has no items.xml floorchange, so the chain may not have
+                        // moved them). Broadcasting pre-flush `new_pos` (the hole) 0x6Ds
+                        // them back onto the pitfall.
+                        let spectate_to = self
+                            .creatures
+                            .get(cid)
+                            .map(|k| k.position())
+                            .unwrap_or(new_pos);
+                        self.broadcast_spectator_move(cid, old_pos, spectate_to, &old_creatures);
 
                         // TFS `Tile::postAddNotification` teleport — after walk packets.
                         // Pad specials must not emit 0x64 before NotifyGo (official 772 crash).

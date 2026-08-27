@@ -32,39 +32,50 @@ impl From<PendingAction> for ActionDef {
     }
 }
 
-/// Inject `actionIds` + door ID tables + `table.contains` + `getFormattedWorldTime`
-/// and `getPlayerFlagValue` from `data/global.lua` / a compat one-liner without
-/// loading `lib.lua` or `compat.lua` (bootstrap skips full `global.lua`).
-/// TVP defines `actionIds` in `global.lua`, not `actionids.lua`.
+/// Inject `actionIds` + tool ID tables from `data/defs/tools.lua`, plus
+/// `table.contains` and `getPlayerFlagValue` from `data/global.lua` without
+/// loading `lib.lua` or `compat.lua`.
 ///
-/// Enables [`doors.lua`](data/scripts/actions/other/doors.lua), tools scripts
-/// that read `actionIds.*`, and [`watch.lua`](data/scripts/actions/other/watch.lua).
+/// `getFormattedWorldTime` is a native global (`LuaRuntime::new`).
+/// Enables tools scripts that read `actionIds.*`, `Fields`, `ropeSpots`, and [`watch.lua`].
 pub fn inject_door_tables_from_global(
     runtime: &LuaRuntime,
     data_dir: &Path,
 ) -> Result<(), LuaError> {
+    let tools_path = data_dir.join("defs/tools.lua");
+    let tools_src = std::fs::read_to_string(&tools_path)
+        .map_err(|e| LuaError::ScriptIo(tools_path.display().to_string(), e.to_string()))?;
+    let tools_val: mlua::Value = runtime
+        .lua
+        .load(&tools_src)
+        .set_name("defs/tools.lua")
+        .eval()
+        .map_err(LuaError::Init)?;
+    let mlua::Value::Table(tools) = tools_val else {
+        return Err(LuaError::ScriptIo(
+            tools_path.display().to_string(),
+            "tools.lua must return a table".into(),
+        ));
+    };
+    let globals = runtime.lua.globals();
+    for key in [
+        "actionIds",
+        "Fields",
+        "ropeSpots",
+        "jungleGrass",
+        "pickGrounds",
+        "sandIds",
+        "holeId",
+        "holes",
+        "corpseIds",
+    ] {
+        let v: mlua::Value = tools.get(key).unwrap_or(mlua::Value::Nil);
+        globals.set(key, v).map_err(LuaError::Init)?;
+    }
+
     let path = data_dir.join("global.lua");
     let text = std::fs::read_to_string(&path)
         .map_err(|e| LuaError::ScriptIo(path.display().to_string(), e.to_string()))?;
-
-    // Prefer `actionIds` (TVP `global.lua`); fall back to `keys` for packs that
-    // still start their table block later.
-    let start = text
-        .find("actionIds = {")
-        .or_else(|| text.find("keys = {"))
-        .ok_or_else(|| {
-            LuaError::ScriptIo(
-                path.display().to_string(),
-                "missing actionIds = { or keys = { in global.lua".into(),
-            )
-        })?;
-    let end = text.find("function getDistanceBetween").ok_or_else(|| {
-        LuaError::ScriptIo(
-            path.display().to_string(),
-            "missing getDistanceBetween marker in global.lua".into(),
-        )
-    })?;
-    let tables = text[start..end].trim();
 
     let contains_start = text.find("table.contains = function").ok_or_else(|| {
         LuaError::ScriptIo(
@@ -81,26 +92,9 @@ pub fn inject_door_tables_from_global(
     })?;
     let contains = &contains_rest[..=contains_end + 3];
 
-    // E9: `getFormattedWorldTime` only — do not `dofile` `global.lua` (it loads `lib.lua`).
-    let time_start = text.find("function getFormattedWorldTime").ok_or_else(|| {
-        LuaError::ScriptIo(
-            path.display().to_string(),
-            "missing getFormattedWorldTime in global.lua".into(),
-        )
-    })?;
-    let time_rest = &text[time_start..];
-    let time_end = time_rest.find("\nend\n").ok_or_else(|| {
-        LuaError::ScriptIo(
-            path.display().to_string(),
-            "unterminated getFormattedWorldTime in global.lua".into(),
-        )
-    })?;
-    let formatted_time = &time_rest[..=time_end + 3];
-
-    // R4: compat one-liner only — do not `dofile` `compat.lua`.
     let flag_helper = "function getPlayerFlagValue(cid, flag) local p = Player(cid) return p ~= nil and p:hasFlag(flag) or false end";
 
-    let chunk = format!("{tables}\n\n{contains}\n\n{formatted_time}\n\n{flag_helper}\n");
+    let chunk = format!("{contains}\n\n{flag_helper}\n");
     runtime.exec_chunk("door_tables_from_global", &chunk)
 }
 
@@ -156,7 +150,7 @@ pub fn inject_era_formulas(
 ///
 /// Idempotent: a successful load sets a flag on [`LuaRuntime`]; later calls
 /// return `Ok` without re-exec. `load_spell_scripts` also calls this so isolated
-/// tests get `Player:conjureItem`; re-exec would run `EventCallback:clear()` and
+/// so isolated tests get native `Player:conjureItem` plus Lua pack helpers;
 /// wipe the scripts-interface bus.
 pub fn load_data_lib(runtime: &LuaRuntime, data_dir: &Path) -> Result<(), LuaError> {
     if runtime.is_data_lib_loaded() {
@@ -196,10 +190,9 @@ pub fn load_data_lib(runtime: &LuaRuntime, data_dir: &Path) -> Result<(), LuaErr
     // Top-level `data/scripts/*.lua` (non-recursive) — part of TVP's
     // `loadScripts("scripts", false, false)` recursive scan. The per-subsystem
     // loaders (`load_action_scripts`, `load_spell_scripts`, etc.) cover the
-    // subdirectories; this picks up the top-level files (`functions.lua`,
-    // `scarab_tiles.lua`) that no subsystem loader scans. Cross-file calls are
-    // inside `onUse*` bodies (deferred to use-time), so alphabetical order is
-    // safe.
+    // subdirectories; this picks up the top-level files (`functions.lua`)
+    // that no subsystem loader scans. Cross-file calls are inside remaining
+    // helper bodies (deferred to use-time), so alphabetical order is safe.
     let scripts_dir = data_dir.join("scripts");
     if scripts_dir.exists() {
         match std::fs::read_dir(&scripts_dir) {
@@ -958,29 +951,22 @@ mod tests {
     /// not TFS `math.random(7)` + `Game.createItem` + `remove`.
     #[test]
     fn e3_destroy_item_uses_one_in_three_transform() {
-        let src = std::fs::read_to_string(workspace_data_root().join("scripts/functions.lua"))
-            .expect("functions.lua");
-        let start = src
-            .find("function destroyItem")
-            .expect("destroyItem helper");
-        let rest = &src[start..];
-        let end = rest.find("\nfunction ").unwrap_or(rest.len());
-        let body = &rest[..end];
+        let src = std::fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tfs-rust-core/src/tool_use.rs"),
+        )
+        .expect("tool_use.rs");
         assert!(
-            body.contains("math.random(1, 3)"),
-            "772 UseWeapon random(1,3): {body}"
+            src.contains("random_range(1..=3)"),
+            "772 UseWeapon random(1,3): native dice_1_to_3"
         );
         assert!(
-            body.contains("target:transform(destroyId)"),
-            "772 Change via transform: {body}"
+            src.contains("lua_script_item_transform"),
+            "772 Change via transform"
         );
+        assert!(!src.contains("math.random(7)"), "TFS 1/7 must not remain");
         assert!(
-            !body.contains("math.random(7)"),
-            "TFS 1/7 must not remain: {body}"
-        );
-        assert!(
-            !body.contains("Game.createItem(destroyId"),
-            "TFS create+remove must not remain: {body}"
+            !src.contains("Game.createItem(destroyId"),
+            "TFS create+remove must not remain"
         );
     }
 
@@ -1192,47 +1178,16 @@ mod tests {
     }
 
     #[test]
-    fn door_tables_inject_enables_doors_register() {
+    fn defs_doors_lua_lists_pack_ids() {
         let data_root = workspace_data_root();
-        let doors = data_root.join("scripts/actions/other/doors.lua");
-        if !doors.exists() {
-            eprintln!("doors.lua not found — skipping");
-            return;
-        }
-
-        let mut runtime = LuaRuntime::new().expect("runtime init");
-        inject_door_tables_from_global(&runtime, &data_root).expect("door tables");
-        // Load only doors.lua
-        runtime
-            .load_action_script(doors.to_str().expect("utf8 path"))
-            .expect("doors.lua should load with door tables");
-        let pending = runtime.drain_pending_actions();
-        assert_eq!(pending.len(), 1);
-        assert!(
-            pending[0].item_ids.contains(&1210),
-            "doors should register closed door 1210"
-        );
-        assert!(
-            pending[0].item_ids.contains(&1211),
-            "doors should register open door 1211"
-        );
-        assert!(
-            pending[0].item_ids.contains(&1209),
-            "doors should register locked door 1209"
-        );
-        assert!(
-            pending[0].item_ids.contains(&2088),
-            "doors should register key id 2088 for use-with"
-        );
-        assert!(
-            pending[0].item_ids.contains(&1223),
-            "doors should register closed quest door 1223"
-        );
-        assert!(
-            pending[0].item_ids.contains(&1227),
-            "doors should register closed level door 1227"
-        );
-        assert!(pending[0].on_use.is_some());
+        let src =
+            std::fs::read_to_string(data_root.join("defs/doors.lua")).expect("defs/doors.lua");
+        assert!(src.contains("1210"), "closed door 1210");
+        assert!(src.contains("1211"), "open door 1211");
+        assert!(src.contains("1209"), "locked door 1209");
+        assert!(src.contains("2088"), "key 2088");
+        assert!(src.contains("1223"), "closed quest 1223");
+        assert!(src.contains("1227"), "closed level 1227");
     }
 
     #[test]
@@ -1433,12 +1388,11 @@ mod tests {
         );
     }
 
-    /// E9: inject `getFormattedWorldTime` from `global.lua`; watch ids include cuckoo, drop sundial.
+    /// E9: native `getFormattedWorldTime`; watch ids include cuckoo, drop sundial.
     #[test]
     fn e9_get_formatted_world_time_and_watch_ids() {
         let data_root = workspace_data_root();
         let runtime = LuaRuntime::new().expect("runtime init");
-        inject_door_tables_from_global(&runtime, &data_root).expect("door tables");
 
         let lua = &runtime.lua;
         lua.globals()

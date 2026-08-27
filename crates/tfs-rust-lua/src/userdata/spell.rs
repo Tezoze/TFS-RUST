@@ -180,8 +180,8 @@ impl UserData for SpellBuilder {
 
         // `spell:mana([mana])` — getter/setter. C++ `luaSpellMana`
         // (`luascript.cpp:14116-14131`): `lua_gettop(L) == 1` → getter.
-        // Used as getter by `functions.lua`'s `conjureItem` (reads
-        // `self:mana()` to compute mana cost).
+        // Used as getter by scripts that read `spell:mana()`. Dual-hand conjure
+        // reads `Spell.mana` when the first `conjureItem` arg is Spell userdata.
         methods.add_method_mut("mana", |_, this, args: mlua::MultiValue| {
             let mut args = args.into_vec();
             if args.is_empty() {

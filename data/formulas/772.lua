@@ -35,6 +35,7 @@ formulas = {
   pathForwardFallback = false,     -- NOWAY when reverse search fails
   corpseDecayOffsetMs = 30000,     -- generic corpse decay +30s (crmain.cc decay scheduler)
   classicEquipmentSlots = true,      -- 772 hand slots accept any pickupable item
+  conjureFromHandsOnly = true,       -- rune/staff conjure only from equipped hands (not backpack)
   undergroundSeesSurface = true,   -- IsVisible: underground CAN see surface ±2 floors
   damageTextFormat = "attackerAttribution", -- "You lose N hp due to an attack by X."
 

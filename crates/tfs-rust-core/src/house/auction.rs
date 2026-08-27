@@ -7,7 +7,9 @@ use super::rent::HOUSE_MONTH_SECS;
 pub enum AuctionOutcome {
     Skip,
     /// Winner pays `rent + bid` from depot; owner assigned, `paid_until = now + 30d`.
-    Award { cost: u64 },
+    Award {
+        cost: u64,
+    },
     /// Winner cannot pay; house stays free and bid columns clear.
     InsufficientFunds,
 }
@@ -44,9 +46,18 @@ mod tests {
 
     #[test]
     fn skip_owned_or_not_due() {
-        assert_eq!(decide_auction(100, 1, 50, 9, 10, 5, 1000), AuctionOutcome::Skip);
-        assert_eq!(decide_auction(100, 0, 150, 9, 10, 5, 1000), AuctionOutcome::Skip);
-        assert_eq!(decide_auction(100, 0, 50, 0, 10, 5, 1000), AuctionOutcome::Skip);
+        assert_eq!(
+            decide_auction(100, 1, 50, 9, 10, 5, 1000),
+            AuctionOutcome::Skip
+        );
+        assert_eq!(
+            decide_auction(100, 0, 150, 9, 10, 5, 1000),
+            AuctionOutcome::Skip
+        );
+        assert_eq!(
+            decide_auction(100, 0, 50, 0, 10, 5, 1000),
+            AuctionOutcome::Skip
+        );
     }
 
     #[test]

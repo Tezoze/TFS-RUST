@@ -381,6 +381,23 @@ impl GameWorld {
         true
     }
 
+    /// TFS `CONST_ME_POFF` / 772 `EFFECT_POFF` — logout puff (`protocolgame.cpp` logout).
+    /// Not `CONST_ME_BLOCKHIT` (4); that is the gray spark, not the smoke poff.
+    const MAGIC_EFFECT_POFF: u8 = 3;
+
+    /// Spectator logout puff — TFS `addMagicEffect(..., CONST_ME_POFF)` when
+    /// `displayEffect && health > 0 && !ghost`. Used by protocol logout and TCP disconnect.
+    pub(crate) fn broadcast_player_logout_poff(&mut self, cid: CreatureId) {
+        let Some(CreatureKind::Player(player)) = self.creatures.get(cid) else {
+            return;
+        };
+        if player.base.health <= 0 || player.ghost_mode {
+            return;
+        }
+        let pos = player.base.position;
+        self.broadcast_magic_effect(pos, Self::MAGIC_EFFECT_POFF);
+    }
+
     /// TFS `ProtocolGame::logout` (`protocolgame.cpp:336-372`).
     /// Validates then removes the player; prefer game-loop `PlayerDisconnect` so TCP closes.
     // C++ ref: src/protocolgame.cpp:336-372
@@ -398,13 +415,10 @@ impl GameWorld {
         let Some(CreatureKind::Player(player)) = self.creatures.get(cid) else {
             return;
         };
-        let health = player.base.health;
-        let ghost_mode = player.ghost_mode;
-        let pos = player.base.position;
         let guid = player.guid;
 
-        if display_effect && health > 0 && !ghost_mode {
-            self.broadcast_magic_effect(pos, 4);
+        if display_effect {
+            self.broadcast_player_logout_poff(cid);
         }
 
         // Intentional quit — `StopFight=true` (`receiving.cc:84,91`). Connection cleared by caller.
@@ -781,7 +795,9 @@ impl GameWorld {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sim_harness::{insert_player, minimal_world, test_player};
+    use crate::sim_harness::{
+        ensure_walkable_tile, insert_player, insert_spectator_player, minimal_world, test_player,
+    };
     use tfs_rust_common::Position;
 
     /// Place a non-container item in a player's inventory slot.
@@ -909,6 +925,94 @@ mod tests {
         assert_eq!(
             desc.as_deref(),
             Some("You recognize Alice. He was killed by Bob.")
+        );
+    }
+
+    fn pkt_is_poff_at(pkt: &[u8], pos: Position) -> bool {
+        pkt.len() >= 7
+            && pkt[0] == 0x83
+            && u16::from_le_bytes([pkt[1], pkt[2]]) == pos.x
+            && u16::from_le_bytes([pkt[3], pkt[4]]) == pos.y
+            && pkt[5] == pos.z
+            && pkt[6] == 3
+    }
+
+    #[test]
+    fn logout_broadcasts_poff_not_blockhit_to_spectators() {
+        let mut world = minimal_world();
+        let spectator_pos = Position::new(100, 100, 7);
+        let leaver_pos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, spectator_pos, 100);
+        ensure_walkable_tile(&mut world.map, leaver_pos, 100);
+
+        let spectator_conn = ConnId(1);
+        let _spectator = insert_spectator_player(
+            &mut world,
+            spectator_conn,
+            test_player("Watcher", spectator_pos),
+        );
+        let leaver =
+            insert_spectator_player(&mut world, ConnId(2), test_player("Leaver", leaver_pos));
+
+        world.pending_outgoing.clear();
+        world.broadcast_player_logout_poff(leaver);
+
+        let pkts = world
+            .pending_outgoing
+            .get(&spectator_conn)
+            .expect("spectator must receive logout packets");
+        assert!(
+            pkts.iter().any(|p| pkt_is_poff_at(p, leaver_pos)),
+            "logout must broadcast CONST_ME_POFF (3), not BLOCKHIT (4); packets={pkts:?}"
+        );
+        assert!(
+            !pkts
+                .iter()
+                .any(|p| p.len() >= 7 && p[0] == 0x83 && p[6] == 4),
+            "logout must not send CONST_ME_BLOCKHIT"
+        );
+    }
+
+    #[test]
+    fn login_place_sends_add_creature_to_spectators() {
+        let mut world = minimal_world();
+        let spectator_pos = Position::new(100, 100, 7);
+        let joiner_pos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, spectator_pos, 100);
+        ensure_walkable_tile(&mut world.map, joiner_pos, 100);
+
+        let spectator_conn = ConnId(1);
+        let _spectator = insert_spectator_player(
+            &mut world,
+            spectator_conn,
+            test_player("Watcher", spectator_pos),
+        );
+        let joiner = insert_player(&mut world, test_player("Joiner", joiner_pos));
+
+        world.pending_outgoing.clear();
+        let placed = world
+            .place_player_on_login(joiner, joiner_pos, 1)
+            .expect("login place");
+        assert_eq!(placed, joiner_pos);
+
+        let pkts = world
+            .pending_outgoing
+            .get(&spectator_conn)
+            .expect("spectator must receive login appear");
+        assert!(
+            pkts.iter().any(|p| !p.is_empty() && p[0] == 0x6A),
+            "login placeCreature must send AddCreature (0x6A) to nearby clients; packets={pkts:?}"
+        );
+        assert!(
+            pkts.iter().any(|p| {
+                p.len() >= 7
+                    && p[0] == 0x83
+                    && u16::from_le_bytes([p[1], p[2]]) == joiner_pos.x
+                    && u16::from_le_bytes([p[3], p[4]]) == joiner_pos.y
+                    && p[5] == joiner_pos.z
+                    && p[6] == 11
+            }),
+            "login placeCreature must broadcast CONST_ME_TELEPORT (11); packets={pkts:?}"
         );
     }
 }

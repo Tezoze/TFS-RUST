@@ -87,7 +87,11 @@ impl HouseManager {
             .records
             .entry(house_id)
             .or_insert_with(|| House::new(house_id));
-        if !rec.doors.iter().any(|(d, i)| *d == door_id && *i == item_id) {
+        if !rec
+            .doors
+            .iter()
+            .any(|(d, i)| *d == door_id && *i == item_id)
+        {
             rec.doors.push((door_id, item_id));
         }
     }
@@ -106,14 +110,16 @@ impl HouseManager {
         let access = self.houses.entry(house_id).or_default();
         access.owner_guid = if guid == 0 { None } else { Some(guid) };
         access.owner_name.clear();
-        self.records.entry(house_id).or_insert_with(|| House::new(house_id));
+        self.records
+            .entry(house_id)
+            .or_insert_with(|| House::new(house_id));
     }
 
     /// TFS `Map::getHouseByPlayerId` — first house owned by `guid`, if any.
     pub fn house_id_for_owner(&self, guid: u32) -> Option<u32> {
-        self.houses.iter().find_map(|(id, access)| {
-            (access.owner_guid == Some(guid)).then_some(*id)
-        })
+        self.houses
+            .iter()
+            .find_map(|(id, access)| (access.owner_guid == Some(guid)).then_some(*id))
     }
 
     /// TFS `House::ownerName` after `IOLoginData::getNameByGuid`.
@@ -198,16 +204,22 @@ impl HouseManager {
             .is_some_and(|list| list.is_in_list(player_guid))
     }
 
-    pub fn can_edit_list(&self, house_id: u32, list_id: u32, player_guid: u32, can_edit_houses: bool) -> bool {
-        can_edit_access_list(self.access_level(house_id, player_guid, can_edit_houses), list_id)
+    pub fn can_edit_list(
+        &self,
+        house_id: u32,
+        list_id: u32,
+        player_guid: u32,
+        can_edit_houses: bool,
+    ) -> bool {
+        can_edit_access_list(
+            self.access_level(house_id, player_guid, can_edit_houses),
+            list_id,
+        )
     }
 
     pub fn get_access_list_text(&self, house_id: u32, list_id: u32) -> Option<String> {
         match list_id {
-            GUEST_LIST => self
-                .houses
-                .get(&house_id)
-                .map(|a| a.guest_list_raw.clone()),
+            GUEST_LIST => self.houses.get(&house_id).map(|a| a.guest_list_raw.clone()),
             SUBOWNER_LIST => self
                 .houses
                 .get(&house_id)

@@ -31,12 +31,12 @@ use crate::timer_events::{TimerEvents, execute_timer_event, register_add_event_s
 use crate::userdata::PositionRef;
 use crate::userdata::{
     register_combat_metatable, register_condition_metatable, register_container_metatable,
-    register_creature_metatable, register_group_metatable, register_item_metatable,
-    register_item_type_constructor, register_item_type_metatable, register_monster_metatable,
-    register_monster_type_constructor, register_npc_metatable, register_outfit_constructor,
-    register_position_metatable, register_spell_metatable, register_tile_constructor,
-    register_house_constructor, register_town_constructor, register_vocation_constructor, register_vocation_metatable,
-    register_weapon_metatable,
+    register_creature_metatable, register_group_metatable, register_house_constructor,
+    register_item_metatable, register_item_type_constructor, register_item_type_metatable,
+    register_monster_metatable, register_monster_type_constructor, register_npc_metatable,
+    register_outfit_constructor, register_position_metatable, register_spell_metatable,
+    register_tile_constructor, register_town_constructor, register_vocation_constructor,
+    register_vocation_metatable, register_weapon_metatable,
 };
 use tfs_rust_common::Position;
 
@@ -229,6 +229,7 @@ impl LuaRuntime {
         register_vocation_constructor(&lua).map_err(LuaError::Registration)?;
         register_outfit_constructor(&lua).map_err(LuaError::Registration)?;
         register_game_api(&lua).map_err(LuaError::Registration)?;
+        crate::tool_use::register_tool_use_globals(&lua).map_err(LuaError::Registration)?;
         register_variant_constructor(&lua).map_err(LuaError::Registration)?;
         register_monster_type_constructor(&lua).map_err(LuaError::Registration)?;
         // TFS Lua global constants (ACCOUNT_TYPE_*, TALKTYPE_*, PlayerFlag_*,
@@ -2132,6 +2133,12 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
     // get-or-creates it. Gap 7a.
     let game = crate::class_registry::register_class(lua, "Game", None)?;
     game.set(
+        "getReturnMessage",
+        lua.create_function(|_, value: i32| {
+            Ok(crate::userdata::player::return_value_message(value))
+        })?,
+    )?;
+    game.set(
         "getWorldType",
         lua.create_function(|_, ()| {
             let wt = crate::context::current_ctx(|ctx| ctx.get_world_type()).unwrap_or(1);
@@ -2154,8 +2161,7 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
     game.set(
         "getHouses",
         lua.create_function(|lua, ()| {
-            let ids =
-                crate::context::current_ctx(|ctx| ctx.list_house_ids()).unwrap_or_default();
+            let ids = crate::context::current_ctx(|ctx| ctx.list_house_ids()).unwrap_or_default();
             let table = lua.create_table()?;
             for (i, id) in ids.into_iter().enumerate() {
                 let ud = lua.create_userdata(crate::userdata::HouseRef(id))?;
@@ -2459,11 +2465,24 @@ impl RegisterLuaFunctions for MinimalGlobalFunctions {
         )?;
         globals.set("configManager", config_manager)?;
 
-        // getWorldTime() — returns world time in game-minutes (0..1439).
+        // getWorldTime() — world time in game-minutes (0..1439).
         globals.set(
             "getWorldTime",
             lua.create_function(|_, ()| {
                 Ok(crate::context::current_ctx(|ctx| ctx.get_world_time()).unwrap_or(0))
+            })?,
+        )?;
+
+        // Pack `getFormattedWorldTime` — former `data/global.lua`. Uses the Lua
+        // `getWorldTime` global so scripts/tests can override it.
+        globals.set(
+            "getFormattedWorldTime",
+            lua.create_function(|lua, ()| {
+                let minutes: i32 = match lua.globals().get::<mlua::Value>("getWorldTime")? {
+                    mlua::Value::Function(f) => f.call(())?,
+                    _ => crate::context::current_ctx(|ctx| ctx.get_world_time()).unwrap_or(0),
+                };
+                Ok(format_world_clock(minutes))
             })?,
         )?;
 
@@ -2489,6 +2508,13 @@ impl RegisterLuaFunctions for MinimalGlobalFunctions {
 
         Ok(())
     }
+}
+
+/// Pack `getFormattedWorldTime`: `math.floor(t/60) .. ':' .. zero-padded t%60`.
+fn format_world_clock(world_minutes: i32) -> String {
+    let hours = world_minutes.div_euclid(60);
+    let mins = world_minutes.rem_euclid(60);
+    format!("{hours}:{mins:02}")
 }
 
 /// Map `configKeys.*` integer / `"freePremium"` string → `config.lua` key.

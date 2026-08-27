@@ -2,6 +2,7 @@
 //!
 //! C++ reference: `src/luascript.cpp` — position userdata; helpers from
 //! `data/lib/core/position.lua` (`getNextPosition`, `moveUpstairs`).
+//! Pack `getDistanceBetween`: former `data/global.lua` (not corpus map distance).
 
 use mlua::{MetaMethod, UserData, UserDataFields, UserDataMethods, Value};
 
@@ -247,7 +248,47 @@ pub fn register_position_metatable(lua: &mlua::Lua) -> Result<(), mlua::Error> {
     // `Position` is a class table (extensible by `function Position:method(...)`
     // in `data/lib/core/position.lua`) with a `__call` ctor. Gap 7a.
     crate::class_registry::register_class(lua, "Position", Some(ctor))?;
+    register_get_distance_between(lua)?;
     Ok(())
+}
+
+/// Pack `getDistanceBetween` (`data/global.lua`): Chebyshev XY, +15 if Z differs.
+/// Script range helper only — not walk/combat distance (corpus is XY Chebyshev).
+const PACK_FLOOR_DISTANCE_EXTRA: i32 = 15;
+
+fn register_get_distance_between(lua: &mlua::Lua) -> Result<(), mlua::Error> {
+    lua.globals().set(
+        "getDistanceBetween",
+        lua.create_function(|_, (a, b): (Value, Value)| {
+            let (ax, ay, az) = lua_position_xyz(&a)?;
+            let (bx, by, bz) = lua_position_xyz(&b)?;
+            let mut pos_dif = (ax - bx).abs().max((ay - by).abs());
+            if az != bz {
+                pos_dif += PACK_FLOOR_DISTANCE_EXTRA;
+            }
+            Ok(pos_dif)
+        })?,
+    )
+}
+
+fn lua_position_xyz(v: &Value) -> Result<(i32, i32, i32), mlua::Error> {
+    match v {
+        Value::UserData(ud) => {
+            let p = ud.borrow::<PositionRef>().map_err(|_| {
+                mlua::Error::runtime("getDistanceBetween: expected Position")
+            })?;
+            Ok((i32::from(p.x), i32::from(p.y), i32::from(p.z)))
+        }
+        Value::Table(t) => {
+            let x: i64 = t.get("x").or_else(|_| t.get(1))?;
+            let y: i64 = t.get("y").or_else(|_| t.get(2))?;
+            let z: i64 = t.get("z").or_else(|_| t.get(3))?;
+            Ok((x as i32, y as i32, z as i32))
+        }
+        _ => Err(mlua::Error::runtime(
+            "getDistanceBetween: expected Position or {x,y,z}",
+        )),
+    }
 }
 
 #[cfg(test)]
@@ -271,5 +312,21 @@ mod tests {
             .expect("eval");
         assert_eq!((ax, ay, az), (99, 200, 7));
         assert_eq!((bx, by, bz), (101, 200, 7));
+    }
+
+    #[test]
+    fn get_distance_between_chebyshev_plus_floor_extra() {
+        let lua = mlua::Lua::new();
+        register_position_metatable(&lua).expect("Position register");
+        let same: i32 = lua
+            .load("return getDistanceBetween(Position(10, 20, 7), Position(13, 21, 7))")
+            .eval()
+            .expect("same floor");
+        assert_eq!(same, 3);
+        let other: i32 = lua
+            .load("return getDistanceBetween({x=10,y=20,z=7}, {x=13,y=21,z=6})")
+            .eval()
+            .expect("other floor");
+        assert_eq!(other, 18);
     }
 }

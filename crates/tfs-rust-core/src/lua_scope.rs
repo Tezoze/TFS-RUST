@@ -562,6 +562,16 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             set_mutation_bool_result(ok);
             Ok(())
         }
+        LuaMutation::ToolUse { request } => {
+            let ok = crate::tool_use::apply(unsafe { &mut *world }, &request);
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
+        LuaMutation::ConjureItem { request } => {
+            let ok = crate::conjure::apply(unsafe { &mut *world }, &request);
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
     }
 }
 
@@ -862,6 +872,9 @@ pub fn fire_on_use_action(
     to: tfs_rust_common::Position,
     is_hotkey: bool,
 ) -> bool {
+    if crate::doors::try_use(world, player, item, target_item, to) {
+        return true;
+    }
     let item_type = world.items.get(item).map(|i| i.item_type).unwrap_or(0);
     let action_id = world.items.get(item).map(|i| i.action_id()).unwrap_or(0);
     let world_ptr = std::ptr::from_mut(world);
@@ -899,14 +912,8 @@ pub(crate) fn fire_creature_step_events(
     step_out_items: &[TileMoveEventItem],
     step_in_items: &[TileMoveEventItem],
 ) {
-    crate::stepping_tiles::on_creature_step(
-        world,
-        cid,
-        from,
-        to,
-        step_out_items,
-        step_in_items,
-    );
+    crate::stepping_tiles::on_creature_step(world, cid, from, to, step_out_items, step_in_items);
+    crate::doors::on_creature_step(world, cid, from, step_out_items, step_in_items);
     let world_ptr = std::ptr::from_mut(world);
     with_lua_mutation_scope(world_ptr as *mut (), || {
         let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };

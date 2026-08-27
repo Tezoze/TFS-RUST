@@ -12,14 +12,14 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use mlua::{Lua, Value};
-use slotmap::Key;
-use tfs_rust_common::Position;
 use crate::creature::CreatureKind;
 use crate::event_dispatcher::TileMoveEventItem;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::tile::flags as tilestate;
+use mlua::{Lua, Value};
+use slotmap::Key;
+use tfs_rust_common::Position;
 
 /// Lua `MESSAGE_STATUS_DEFAULT` (`const.h`).
 const MESSAGE_STATUS_DEFAULT: u8 = 0x15;
@@ -33,9 +33,9 @@ pub struct SteppingTileMaps {
     pub step_out: HashMap<u16, u16>,
 }
 
-/// Load `data/scripts/movements/other/tiles.lua`. Missing/invalid → empty maps.
+/// Load `data/defs/tiles.lua`. Missing/invalid → empty maps.
 pub fn load_from_data_dir(data_dir: &Path) -> SteppingTileMaps {
-    let path = data_dir.join("scripts/movements/other/tiles.lua");
+    let path = data_dir.join("defs/tiles.lua");
     match load_from_file(&path) {
         Ok(maps) => {
             tracing::info!(
@@ -60,16 +60,13 @@ pub fn load_from_data_dir(data_dir: &Path) -> SteppingTileMaps {
 fn load_from_file(path: &Path) -> Result<SteppingTileMaps, String> {
     let chunk = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     let lua = Lua::new();
-    lua.load(&chunk)
+    let value: Value = lua
+        .load(&chunk)
         .set_name(path.display().to_string())
-        .exec()
+        .eval()
         .map_err(|e| e.to_string())?;
-    let root: Value = lua
-        .globals()
-        .get("SteppingTiles")
-        .map_err(|e| e.to_string())?;
-    let Value::Table(root) = root else {
-        return Err("SteppingTiles global is not a table".into());
+    let Value::Table(root) = value else {
+        return Err("tiles.lua must return a table".into());
     };
     Ok(SteppingTileMaps {
         step_in: parse_id_map(&root, "stepIn")?,
@@ -122,12 +119,7 @@ pub fn on_creature_step(
     }
 }
 
-fn apply_step_in(
-    world: &mut GameWorld,
-    cid: CreatureId,
-    pos: Position,
-    item: &TileMoveEventItem,
-) {
+fn apply_step_in(world: &mut GameWorld, cid: CreatureId, pos: Position, item: &TileMoveEventItem) {
     let Some(&dest) = world.stepping_tiles.step_in.get(&item.item_type) else {
         return;
     };
@@ -199,7 +191,13 @@ fn announce_depot(world: &mut GameWorld, cid: CreatureId) {
     let Some(depot_item) = facing_depot_item(world, cid) else {
         return;
     };
-    let uid = u32::from(world.items.get(depot_item).map(|i| i.unique_id()).unwrap_or(0));
+    let uid = u32::from(
+        world
+            .items
+            .get(depot_item)
+            .map(|i| i.unique_id())
+            .unwrap_or(0),
+    );
     let depot_id = world.depot_id_from_locker_item(depot_item, uid as i32);
     if depot_id == 0 {
         return;

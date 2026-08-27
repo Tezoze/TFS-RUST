@@ -55,7 +55,11 @@ impl House {
         self.highest_bidder = 0;
     }
 
-    pub fn door_id_at(&self, pos: Position, find_item: impl Fn(ItemId) -> Option<Position>) -> Option<u8> {
+    pub fn door_id_at(
+        &self,
+        pos: Position,
+        find_item: impl Fn(ItemId) -> Option<Position>,
+    ) -> Option<u8> {
         for &(door_id, item_id) in &self.doors {
             if find_item(item_id) == Some(pos) {
                 return Some(door_id);

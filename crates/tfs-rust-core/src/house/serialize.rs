@@ -6,8 +6,8 @@
 //! Per-tile: `u16 x, u16 y, u8 z, u32 item_count`, then nested `saveItem` payloads.
 //! Ground is never stored. Nested containers use `ATTR_CONTAINER_ITEMS` (23).
 
-use tfs_rust_common::{Position, PropStream, PropWriteStream};
 use tfs_rust_common::error::{Result, TfsRustError};
+use tfs_rust_common::{Position, PropStream, PropWriteStream};
 use tfs_rust_db::TileStoreRow;
 
 use crate::container::ContainerType;
@@ -143,7 +143,10 @@ pub fn encode_house_tile_store(world: &GameWorld) -> Vec<TileStoreRow> {
     rows
 }
 
-fn read_saved_item(stream: &mut PropStream<'_>, items_db: &tfs_rust_content::items::ItemDatabase) -> Result<LoadedHouseItem> {
+fn read_saved_item(
+    stream: &mut PropStream<'_>,
+    items_db: &tfs_rust_content::items::ItemDatabase,
+) -> Result<LoadedHouseItem> {
     let server_id = stream.read_u16()?;
     let is_container = items_db.is_container(server_id);
     let parsed = parse_item_blob_from_stream(stream, is_container)?;
@@ -245,9 +248,16 @@ fn strip_moveable_house_items(world: &mut GameWorld, pos: Position) {
     }
 }
 
-fn place_loaded_item(world: &mut GameWorld, pos: Position, loaded: LoadedHouseItem) -> Option<ItemId> {
+fn place_loaded_item(
+    world: &mut GameWorld,
+    pos: Position,
+    loaded: LoadedHouseItem,
+) -> Option<ItemId> {
     let Some(loaded_it) = world.items_db.items.get(&loaded.server_id).cloned() else {
-        tracing::warn!(itemtype = loaded.server_id, "house tile_store unknown item — skipped");
+        tracing::warn!(
+            itemtype = loaded.server_id,
+            "house tile_store unknown item — skipped"
+        );
         return None;
     };
     // Stationary door/bed/blackboard: match map item, attrs, then transform (TFS `loadItem`).
@@ -302,7 +312,11 @@ fn place_loaded_item(world: &mut GameWorld, pos: Position, loaded: LoadedHouseIt
 
 /// TFS `IOMapSerialize::loadItem` stationary match (`iomapserialize.cpp` ~152–165):
 /// same id, else door↔door, else bed↔bed.
-fn find_matching_stationary(world: &GameWorld, pos: Position, loaded: &LoadedHouseItem) -> Option<ItemId> {
+fn find_matching_stationary(
+    world: &GameWorld,
+    pos: Position,
+    loaded: &LoadedHouseItem,
+) -> Option<ItemId> {
     let it = world.items_db.items.get(&loaded.server_id)?;
     if it.moveable() {
         return None;
@@ -623,8 +637,8 @@ mod tests {
     }
 
     fn house_tile_world(house_id: u32, pos: Position, chair: u16) -> crate::game_world::GameWorld {
-        use std::sync::Arc;
         use crate::tile::{HouseTile, Tile, TileBody};
+        use std::sync::Arc;
         use tfs_rust_common::enums::ZoneType;
 
         let mut world = crate::sim_harness::minimal_world();

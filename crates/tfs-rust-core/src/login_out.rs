@@ -529,9 +529,9 @@ pub fn enqueue_initial_login_packets(
 /// 7.72 login burst — `gameserver/src/protocolgame.cpp` `ProtocolGame::login` (OTCv8 extended-opcode
 /// preamble, OTClient only) + `sendAddCreature` self branch (~L1733):
 /// `[0x32 ext-opcode init if OTClient]` → `0x0A` self-appear → `0x64` map → inventory (`0x78`/`0x79`)
-/// → `0xA0` stats → `0xA1` skills → `0x82` world light → `0x8D` creature light → VIP → `0xA2` icons.
-/// No `0x17`/`0x43`/`0x0F`/pending-state/enter-world/magic-teleport/unjustified/basic-data/fight-modes
-/// (all 10.98-only).
+/// → `0xA0` stats → `0xA1` skills → `0x82` world light → `0x8D` creature light → VIP → `0xA2` icons
+/// → `0x83` `CONST_ME_TELEPORT` (TVP `Game::placeCreature` after `sendAddCreature`, `game.cpp:537-540`).
+/// No `0x17`/`0x43`/`0x0F`/pending-state/enter-world/unjustified/basic-data/fight-modes (10.98-only).
 fn enqueue_initial_login_packets_classic(
     world: &mut GameWorld,
     conn_id: ConnId,
@@ -656,6 +656,9 @@ fn enqueue_initial_login_packets_classic(
     world.send_player_icons(creature_id);
     // Re-announce haste / invis / light / outfit from persisted conditions.
     world.reapply_persisted_condition_effects(creature_id);
+
+    // TVP `addMagicEffect(..., CONST_ME_TELEPORT)` after self `sendAddCreature` (`game.cpp:537-540`).
+    world.enqueue_outgoing(conn_id, send_magic_effect(pos, 11).into_bytes());
 
     world.auto_open_containers_on_login(conn_id, creature_id);
 

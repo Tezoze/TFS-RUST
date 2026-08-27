@@ -800,7 +800,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
 
     /// `player:getMagicLevel()` — `Player::getMagicLevel` (`player.h`).
     /// PC-3a Phase 1: value-callback spells call `self:getMagicLevel()` inside
-    /// `functions.lua` (`computeDamage` / `computeHealing` / `computeSkillDamage`).
+    /// Native `Player:computeDamage` / `computeHealing` / `computeSkillDamage`.
     fn get_player_magic_level(
         &self,
         creature_id: tfs_rust_common::ScriptCreatureId,
@@ -1612,7 +1612,10 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         for &pos in &rec.tiles {
             if let Some(tile) = self.map.get_tile(pos) {
                 for &cid in &tile.body().creatures {
-                    if matches!(self.creatures.get(cid), Some(crate::creature::CreatureKind::Player(_))) {
+                    if matches!(
+                        self.creatures.get(cid),
+                        Some(crate::creature::CreatureKind::Player(_))
+                    ) {
                         player_ids.push(cid.data().as_ffi());
                     }
                 }
@@ -1626,7 +1629,11 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             owner_guid: owner,
             exit: rec.entry_pos,
             tiles: rec.tiles.clone(),
-            door_item_ids: rec.doors.iter().map(|(_, iid)| iid.data().as_ffi()).collect(),
+            door_item_ids: rec
+                .doors
+                .iter()
+                .map(|(_, iid)| iid.data().as_ffi())
+                .collect(),
             bed_item_ids: rec.beds.iter().map(|iid| iid.data().as_ffi()).collect(),
             player_ids,
         })

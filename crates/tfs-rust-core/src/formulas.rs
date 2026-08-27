@@ -424,6 +424,9 @@ pub struct MechanicsProfile {
     /// 772/TVP `CheckInventoryDestination` lets any pickupable item occupy a hand slot; TFS 1.4.2
     /// gated this behind `classicEquipmentSlots` (`player.cpp` ~2516–2552).
     pub classic_equipment_slots: bool,
+    /// Pack `Player:conjureItem`: true = only left/right hand reagents (772 Lua default).
+    /// false = `getItemById` anywhere (backpack transform / inventory add).
+    pub conjure_from_hands_only: bool,
     /// Per-skill tries curve (`skillTuning` in formulas Lua) — PC-5.
     pub skill_tries: SkillTriesTuning,
     /// Combat probe try scaling — Flat (772) vs Rated/`rateSkill` (1098). Audit B5.
@@ -612,6 +615,7 @@ impl MechanicsProfile {
                 underground_sees_surface: true,
                 damage_text_format: DamageTextFormat::AttackerAttribution,
                 classic_equipment_slots: true,
+                conjure_from_hands_only: true,
                 skill_tries: SkillTriesTuning::classic(),
                 skill_try_scaling: SkillTryScaling::Flat,
                 decay_clock: DecayClockModel::RoundNumber,
@@ -679,6 +683,7 @@ impl MechanicsProfile {
                 underground_sees_surface: false,
                 damage_text_format: DamageTextFormat::SimpleLoss,
                 classic_equipment_slots: false,
+                conjure_from_hands_only: true,
                 skill_tries: SkillTriesTuning::classic(),
                 skill_try_scaling: SkillTryScaling::Rated,
                 decay_clock: DecayClockModel::ServerMilliseconds,
@@ -1041,6 +1046,11 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         "classicEquipmentSlots",
         p.classic_equipment_slots,
     );
+    p.conjure_from_hands_only = bool_or(
+        &formulas,
+        "conjureFromHandsOnly",
+        p.conjure_from_hands_only,
+    );
 
     // distanceKeep: integer = Fixed(n); "perType" string keeps per-type.
     match formulas.get::<Value>("distanceKeep") {
@@ -1302,6 +1312,7 @@ mod tests {
         assert!(!p.underground_sees_surface);
         assert_eq!(p.damage_text_format, DamageTextFormat::SimpleLoss);
         assert!(!p.classic_equipment_slots);
+        assert!(p.conjure_from_hands_only);
     }
 
     #[test]
@@ -1337,6 +1348,7 @@ mod tests {
         assert!(p.underground_sees_surface);
         assert_eq!(p.damage_text_format, DamageTextFormat::AttackerAttribution);
         assert!(p.classic_equipment_slots);
+        assert!(p.conjure_from_hands_only);
         assert_eq!(p.fishing.model, FishingSuccessModel::Probe);
         assert_eq!(p.fishing.probe_diff, 80);
         assert_eq!(p.fishing.probe_prob, 50);
@@ -1399,6 +1411,16 @@ mod tests {
             .unwrap();
         let p = parse_profile(&lua, MechanicsProfile::for_version(ProtocolVersion::V772));
         assert!(!p.classic_equipment_slots);
+    }
+
+    #[test]
+    fn conjure_from_hands_only_can_be_overridden_by_formulas() {
+        let lua = Lua::new();
+        lua.load(r#"formulas = { conjureFromHandsOnly = false }"#)
+            .exec()
+            .unwrap();
+        let p = parse_profile(&lua, MechanicsProfile::for_version(ProtocolVersion::V772));
+        assert!(!p.conjure_from_hands_only);
     }
 
     #[test]

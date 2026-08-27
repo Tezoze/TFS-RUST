@@ -7,18 +7,19 @@ use std::cell::RefCell;
 
 use crate::context::{CURRENT_CTX, CreatureData, CreatureRef, ItemRef, LuaContext};
 use crate::lua_mutation::{
-    call_lua_add_condition, call_lua_add_health, call_lua_add_item, call_lua_add_item_full,
-    call_lua_add_mana, call_lua_add_mana_spent, call_lua_add_skill_tries, call_lua_creature_remove,
-    call_lua_feed, call_lua_get_depot_chest, call_lua_get_depot_locker, call_lua_get_inbox,
-    call_lua_player_say, call_lua_remove_condition, call_lua_remove_item,
-    call_lua_send_cancel_message, call_lua_send_outfit_window, call_lua_set_direction,
-    call_lua_set_ghost_mode, call_lua_set_in_fight, call_lua_set_outfit, call_lua_set_vocation,
-    call_lua_show_text_dialog, call_player_register_creature_event,
+    ConjureRequest, call_lua_add_condition, call_lua_add_health, call_lua_add_item,
+    call_lua_add_item_full, call_lua_add_mana, call_lua_add_mana_spent, call_lua_add_skill_tries,
+    call_lua_conjure_item, call_lua_creature_remove, call_lua_feed, call_lua_get_depot_chest,
+    call_lua_get_depot_locker, call_lua_get_inbox, call_lua_player_say, call_lua_remove_condition,
+    call_lua_remove_item, call_lua_send_cancel_message, call_lua_send_outfit_window,
+    call_lua_set_direction, call_lua_set_ghost_mode, call_lua_set_in_fight, call_lua_set_outfit,
+    call_lua_set_vocation, call_lua_show_text_dialog, call_player_register_creature_event,
 };
 use crate::userdata::container::ContainerRef;
 use crate::userdata::group::GroupRef;
 use crate::userdata::item::push_item_userdata;
 use crate::userdata::position::PositionRef;
+use crate::userdata::spell::SpellBuilder;
 use crate::userdata::town::TownRef;
 use crate::userdata::vocation::VocationRef;
 
@@ -249,7 +250,7 @@ impl UserData for CreatureRef {
 
         // `player:getMagicLevel()` — `Player::getMagicLevel` (`player.h`).
         // PC-3a Phase 1: value-callback spells call `self:getMagicLevel()` inside
-        // `computeDamage` / `computeHealing` (native methods below; also `functions.lua`).
+        // `computeDamage` / `computeHealing` (native userdata; `MechanicsProfile`).
         methods.add_method("getMagicLevel", |_, this, ()| {
             with_ctx(|ctx| {
                 ctx.get_player_magic_level(this.0)
@@ -283,7 +284,7 @@ impl UserData for CreatureRef {
         });
 
         // `player:computeSkillDamage(damage, variation, skill[, limitMinimum[, limitMaximum]])`
-        // — magic formula then `× level / 25` (`functions.lua`).
+        // — magic formula then `× level / 25` (`magic.cc` berserk / pack skill formula).
         methods.add_method(
             "computeSkillDamage",
             |_, this, args: mlua::Variadic<Value>| {
@@ -300,6 +301,12 @@ impl UserData for CreatureRef {
                 })
             },
         );
+
+        // Pack `Player:conjureItem` — native; `formulas.conjureFromHandsOnly`.
+        methods.add_method("conjureItem", |_, this, args: mlua::Variadic<Value>| {
+            let request = parse_conjure_item_args(this.0, &args)?;
+            call_lua_conjure_item(request).map_err(mlua::Error::runtime)
+        });
 
         // `player:getMana()` — `Player::getMana` (`player.h`).
         // PC-3a Phase 5: `conjureItem` dual-hand second-conjure mana check.
@@ -1171,7 +1178,7 @@ impl UserData for CreatureRef {
         // previous hardcoded `"Player"` fallback silently missed all 15 methods
         // in `data/lib/core/creature.lua` (`getPlayer`, `isPlayer`,
         // `setMonsterOutfit`, `addSummon`, `addDamageCondition`, `canAccessPz`,
-        // …) plus `functions.lua:530` `Creature:addAttributeCondition` — a
+        // …) plus `functions.lua` `Creature:addAttributeCondition` — a
         // latent bug independent of the tools work.
         //
         // C++ reference: `luascript.cpp` `LuaScriptInterface::registerClass`
@@ -1215,6 +1222,44 @@ fn parse_compute_skill_damage_args(
     Ok((damage, variation, skill, limit_min, limit_max))
 }
 
+/// `creature:conjureItem(mana|spell, reagentId, conjureId[, count[, effect]])`.
+fn parse_conjure_item_args(
+    player: u64,
+    args: &mlua::Variadic<Value>,
+) -> Result<ConjureRequest, mlua::Error> {
+    let mana_cost = match args.first() {
+        Some(Value::UserData(ud)) => match ud.borrow::<SpellBuilder>() {
+            Ok(spell) => spell.spell.borrow().mana as i32,
+            Err(_) => 0,
+        },
+        Some(v) => value_as_i32(v).unwrap_or(0),
+        None => 0,
+    };
+    let reagent_id = args.get(1).and_then(value_as_u16).unwrap_or(0);
+    let conjure_id = args.get(2).and_then(value_as_u16).unwrap_or(0);
+    let conjure_count = match args.get(3) {
+        None | Some(Value::Nil) => None,
+        Some(v) => value_as_i32(v).map(|n| n.max(0) as u32),
+    };
+    let effect = args
+        .get(4)
+        .and_then(value_as_i32)
+        .map(|n| n.clamp(0, 255) as u8)
+        .unwrap_or(14); // CONST_ME_MAGIC_RED
+    Ok(ConjureRequest {
+        player,
+        mana_cost,
+        reagent_id,
+        conjure_id,
+        conjure_count,
+        effect,
+    })
+}
+
+fn value_as_u16(v: &Value) -> Option<u16> {
+    value_as_i32(v).and_then(|n| u16::try_from(n).ok())
+}
+
 fn table_i32(table: &mlua::Table, key: &str) -> Result<Option<i32>, mlua::Error> {
     match table.get::<Value>(key)? {
         Value::Nil => Ok(None),
@@ -1246,13 +1291,10 @@ fn value_as_bool(v: &Value) -> Option<bool> {
 ///
 /// Accepts:
 /// - `string` — used directly (active scripts pass literal messages).
-/// - `integer` — a `RETURNVALUE_*` enum code; mapped to its `getReturnMessage`
-///   description (`tools.cpp`). Only the codes the channel scripts reference
-///   are mapped; unknown codes fall back to the numeric string.
+/// - `integer` — a `RETURNVALUE_*` enum code; mapped via [`return_value_message`]
+///   (`tools.cpp` `getReturnMessage`).
 ///
-/// C++ reference: `enums.h:301-370` `ReturnValue_t` (772 numbering, 0-56 match
-/// the Rust `ReturnValue` enum; codes > 56 diverge and are TODO for era-aware
-/// mapping).
+/// C++ reference: `enums.h` `ReturnValue_t` (772 numbering).
 fn resolve_cancel_message_text(value: mlua::Value) -> Result<String, mlua::Error> {
     match value {
         mlua::Value::String(s) => Ok(s.to_str()?.to_string()),
@@ -1264,24 +1306,78 @@ fn resolve_cancel_message_text(value: mlua::Value) -> Result<String, mlua::Error
     }
 }
 
-/// Map a 772 `RETURNVALUE_*` integer code to its `getReturnMessage` text
-/// (`tools.cpp`). Only codes referenced by the channel scripts are mapped
-/// here; unknown codes fall back to the numeric string. This is a lightweight
-/// inline table — the full `ReturnValue` enum lives in `tfs-rust-core` and
-/// can't be referenced from this crate (no dependency).
-fn return_value_message(code: i32) -> String {
+/// Map a 772 `RETURNVALUE_*` integer to `getReturnMessage` (`tools.cpp:982-1186`).
+/// Unlisted codes (including `NOERROR` / `NOTPOSSIBLE`) use the C++ `default` arm.
+pub(crate) fn return_value_message(code: i32) -> String {
     match code {
-        0 => "No error.".to_string(),
-        27 => "A player with this name is not online.".to_string(),
-        36 => "You are exhausted.".to_string(),
-        35 => "You do not have enough soulpoints.".to_string(),
-        34 => "You do not have enough mana.".to_string(),
-        33 => "You do not have enough magic level.".to_string(),
-        32 => "Your level is too low.".to_string(),
-        21 => "This object is too heavy for you to carry.".to_string(),
-        20 => "You cannot put more objects in this container.".to_string(),
+        2 | 13 => "There is not enough room.".to_string(),
+        3 => "You can not enter a protection zone after attacking another player.".to_string(),
+        4 => "You are not invited.".to_string(),
+        5 => "You cannot throw there.".to_string(),
+        6 => "There is no way.".to_string(),
+        7 => "Destination is out of range.".to_string(),
+        9 => "You cannot move this object.".to_string(),
+        10 => "Drop the double-handed object first.".to_string(),
+        11 => "Both hands have to be free.".to_string(),
+        12 => "You may only use one weapon.".to_string(),
+        14 => "You cannot dress this object there.".to_string(),
+        15 => "Put this object in your hand.".to_string(),
+        16 => "Put this object in both hands.".to_string(),
         17 => "You are too far away.".to_string(),
-        n => format!("Return code: {n}"),
+        18 => "First go downstairs.".to_string(),
+        19 => "First go upstairs.".to_string(),
+        20 => "You cannot put more objects in this container.".to_string(),
+        21 => "This object is too heavy for you to carry.".to_string(),
+        22 => "You cannot take this object.".to_string(),
+        23 => "This is impossible.".to_string(),
+        24 => "You cannot put more items in this depot.".to_string(),
+        25 => "Creature does not exist.".to_string(),
+        26 => "You cannot use this object.".to_string(),
+        27 => "A player with this name is not online.".to_string(),
+        28 => "You are already trading. Finish this trade first.".to_string(),
+        29 => "This player is already trading.".to_string(),
+        30 => "You may not logout during or immediately after a fight!".to_string(),
+        31 => "You are not allowed to shoot directly on players.".to_string(),
+        32 => "Your level is too low.".to_string(),
+        33 => "You do not have enough magic level.".to_string(),
+        34 => "You do not have enough mana.".to_string(),
+        35 => "You do not have enough soulpoints.".to_string(),
+        36 => "You are exhausted.".to_string(),
+        37 => "You cannot use objects that fast.".to_string(),
+        38 => "Player is not reachable.".to_string(),
+        39 => "You can only use it on creatures.".to_string(),
+        40 => "This action is not permitted in a protection zone.".to_string(),
+        41 => "You may not attack this person.".to_string(),
+        42 => "You may not attack a person in a protection zone.".to_string(),
+        43 => "You may not attack a person while you are in a protection zone.".to_string(),
+        44 => "You may not attack this creature.".to_string(),
+        45 => "You can only use it on creatures.".to_string(),
+        46 => "Creature is not reachable.".to_string(),
+        47 => "Turn secure mode off if you really want to attack unmarked players.".to_string(),
+        48 => "You need a premium account.".to_string(),
+        49 => "You need to learn this spell first.".to_string(),
+        50 => "Your vocation cannot use this spell.".to_string(),
+        51 => "You need to equip a weapon to use this spell.".to_string(),
+        52 => "You can not leave a pvp zone after attacking another player.".to_string(),
+        53 => "You can not enter a pvp zone after attacking another player.".to_string(),
+        54 => "This action is not permitted in a non pvp zone.".to_string(),
+        55 => "You can not logout here.".to_string(),
+        56 => "You need a magic item to cast this spell.".to_string(),
+        57 => "Player name is ambiguous.".to_string(),
+        58 => "You may use only one shield.".to_string(),
+        59 => "No party members in range.".to_string(),
+        60 => "You are not the owner.".to_string(),
+        61 => "No such raid exists.".to_string(),
+        62 => "Another raid is already executing.".to_string(),
+        63 => "Trade player is too far away.".to_string(),
+        64 => "You don't own this house.".to_string(),
+        65 => "Trade player already owns a house.".to_string(),
+        66 => "Trade player is currently the highest bidder of an auctioned house.".to_string(),
+        67 => "You can not trade this house.".to_string(),
+        68 => "You don't have the required profession.".to_string(),
+        69 => "This item cannot be moved there.".to_string(),
+        // `RETURNVALUE_NOERROR` (0), `NOTPOSSIBLE` (1), `CREATUREBLOCK` (8), …
+        _ => "Sorry, not possible.".to_string(),
     }
 }
 
@@ -1688,7 +1784,7 @@ mod tests {
         assert_eq!(builder.sub_id, 7); // unchanged
     }
 
-    /// `return_value_message` maps the codes the channel scripts reference.
+    /// `return_value_message` matches TVP `getReturnMessage` (`tools.cpp:982`).
     #[test]
     fn return_value_message_maps_known_codes() {
         use super::return_value_message;
@@ -1696,10 +1792,12 @@ mod tests {
             return_value_message(27),
             "A player with this name is not online."
         );
-        assert_eq!(return_value_message(0), "No error.");
+        assert_eq!(return_value_message(1), "Sorry, not possible.");
+        assert_eq!(return_value_message(2), "There is not enough room.");
         assert_eq!(return_value_message(36), "You are exhausted.");
-        // Unknown codes fall back to the numeric string.
-        assert_eq!(return_value_message(999), "Return code: 999");
+        // C++ `default` — `NOERROR` (0) and unknown codes.
+        assert_eq!(return_value_message(0), "Sorry, not possible.");
+        assert_eq!(return_value_message(999), "Sorry, not possible.");
     }
 
     /// `Player(name)` constructor with a fake context that resolves one name.

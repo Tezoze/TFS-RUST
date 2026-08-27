@@ -138,7 +138,10 @@ mod tests {
         assert!(can_edit_access_list(AccessHouseLevel::Owner, SUBOWNER_LIST));
         assert!(can_edit_access_list(AccessHouseLevel::Owner, 3));
         assert!(can_edit_access_list(AccessHouseLevel::SubOwner, GUEST_LIST));
-        assert!(!can_edit_access_list(AccessHouseLevel::SubOwner, SUBOWNER_LIST));
+        assert!(!can_edit_access_list(
+            AccessHouseLevel::SubOwner,
+            SUBOWNER_LIST
+        ));
         assert!(!can_edit_access_list(AccessHouseLevel::Guest, GUEST_LIST));
     }
 }
