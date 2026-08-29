@@ -24,6 +24,7 @@ pub const DEFAULT_LUA_MEMORY_LIMIT_BYTES: usize = 512 * 1024 * 1024;
 pub use crate::instruction_budget::DEFAULT_LUA_INSTRUCTION_BUDGET;
 
 use crate::constants::register_constants;
+use crate::event_callback::EventCallbackRegistry;
 use crate::context::{CreatureRef, ItemRef};
 use crate::npc_dialogue::register_npc_dialogue;
 use crate::npc_type::register_npc_type;
@@ -103,6 +104,8 @@ pub struct LuaRuntime {
     /// Revscript `GlobalEvent` registry (name → callback). Replaced wholesale
     /// by [`LuaRuntime::install_pending_global_events`] (reload stance a).
     pub(crate) global_events: RefCell<HashMap<String, crate::global_events::RegisteredGlobalEvent>>,
+    /// Rust mirror of `EventCallbackData` (synced after scripts-interface load).
+    pub(crate) event_callbacks: RefCell<EventCallbackRegistry>,
 }
 
 /// Scoped `isScriptsInterface() == true`. Resets the flag on drop so a `?`
@@ -317,6 +320,7 @@ impl LuaRuntime {
             spell_areas_loaded: Cell::new(false),
             creature_events: RefCell::new(HashMap::new()),
             global_events: RefCell::new(HashMap::new()),
+            event_callbacks: RefCell::new(EventCallbackRegistry::default()),
         })
     }
 

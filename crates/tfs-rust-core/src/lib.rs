@@ -2,6 +2,7 @@
 // C++ reference: `game.cpp`, `map.cpp`, `configmanager.cpp` (see per-module comments).
 
 mod actions;
+mod aid_move_events;
 mod bed;
 mod chase_debug;
 pub mod chat;
@@ -70,6 +71,7 @@ mod monster_events;
 mod monster_push;
 mod monster_spawn_hook;
 mod monster_targets;
+mod native_spell_combat;
 mod npc;
 mod obs;
 pub mod output_queue;

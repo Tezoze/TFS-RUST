@@ -125,6 +125,10 @@ pub struct GameWorld {
     pub mechanics: crate::formulas::Mechanics,
     /// Switch-floor `from → to` maps from `data/defs/tiles.lua`.
     pub stepping_tiles: crate::stepping_tiles::SteppingTileMaps,
+    /// Native AID move handlers (3000–3123) compiled at boot from movement scripts.
+    pub aid_move_handlers: crate::aid_move_events::NativeAidMoveRegistry,
+    /// Native spell/rune combat for pure `combat:execute` scripts.
+    pub native_spell_combats: crate::native_spell_combat::NativeSpellCombatRegistry,
     /// Door/key sprite sets from `data/defs/doors.lua`.
     pub door_ids: crate::doors::DoorIdTables,
     /// Tool / rope / scarab id tables from `data/defs/tools.lua`.
@@ -438,6 +442,8 @@ impl GameWorld {
             codec,
             mechanics,
             stepping_tiles: crate::stepping_tiles::SteppingTileMaps::default(),
+            aid_move_handlers: crate::aid_move_events::NativeAidMoveRegistry::default(),
+            native_spell_combats: crate::native_spell_combat::NativeSpellCombatRegistry::default(),
             door_ids: crate::doors::DoorIdTables::default(),
             tool_ids: crate::tool_use::ToolIdTables::default(),
             conn_to_creature: HashMap::new(),

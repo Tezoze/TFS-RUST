@@ -9,8 +9,8 @@ use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 use tfs_rust_common::Position;
 use tfs_rust_lua::{
-    self, LuaMutation, set_mutation_bool_result, set_mutation_i32_result, set_mutation_item_result,
-    with_lua_context, with_lua_mutation_scope,
+    self, LuaMutation, MoveEventKind, set_mutation_bool_result, set_mutation_i32_result,
+    set_mutation_item_result, with_lua_context, with_lua_mutation_scope,
 };
 
 fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), String> {
@@ -877,6 +877,16 @@ pub fn fire_on_cast_spell(
     has_param: bool,
     param: &str,
 ) -> bool {
+    if let Some(ok) = crate::native_spell_combat::try_native_instant_cast(
+        world,
+        spell_words,
+        cid,
+        need_direction,
+        has_param,
+        param,
+    ) {
+        return ok;
+    }
     let world_ptr = std::ptr::from_mut(world);
     with_lua_mutation_scope(world_ptr as *mut (), || {
         let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
@@ -897,6 +907,15 @@ pub fn fire_on_cast_rune(
     target_creature: Option<CreatureId>,
     target_pos: Option<(u16, u16, u8)>,
 ) -> bool {
+    if let Some(ok) = crate::native_spell_combat::try_native_rune_cast(
+        world,
+        rune_id,
+        cid,
+        target_creature,
+        target_pos,
+    ) {
+        return ok;
+    }
     let world_ptr = std::ptr::from_mut(world);
     with_lua_mutation_scope(world_ptr as *mut (), || {
         let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
@@ -982,11 +1001,25 @@ pub(crate) fn fire_creature_step_events(
 ) {
     crate::stepping_tiles::on_creature_step(world, cid, from, to, step_out_items, step_in_items);
     crate::doors::on_creature_step(world, cid, from, step_out_items, step_in_items);
+    crate::aid_move_events::on_creature_step(
+        world,
+        cid,
+        from,
+        to,
+        step_out_items,
+        step_in_items,
+    );
 
     let step_out_lua: Vec<TileMoveEventItem> = step_out_items
         .iter()
         .copied()
         .filter(|item| {
+            if world
+                .aid_move_handlers
+                .is_native(MoveEventKind::StepOut, item.action_id)
+            {
+                return false;
+            }
             world.events.has_creature_move_event(
                 false,
                 item.item_type,
@@ -999,6 +1032,12 @@ pub(crate) fn fire_creature_step_events(
         .iter()
         .copied()
         .filter(|item| {
+            if world
+                .aid_move_handlers
+                .is_native(MoveEventKind::StepIn, item.action_id)
+            {
+                return false;
+            }
             world
                 .events
                 .has_creature_move_event(true, item.item_type, item.action_id, item.unique_id)
@@ -1059,6 +1098,18 @@ pub(crate) fn fire_item_move_events(
         .map(|i| (i.item_type, i.action_id(), i.unique_id()))
         .unwrap_or((0, 0, 0));
     let tile_items = world.tile_move_event_items(pos);
+    if is_add {
+        crate::aid_move_events::on_item_move_add(world, item, pos, &tile_items);
+    }
+    if !crate::aid_move_events::item_move_needs_lua(
+        &world.aid_move_handlers,
+        item,
+        action_id,
+        is_add,
+        &tile_items,
+    ) {
+        return;
+    }
     let world_ptr = std::ptr::from_mut(world);
     with_lua_mutation_scope(world_ptr as *mut (), || {
         let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };

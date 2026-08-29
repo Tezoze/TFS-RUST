@@ -5,10 +5,12 @@
 //! Native `queryAdd` already succeeded; Lua may cancel with a ReturnValue or
 //! mutate the item (candelabrum). `onItemMoved` is void (open trap).
 
-use mlua::{ObjectLike, Table, Value};
+use mlua::{MultiValue, Value};
 
 use crate::context::{CreatureRef, ItemRef};
-use crate::event_callback::{EVENT_CALLBACK_ONITEMMOVED, EVENT_CALLBACK_ONMOVEITEM};
+use crate::event_callback::{
+    EVENT_CALLBACK_ONITEMMOVED, EVENT_CALLBACK_ONMOVEITEM, multivalue_to_return_int,
+};
 use crate::runtime::{LuaError, LuaRuntime};
 use crate::userdata::container::ContainerRef;
 use crate::userdata::position::PositionRef;
@@ -41,38 +43,32 @@ impl LuaRuntime {
         from_cyl: MoveItemCylinder,
         to_cyl: MoveItemCylinder,
     ) -> Result<i32, LuaError> {
-        if !self.has_event_callback(EVENT_CALLBACK_ONMOVEITEM) {
-            return Ok(0);
-        }
-        let globals = self.lua.globals();
-        let Ok(ec) = globals.get::<Table>("EventCallback") else {
-            return Ok(0);
-        };
-        let player_ud = self.lua.create_userdata(CreatureRef(player))?;
-        let item_ud = self.lua.create_userdata(ItemRef(item))?;
-        let from_pos = self.lua.create_userdata(PositionRef {
-            x: from_x,
-            y: from_y,
-            z: from_z,
+        let ret = self.dispatch_event_callbacks(EVENT_CALLBACK_ONMOVEITEM, |lua| {
+            let player_ud = lua.create_userdata(CreatureRef(player))?;
+            let item_ud = lua.create_userdata(ItemRef(item))?;
+            let from_pos = lua.create_userdata(PositionRef {
+                x: from_x,
+                y: from_y,
+                z: from_z,
+            })?;
+            let to_pos = lua.create_userdata(PositionRef {
+                x: to_x,
+                y: to_y,
+                z: to_z,
+            })?;
+            let from_c = push_move_cylinder(lua, from_cyl)?;
+            let to_c = push_move_cylinder(lua, to_cyl)?;
+            Ok(MultiValue::from_iter([
+                Value::UserData(player_ud),
+                Value::UserData(item_ud),
+                Value::Integer(i64::from(count)),
+                Value::UserData(from_pos),
+                Value::UserData(to_pos),
+                from_c,
+                to_c,
+            ]))
         })?;
-        let to_pos = self.lua.create_userdata(PositionRef {
-            x: to_x,
-            y: to_y,
-            z: to_z,
-        })?;
-        let from_c = self.push_move_cylinder(from_cyl)?;
-        let to_c = self.push_move_cylinder(to_cyl)?;
-        let ret: Value = ec.call((
-            EVENT_CALLBACK_ONMOVEITEM,
-            player_ud,
-            item_ud,
-            count,
-            from_pos,
-            to_pos,
-            from_c,
-            to_c,
-        ))?;
-        Ok(lua_value_to_return_int(ret))
+        Ok(ret.map(multivalue_to_return_int).unwrap_or(0))
     }
 
     /// `EventCallback(ONITEMMOVED, …)` — void; errors are logged by the caller.
@@ -90,64 +86,52 @@ impl LuaRuntime {
         from_cyl: MoveItemCylinder,
         to_cyl: MoveItemCylinder,
     ) -> Result<(), LuaError> {
-        if !self.has_event_callback(EVENT_CALLBACK_ONITEMMOVED) {
-            return Ok(());
-        }
-        let globals = self.lua.globals();
-        let Ok(ec) = globals.get::<Table>("EventCallback") else {
-            return Ok(());
-        };
-        let player_ud = self.lua.create_userdata(CreatureRef(player))?;
-        let item_ud = self.lua.create_userdata(ItemRef(item))?;
-        let from_pos = self.lua.create_userdata(PositionRef {
-            x: from_x,
-            y: from_y,
-            z: from_z,
+        let _ = self.dispatch_event_callbacks(EVENT_CALLBACK_ONITEMMOVED, |lua| {
+            let player_ud = lua.create_userdata(CreatureRef(player))?;
+            let item_ud = lua.create_userdata(ItemRef(item))?;
+            let from_pos = lua.create_userdata(PositionRef {
+                x: from_x,
+                y: from_y,
+                z: from_z,
+            })?;
+            let to_pos = lua.create_userdata(PositionRef {
+                x: to_x,
+                y: to_y,
+                z: to_z,
+            })?;
+            let from_c = push_move_cylinder(lua, from_cyl)?;
+            let to_c = push_move_cylinder(lua, to_cyl)?;
+            Ok(MultiValue::from_iter([
+                Value::UserData(player_ud),
+                Value::UserData(item_ud),
+                Value::Integer(i64::from(count)),
+                Value::UserData(from_pos),
+                Value::UserData(to_pos),
+                from_c,
+                to_c,
+            ]))
         })?;
-        let to_pos = self.lua.create_userdata(PositionRef {
-            x: to_x,
-            y: to_y,
-            z: to_z,
-        })?;
-        let from_c = self.push_move_cylinder(from_cyl)?;
-        let to_c = self.push_move_cylinder(to_cyl)?;
-        let _: Value = ec.call((
-            EVENT_CALLBACK_ONITEMMOVED,
-            player_ud,
-            item_ud,
-            count,
-            from_pos,
-            to_pos,
-            from_c,
-            to_c,
-        ))?;
         Ok(())
-    }
-
-    fn push_move_cylinder(&self, cyl: MoveItemCylinder) -> Result<Value, LuaError> {
-        match cyl {
-            MoveItemCylinder::Tile { x, y, z } => {
-                let ud = self.lua.create_userdata(TileRef { x, y, z })?;
-                Ok(Value::UserData(ud))
-            }
-            MoveItemCylinder::Container { item } => {
-                let ud = self.lua.create_userdata(ContainerRef(item))?;
-                Ok(Value::UserData(ud))
-            }
-            MoveItemCylinder::Inventory { player } => {
-                let ud = self.lua.create_userdata(CreatureRef(player))?;
-                Ok(Value::UserData(ud))
-            }
-        }
     }
 }
 
-fn lua_value_to_return_int(v: Value) -> i32 {
-    match v {
-        Value::Nil | Value::Boolean(true) | Value::Boolean(false) => 0,
-        Value::Integer(n) => i32::try_from(n).unwrap_or(0),
-        Value::Number(n) => n as i32,
-        _ => 0,
+fn push_move_cylinder(
+    lua: &mlua::Lua,
+    cyl: MoveItemCylinder,
+) -> Result<mlua::Value, LuaError> {
+    match cyl {
+        MoveItemCylinder::Tile { x, y, z } => {
+            let ud = lua.create_userdata(TileRef { x, y, z })?;
+            Ok(mlua::Value::UserData(ud))
+        }
+        MoveItemCylinder::Container { item } => {
+            let ud = lua.create_userdata(ContainerRef(item))?;
+            Ok(mlua::Value::UserData(ud))
+        }
+        MoveItemCylinder::Inventory { player } => {
+            let ud = lua.create_userdata(CreatureRef(player))?;
+            Ok(mlua::Value::UserData(ud))
+        }
     }
 }
 
@@ -183,6 +167,9 @@ mod tests {
         runtime
             .load_script(path.to_str().expect("utf8"))
             .expect("moveitem.lua");
+        runtime
+            .sync_event_callbacks_from_lua()
+            .expect("sync moveitem callbacks");
         // `actionIds` lives in `data/global.lua`, which load_data_lib does not exec.
         runtime
             .exec_chunk(

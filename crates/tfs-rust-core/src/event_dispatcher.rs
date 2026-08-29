@@ -235,6 +235,16 @@ pub trait EventDispatcher {
         false
     }
 
+    /// Total MoveEvent registrations in the Lua registry (boot metrics).
+    fn move_event_registration_count(&self) -> usize {
+        0
+    }
+
+    /// EventCallback types with at least one registered handler (boot metrics).
+    fn event_callback_registered_type_count(&self) -> usize {
+        0
+    }
+
     /// TFS `Creature::onCreatureSay` — per-creature hear callback (e.g. NPC dialog,
     /// creaturescript). C++ fires this for **every** spectator including the speaker
     /// (`game.cpp:3540`). Default no-op until the NPC/creaturescript Lua runtime lands.

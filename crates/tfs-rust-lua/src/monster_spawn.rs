@@ -5,7 +5,7 @@
 //! Rust calls the EventCallback bus directly. Return value is ignored — spawn
 //! already happened.
 
-use mlua::{ObjectLike, Table, Value};
+use mlua::{MultiValue, Value};
 
 use crate::event_callback::EVENT_CALLBACK_ONSPAWN;
 use crate::runtime::{LuaError, LuaRuntime};
@@ -25,18 +25,17 @@ impl LuaRuntime {
         startup: bool,
         artificial: bool,
     ) -> Result<(), LuaError> {
-        if !self.has_event_callback(EVENT_CALLBACK_ONSPAWN) {
-            return Ok(());
-        }
-
-        let globals = self.lua.globals();
         with_monster_spawn_inventory_scope(creature, |token| {
-            let monster = self.lua.create_userdata(MonsterRef { creature, token })?;
-            let pos = self.lua.create_userdata(PositionRef { x, y, z })?;
-            if let Ok(ec) = globals.get::<Table>("EventCallback") {
-                let _: Value =
-                    ec.call((EVENT_CALLBACK_ONSPAWN, monster, pos, startup, artificial))?;
-            }
+            let _ = self.dispatch_event_callbacks(EVENT_CALLBACK_ONSPAWN, |lua| {
+                let monster = lua.create_userdata(MonsterRef { creature, token })?;
+                let pos = lua.create_userdata(PositionRef { x, y, z })?;
+                Ok(MultiValue::from_iter([
+                    Value::UserData(monster),
+                    Value::UserData(pos),
+                    Value::Boolean(startup),
+                    Value::Boolean(artificial),
+                ]))
+            })?;
             Ok(())
         })
     }
@@ -67,7 +66,7 @@ mod tests {
             .expect("onSpawn optional when data/events is gone");
     }
 
-    /// Unregistered onSpawn must not invoke `EventCallback` (early return).
+    /// Unregistered onSpawn must not invoke registered callbacks (early return).
     #[test]
     fn spawn_does_not_call_lua_when_unregistered() {
         let data_root = workspace_data_root();
@@ -81,7 +80,6 @@ mod tests {
             !runtime.has_event_callback(EVENT_CALLBACK_ONSPAWN),
             "lib load must not register onSpawn"
         );
-        // Call site exists, but no registration — dispatcher must not Lua-call EventCallback.
         assert!(
             !runtime.has_event_callback(EVENT_CALLBACK_ONMOVEITEM),
             "lib load only: ONMOVEITEM (16) stays unregistered without scripts interface"

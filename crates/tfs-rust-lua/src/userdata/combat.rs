@@ -31,7 +31,7 @@ use crate::userdata::position::PositionRef;
 /// - `0` = unaffected
 /// - `1` = affected
 /// - `3` = caster origin (center)
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AreaCombat {
     /// Row-major matrix of cells (`matrix[row][col]`).
     pub matrix: Vec<Vec<u8>>,
@@ -780,6 +780,11 @@ fn resolve_caster_position(caster_id: u64) -> Result<(u16, u16, u8), mlua::Error
             .map(|p| (p.x, p.y, p.z))
             .ok_or_else(|| mlua::Error::runtime("combat:execute: caster position not found"))
     })
+}
+
+/// Pick cardinal or diagonal area offsets from caster→center direction.
+pub fn oriented_area_offsets(area: &AreaCombat, dx_dir: i32, dy_dir: i32) -> Vec<(i32, i32)> {
+    resolve_oriented_offsets(area, dx_dir, dy_dir)
 }
 
 /// Pick cardinal or diagonal area offsets from caster→center direction.

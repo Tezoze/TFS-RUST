@@ -490,6 +490,25 @@ pub async fn run() -> anyhow::Result<()> {
     world.stepping_tiles = crate::stepping_tiles::load_from_data_dir(&data_path);
     world.door_ids = crate::doors::load_from_data_dir(&data_path);
     world.tool_ids = crate::tool_use::load_from_data_dir(&data_path);
+    {
+        let compiled = tfs_rust_lua::compile_aid_move_handlers(&data_path);
+        let native_count = compiled.len();
+        world.aid_move_handlers =
+            crate::aid_move_events::NativeAidMoveRegistry::from_compiled(
+                compiled,
+                &world.map.towns,
+            );
+        let lua_move_fallback = world
+            .events
+            .move_event_registration_count()
+            .saturating_sub(native_count);
+        tracing::info!(
+            native_aid_handlers = native_count,
+            lua_move_fallback,
+            event_callback_types = world.events.event_callback_registered_type_count(),
+            "aid move handler registry"
+        );
+    }
 
     // PC-2b/PC-3: Inject the weapon + spell registries drained from Lua scripts.
     // `GameWorld::new` initializes these as empty `Arc<WeaponRegistry::default()>` /
@@ -497,6 +516,23 @@ pub async fn run() -> anyhow::Result<()> {
     // `player_wand_attack` (`get_wand`) and spell dispatch (`instant_by_words`) resolve.
     world.weapons = Arc::new(weapon_registry);
     world.spells = Arc::new(spell_registry);
+    {
+        let compiled = tfs_rust_lua::compile_native_spell_combats(&data_path);
+        let native_spell_count = compiled.len();
+        world.native_spell_combats =
+            crate::native_spell_combat::NativeSpellCombatRegistry::from_compiled(compiled);
+        let lua_spell_fallback = world
+            .spells
+            .instant_by_words
+            .len()
+            .saturating_add(world.spells.runes_by_id.len())
+            .saturating_sub(native_spell_count);
+        tracing::info!(
+            native_spell_combats = native_spell_count,
+            lua_spell_fallback,
+            "native spell combat registry"
+        );
+    }
     world.raids = crate::raid_waves::RaidScheduler::from_catalog(raid_catalog);
     world.schedule_interval_raids_at_boot();
 

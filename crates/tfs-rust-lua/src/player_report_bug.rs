@@ -4,7 +4,7 @@
 //! `data/scripts/eventcallbacks/player/default_onReportBug.lua`.
 //! Wire: `GamePacket::BugReport` (previously discarded).
 
-use mlua::{ObjectLike, Table, Value};
+use mlua::{MultiValue, Value};
 
 use crate::context::CreatureRef;
 use crate::event_callback::EVENT_CALLBACK_ONREPORTBUG;
@@ -22,22 +22,16 @@ impl LuaRuntime {
         z: u8,
         category: u8,
     ) -> Result<(), LuaError> {
-        if !self.has_event_callback(EVENT_CALLBACK_ONREPORTBUG) {
-            return Ok(());
-        }
-        let globals = self.lua.globals();
-        let Ok(ec) = globals.get::<Table>("EventCallback") else {
-            return Ok(());
-        };
-        let player_ud = self.lua.create_userdata(CreatureRef(player))?;
-        let pos = self.lua.create_userdata(PositionRef { x, y, z })?;
-        let _: Value = ec.call((
-            EVENT_CALLBACK_ONREPORTBUG,
-            player_ud,
-            message,
-            pos,
-            category,
-        ))?;
+        let _ = self.dispatch_event_callbacks(EVENT_CALLBACK_ONREPORTBUG, |lua| {
+            let player_ud = lua.create_userdata(CreatureRef(player))?;
+            let pos = lua.create_userdata(PositionRef { x, y, z })?;
+            Ok(MultiValue::from_iter([
+                Value::UserData(player_ud),
+                Value::String(lua.create_string(message)?),
+                Value::UserData(pos),
+                Value::Integer(i64::from(category)),
+            ]))
+        })?;
         Ok(())
     }
 }
@@ -77,6 +71,9 @@ mod tests {
                 )
                 .expect("register onReportBug");
         }
+        runtime
+            .sync_event_callbacks_from_lua()
+            .expect("sync report-bug callback");
         assert!(runtime.has_event_callback(EVENT_CALLBACK_ONREPORTBUG));
         runtime
             .call_player_on_report_bug(1, "test report", 100, 100, 7, 2)

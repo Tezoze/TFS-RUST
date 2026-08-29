@@ -9,6 +9,7 @@ tfs-rust-content = { workspace = true }
 mlua = { workspace = true }
 thiserror = { workspace = true }
 tracing = "0.1"
+rustc-hash = "2"
 
 [[bin]]
 name = "import-npcs"

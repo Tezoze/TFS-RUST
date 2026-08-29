@@ -3,6 +3,8 @@
 //! This crate provides the Lua VM, script loading, and userdata bindings
 //! for game scripts. It maintains TFS compatibility while using idiomatic Rust.
 
+mod aid_move_compile;
+mod spell_combat_compile;
 pub mod actions;
 pub mod chat_channels;
 mod class_registry;
@@ -34,6 +36,14 @@ pub mod tool_use;
 pub mod userdata;
 
 // Re-export commonly used types
+pub use aid_move_compile::{
+    compile_aid_move_handlers, AidMoveEffectSpec, AidMoveGate, AidMoveRelocSpec,
+    CompiledAidMoveEntry, EffectPosition, RelocFrom, RelocTo,
+};
+pub use spell_combat_compile::{
+    compile_native_spell_combats, CompiledNativeSpellCombat, CompiledSpellDamage,
+};
+pub use userdata::combat::{oriented_area_offsets, AreaCombat};
 pub use actions::{
     ActionDef, assert_required_data_globals, inject_door_tables_from_global, inject_era_formulas,
     load_action_scripts, load_data_lib,

@@ -27,9 +27,7 @@ pub enum CreatureEventKind {
 const BLOCKED_CREATURE_EVENT_NAMES: &[&str] = &["DropLoot", "RegenerateStamina"];
 
 pub fn is_blocked_creature_event_name(name: &str) -> bool {
-    BLOCKED_CREATURE_EVENT_NAMES
-        .iter()
-        .any(|blocked| *blocked == name)
+    BLOCKED_CREATURE_EVENT_NAMES.contains(&name)
 }
 
 pub struct RegisteredCreatureEvent {

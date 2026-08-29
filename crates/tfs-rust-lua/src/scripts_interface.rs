@@ -113,6 +113,7 @@ pub fn load_scripts_interface(runtime: &LuaRuntime, data_dir: &Path) -> Result<(
 
     runtime.install_pending_creature_events()?;
     runtime.install_pending_global_events()?;
+    runtime.sync_event_callbacks_from_lua()?;
 
     if failures.is_empty() {
         runtime.warn_undispatched_event_callbacks();
@@ -189,12 +190,7 @@ mod tests {
     }
 
     fn has_event_callback(runtime: &LuaRuntime, ty: i32) -> bool {
-        let func: mlua::Function = runtime
-            .lua
-            .globals()
-            .get("hasEventCallback")
-            .expect("hasEventCallback");
-        func.call(ty).expect("hasEventCallback call")
+        runtime.has_event_callback(ty)
     }
 
     fn eval_bool(runtime: &LuaRuntime, chunk: &str) -> bool {

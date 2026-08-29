@@ -393,6 +393,14 @@ impl EventDispatcher for LuaEventDispatcher {
             .has_event(kind, item_type, action_id, unique_id)
     }
 
+    fn move_event_registration_count(&self) -> usize {
+        self.move_events.len()
+    }
+
+    fn event_callback_registered_type_count(&self) -> usize {
+        self.runtime.event_callback_registered_type_count()
+    }
+
     fn on_login(&self, creature: CreatureId, ctx: &dyn tfs_rust_common::ScriptContext) {
         with_lua_context(ctx, || {
             if let Err(e) = self
