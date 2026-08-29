@@ -93,7 +93,7 @@ fn offset_position(center: Position, dx: i32, dy: i32) -> Position {
 }
 
 /// C++ `SearchFreeField` / `SearchLoginField` east-first spiral (`info.cc:761`, `info.cc:868`).
-fn spiral_free_field_positions(center: Position, distance: i32) -> Vec<Position> {
+pub(crate) fn spiral_free_field_positions(center: Position, distance: i32) -> Vec<Position> {
     let mut out = Vec::new();
     let base_x = center.x as i32;
     let base_y = center.y as i32;
@@ -258,6 +258,11 @@ impl GameWorld {
         spiral_free_field_positions(center, distance)
             .into_iter()
             .find(|&pos| self.free_field_tile_ok(pos))
+    }
+
+    /// `SearchFreeField` tile probe — shared by `creature_lib` closest-free search.
+    pub(crate) fn is_free_field_tile(&self, pos: Position) -> bool {
+        self.free_field_tile_ok(pos)
     }
 
     /// `SearchFreeField` MovePossible arm (`info.cc:775–778`) + house gate with `HouseID == 0`.

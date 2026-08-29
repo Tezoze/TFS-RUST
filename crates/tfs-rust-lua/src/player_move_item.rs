@@ -1,9 +1,7 @@
-//! Dispatch `EventCallback(EVENT_CALLBACK_ONMOVEITEM / ONITEMMOVED)`.
+//! Dispatch `EventCallback(EVENT_CALLBACK_ONMOVEITEM / ONITEMMOVED)` when registered.
 //!
-//! Pack: TFS `Events::eventPlayerOnMoveItem` / `eventPlayerOnItemMoved` (`events.cpp`)
-//! via allowlisted `data/scripts/eventcallbacks/player/moveitem.lua`.
-//! Native `queryAdd` already succeeded; Lua may cancel with a ReturnValue or
-//! mutate the item (candelabrum). `onItemMoved` is void (open trap).
+//! Default server policy lives in `tfs_rust_core::player_move_policy` (native hot path).
+//! These entry points remain for optional pack EventCallback overrides loaded via Lua.
 
 use mlua::{MultiValue, Value};
 
@@ -160,23 +158,53 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data")
     }
 
-    fn load_moveitem(runtime: &mut LuaRuntime, data_root: &Path) {
-        load_data_lib(runtime, data_root).expect("data lib");
-        let path = data_root.join("scripts/eventcallbacks/player/moveitem.lua");
+    fn register_test_moveitem_callbacks(runtime: &mut LuaRuntime) {
         let _guard = runtime.enter_scripts_interface();
         runtime
-            .load_script(path.to_str().expect("utf8"))
-            .expect("moveitem.lua");
+            .exec_chunk(
+                "test_moveitem_policy",
+                r#"
+local ec = EventCallback
+ec.onMoveItem = function(player, item, count, fromPosition, toPosition, fromCylinder, toCylinder)
+	if item:getActionId() >= 1000 and item:getActionId() <= 2000 then
+		return RETURNVALUE_NOTMOVEABLE
+	end
+	if item:getId() == 2057 then
+		item:transform(2042)
+	end
+	if toCylinder:isTile() then
+		local ground = toCylinder:getGround()
+		if ground and actionIds and ground:getActionId() == actionIds.blockingTile then
+			return RETURNVALUE_NOTENOUGHROOM
+		end
+	end
+	return RETURNVALUE_NOERROR
+end
+ec:register()
+ec.onItemMoved = function(player, item, count, fromPosition, toPosition, fromCylinder, toCylinder)
+	if item:getId() == 2579 then
+		item:transform(2578)
+		toCylinder:getPosition():sendMagicEffect(CONST_ME_POFF)
+	end
+end
+ec:register()
+"#,
+            )
+            .expect("register test moveitem policy");
         runtime
             .sync_event_callbacks_from_lua()
             .expect("sync moveitem callbacks");
-        // `actionIds` lives in `data/global.lua`, which load_data_lib does not exec.
         runtime
             .exec_chunk(
                 "test_action_ids",
                 "actionIds = actionIds or {}; actionIds.blockingTile = actionIds.blockingTile or 4005",
             )
             .expect("actionIds.blockingTile");
+    }
+
+    fn load_moveitem(runtime: &mut LuaRuntime, data_root: &Path) {
+        load_data_lib(runtime, data_root).expect("data lib");
+        register_test_moveitem_callbacks(runtime);
     }
 
     fn tile_pair() -> (MoveItemCylinder, MoveItemCylinder) {
@@ -281,12 +309,9 @@ mod tests {
     }
 
     #[test]
-    fn move_item_quest_aid_not_moveable() {
+    fn move_item_quest_aid_not_moveable_via_lua_override() {
         let data_root = workspace_data_root();
-        if !data_root
-            .join("scripts/eventcallbacks/player/moveitem.lua")
-            .exists()
-        {
+        if !data_root.join("scripts/lib/event_callbacks.lua").exists() {
             eprintln!("data pack not present — skipping");
             return;
         }
@@ -304,10 +329,7 @@ mod tests {
     #[test]
     fn move_item_candelabrum_transforms_before_move() {
         let data_root = workspace_data_root();
-        if !data_root
-            .join("scripts/eventcallbacks/player/moveitem.lua")
-            .exists()
-        {
+        if !data_root.join("scripts/lib/event_callbacks.lua").exists() {
             eprintln!("data pack not present — skipping");
             return;
         }
@@ -341,10 +363,7 @@ mod tests {
     #[test]
     fn move_item_trap_transforms_after_move() {
         let data_root = workspace_data_root();
-        if !data_root
-            .join("scripts/eventcallbacks/player/moveitem.lua")
-            .exists()
-        {
+        if !data_root.join("scripts/lib/event_callbacks.lua").exists() {
             eprintln!("data pack not present — skipping");
             return;
         }
@@ -387,10 +406,7 @@ mod tests {
     #[test]
     fn move_item_blocking_tile_not_enough_room() {
         let data_root = workspace_data_root();
-        if !data_root
-            .join("scripts/eventcallbacks/player/moveitem.lua")
-            .exists()
-        {
+        if !data_root.join("scripts/lib/event_callbacks.lua").exists() {
             eprintln!("data pack not present — skipping");
             return;
         }

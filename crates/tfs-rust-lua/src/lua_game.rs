@@ -26,6 +26,17 @@ pub const GAME_STATE_SHUTDOWN: i32 = 4;
 pub const GAME_STATE_CLOSING: i32 = 5;
 pub const GAME_STATE_MAINTAIN: i32 = 6;
 
+/// LSB = first dotted octet (matches `Game.convertIpToString`).
+pub fn format_ip_string(ip: u32) -> String {
+    format!(
+        "{}.{}.{}.{}",
+        ip & 0xFF,
+        (ip >> 8) & 0xFF,
+        (ip >> 16) & 0xFF,
+        ip >> 24
+    )
+}
+
 /// `boost::asio::ip::address_v4::to_uint` / `luaGetIPNumberFromString`.
 /// LSB = first dotted octet (matches `Game.convertIpToString`).
 pub fn ip_number_from_string(s: &str) -> u32 {

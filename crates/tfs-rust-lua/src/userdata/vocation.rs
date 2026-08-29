@@ -79,8 +79,20 @@ impl UserData for VocationRef {
             }
         });
 
-        // Gap 7b — `__index` fallback so `vocation:getBase()` resolves
-        // `function Vocation.getBase(self)` from `data/lib/core/vocation.lua`.
+        // `vocation:getBase()` — `data/lib/core/vocation.lua`.
+        methods.add_method("getBase", |lua, this, ()| {
+            let mut base_id = this.0;
+            loop {
+                let demo = with_ctx(|ctx| Ok(ctx.get_vocation_demotion(base_id)))?;
+                match demo {
+                    Some(id) => base_id = id,
+                    None => break,
+                }
+            }
+            let ud = lua.create_userdata(VocationRef(base_id))?;
+            Ok(Value::UserData(ud))
+        });
+
         methods.add_meta_method(MetaMethod::Index, |lua, _this, key: mlua::LuaString| {
             crate::class_registry::class_index_lookup(
                 lua,

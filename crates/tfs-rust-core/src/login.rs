@@ -150,6 +150,8 @@ pub fn player_from_loaded(
         todo: Default::default(),
         chase_mode: Default::default(),
         last_auto_walk_armed_ms: u64::MAX,
+        drop_loot: true,
+        skill_loss: true,
     };
 
     let account_id =

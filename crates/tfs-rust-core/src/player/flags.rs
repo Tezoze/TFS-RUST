@@ -12,6 +12,8 @@ pub const PLAYER_FLAG_CANNOT_USE_COMBAT: u64 = 1 << 0;
 pub const PLAYER_FLAG_CANNOT_ATTACK_PLAYER: u64 = 1 << 1;
 /// C++ `PlayerFlag_CannotAttackMonster` — `src/const.h` bit 2.
 pub const PLAYER_FLAG_CANNOT_ATTACK_MONSTER: u64 = 1 << 2;
+/// C++ `PlayerFlag_CanIllusionAll` — `const.h` bit 6.
+pub const PLAYER_FLAG_CAN_ILLUSION_ALL: u64 = 1 << 6;
 /// C++ `PlayerFlag_CannotBeAttacked` — `src/const.h`. 772 equivalent: `INVULNERABLE` right
 /// (`enums.hh:517`, `crmain.cc:536-538`). Zeroes incoming damage to the target.
 pub const PLAYER_FLAG_CANNOT_BE_ATTACKED: u64 = 1 << 3;
@@ -70,6 +72,7 @@ fn flag_name_to_bit(name: &str) -> Option<u64> {
         "cannotusecombat" => Some(PLAYER_FLAG_CANNOT_USE_COMBAT),
         "cannotattackplayer" => Some(PLAYER_FLAG_CANNOT_ATTACK_PLAYER),
         "cannotattackmonster" => Some(PLAYER_FLAG_CANNOT_ATTACK_MONSTER),
+        "canillusionall" => Some(PLAYER_FLAG_CAN_ILLUSION_ALL),
         "cannotbeattacked" => Some(PLAYER_FLAG_CANNOT_BE_ATTACKED),
         "cannotpickupitem" => Some(PLAYER_FLAG_CANNOT_PICKUP_ITEM),
         "hasinfinitecapacity" => Some(PLAYER_FLAG_HAS_INFINITE_CAPACITY),

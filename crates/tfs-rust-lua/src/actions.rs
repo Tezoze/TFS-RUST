@@ -481,8 +481,8 @@ mod tests {
         assert!(!ice_pick);
     }
 
-    /// Gap 4: `SKILL_*` engine constants survive lib load, and TVP
-    /// `actionIds` from `global.lua` is not replaced by `actionids.lua`.
+    /// Gap 4: `SKILL_*` engine constants survive lib load; TVP + TFS `actionIds`
+    /// keys live in `data/defs/tools.lua` (injected before `load_data_lib`).
     #[test]
     fn gap4_skill_and_destroyable_stone_present_after_lib_load() {
         let data_root = workspace_data_root();
@@ -501,18 +501,14 @@ mod tests {
         assert_eq!(fishing, 6, "enums.h skills_t SKILL_FISHING");
 
         let action_ids: mlua::Table = globals.get("actionIds").expect("actionIds table");
-        // TVP `data/global.lua` `actionIds` — 4000–4005.
         let stone: i32 = action_ids
             .get("destroyableStone")
             .expect("actionIds.destroyableStone");
         assert_eq!(stone, 4004, "TVP destroyableStone");
         assert_eq!(action_ids.get::<i32>("sandHole").expect("sandHole"), 4002);
         assert_eq!(action_ids.get::<i32>("pickHole").expect("pickHole"), 4003);
-        assert_eq!(
-            action_ids.get::<i32>("levelDoor").expect("levelDoor"),
-            1000,
-            "TFS extras merged by actionids.lua must survive"
-        );
+        assert!(action_ids.get::<i32>("levelDoor").is_err());
+        assert!(action_ids.get::<i32>("citizenship").is_err());
     }
 
     /// Gap 6: era tool numbers come from `data/formulas/<v>.lua`, not the scripts.

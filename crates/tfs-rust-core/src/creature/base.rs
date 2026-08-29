@@ -288,6 +288,10 @@ pub struct CreatureBase {
     /// the stop is meant for the *previous* walk, not the fresh one. If a `StopAutoWalk`
     /// arrives within 400 ms of a freshly-armed walk, ignore it.
     pub last_auto_walk_armed_ms: u64,
+    /// TFS `Creature::lootDrop` — `creature.h` `setDropLoot`.
+    pub drop_loot: bool,
+    /// TFS `Creature::skillLoss` — `creature.h` `setSkillLoss`.
+    pub skill_loss: bool,
 }
 
 impl CreatureBase {

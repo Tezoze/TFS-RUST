@@ -890,6 +890,56 @@ pub trait ScriptContext {
         None
     }
 
+    /// `Creature.getClosestFreePosition` — native pack helper.
+    fn get_creature_closest_free_position(
+        &self,
+        creature_id: ScriptCreatureId,
+        x: u16,
+        y: u16,
+        z: u8,
+        max_radius: i32,
+        must_be_reachable: bool,
+    ) -> (u16, u16, u8) {
+        let _ = (
+            creature_id,
+            x,
+            y,
+            z,
+            max_radius,
+            must_be_reachable,
+        );
+        (0, 0, 0)
+    }
+
+    /// `Creature:canAccessPz` — `creature.lua`.
+    fn creature_can_access_pz(&self, creature_id: ScriptCreatureId) -> bool {
+        let _ = creature_id;
+        false
+    }
+
+    /// `creature:getPathTo` — direction list (TFS reverse execution order).
+    fn get_creature_path_to_directions(
+        &self,
+        creature_id: ScriptCreatureId,
+        x: u16,
+        y: u16,
+        z: u8,
+        min_target_dist: i32,
+        max_target_dist: i32,
+        max_search_dist: i32,
+    ) -> Option<Vec<u8>> {
+        let _ = (
+            creature_id,
+            x,
+            y,
+            z,
+            min_target_dist,
+            max_target_dist,
+            max_search_dist,
+        );
+        None
+    }
+
     /// `creature:isMonster()`.
     fn is_creature_monster(&self, creature_id: ScriptCreatureId) -> bool {
         let _ = creature_id;
@@ -940,6 +990,50 @@ pub trait ScriptContext {
     fn get_item_type_is_ground_tile(&self, item_type: u16) -> bool {
         let _ = item_type;
         false
+    }
+
+    /// `ItemType:getSlotPosition()` — `ItemType::slotPosition` (`items.h`).
+    fn get_item_type_slot_position(&self, item_type: u16) -> u32 {
+        let _ = item_type;
+        0
+    }
+
+    /// Lua `Item:getDescription(lookDistance)` — native `item_get_description_cpp`.
+    fn script_item_description(&self, item_id: ScriptItemId, look_distance: i32) -> Option<String> {
+        let _ = (item_id, look_distance);
+        None
+    }
+
+    /// Lua `Item:getNameDescription(addArticle)` — native name arm only.
+    fn script_item_name_description(
+        &self,
+        item_id: ScriptItemId,
+        add_article: bool,
+    ) -> Option<String> {
+        let _ = (item_id, add_article);
+        None
+    }
+
+    /// Lua `ItemType:getDescription(lookDistance[, subType])`.
+    fn script_item_type_description(
+        &self,
+        item_type: u16,
+        look_distance: i32,
+        sub_type: u16,
+    ) -> String {
+        let _ = (item_type, look_distance, sub_type);
+        String::new()
+    }
+
+    /// Lua `ItemType:getNameDescription([subType], addArticle)`.
+    fn script_item_type_name_description(
+        &self,
+        item_type: u16,
+        sub_type: u16,
+        add_article: bool,
+    ) -> String {
+        let _ = (item_type, sub_type, add_article);
+        String::new()
     }
 
     /// NPC-7: `npc:getParameter(key)` — definition parameter map.
@@ -1112,6 +1206,12 @@ pub trait ScriptContext {
         false
     }
 
+    /// `party:getMembers()` — all member creature ids (includes leader).
+    fn get_party_members(&self, party_id: u32) -> Vec<ScriptCreatureId> {
+        let _ = party_id;
+        Vec::new()
+    }
+
     /// `getWorldUpTime()` — seconds since world construction.
     fn get_world_up_time(&self) -> u64 {
         0
@@ -1121,6 +1221,24 @@ pub trait ScriptContext {
     fn get_experience_stage(&self, level: i32) -> f64 {
         let _ = level;
         1.0
+    }
+
+    /// `Game.getStorageValue` — `game.lua` ephemeral globals.
+    fn get_global_storage(&self, key: u32) -> Option<i32> {
+        let _ = key;
+        None
+    }
+
+    /// `Game.isItemInPosition` — read path for pack map helpers.
+    fn game_is_item_in_position(
+        &self,
+        x: u16,
+        y: u16,
+        z: u8,
+        item_type: u16,
+    ) -> Result<bool, String> {
+        let _ = (x, y, z, item_type);
+        Err("Game.isItemInPosition - Tile not found".to_string())
     }
 }
 

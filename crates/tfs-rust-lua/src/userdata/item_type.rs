@@ -119,6 +119,41 @@ impl UserData for ItemTypeRef {
                 .ok_or_else(|| mlua::Error::runtime("LuaContext not set"))
         });
 
+        // `ItemType:getDescription(lookDistance[, subType])` — native `item_get_description_cpp`.
+        methods.add_method(
+            "getDescription",
+            |_, this, (look_distance, sub_type): (Option<i32>, Option<u16>)| {
+                let look_distance = look_distance.unwrap_or(1);
+                let sub_type = sub_type.unwrap_or(1);
+                crate::context::current_ctx(|ctx| {
+                    ctx.script_item_type_description(this.0, look_distance, sub_type)
+                })
+                .ok_or_else(|| mlua::Error::runtime("LuaContext not set"))
+            },
+        );
+
+        // `ItemType:getNameDescription([subType], addArticle)` — `item.cpp` ~1582–1615.
+        methods.add_method(
+            "getNameDescription",
+            |_, this, (sub_type, add_article): (Option<u16>, Option<bool>)| {
+                let sub_type = sub_type.unwrap_or(1);
+                let add_article = add_article.unwrap_or(true);
+                crate::context::current_ctx(|ctx| {
+                    ctx.script_item_type_name_description(this.0, sub_type, add_article)
+                })
+                .ok_or_else(|| mlua::Error::runtime("LuaContext not set"))
+            },
+        );
+
+        // `ItemType.usesSlot(slot)` — `data/lib/core/itemtype.lua` (`SlotPositionBits`).
+        methods.add_method("usesSlot", |_, this, slot: u8| {
+            let slot_bit = slot_position_bit(slot);
+            crate::context::current_ctx(|ctx| {
+                ctx.get_item_type_slot_position(this.0) & slot_bit != 0
+            })
+            .ok_or_else(|| mlua::Error::runtime("LuaContext not set"))
+        });
+
         methods.add_method("isCorpse", |_, this, ()| {
             CURRENT_CTX.with(|c: &RefCell<Option<*const dyn LuaContext>>| {
                 let ptr =
@@ -203,6 +238,23 @@ pub fn register_item_type_constructor(lua: &mlua::Lua) -> Result<(), mlua::Error
 /// Register the ItemType metatable in the Lua runtime.
 pub fn register_item_type_metatable(lua: &mlua::Lua) -> Result<(), mlua::Error> {
     lua.register_userdata_type::<ItemTypeRef>(|_registry| {})
+}
+
+/// TFS `CONST_SLOT_*` → `SlotPositionBits` — `data/lib/core/itemtype.lua`.
+fn slot_position_bit(slot: u8) -> u32 {
+    match slot {
+        1 => 1 << 0,  // SLOTP_HEAD
+        2 => 1 << 1,  // SLOTP_NECKLACE
+        3 => 1 << 2,  // SLOTP_BACKPACK
+        4 => 1 << 3,  // SLOTP_ARMOR
+        5 => 1 << 4,  // SLOTP_RIGHT
+        6 => 1 << 5,  // SLOTP_LEFT
+        7 => 1 << 6,  // SLOTP_LEGS
+        8 => 1 << 7,  // SLOTP_FEET
+        9 => 1 << 8,  // SLOTP_RING
+        10 => 1 << 9, // SLOTP_AMMO
+        _ => 0,
+    }
 }
 
 #[cfg(test)]

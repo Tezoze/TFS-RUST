@@ -882,6 +882,8 @@ mod push_gate_a_tests {
             todo: Default::default(),
             chase_mode: Default::default(),
             last_auto_walk_armed_ms: u64::MAX,
+            drop_loot: true,
+            skill_loss: true,
         };
         let npc = world
             .creatures
@@ -1682,6 +1684,8 @@ mod push_phase_d_tests {
             todo: Default::default(),
             chase_mode: Default::default(),
             last_auto_walk_armed_ms: u64::MAX,
+            drop_loot: true,
+            skill_loss: true,
         };
         let mut npc = Npc::placeholder(base);
         // radius=0 → only the home tile itself passes.

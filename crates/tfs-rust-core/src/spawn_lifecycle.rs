@@ -340,6 +340,8 @@ impl GameWorld {
             todo: Default::default(),
             chase_mode: Default::default(),
             last_auto_walk_armed_ms: u64::MAX,
+            drop_loot: true,
+            skill_loss: true,
         };
 
         let ai_config = MonsterAiConfig::from_monster_type(&mtype);
@@ -491,6 +493,8 @@ impl GameWorld {
             todo: Default::default(),
             chase_mode: Default::default(),
             last_auto_walk_armed_ms: u64::MAX,
+            drop_loot: true,
+            skill_loss: true,
         };
 
         let cid = self.creatures.insert(CreatureKind::Npc(Npc {
@@ -620,6 +624,8 @@ impl GameWorld {
             todo: Default::default(),
             chase_mode: Default::default(),
             last_auto_walk_armed_ms: u64::MAX,
+            drop_loot: true,
+            skill_loss: true,
         };
         let ai_config = MonsterAiConfig::from_monster_type(&mtype);
         let cid = self
@@ -714,6 +720,8 @@ impl GameWorld {
             todo: Default::default(),
             chase_mode: Default::default(),
             last_auto_walk_armed_ms: u64::MAX,
+            drop_loot: true,
+            skill_loss: true,
         };
         let cid = self.creatures.insert(CreatureKind::Npc(Npc {
             base,
@@ -758,9 +766,10 @@ impl GameWorld {
         let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(summon) else {
             return Ok(false);
         };
-        m.base.attack_target = None;
-        m.base.follow_target = None;
+        m.base.clear_targets();
         m.base.master = Some(master);
+        m.base.drop_loot = false;
+        m.base.skill_loss = false;
         Ok(true)
     }
 
@@ -916,6 +925,8 @@ impl GameWorld {
             todo: Default::default(),
             chase_mode: Default::default(),
             last_auto_walk_armed_ms: u64::MAX,
+            drop_loot: true,
+            skill_loss: true,
         };
         let ai_config = MonsterAiConfig::from_monster_type(&mtype);
         let cid = self

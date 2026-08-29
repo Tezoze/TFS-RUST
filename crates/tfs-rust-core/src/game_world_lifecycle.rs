@@ -451,9 +451,17 @@ impl GameWorld {
             self.player_on_pvp_death_marks(victim);
         }
 
-        // PC-5 M7 — player skill-try loss + inventory drop (AoL / SOME) before XP share.
-        if is_player {
+        // PC-5 M7 — skill / magic try loss at the bless-reduced death fraction.
+        if matches!(
+            self.creatures.get(victim),
+            Some(CreatureKind::Player(p)) if p.base.skill_loss
+        ) {
             self.apply_player_death_skill_loss(victim);
+        }
+        if matches!(
+            self.creatures.get(victim),
+            Some(CreatureKind::Player(_))
+        ) {
             self.player_death_drop_inventory(victim);
         }
 
@@ -461,6 +469,9 @@ impl GameWorld {
             let CreatureKind::Monster(m) = k else {
                 return None;
             };
+            if !m.base.drop_loot {
+                return None;
+            }
             Some((m.base.position, m.corpse_id, m.blood, m.inventory.clone()))
         });
 

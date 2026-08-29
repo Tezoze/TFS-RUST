@@ -49,6 +49,18 @@ return {
 	corpseIds = {
 		3058, 3059, 3060, 3061, 3064, 3065, 3066,
 	},
+	-- Native `player_move_policy.rs` — TVP moveitem.lua rules (no hardcoded ids in Rust).
+	moveItemPolicy = {
+		questObjectAidMin = 1000,
+		questObjectAidMax = 2000,
+		preMoveTransforms = {
+			[2057] = 2042, -- permanent lit candelabrum → expiring
+		},
+		postMoveTransforms = {
+			[2579] = 2578, -- open trap → closed
+		},
+		postMoveEffectId = 3, -- CONST_ME_POFF after postMoveTransforms
+	},
 	-- This array contains all destroyable field items
 	Fields = {
 		1487, 1488, 1489, 1490, 1491, 1492, 1493, 1494,

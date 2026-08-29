@@ -62,8 +62,6 @@ impl UserData for PositionRef {
             },
         );
 
-        // `Position:moveUpstairs()` — `data/lib/core/position.lua`.
-        // Mutates self to a walkable tile one floor up; returns self.
         methods.add_method_mut("moveUpstairs", |lua, this, ()| {
             if this.z == 0 {
                 let ud = lua.create_userdata(*this)?;
@@ -114,6 +112,24 @@ impl UserData for PositionRef {
             Ok(Value::UserData(ud))
         });
 
+        // `Position:isInRange(from, to)` — `data/lib/core/position.lua`.
+        methods.add_method("isInRange", |_, this, (from, to): (Value, Value)| {
+            let (fx, fy, fz) = parse_position_arg(&from)?;
+            let (tx, ty, tz) = parse_position_arg(&to)?;
+            let nw_x = fx.min(tx);
+            let nw_y = fy.min(ty);
+            let nw_z = fz.min(tz);
+            let se_x = fx.max(tx);
+            let se_y = fy.max(ty);
+            let se_z = fz.max(tz);
+            Ok(this.x >= nw_x
+                && this.x <= se_x
+                && this.y >= nw_y
+                && this.y <= se_y
+                && this.z >= nw_z
+                && this.z <= se_z)
+        });
+
         // `Position + offset` — doors.lua shoves with `Position(-1,0,0)` style offsets.
         // Right-hand Position stores wrapped u16 for negatives (`(-1i64) as u16`);
         // interpret as i16 so absolute + offset works (TFS Position is int32).
@@ -143,10 +159,6 @@ impl UserData for PositionRef {
             Ok(Value::UserData(ud))
         });
 
-        // Gap 7b — `__index` fallback so `pos:isInRange(from, to)` resolves
-        // `function Position:isInRange(...)` from `data/lib/core/position.lua`.
-        // Field getters (x/y/z) and native methods above keep priority — mlua
-        // checks fields → methods → `__index` last. C++ `LuaScriptInterface::registerClass`.
         methods.add_meta_method(MetaMethod::Index, |lua, _this, key: mlua::LuaString| {
             crate::class_registry::class_index_lookup(
                 lua,
@@ -154,6 +166,22 @@ impl UserData for PositionRef {
                 key,
             )
         });
+    }
+}
+
+fn parse_position_arg(value: &Value) -> Result<(u16, u16, u8), mlua::Error> {
+    match value {
+        Value::UserData(ud) => {
+            let p = ud.borrow::<PositionRef>()?;
+            Ok((p.x, p.y, p.z))
+        }
+        Value::Table(t) => {
+            let x: i64 = t.get("x").or_else(|_| t.get(1))?;
+            let y: i64 = t.get("y").or_else(|_| t.get(2))?;
+            let z: i64 = t.get("z").or_else(|_| t.get(3))?;
+            Ok((x as u16, y as u16, z as u8))
+        }
+        _ => Err(mlua::Error::runtime("expected Position")),
     }
 }
 

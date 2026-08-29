@@ -7,7 +7,7 @@
 use mlua::{MetaMethod, UserData, UserDataMethods, Value};
 
 use crate::context::{CURRENT_CTX, CreatureRef, ItemRef};
-use crate::lua_mutation::call_lua_tile_add_item;
+use crate::lua_mutation::{call_lua_tile_add_item, call_tile_relocate_to};
 use crate::userdata::house::HouseRef;
 use crate::userdata::item::parse_lua_item_type_id;
 use crate::userdata::position::PositionRef;
@@ -425,6 +425,39 @@ impl UserData for TileRef {
                 Ok(Value::Integer(i64::from(rv)))
             },
         );
+
+        // `Tile.relocateTo(toPosition)` — `data/lib/core/tile.lua`.
+        methods.add_method("relocateTo", |_, this, dest: Value| {
+            let (to_x, to_y, to_z) = match dest {
+                Value::UserData(ud) => {
+                    if let Ok(pos) = ud.borrow::<PositionRef>() {
+                        (pos.x, pos.y, pos.z)
+                    } else if let Ok(tile) = ud.borrow::<TileRef>() {
+                        (tile.x, tile.y, tile.z)
+                    } else {
+                        return Err(mlua::Error::runtime(
+                            "Tile.relocateTo: expected Position or Tile",
+                        ));
+                    }
+                }
+                Value::Table(t) => {
+                    let x: u16 = t.get("x").or_else(|_| t.get(1))?;
+                    let y: u16 = t.get("y").or_else(|_| t.get(2))?;
+                    let z: u8 = t.get("z").or_else(|_| t.get(3))?;
+                    (x, y, z)
+                }
+                _ => {
+                    return Err(mlua::Error::runtime(
+                        "Tile.relocateTo: expected Position or Tile",
+                    ));
+                }
+            };
+            if this.x == to_x && this.y == to_y && this.z == to_z {
+                return Ok(false);
+            }
+            call_tile_relocate_to(this.x, this.y, this.z, to_x, to_y, to_z)
+                .map_err(mlua::Error::runtime)
+        });
 
         // `tile:getHouse()` — TFS `luaTileGetHouse`. `nil` or House userdata.
         // Never `0` (Lua 0 is truthy). 772 `IsHouse(Obj1)` (`moveuse.cc:313-318`).

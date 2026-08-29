@@ -59,6 +59,8 @@ fn minimal_player(next_action_until: Option<u64>) -> Player {
             todo: Default::default(),
             chase_mode: Default::default(),
             last_auto_walk_armed_ms: u64::MAX,
+            drop_loot: true,
+            skill_loss: true,
         },
         account_id: 1,
         guid: 1,

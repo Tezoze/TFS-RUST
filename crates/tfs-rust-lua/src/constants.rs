@@ -124,6 +124,7 @@ fn register_player_flags(globals: &mlua::Table) -> Result<(), mlua::Error> {
     // const.h:500–501 — summon/convince admin overrides.
     globals.set("PlayerFlag_CanConvinceAll", 1i64 << 4)?;
     globals.set("PlayerFlag_CanSummonAll", 1i64 << 5)?;
+    globals.set("PlayerFlag_CanIllusionAll", 1i64 << 6)?;
     // const.h:278 — always-premium group flag (`Player::isPremium`).
     globals.set("PlayerFlag_IsAlwaysPremium", 1i64 << 35)?;
     Ok(())

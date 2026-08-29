@@ -12,6 +12,7 @@ pub mod combat_enums;
 pub mod combat_scripts;
 pub mod constants;
 pub mod context;
+mod data_lib_native;
 mod creature_events;
 mod event_callback;
 mod global_events;
@@ -48,6 +49,7 @@ pub use actions::{
     ActionDef, assert_required_data_globals, inject_door_tables_from_global, inject_era_formulas,
     load_action_scripts, load_data_lib,
 };
+pub use data_lib_native::register_data_lib_native;
 pub use chat_channels::{ChatChannelDef, load_chat_channel_scripts};
 pub use constants::register_constants;
 pub use context::{

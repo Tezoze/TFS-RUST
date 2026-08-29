@@ -226,6 +226,33 @@ pub enum LuaMutation {
         master_id: u64,
         summon_id: u64,
     },
+    /// `creature:removeSummon(monster)` — `creature.lua`.
+    RemoveSummon {
+        master_id: u64,
+        summon_id: u64,
+    },
+    /// `creature:setMonsterOutfit(monster, time)` — `creature.lua`.
+    SetMonsterOutfit {
+        creature_id: u64,
+        monster_name: String,
+        ticks_ms: i32,
+    },
+    /// `creature:setItemOutfit(item, time)` — `creature.lua`.
+    SetItemOutfit {
+        creature_id: u64,
+        item_type: u16,
+        ticks_ms: i32,
+    },
+    /// `creature:addDamageCondition(...)` — `creature.lua`.
+    AddDamageCondition {
+        attacker_id: u64,
+        target_id: u64,
+        ctype: i32,
+        list: i32,
+        damage: i32,
+        period: i32,
+        rounds: i32,
+    },
     /// `creature:move(tile, flags)` — `Game::internalMoveCreature` to tile.
     CreatureMoveToTile {
         creature_id: u64,
@@ -270,6 +297,16 @@ pub enum LuaMutation {
     },
     /// `player:removeMoney(amount)` — inventory coins only (`Player::removeMoney`).
     PlayerRemoveMoney {
+        creature_id: u64,
+        amount: u64,
+    },
+    /// `player:removeTotalMoney(amount)` — inventory then bank (`data/lib/core/player.lua`).
+    PlayerRemoveTotalMoney {
+        creature_id: u64,
+        amount: u64,
+    },
+    /// `player:canCarryMoney(amount)` — weight + backpack slots (`data/lib/core/player.lua`).
+    PlayerCanCarryMoney {
         creature_id: u64,
         amount: u64,
     },
@@ -462,6 +499,49 @@ pub enum LuaMutation {
     /// Native `Player:conjureItem`.
     ConjureItem {
         request: ConjureRequest,
+    },
+    /// `Game.removeItemInPosition` — `data/lib/core/game.lua`.
+    GameMapRemoveItem {
+        x: u16,
+        y: u16,
+        z: u8,
+        item_type: u16,
+    },
+    /// `Game.transformItemInPosition` — `data/lib/core/game.lua`.
+    GameMapTransformItem {
+        x: u16,
+        y: u16,
+        z: u8,
+        from_type: u16,
+        to_type: u16,
+    },
+    /// `Game.removeItemsInPosition` — `data/lib/core/game.lua`.
+    GameMapRemoveMovableItems {
+        x: u16,
+        y: u16,
+        z: u8,
+    },
+    /// `Game.setMapItemActionId` — `data/lib/core/game.lua`.
+    GameMapSetItemActionId {
+        x: u16,
+        y: u16,
+        z: u8,
+        item_type: u16,
+        action_id: u16,
+    },
+    /// `Game.setStorageValue` — ephemeral quest globals.
+    GameSetGlobalStorage {
+        key: u32,
+        value: i32,
+    },
+    /// `Tile.relocateTo` — `data/lib/core/tile.lua`.
+    TileRelocateTo {
+        from_x: u16,
+        from_y: u16,
+        from_z: u8,
+        to_x: u16,
+        to_y: u16,
+        to_z: u8,
     },
 }
 
@@ -1061,6 +1141,57 @@ pub fn call_add_summon(master_id: u64, summon_id: u64) -> Result<bool, String> {
     Ok(take_mutation_bool_result().unwrap_or(false))
 }
 
+pub fn call_remove_summon(master_id: u64, summon_id: u64) -> Result<bool, String> {
+    apply_mutation(LuaMutation::RemoveSummon {
+        master_id,
+        summon_id,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+pub fn call_set_monster_outfit(
+    creature_id: u64,
+    monster_name: &str,
+    ticks_ms: i32,
+) -> Result<bool, String> {
+    apply_mutation(LuaMutation::SetMonsterOutfit {
+        creature_id,
+        monster_name: monster_name.to_string(),
+        ticks_ms,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+pub fn call_set_item_outfit(creature_id: u64, item_type: u16, ticks_ms: i32) -> Result<bool, String> {
+    apply_mutation(LuaMutation::SetItemOutfit {
+        creature_id,
+        item_type,
+        ticks_ms,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+pub fn call_add_damage_condition(
+    attacker_id: u64,
+    target_id: u64,
+    ctype: i32,
+    list: i32,
+    damage: i32,
+    period: i32,
+    rounds: i32,
+) -> Result<bool, String> {
+    apply_mutation(LuaMutation::AddDamageCondition {
+        attacker_id,
+        target_id,
+        ctype,
+        list,
+        damage,
+        period,
+        rounds,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
 pub fn call_creature_move_to_tile(
     creature_id: u64,
     x: u16,
@@ -1131,6 +1262,24 @@ pub fn call_lua_bank_withdraw(creature_id: u64, amount: u64) -> Result<(), Strin
 /// `player:removeMoney(amount)` — returns whether inventory coins covered `amount`.
 pub fn call_lua_remove_money(creature_id: u64, amount: u64) -> Result<bool, String> {
     apply_mutation(LuaMutation::PlayerRemoveMoney {
+        creature_id,
+        amount,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// `player:removeTotalMoney(amount)` — inventory then bank.
+pub fn call_lua_remove_total_money(creature_id: u64, amount: u64) -> Result<bool, String> {
+    apply_mutation(LuaMutation::PlayerRemoveTotalMoney {
+        creature_id,
+        amount,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// `player:canCarryMoney(amount)` — weight + recursive backpack slots.
+pub fn call_lua_can_carry_money(creature_id: u64, amount: u64) -> Result<bool, String> {
+    apply_mutation(LuaMutation::PlayerCanCarryMoney {
         creature_id,
         amount,
     })?;
@@ -1463,4 +1612,81 @@ pub fn call_lua_tool_use(request: ToolUseRequest) -> Result<bool, String> {
 pub fn call_lua_conjure_item(request: ConjureRequest) -> Result<bool, String> {
     apply_mutation(LuaMutation::ConjureItem { request })?;
     Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// `Game.removeItemInPosition` — `data/lib/core/game.lua`.
+pub fn call_game_map_remove_item(x: u16, y: u16, z: u8, item_type: u16) -> Result<bool, String> {
+    apply_mutation(LuaMutation::GameMapRemoveItem {
+        x,
+        y,
+        z,
+        item_type,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// `Game.transformItemInPosition` — `data/lib/core/game.lua`.
+pub fn call_game_map_transform_item(
+    x: u16,
+    y: u16,
+    z: u8,
+    from_type: u16,
+    to_type: u16,
+) -> Result<bool, String> {
+    apply_mutation(LuaMutation::GameMapTransformItem {
+        x,
+        y,
+        z,
+        from_type,
+        to_type,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// `Game.removeItemsInPosition` — `data/lib/core/game.lua`.
+pub fn call_game_map_remove_movable_items(x: u16, y: u16, z: u8) -> Result<(), String> {
+    apply_mutation(LuaMutation::GameMapRemoveMovableItems { x, y, z })
+}
+
+/// `Game.setMapItemActionId` — `data/lib/core/game.lua`.
+pub fn call_game_map_set_item_action_id(
+    x: u16,
+    y: u16,
+    z: u8,
+    item_type: u16,
+    action_id: u16,
+) -> Result<bool, String> {
+    apply_mutation(LuaMutation::GameMapSetItemActionId {
+        x,
+        y,
+        z,
+        item_type,
+        action_id,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// `Tile.relocateTo` — `data/lib/core/tile.lua`.
+pub fn call_tile_relocate_to(
+    from_x: u16,
+    from_y: u16,
+    from_z: u8,
+    to_x: u16,
+    to_y: u16,
+    to_z: u8,
+) -> Result<bool, String> {
+    apply_mutation(LuaMutation::TileRelocateTo {
+        from_x,
+        from_y,
+        from_z,
+        to_x,
+        to_y,
+        to_z,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// `Game.setStorageValue` — ephemeral quest globals.
+pub fn call_game_set_global_storage(key: u32, value: i32) -> Result<(), String> {
+    apply_mutation(LuaMutation::GameSetGlobalStorage { key, value })
 }

@@ -296,6 +296,49 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             set_mutation_bool_result(ok);
             Ok(())
         }
+        LuaMutation::RemoveSummon {
+            master_id,
+            summon_id,
+        } => {
+            let ok = unsafe { &mut *world }.lua_script_remove_summon(master_id, summon_id)?;
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
+        LuaMutation::SetMonsterOutfit {
+            creature_id,
+            monster_name,
+            ticks_ms,
+        } => {
+            let ok = unsafe { &mut *world }
+                .lua_script_set_monster_outfit(creature_id, &monster_name, ticks_ms)?;
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
+        LuaMutation::SetItemOutfit {
+            creature_id,
+            item_type,
+            ticks_ms,
+        } => {
+            let ok =
+                unsafe { &mut *world }.lua_script_set_item_outfit(creature_id, item_type, ticks_ms)?;
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
+        LuaMutation::AddDamageCondition {
+            attacker_id,
+            target_id,
+            ctype,
+            list,
+            damage,
+            period,
+            rounds,
+        } => {
+            let ok = unsafe { &mut *world }.lua_script_add_damage_condition(
+                attacker_id, target_id, ctype, list, damage, period, rounds,
+            )?;
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
         LuaMutation::CreatureMoveToTile {
             creature_id,
             x,
@@ -356,6 +399,23 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             amount,
         } => {
             let ok = unsafe { &mut *world }.player_remove_money_u64(creature_id, amount);
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
+        LuaMutation::PlayerRemoveTotalMoney {
+            creature_id,
+            amount,
+        } => {
+            let ok =
+                unsafe { &mut *world }.player_remove_total_money_u64(creature_id, amount);
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
+        LuaMutation::PlayerCanCarryMoney {
+            creature_id,
+            amount,
+        } => {
+            let ok = unsafe { &*world }.player_can_carry_money_u64(creature_id, amount);
             set_mutation_bool_result(ok);
             Ok(())
         }
@@ -629,6 +689,73 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             set_mutation_bool_result(ok);
             Ok(())
         }
+        LuaMutation::GameMapRemoveItem {
+            x,
+            y,
+            z,
+            item_type,
+        } => {
+            let pos = tfs_rust_common::Position { x, y, z };
+            let ok = unsafe { &mut *world }.game_remove_item_in_position(pos, item_type)?;
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
+        LuaMutation::GameMapTransformItem {
+            x,
+            y,
+            z,
+            from_type,
+            to_type,
+        } => {
+            let pos = tfs_rust_common::Position { x, y, z };
+            let ok =
+                unsafe { &mut *world }.game_transform_item_in_position(pos, from_type, to_type)?;
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
+        LuaMutation::GameMapRemoveMovableItems { x, y, z } => {
+            let pos = tfs_rust_common::Position { x, y, z };
+            unsafe { &mut *world }.game_remove_items_in_position(pos)
+        }
+        LuaMutation::GameMapSetItemActionId {
+            x,
+            y,
+            z,
+            item_type,
+            action_id,
+        } => {
+            let pos = tfs_rust_common::Position { x, y, z };
+            let ok =
+                unsafe { &mut *world }.game_set_map_item_action_id(pos, item_type, action_id)?;
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
+        LuaMutation::GameSetGlobalStorage { key, value } => {
+            unsafe { &mut *world }.set_global_storage(key, value);
+            Ok(())
+        }
+        LuaMutation::TileRelocateTo {
+            from_x,
+            from_y,
+            from_z,
+            to_x,
+            to_y,
+            to_z,
+        } => {
+            let from = tfs_rust_common::Position {
+                x: from_x,
+                y: from_y,
+                z: from_z,
+            };
+            let to = tfs_rust_common::Position {
+                x: to_x,
+                y: to_y,
+                z: to_z,
+            };
+            let ok = unsafe { &mut *world }.tile_relocate_to(from, to);
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
     }
 }
 
@@ -691,51 +818,25 @@ fn lua_move_position(cyl: Cylinder) -> Position {
 /// TFS `Events::eventPlayerOnMoveItem` after native queryAdd, before the transfer.
 pub fn fire_on_player_move_item(
     world: &mut GameWorld,
-    player: CreatureId,
+    _player: CreatureId,
     item: ItemId,
-    count: u16,
-    from: Cylinder,
+    _count: u16,
+    _from: Cylinder,
     to: Cylinder,
 ) -> ReturnValue {
-    let from_pos = lua_move_position(from);
-    let to_pos = lua_move_position(to);
-    let from_cyl = event_cylinder(from);
-    let to_cyl = event_cylinder(to);
-    let world_ptr = std::ptr::from_mut(world);
-    with_lua_mutation_scope(world_ptr as *mut (), || {
-        let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
-        with_lua_context(ctx, || {
-            let world = unsafe { &mut *world_ptr };
-            world.events.on_player_move_item(
-                player, item, count, from_pos, to_pos, from_cyl, to_cyl, world,
-            )
-        })
-    })
+    crate::player_move_policy::on_player_move_item(world, item, &to)
 }
 
 /// TFS `Events::eventPlayerOnItemMoved` after a successful transfer.
 pub fn fire_on_player_item_moved(
     world: &mut GameWorld,
-    player: CreatureId,
+    _player: CreatureId,
     item: ItemId,
-    count: u16,
-    from: Cylinder,
+    _count: u16,
+    _from: Cylinder,
     to: Cylinder,
 ) {
-    let from_pos = lua_move_position(from);
-    let to_pos = lua_move_position(to);
-    let from_cyl = event_cylinder(from);
-    let to_cyl = event_cylinder(to);
-    let world_ptr = std::ptr::from_mut(world);
-    with_lua_mutation_scope(world_ptr as *mut (), || {
-        let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
-        with_lua_context(ctx, || {
-            let world = unsafe { &mut *world_ptr };
-            world.events.on_player_item_moved(
-                player, item, count, from_pos, to_pos, from_cyl, to_cyl, world,
-            );
-        });
-    });
+    crate::player_move_policy::on_player_item_moved(world, item, &to);
 }
 
 /// TFS `Events::eventPlayerOnReportBug`.

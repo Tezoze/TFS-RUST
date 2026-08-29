@@ -352,6 +352,11 @@ impl LuaRuntime {
         self.data_lib_loaded.set(true);
     }
 
+    /// Native `data/lib/core` helpers — overrides Lua bodies loaded by [`load_data_lib`].
+    pub fn register_data_lib_native(&self) -> Result<(), LuaError> {
+        crate::data_lib_native::register_data_lib_native(&self.lua).map_err(Into::into)
+    }
+
     /// Exec `data/scripts/spells/areas.lua` (`AREA_*` matrices). Idempotent.
     ///
     /// Spell scripts and talkactions (`/killall`) both call
@@ -2734,6 +2739,7 @@ mod tests {
         }
         let mut runtime = LuaRuntime::new().expect("runtime");
         crate::actions::load_data_lib(&runtime, &workspace_data_root()).expect("data lib");
+        runtime.register_data_lib_native().expect("native data lib");
         runtime
             .load_script(path.to_str().expect("utf8 path"))
             .expect("moveitem.lua should load");

@@ -481,39 +481,17 @@ impl UserData for CombatRef {
             "execute",
             |lua, this, (creature, variant): (Value, Value)| {
                 let combat = this.0.borrow();
+                let (center_x, center_y, center_z, area_offsets) =
+                    resolve_combat_area_context(&combat, &creature, &variant)?;
                 let caster_id = resolve_creature_id(&creature)?;
-                let (center_x, center_y, center_z) = resolve_variant_center(&variant, caster_id)?;
 
-                // Resolve the caster's position — used for both area rotation
-                // (direction from caster → center) and LoS checks.
+                // Resolve the caster's position — used for LoS checks.
                 // 772 `AngleShapeSpell` uses `ThrowPossible(ActorX, ActorY, ...)`
                 // (from caster), while `ExecuteCircleSpell` uses
                 // `ThrowPossible(DestX, DestY, ...)` (from center). When center
                 // == caster (non-directional), these are identical.
                 let (caster_x, caster_y, caster_z) =
                     resolve_caster_position(caster_id).unwrap_or((center_x, center_y, center_z));
-
-                // Resolve area offsets from the combat's area matrix.
-                // C++ `Combat::hasArea` — `combat.cpp:13227`. If no area is set,
-                // the combat is single-target (empty offsets → only the center
-                // tile is checked, but we add (0,0) so the center is included).
-                //
-                // For directional spells (needDirection), the area matrix is
-                // defined in "north-facing" orientation and must be rotated
-                // based on the direction from caster → variant center.
-                // C++ `AreaCombat::getArea` (`combat.cpp:1316-1345`) computes
-                // the direction from `centerPos → targetPos` and picks the
-                // pre-rotated area (N=original, E=rotate90, S=rotate180,
-                // W=rotate270).
-                let area_offsets: Vec<(i32, i32)> = match &combat.area {
-                    Some(area_rc) => {
-                        let area = area_rc.borrow();
-                        let dx = center_x as i32 - caster_x as i32;
-                        let dy = center_y as i32 - caster_y as i32;
-                        resolve_oriented_offsets(&area, dx, dy)
-                    }
-                    None => vec![(0, 0)],
-                };
 
                 // Resolve damage min/max.
                 // C++ `Combat::getCombatDamage` — `combat.cpp:100`. Three paths:
@@ -629,19 +607,8 @@ impl UserData for CombatRef {
             "getTargets",
             |lua, this, (creature, variant): (Value, Value)| {
                 let combat = this.0.borrow();
-                let caster_id = resolve_creature_id(&creature)?;
-                let (center_x, center_y, center_z) = resolve_variant_center(&variant, caster_id)?;
-                let (caster_x, caster_y, _caster_z) =
-                    resolve_caster_position(caster_id).unwrap_or((center_x, center_y, center_z));
-                let area_offsets: Vec<(i32, i32)> = match &combat.area {
-                    Some(area_rc) => {
-                        let area = area_rc.borrow();
-                        let dx = center_x as i32 - caster_x as i32;
-                        let dy = center_y as i32 - caster_y as i32;
-                        resolve_oriented_offsets(&area, dx, dy)
-                    }
-                    None => vec![(0, 0)],
-                };
+                let (center_x, center_y, center_z, area_offsets) =
+                    resolve_combat_area_context(&combat, &creature, &variant)?;
                 let ids = CURRENT_CTX.with(|c| {
                     let ptr =
                         (*c.borrow()).ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
@@ -660,9 +627,35 @@ impl UserData for CombatRef {
             },
         );
 
-        // Gap 7b — `__index` fallback so `combat:getPositions(creature, variant)`
-        // / `combat:getTargets(...)` resolve `function Combat:getPositions(...)`
-        // from `data/lib/core/combat.lua`. Native methods above keep priority.
+        // `combat:getPositions(creature, variant)` — C++ `luaCombatGetPositions`
+        // (`luascript.cpp`). Returns area tile positions without executing combat.
+        // Same area resolution as `getTargets`; no callbacks or damage.
+        methods.add_method(
+            "getPositions",
+            |lua, this, (creature, variant): (Value, Value)| {
+                let combat = this.0.borrow();
+                let (center_x, center_y, center_z, area_offsets) =
+                    resolve_combat_area_context(&combat, &creature, &variant)?;
+                let table = lua.create_table()?;
+                for (i, &(dx, dy)) in area_offsets.iter().enumerate() {
+                    let tx = center_x as i32 + dx;
+                    let ty = center_y as i32 + dy;
+                    if tx < 0 || ty < 0 {
+                        continue;
+                    }
+                    let pos_ud = lua.create_userdata(PositionRef {
+                        x: tx as u16,
+                        y: ty as u16,
+                        z: center_z,
+                    })?;
+                    table.set(i + 1, pos_ud)?;
+                }
+                Ok(table)
+            },
+        );
+
+        // Gap 7b — `__index` fallback for remaining `Combat:` methods from
+        // `data/lib/core/combat.lua`. Native methods above keep priority.
         // C++ `LuaScriptInterface::registerClass`.
         methods.add_meta_method(MetaMethod::Index, |lua, _this, key: mlua::LuaString| {
             crate::class_registry::class_index_lookup(
@@ -672,6 +665,32 @@ impl UserData for CombatRef {
             )
         });
     }
+}
+
+/// Oriented combat tile offsets from center — shared by execute / getTargets / getPositions.
+type CombatAreaContext = (u16, u16, u8, Vec<(i32, i32)>);
+
+/// Resolve spell center + oriented area offsets shared by `execute`, `getTargets`,
+/// and `getPositions`. C++ `AreaCombat::getArea` — `combat.cpp:1316-1345`.
+fn resolve_combat_area_context(
+    combat: &CombatDef,
+    creature: &Value,
+    variant: &Value,
+) -> Result<CombatAreaContext, mlua::Error> {
+    let caster_id = resolve_creature_id(creature)?;
+    let (center_x, center_y, center_z) = resolve_variant_center(variant, caster_id)?;
+    let (caster_x, caster_y, _caster_z) =
+        resolve_caster_position(caster_id).unwrap_or((center_x, center_y, center_z));
+    let area_offsets: Vec<(i32, i32)> = match &combat.area {
+        Some(area_rc) => {
+            let area = area_rc.borrow();
+            let dx = center_x as i32 - caster_x as i32;
+            let dy = center_y as i32 - caster_y as i32;
+            resolve_oriented_offsets(&area, dx, dy)
+        }
+        None => vec![(0, 0)],
+    };
+    Ok((center_x, center_y, center_z, area_offsets))
 }
 
 /// Resolve a creature ID from a Lua value (userdata `CreatureRef` or nil).

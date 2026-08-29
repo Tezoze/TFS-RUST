@@ -85,7 +85,7 @@ fn item_plural_name(item: &Item, it: &ItemType) -> String {
 }
 
 /// `Item::getNameDescription` — `src/item.cpp` ~1582–1615.
-fn item_name_description(item: &Item, it: &ItemType, add_article: bool) -> String {
+pub fn item_get_name_description_cpp(item: &Item, it: &ItemType, add_article: bool) -> String {
     let sub_type = i32::from(item.count.max(1));
     if it.stackable() && sub_type > 1 {
         let mut s = String::new();
@@ -551,7 +551,7 @@ pub fn item_get_description_cpp(
     rune_vocations: Option<&[String]>,
     fluid_type_name: Option<&str>,
 ) -> String {
-    let mut s = item_name_description(item, it, true);
+    let mut s = item_get_name_description_cpp(item, it, true);
 
     let mut allow_dist_read_emitted = false;
     if let Some(rune_sfx) = rune_description_suffix(it, item, rune_vocations.unwrap_or(&[])) {

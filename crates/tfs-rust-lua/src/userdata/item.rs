@@ -220,6 +220,30 @@ impl UserData for ItemRef {
             })
         });
 
+        // `Item:getDescription(lookDistance[, subType])` — native `item_get_description_cpp`.
+        methods.add_method(
+            "getDescription",
+            |_, this, (look_distance, _sub_type): (Option<i32>, Option<i32>)| {
+                let look_distance = look_distance.unwrap_or(1);
+                with_ctx(|ctx| {
+                    ctx.script_item_description(this.0, look_distance)
+                        .ok_or_else(|| mlua::Error::runtime("item not found"))
+                })
+            },
+        );
+
+        // `Item:getNameDescription([subType], addArticle)` — `item.cpp` ~1582–1615.
+        methods.add_method(
+            "getNameDescription",
+            |_, this, (_sub_type, add_article): (Option<i32>, Option<bool>)| {
+                let add_article = add_article.unwrap_or(true);
+                with_ctx(|ctx| {
+                    ctx.script_item_name_description(this.0, add_article)
+                        .ok_or_else(|| mlua::Error::runtime("item not found"))
+                })
+            },
+        );
+
         methods.add_method("getActionId", |_, this, ()| {
             with_ctx(|ctx| Ok(ctx.get_item_data(this.0).map(|d| d.action_id).unwrap_or(0)))
         });

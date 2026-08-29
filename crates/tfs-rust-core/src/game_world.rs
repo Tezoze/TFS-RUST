@@ -251,6 +251,9 @@ pub struct GameWorld {
     pub(crate) scratch_spectator_gen: u32,
     /// OBS-1: aggregated window histograms / counters (Phase 0).
     pub(crate) obs: crate::obs::GameObs,
+    /// TFS `Game.getStorageValue` / `setStorageValue` — `game.lua` `globalStorageTable`.
+    /// Ephemeral quest globals; reset on restart (772 pack parity).
+    pub global_storage: HashMap<u32, i32>,
     /// TFS `ScriptEnvironment::localMap` — per-script-execution UID → ItemId mapping
     /// for items without `ATTR_UNIQUE_ID` (`luascript.cpp:110-134`). Generated UIDs
     /// start at 65536 (`> u16::MAX`) to distinguish from `ATTR_UNIQUE_ID` lookups.
@@ -499,6 +502,7 @@ impl GameWorld {
             scratch_spectator_seen: rustc_hash::FxHashMap::default(),
             scratch_spectator_gen: 0,
             obs: crate::obs::GameObs::new(),
+            global_storage: HashMap::new(),
             script_env_local_map: RefCell::new(HashMap::new()),
             script_env_item_to_uid: RefCell::new(HashMap::new()),
             script_env_last_uid: Cell::new(65536),

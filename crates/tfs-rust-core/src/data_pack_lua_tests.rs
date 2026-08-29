@@ -265,6 +265,10 @@ fn try_lua_runtime() -> Option<(LuaRuntime, PathBuf)> {
         eprintln!("load_data_lib failed — skipping: {e}");
         return None;
     }
+    if let Err(e) = runtime.register_data_lib_native() {
+        eprintln!("register_data_lib_native failed — skipping: {e}");
+        return None;
+    }
     Some((runtime, root))
 }
 

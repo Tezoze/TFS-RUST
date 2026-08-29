@@ -7,14 +7,15 @@ use std::cell::RefCell;
 
 use crate::context::{CURRENT_CTX, CreatureData, CreatureRef, ItemRef, LuaContext};
 use crate::lua_mutation::{
-    ConjureRequest, call_lua_add_condition, call_lua_add_health, call_lua_add_item,
-    call_lua_add_item_full, call_lua_add_mana, call_lua_add_mana_spent, call_lua_add_skill_tries,
-    call_lua_conjure_item, call_lua_creature_remove, call_lua_feed, call_lua_get_depot_chest,
-    call_lua_get_depot_locker, call_lua_get_inbox, call_lua_player_say, call_lua_remove_condition,
-    call_lua_remove_item, call_lua_send_cancel_message, call_lua_send_outfit_window,
+    ConjureRequest, call_add_damage_condition, call_lua_add_condition,
+    call_lua_add_health, call_lua_add_item, call_lua_add_item_full, call_lua_add_mana,
+    call_lua_add_mana_spent, call_lua_add_skill_tries, call_lua_conjure_item,
+    call_lua_creature_remove, call_lua_feed, call_lua_get_depot_chest, call_lua_get_depot_locker,
+    call_lua_get_inbox, call_lua_player_say, call_lua_remove_condition, call_lua_remove_item,
+    call_remove_summon, call_lua_send_cancel_message, call_lua_send_outfit_window,
     call_lua_set_direction, call_lua_set_ghost_mode, call_lua_set_in_fight, call_lua_set_outfit,
-    call_lua_set_sex, call_lua_set_vocation, call_lua_show_text_dialog,
-    call_player_register_creature_event,
+    call_lua_set_sex, call_lua_set_vocation, call_set_item_outfit, call_set_monster_outfit,
+    call_lua_show_text_dialog, call_player_register_creature_event,
 };
 use crate::userdata::container::ContainerRef;
 use crate::userdata::group::GroupRef;
@@ -229,6 +230,18 @@ impl UserData for CreatureRef {
         // `player:removeMoney(amount)` — TFS `luaPlayerRemoveMoney` / inventory coins.
         methods.add_method("removeMoney", |_, this, amount: u64| {
             crate::lua_mutation::call_lua_remove_money(this.0, amount).map_err(mlua::Error::runtime)
+        });
+
+        // `player:removeTotalMoney(amount)` — native `data/lib/core/player.lua`.
+        methods.add_method("removeTotalMoney", |_, this, amount: u64| {
+            crate::lua_mutation::call_lua_remove_total_money(this.0, amount)
+                .map_err(mlua::Error::runtime)
+        });
+
+        // `player:canCarryMoney(amount)` — native `data/lib/core/player.lua`.
+        methods.add_method("canCarryMoney", |_, this, amount: u64| {
+            crate::lua_mutation::call_lua_can_carry_money(this.0, amount)
+                .map_err(mlua::Error::runtime)
         });
 
         // `player:setBankBalance(balance)` — TFS `luaPlayerSetBankBalance`.
@@ -732,6 +745,20 @@ impl UserData for CreatureRef {
             }
         });
 
+        // `player:getDepotItems(depotId)` — `data/lib/core/player.lua`.
+        methods.add_method("getDepotItems", |_, this, depot_id: u32| {
+            let locker = call_lua_get_depot_locker(this.0, depot_id).map_err(mlua::Error::runtime)?;
+            match locker {
+                Some(iid) => with_ctx(|ctx| {
+                    Ok(ctx
+                        .get_container_data(iid)
+                        .map(|d| d.item_holding_count)
+                        .unwrap_or(0))
+                }),
+                None => Ok(0),
+            }
+        });
+
         methods.add_method("getContainerId", |_, this, container: mlua::AnyUserData| {
             let container_id = container
                 .borrow::<ContainerRef>()
@@ -1067,6 +1094,120 @@ impl UserData for CreatureRef {
             Ok(true)
         });
 
+        // `creature:removeSummon(monster)` — `creature.lua`.
+        methods.add_method("removeSummon", |_, this, summon: Value| {
+            let summon_id = parse_creature_ref(summon)?;
+            call_remove_summon(this.0, summon_id).map_err(mlua::Error::runtime)?;
+            Ok(true)
+        });
+
+        // `Creature.getClosestFreePosition` — native spiral + optional path reachability.
+        methods.add_method(
+            "getClosestFreePosition",
+            |lua, this, (position, max_radius, must_be_reachable): (Value, Value, Value)| {
+                let (x, y, z) = parse_position_value(position)?;
+                let max_radius = parse_max_radius(max_radius);
+                let must_be_reachable = value_as_bool(&must_be_reachable).unwrap_or(false);
+                let (ox, oy, oz) = with_ctx(|ctx| {
+                    Ok(ctx.get_creature_closest_free_position(
+                        this.0,
+                        x,
+                        y,
+                        z,
+                        max_radius,
+                        must_be_reachable,
+                    ))
+                })?;
+                let ud = lua.create_userdata(PositionRef {
+                    x: ox,
+                    y: oy,
+                    z: oz,
+                })?;
+                Ok(Value::UserData(ud))
+            },
+        );
+
+        // `creature:getPlayer()` — returns self when player, else nil.
+        methods.add_method("getPlayer", |lua, this, ()| {
+            let is_player = with_ctx(|ctx| Ok(ctx.is_creature_player(this.0)))?;
+            if is_player {
+                let ud = lua.create_userdata(CreatureRef(this.0))?;
+                Ok(Value::UserData(ud))
+            } else {
+                Ok(Value::Nil)
+            }
+        });
+
+        // `creature:canAccessPz()` — `creature.lua`.
+        methods.add_method("canAccessPz", |_, this, ()| {
+            with_ctx(|ctx| Ok(ctx.creature_can_access_pz(this.0)))
+        });
+
+        // `creature:setMonsterOutfit(monster, time)` — `creature.lua`.
+        methods.add_method(
+            "setMonsterOutfit",
+            |_, this, (monster, time): (Value, i32)| {
+                let name = parse_monster_type_name(monster)?;
+                call_set_monster_outfit(this.0, &name, time).map_err(mlua::Error::runtime)
+            },
+        );
+
+        // `creature:setItemOutfit(item, time)` — `creature.lua`.
+        methods.add_method("setItemOutfit", |_, this, (item, time): (Value, i32)| {
+            let item_type = parse_item_type_id(item)?;
+            call_set_item_outfit(this.0, item_type, time).map_err(mlua::Error::runtime)
+        });
+
+        // `creature:addDamageCondition(target, type, list, damage, period, rounds)`.
+        methods.add_method(
+            "addDamageCondition",
+            |_,
+             this,
+             (target, ctype, list, damage, period, rounds): (
+                Value,
+                i32,
+                i32,
+                i32,
+                i32,
+                i32,
+            )| {
+                let target_id = parse_creature_ref(target)?;
+                call_add_damage_condition(
+                    this.0, target_id, ctype, list, damage, period, rounds,
+                )
+                .map_err(mlua::Error::runtime)
+            },
+        );
+
+        // `creature:getPathTo(pos[, minTargetDist[, maxTargetDist[, ...]]])`.
+        methods.add_method(
+            "getPathTo",
+            |lua, this, args: mlua::Variadic<Value>| {
+                let pos = args
+                    .first()
+                    .ok_or_else(|| mlua::Error::runtime("getPathTo: position required"))?;
+                let (x, y, z) = parse_position_value(pos.clone())?;
+                let min_dist = args.get(1).and_then(value_as_i32).unwrap_or(0);
+                let max_dist = args.get(2).and_then(value_as_i32).unwrap_or(1);
+                let max_search = args.get(6).and_then(value_as_i32).unwrap_or(0);
+                let dirs = with_ctx(|ctx| {
+                    Ok(ctx.get_creature_path_to_directions(
+                        this.0, x, y, z, min_dist, max_dist, max_search,
+                    ))
+                })?;
+                match dirs {
+                    Some(steps) => {
+                        let t = lua.create_table_with_capacity(steps.len(), 0)?;
+                        for (i, d) in steps.into_iter().enumerate() {
+                            t.set(i + 1, d)?;
+                        }
+                        Ok(Value::Table(t))
+                    }
+                    None => Ok(Value::Boolean(false)),
+                }
+            },
+        );
+
         // `monster:getType()` → MonsterType(name).
         methods.add_method("getType", |lua, this, ()| {
             let name = with_ctx(|ctx| Ok(ctx.get_creature_monster_type_name(this.0)))?;
@@ -1334,6 +1475,65 @@ fn value_as_bool(v: &Value) -> Option<bool> {
         Value::Boolean(b) => Some(*b),
         Value::Nil => Some(false),
         _ => None,
+    }
+}
+
+fn parse_creature_ref(value: Value) -> Result<u64, mlua::Error> {
+    match value {
+        Value::UserData(ud) => Ok(ud.borrow::<CreatureRef>()?.0),
+        _ => Err(mlua::Error::runtime("expected Creature userdata")),
+    }
+}
+
+fn parse_position_value(pos: Value) -> Result<(u16, u16, u8), mlua::Error> {
+    match pos {
+        Value::UserData(ud) => {
+            if let Ok(p) = ud.borrow::<PositionRef>() {
+                Ok((p.x, p.y, p.z))
+            } else {
+                Err(mlua::Error::runtime("expected Position"))
+            }
+        }
+        Value::Table(t) => {
+            let x: i64 = t.get("x").or_else(|_| t.get(1))?;
+            let y: i64 = t.get("y").or_else(|_| t.get(2))?;
+            let z: i64 = t.get("z").or_else(|_| t.get(3))?;
+            Ok((x as u16, y as u16, z as u8))
+        }
+        _ => Err(mlua::Error::runtime("expected Position")),
+    }
+}
+
+/// `maxRadius` backward compat: `true` → 2 (`creature.lua`).
+fn parse_max_radius(value: Value) -> i32 {
+    if value_as_bool(&value) == Some(true) {
+        return 2;
+    }
+    value_as_i32(&value).unwrap_or(1).max(0)
+}
+
+fn parse_monster_type_name(value: Value) -> Result<String, mlua::Error> {
+    match value {
+        Value::String(s) => Ok(s.to_str()?.to_string()),
+        Value::UserData(ud) => Ok(ud
+            .borrow::<crate::userdata::monster_type::MonsterTypeRef>()?
+            .name
+            .clone()),
+        _ => Err(mlua::Error::runtime(
+            "setMonsterOutfit: expected monster name",
+        )),
+    }
+}
+
+fn parse_item_type_id(value: Value) -> Result<u16, mlua::Error> {
+    match value {
+        Value::Integer(n) => Ok(n as u16),
+        Value::Number(n) => Ok(n as u16),
+        Value::UserData(ud) => ud
+            .borrow::<crate::userdata::item_type::ItemTypeRef>()
+            .map(|t| t.0)
+            .map_err(|_| mlua::Error::runtime("setItemOutfit: expected item id")),
+        _ => Err(mlua::Error::runtime("setItemOutfit: expected item id")),
     }
 }
 

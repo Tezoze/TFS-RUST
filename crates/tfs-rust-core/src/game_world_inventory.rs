@@ -19,7 +19,10 @@ use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::inventory::{InventorySlot, slot_type_for_item_type};
 use crate::item::Item;
-use crate::item_look::{format_gm_item_look_suffix, item_get_description_cpp, look_distance_tfs};
+use crate::item_look::{
+    format_gm_item_look_suffix, item_get_description_cpp, item_get_name_description_cpp,
+    look_distance_tfs,
+};
 use crate::player_inventory_notifications::NotificationParent;
 use crate::player_inventory_util::{InventoryItemRef, ItemCylinder};
 use crate::return_value::ReturnValue;
@@ -1579,6 +1582,104 @@ impl GameWorld {
             .get(&sub)
             .map(|t| t.name.clone())
             .filter(|n| !n.is_empty())
+    }
+
+    /// Lua `Item:getDescription(lookDistance)` — `item.cpp` / `data/lib/core/item.lua`.
+    pub(crate) fn lua_item_get_description(
+        &self,
+        item_u64: u64,
+        look_distance: i32,
+    ) -> Option<String> {
+        let item_id = self.resolve_item_u64(item_u64)?;
+        let item = self.items.get(item_id)?;
+        let it = self.items_db.items.get(&item.item_type)?;
+        let weight = self.item_recursive_weight_oz(item_id);
+        let show_duration_ms = self.item_look_duration_ms(item_id);
+        let container_capacity = self.container_registry.get(item_id).map(|c| c.capacity);
+        let rune_vocs = self
+            .spells
+            .get_rune(item.item_type)
+            .map(|r| r.vocations.as_slice());
+        let fluid_name = self.fluid_look_type_name(item, it);
+        Some(item_get_description_cpp(
+            item,
+            it,
+            weight,
+            look_distance,
+            container_capacity,
+            show_duration_ms,
+            rune_vocs,
+            fluid_name.as_deref(),
+        ))
+    }
+
+    /// Lua `Item:getNameDescription([subType], addArticle)` — `item.cpp` ~1582–1615.
+    pub(crate) fn lua_item_get_name_description(
+        &self,
+        item_u64: u64,
+        add_article: bool,
+    ) -> Option<String> {
+        let item_id = self.resolve_item_u64(item_u64)?;
+        let item = self.items.get(item_id)?;
+        let it = self.items_db.items.get(&item.item_type)?;
+        Some(item_get_name_description_cpp(item, it, add_article))
+    }
+
+    /// Lua `ItemType:getDescription(lookDistance[, subType])`.
+    pub(crate) fn lua_item_type_get_description(
+        &self,
+        item_type: u16,
+        look_distance: i32,
+        sub_type: u16,
+    ) -> String {
+        let Some(it) = self.items_db.items.get(&item_type) else {
+            return format!("an item of type {item_type}.");
+        };
+        let item = if sub_type > 1 || it.is_fluid_container() || it.is_splash() {
+            Item::new(item_type, sub_type)
+        } else {
+            Item::new_single(item_type)
+        };
+        let count = item.count.max(1);
+        let weight = it.weight.saturating_mul(u32::from(count));
+        let rune_vocs = self.spells.get_rune(item_type).map(|r| r.vocations.as_slice());
+        let fluid_name = self.fluid_look_type_name(&item, it);
+        item_get_description_cpp(
+            &item,
+            it,
+            weight,
+            look_distance,
+            if it.is_container() {
+                Some(u32::from(it.max_items))
+            } else {
+                None
+            },
+            None,
+            rune_vocs,
+            fluid_name.as_deref(),
+        )
+    }
+
+    /// Lua `ItemType:getNameDescription([subType], addArticle)`.
+    pub(crate) fn lua_item_type_get_name_description(
+        &self,
+        item_type: u16,
+        sub_type: u16,
+        add_article: bool,
+    ) -> String {
+        let Some(it) = self.items_db.items.get(&item_type) else {
+            return if add_article {
+                format!("an item of type {item_type}")
+            } else {
+                format!("item of type {item_type}")
+            };
+        };
+        let item = if sub_type > 1 || it.is_fluid_container() || it.is_splash() {
+            Item::new(item_type, sub_type)
+        } else {
+            Item::new_single(item_type)
+        };
+        item_get_name_description_cpp(&item, it, add_article)
     }
 
     /// `Player::getDescription` for the creature-look branch of `playerLookAt`.

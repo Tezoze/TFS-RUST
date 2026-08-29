@@ -367,12 +367,12 @@ mod tests {
             "default_onReportBug.lua is allowlisted"
         );
         assert!(
-            has_event_callback(&runtime, EVENT_CALLBACK_ONMOVEITEM),
-            "moveitem.lua is allowlisted"
+            !has_event_callback(&runtime, EVENT_CALLBACK_ONMOVEITEM),
+            "moveitem policy is native — moveitem.lua must not register"
         );
         assert!(
-            has_event_callback(&runtime, EVENT_CALLBACK_ONITEMMOVED),
-            "moveitem.lua registers onItemMoved"
+            !has_event_callback(&runtime, EVENT_CALLBACK_ONITEMMOVED),
+            "onItemMoved policy is native"
         );
         assert!(
             runtime.undispatched_event_callbacks().is_empty(),

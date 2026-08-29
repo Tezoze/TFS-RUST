@@ -340,6 +340,10 @@ pub async fn run() -> anyhow::Result<()> {
                 );
                 anyhow::bail!("required data globals missing: {e}");
             }
+            if let Err(e) = lua_runtime.register_data_lib_native() {
+                tracing::error!("Native data/lib registration failed: {e}");
+                anyhow::bail!("native data/lib registration failed: {e}");
+            }
             // Scripts-interface: allowlisted EventCallback + CreatureEvent revscripts.
             // After lib load (`event_callbacks.lua` replaced the stubs) and before
             // content loaders. `load_spell_scripts` also calls `load_data_lib`; that

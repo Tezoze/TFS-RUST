@@ -1404,6 +1404,49 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         Some(master.data().as_ffi())
     }
 
+    fn get_creature_closest_free_position(
+        &self,
+        creature_id: ScriptCreatureId,
+        x: u16,
+        y: u16,
+        z: u8,
+        max_radius: i32,
+        must_be_reachable: bool,
+    ) -> (u16, u16, u8) {
+        let Some(cid) = self.resolve_creature_u64(creature_id) else {
+            return (0, 0, 0);
+        };
+        let center = tfs_rust_common::Position { x, y, z };
+        let pos = if matches!(self.creatures.get(cid), Some(CreatureKind::Player(_))) {
+            self.player_get_closest_free_position(cid, center, max_radius, must_be_reachable)
+        } else {
+            self.get_closest_free_position(cid, center, max_radius, must_be_reachable)
+        };
+        (pos.x, pos.y, pos.z)
+    }
+
+    fn creature_can_access_pz(&self, creature_id: ScriptCreatureId) -> bool {
+        self.resolve_creature_u64(creature_id)
+            .map(|cid| self.creature_can_access_pz(cid))
+            .unwrap_or(false)
+    }
+
+    fn get_creature_path_to_directions(
+        &self,
+        creature_id: ScriptCreatureId,
+        x: u16,
+        y: u16,
+        z: u8,
+        min_target_dist: i32,
+        max_target_dist: i32,
+        max_search_dist: i32,
+    ) -> Option<Vec<u8>> {
+        let cid = self.resolve_creature_u64(creature_id)?;
+        let target = tfs_rust_common::Position { x, y, z };
+        self.creature_has_path_to(cid, target, min_target_dist, max_target_dist, max_search_dist)
+            .map(|steps| steps.into_iter().rev().map(|d| d as u8).collect())
+    }
+
     fn is_creature_monster(&self, creature_id: ScriptCreatureId) -> bool {
         self.resolve_creature_u64(creature_id)
             .and_then(|cid| self.creatures.get(cid))
@@ -1479,6 +1522,44 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             .get(&item_type)
             .map(|t| t.is_ground_tile())
             .unwrap_or(false)
+    }
+
+    fn get_item_type_slot_position(&self, item_type: u16) -> u32 {
+        self.items_db
+            .items
+            .get(&item_type)
+            .map(|t| t.slot_position)
+            .unwrap_or(0)
+    }
+
+    fn script_item_description(&self, item_id: ScriptItemId, look_distance: i32) -> Option<String> {
+        self.lua_item_get_description(item_id, look_distance)
+    }
+
+    fn script_item_name_description(
+        &self,
+        item_id: ScriptItemId,
+        add_article: bool,
+    ) -> Option<String> {
+        self.lua_item_get_name_description(item_id, add_article)
+    }
+
+    fn script_item_type_description(
+        &self,
+        item_type: u16,
+        look_distance: i32,
+        sub_type: u16,
+    ) -> String {
+        self.lua_item_type_get_description(item_type, look_distance, sub_type)
+    }
+
+    fn script_item_type_name_description(
+        &self,
+        item_type: u16,
+        sub_type: u16,
+        add_article: bool,
+    ) -> String {
+        self.lua_item_type_get_name_description(item_type, sub_type, add_article)
     }
 
     fn get_npc_parameter(&self, creature_id: ScriptCreatureId, key: &str) -> Option<String> {
@@ -1739,6 +1820,17 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             .is_some_and(|p| p.shared_experience_enabled)
     }
 
+    fn get_party_members(&self, party_id: u32) -> Vec<ScriptCreatureId> {
+        let Some(party) = self.parties.get(&party_id) else {
+            return Vec::new();
+        };
+        party
+            .members
+            .iter()
+            .filter_map(|cid| self.creatures.get(*cid).map(|_| cid.data().as_ffi()))
+            .collect()
+    }
+
     fn get_world_up_time(&self) -> u64 {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1749,6 +1841,23 @@ impl tfs_rust_common::ScriptContext for GameWorld {
 
     fn get_experience_stage(&self, level: i32) -> f64 {
         self.config.experience_rate_for_level(level).unwrap_or(1.0)
+    }
+
+    fn get_global_storage(&self, key: u32) -> Option<i32> {
+        self.get_global_storage(key)
+    }
+
+    fn game_is_item_in_position(
+        &self,
+        x: u16,
+        y: u16,
+        z: u8,
+        item_type: u16,
+    ) -> Result<bool, String> {
+        self.game_is_item_in_position(
+            tfs_rust_common::Position { x, y, z },
+            item_type,
+        )
     }
 }
 

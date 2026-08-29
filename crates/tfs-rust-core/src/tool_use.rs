@@ -48,6 +48,27 @@ pub struct ToolIdTables {
     pub scarab_timer_secs: i64,
     pub scarab_spawn_chance: u32,
     pub sand_hole_chance: u32,
+    /// TVP moveitem EventCallback policy — `moveItemPolicy` in `tools.lua`.
+    pub move_item_policy: MoveItemPolicyTables,
+}
+
+/// Pack tables for native player item-move policy (`player_move_policy.rs`).
+#[derive(Clone, Debug, Default)]
+pub struct MoveItemPolicyTables {
+    pub quest_object_aid_min: Option<u16>,
+    pub quest_object_aid_max: Option<u16>,
+    pub pre_move_transforms: HashMap<u16, u16>,
+    pub post_move_transforms: HashMap<u16, u16>,
+    pub post_move_effect_id: Option<u8>,
+}
+
+impl MoveItemPolicyTables {
+    pub(crate) fn is_quest_object_aid(&self, aid: u16) -> bool {
+        match (self.quest_object_aid_min, self.quest_object_aid_max) {
+            (Some(min), Some(max)) => (min..=max).contains(&aid),
+            _ => false,
+        }
+    }
 }
 
 impl ToolIdTables {
@@ -69,7 +90,13 @@ pub fn load_from_data_dir(data_dir: &Path) -> ToolIdTables {
     let path = data_dir.join("defs/tools.lua");
     let mut tables = match load_tools_file(&path) {
         Ok(t) => {
-            tracing::info!(file = %path.display(), rope = t.rope_spots.len(), "loaded tool id tables");
+            tracing::info!(
+                file = %path.display(),
+                rope = t.rope_spots.len(),
+                move_pre = t.move_item_policy.pre_move_transforms.len(),
+                move_post = t.move_item_policy.post_move_transforms.len(),
+                "loaded tool id tables"
+            );
             t
         }
         Err(e) => {
@@ -103,6 +130,7 @@ fn load_tools_file(path: &Path) -> Result<ToolIdTables, String> {
     };
     let scarab: Value = root.get("scarab").unwrap_or(Value::Nil);
     let chances: Value = root.get("chances").unwrap_or(Value::Nil);
+    let move_item_policy = parse_move_item_policy(&root)?;
     Ok(ToolIdTables {
         action_ids: parse_named_u16(&root, "actionIds")?,
         named_ids: parse_named_u16(&root, "ids")?,
@@ -119,7 +147,48 @@ fn load_tools_file(path: &Path) -> Result<ToolIdTables, String> {
         scarab_timer_secs: table_i64(&scarab, "timerSecs").unwrap_or(0),
         scarab_spawn_chance: table_u32(&scarab, "spawnChance").unwrap_or(0),
         sand_hole_chance: table_u32(&chances, "sandHole").unwrap_or(0),
+        move_item_policy,
     })
+}
+
+fn parse_move_item_policy(root: &mlua::Table) -> Result<MoveItemPolicyTables, String> {
+    let value: Value = root.get("moveItemPolicy").unwrap_or(Value::Nil);
+    let Value::Table(table) = value else {
+        return Ok(MoveItemPolicyTables::default());
+    };
+    Ok(MoveItemPolicyTables {
+        quest_object_aid_min: table_optional_u16(&table, "questObjectAidMin"),
+        quest_object_aid_max: table_optional_u16(&table, "questObjectAidMax"),
+        pre_move_transforms: parse_u16_map_field(&table, "preMoveTransforms")?,
+        post_move_transforms: parse_u16_map_field(&table, "postMoveTransforms")?,
+        post_move_effect_id: table_optional_u16(&table, "postMoveEffectId").map(|v| v as u8),
+    })
+}
+
+fn table_optional_u16(table: &mlua::Table, key: &str) -> Option<u16> {
+    table
+        .get(key)
+        .ok()
+        .and_then(|v| value_as_u16(&v))
+}
+
+fn parse_u16_map_field(table: &mlua::Table, key: &str) -> Result<HashMap<u16, u16>, String> {
+    let value: Value = table.get(key).map_err(|e| e.to_string())?;
+    let Value::Table(map) = value else {
+        return Ok(HashMap::new());
+    };
+    let mut out = HashMap::new();
+    for pair in map.pairs::<Value, Value>() {
+        let (k, v) = pair.map_err(|e| e.to_string())?;
+        let Some(from) = value_as_u16(&k) else {
+            continue;
+        };
+        let Some(to) = value_as_u16(&v) else {
+            continue;
+        };
+        out.insert(from, to);
+    }
+    Ok(out)
 }
 
 fn load_scarab_file(path: &Path) -> Result<HashSet<(u16, u16, u8)>, String> {
@@ -405,7 +474,7 @@ fn on_use_pick(world: &mut GameWorld, req: &ToolUseRequest) -> bool {
         let _ = world.lua_script_item_transform(ground_id.data().as_ffi(), open_id, -1);
         world.start_decay(ground_id);
         let dest = Position::new(pos.x, pos.y, pos.z.saturating_add(1));
-        let _ = tile_relocate_to(world, pos, dest);
+        let _ = world.tile_relocate_to(pos, dest);
         return true;
     }
     false
@@ -519,7 +588,7 @@ fn on_use_shovel(world: &mut GameWorld, req: &ToolUseRequest) -> bool {
         );
         world.start_decay(ground_id);
         let dest = Position::new(pos.x, pos.y, pos.z.saturating_add(1));
-        let _ = tile_relocate_to(world, pos, dest);
+        let _ = world.tile_relocate_to(pos, dest);
         return true;
     }
     if world.tool_ids.sand_ids.contains(&ground_type) {
@@ -783,67 +852,6 @@ fn apply_reward_attrs(world: &mut GameWorld, item_u64: u64, spec: &QuestRewardSp
     }
 }
 
-/// `Tile.relocateTo` — `data/lib/core/tile.lua`.
-fn tile_relocate_to(world: &mut GameWorld, from: Position, to: Position) -> bool {
-    if from == to || world.map.get_tile(to).is_none() {
-        return false;
-    }
-    let count = world.tile_get_thing_count(from.x, from.y, from.z);
-    let mut things = Vec::new();
-    for i in (0..count).rev() {
-        if let Some(th) = world.tile_get_thing(from.x, from.y, from.z, i) {
-            things.push(th);
-        }
-    }
-    for th in things {
-        match th {
-            tfs_rust_common::ScriptThing::Item(id) => {
-                let Some(iid) = world.resolve_item_u64(id) else {
-                    continue;
-                };
-                let Some(item) = world.items.get(iid) else {
-                    continue;
-                };
-                let item_type = item.item_type;
-                let fluid = world
-                    .items_db
-                    .items
-                    .get(&item_type)
-                    .map(|t| {
-                        if t.is_fluid_container() || t.is_splash() {
-                            item.get_sub_type(t)
-                        } else {
-                            item.fluid_type()
-                        }
-                    })
-                    .unwrap_or(item.fluid_type());
-                if fluid != 0 {
-                    let _ = world.lua_script_item_remove(id, -1);
-                } else if world
-                    .items_db
-                    .items
-                    .get(&item_type)
-                    .is_some_and(|t| t.moveable())
-                {
-                    let _ = world.lua_script_item_move_to(
-                        id,
-                        LuaMoveDestination::Tile {
-                            x: to.x,
-                            y: to.y,
-                            z: to.z,
-                        },
-                        0,
-                    );
-                }
-            }
-            tfs_rust_common::ScriptThing::Creature(id) => {
-                let _ = world.lua_script_creature_teleport(id, to.x, to.y, to.z, false);
-            }
-        }
-    }
-    true
-}
-
 /// `Position:moveUpstairs` — `data/lib/core/position.lua`.
 fn move_upstairs(world: &GameWorld, pos: Position) -> Position {
     if pos.z == 0 {
@@ -1001,6 +1009,8 @@ mod tests {
         let tables = load_from_data_dir(&workspace_data());
         assert_eq!(tables.action_ids.get("pickHole").copied(), Some(4003));
         assert_eq!(tables.action_ids.get("sandHole").copied(), Some(4002));
+        assert!(!tables.action_ids.contains_key("levelDoor"));
+        assert!(!tables.action_ids.contains_key("citizenship"));
         assert!(tables.pick_grounds.contains(&354));
         assert!(tables.pick_grounds.contains(&355));
         assert!(tables.holes.contains(&468));
@@ -1011,6 +1021,11 @@ mod tests {
         assert!(tables.named_ids.contains_key("wheatMature"));
         assert!(!tables.scarab_monster.is_empty());
         assert!(tables.sand_hole_chance > 0);
+        assert_eq!(tables.move_item_policy.quest_object_aid_min, Some(1000));
+        assert_eq!(tables.move_item_policy.quest_object_aid_max, Some(2000));
+        assert_eq!(tables.move_item_policy.pre_move_transforms.get(&2057), Some(&2042));
+        assert_eq!(tables.move_item_policy.post_move_transforms.get(&2579), Some(&2578));
+        assert_eq!(tables.move_item_policy.post_move_effect_id, Some(3));
     }
 
     #[test]
