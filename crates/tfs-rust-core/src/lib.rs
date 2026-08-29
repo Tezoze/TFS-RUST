@@ -97,6 +97,7 @@ pub mod stability;
 mod stepping_tiles;
 mod subsystem_counters;
 pub mod talkactions;
+mod trade;
 #[cfg(test)]
 mod test_world;
 pub mod thing;

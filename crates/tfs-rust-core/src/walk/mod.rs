@@ -1948,6 +1948,7 @@ impl GameWorld {
                         if let Some(landed) = self.creatures.get(cid).map(|k| k.position()) {
                             self.apply_tile_creature_specials(cid, landed);
                         }
+                        self.player_check_trade_walk(cid);
 
                         // Emit deferred chain turn `0x6B` AFTER move packets — matches C++ wire
                         // order: `Map::moveCreature` sends `sendMoveCreature` during the move

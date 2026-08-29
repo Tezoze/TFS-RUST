@@ -4024,6 +4024,15 @@ impl GameWorld {
                     TodoExecuteKind::Wait
                 }
             }
+            CreatureAction::Trade { obj, partner_wire } => {
+                trace_creature_todo(self, cid, "execute_trade");
+                let result = self.player_execute_trade(cid, obj, partner_wire);
+                if let Err(rv) = result {
+                    self.apply_todo_result_catch(cid, rv);
+                }
+                trace_creature_todo(self, cid, "execute_trade_done");
+                TodoExecuteKind::Wait
+            }
         };
 
         // Batch LockToDo stays set while todos/walk_queue remain; release before idle follow-up

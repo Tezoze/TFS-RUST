@@ -150,6 +150,11 @@ pub enum CreatureAction {
     /// `GamePacket::Turn` and stays immediate (`receiving.cc:213`). No `Rotate` variant
     /// on this enum (§3 note); this `Turn` variant is the item-rotate action only.
     Turn { obj: ActionObjectRef },
+    /// `TDTrade` — `cract.cc:1202-1256` `ToDoTrade` / execute `Trade` (`cract.cc:653`).
+    Trade {
+        obj: ActionObjectRef,
+        partner_wire: u32,
+    },
 }
 
 /// Per-creature action queue paired with the global wakeup heap.

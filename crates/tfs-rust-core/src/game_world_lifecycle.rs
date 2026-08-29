@@ -70,6 +70,9 @@ impl GameWorld {
     /// Remove creature from map index, player lookups, guild online; remove summons if master dies.
     // C++ reference: `Game::removeCreature` — summon chain + spectator disappear.
     pub fn remove_creature(&mut self, id: CreatureId) {
+        if matches!(self.creatures.get(id), Some(CreatureKind::Player(_))) {
+            self.cancel_trade_for_player(id);
+        }
         // NPC-7: fire onDisappear before teardown when registered.
         let disappear_cb = match self.creatures.get(id) {
             Some(CreatureKind::Npc(n)) => {
@@ -334,7 +337,7 @@ impl GameWorld {
         self.combat_stop_attack(cid, 0);
         self.chat.remove_user_from_all_channels(cid);
         let _ = self.container_registry.close_all_for_player(cid);
-        // `RejectTrade` — trade not ported yet.
+        self.cancel_trade_for_player(cid);
 
         tracing::info!(?cid, old_conn = ?old_conn.map(|c| c.0), "player takeover");
         old_conn

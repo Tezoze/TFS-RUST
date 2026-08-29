@@ -437,6 +437,12 @@ pub enum LuaMutation {
     HouseSave {
         house_id: u32,
     },
+    /// `house:startTrade` — TFS `luaHouseStartTrade` after pack checks.
+    HouseStartTrade {
+        house_id: u32,
+        player_id: u64,
+        partner_id: u64,
+    },
     /// `player:setEditHouse(house, listId)` — TFS `luaPlayerSetEditHouse`.
     PlayerSetEditHouse {
         creature_id: u64,
@@ -1407,6 +1413,16 @@ pub fn call_house_kick_player(
 /// `house:save()`.
 pub fn call_house_save(house_id: u32) -> Result<(), String> {
     apply_mutation(LuaMutation::HouseSave { house_id })
+}
+
+/// `house:startTrade` native P2P trade start.
+pub fn call_house_start_trade(house_id: u32, player_id: u64, partner_id: u64) -> Result<i32, String> {
+    apply_mutation(LuaMutation::HouseStartTrade {
+        house_id,
+        player_id,
+        partner_id,
+    })?;
+    Ok(take_mutation_i32_result().unwrap_or(1))
 }
 
 /// `player:setEditHouse(house, listId)`.

@@ -1385,7 +1385,7 @@ pub(crate) fn return_value_message(code: i32) -> String {
         26 => "You cannot use this object.".to_string(),
         27 => "A player with this name is not online.".to_string(),
         28 => "You are already trading. Finish this trade first.".to_string(),
-        29 => "This player is already trading.".to_string(),
+        29 => "This person is already trading.".to_string(),
         30 => "You may not logout during or immediately after a fight!".to_string(),
         31 => "You are not allowed to shoot directly on players.".to_string(),
         32 => "Your level is too low.".to_string(),

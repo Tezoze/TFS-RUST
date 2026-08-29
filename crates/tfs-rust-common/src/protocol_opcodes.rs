@@ -312,6 +312,13 @@ pub mod server {
     /// 772: `gameserver/src/protocolgame.cpp:1937`; 1098: `src/protocolgame.cpp:3012`.
     /// Layout: `0x97 | u8 0x00 | u32 windowTextId | string text`.
     pub const HOUSE_WINDOW: u8 = 0x97;
+    /// Own-offer trade window — `ProtocolGame::sendTradeItemRequest` ack.
+    /// 772: `gameserver/src/protocolgame.cpp`; 1098: `src/protocolgame.cpp`.
+    pub const TRADE_OFFER_OWN: u8 = 0x7D;
+    /// Partner-offer trade window — same layout as [`TRADE_OFFER_OWN`].
+    pub const TRADE_OFFER_PARTNER: u8 = 0x7E;
+    /// Close trade window. Distinct from client [`super::client::CLOSE_TRADE`] (`0x80`).
+    pub const CLOSE_TRADE: u8 = 0x7F;
 
     /// Self-appear opcode (`ProtocolGame::sendAddCreature` self branch). Version-keyed:
     /// 772 = `0x0A` (`gameserver/src/protocolgame.cpp`), 1098 = `0x17` (repo-root `src/protocolgame.cpp`).

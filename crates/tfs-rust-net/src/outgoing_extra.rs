@@ -374,7 +374,7 @@ pub fn send_quest_line(
 
 pub fn send_close_trade() -> NetworkMessage {
     let mut m = NetworkMessage::new();
-    m.write_u8(0x7F);
+    m.write_u8(tfs_rust_common::protocol_opcodes::server::CLOSE_TRADE);
     m
 }
 
@@ -831,11 +831,17 @@ pub fn send_creature_turn(
     Codec1098.encode_creature_turn(creature_id, stack_pos, tile_pos, direction, can_walkthrough)
 }
 
+/// Deprecated stub — use [`ProtocolCodec::encode_trade_item_request`] (name + item list).
+#[deprecated(note = "use ProtocolCodec::encode_trade_item_request")]
 pub fn send_trade_request(trader: &str, ack: bool) -> NetworkMessage {
     let mut m = NetworkMessage::new();
-    m.write_u8(0x7D);
+    m.write_u8(if ack {
+        tfs_rust_common::protocol_opcodes::server::TRADE_OFFER_OWN
+    } else {
+        tfs_rust_common::protocol_opcodes::server::TRADE_OFFER_PARTNER
+    });
     m.write_string(trader);
-    m.write_u8(u8::from(ack));
+    m.write_u8(0);
     m
 }
 

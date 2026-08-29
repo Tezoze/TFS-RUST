@@ -729,6 +729,32 @@ mod v772 {
         assert_eq!(m.as_bytes(), &[0x00, 0x00, 0x56, 0x04]);
     }
 
+    /// `sendTradeItemRequest` own offer: `0x7D` + name + `u8` count + items.
+    /// 772: `gameserver/src/protocolgame.cpp`.
+    #[test]
+    fn trade_item_request_own_plain_item() {
+        let args = ItemTemplateArgs {
+            client_id: 0x1234,
+            count: 1,
+            stackable: false,
+            is_splash_or_fluid: false,
+            is_animation: false,
+            with_description: false,
+        };
+        let b = codec()
+            .encode_trade_item_request("Alice", true, &[args])
+            .into_bytes();
+        assert_eq!(
+            b,
+            vec![0x7D, 5, 0, b'A', b'l', b'i', b'c', b'e', 1, 0x34, 0x12]
+        );
+        assert_eq!(codec().encode_close_trade().into_bytes(), vec![0x7F]);
+        let partner = codec()
+            .encode_trade_item_request("Bob", false, &[args])
+            .into_bytes();
+        assert_eq!(partner[0], 0x7E);
+    }
+
     /// `AddCreature` unknown header: `0x61` + removeId + id + name (no creature-type byte), health,
     /// direction, outfit, raw light, **full** step speed, skull, party shield. No emblem / 2nd
     /// type / bubble / MARK / helpers / walkthrough.

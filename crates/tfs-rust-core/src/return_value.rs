@@ -84,6 +84,8 @@ pub enum ReturnValue {
     TooManyParts,
     NotCumulable,
     NoMatch,
+    /// 772 `TOOMANYOBJECTS` (`sending.cc:342`, `cract.cc:676-677`).
+    TooManyTradeObjects,
 }
 
 impl ReturnValue {
@@ -147,7 +149,8 @@ impl ReturnValue {
             ReturnValue::YouAreAlreadyTrading => {
                 "You are already trading. Finish this trade first."
             }
-            ReturnValue::ThisPlayerIsAlreadyTrading => "This player is already trading.",
+            // 772 `PARTNERTRADING` (`sending.cc:341`).
+            ReturnValue::ThisPlayerIsAlreadyTrading => "This person is already trading.",
             ReturnValue::YouMayNotLogoutDuringAFight => {
                 "You may not logout during or immediately after a fight!"
             }
@@ -224,6 +227,9 @@ impl ReturnValue {
             ReturnValue::TooManyParts => "There are too many parts.",
             ReturnValue::NotCumulable => "This object is not stackable.",
             ReturnValue::NoMatch => "This object does not match.",
+            ReturnValue::TooManyTradeObjects => {
+                "You can only trade up to 100 objects at one time."
+            }
             // `RETURNVALUE_NOTPOSSIBLE`, `RETURNVALUE_CREATUREBLOCK`, etc. — `tools.cpp` default.
             ReturnValue::NotPossible | ReturnValue::CreatureBlock => "Sorry, not possible.",
         }

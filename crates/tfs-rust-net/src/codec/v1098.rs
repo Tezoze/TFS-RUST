@@ -626,4 +626,32 @@ impl Codec1098 {
         m.write_string(w.written_date.as_deref().unwrap_or(""));
         m
     }
+
+    /// `ProtocolGame::sendTradeItemRequest` — `src/protocolgame.cpp`.
+    pub fn encode_trade_item_request(
+        &self,
+        trader_name: &str,
+        own_offer: bool,
+        items: &[ItemTemplateArgs],
+    ) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(if own_offer {
+            tfs_rust_common::protocol_opcodes::server::TRADE_OFFER_OWN
+        } else {
+            tfs_rust_common::protocol_opcodes::server::TRADE_OFFER_PARTNER
+        });
+        m.write_string(trader_name);
+        m.write_u8(items.len().min(255) as u8);
+        for args in items.iter().take(255) {
+            self.write_item_template_args(&mut m, *args);
+        }
+        m
+    }
+
+    /// `ProtocolGame::sendCloseTrade` — `src/protocolgame.cpp`.
+    pub fn encode_close_trade(&self) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(tfs_rust_common::protocol_opcodes::server::CLOSE_TRADE);
+        m
+    }
 }

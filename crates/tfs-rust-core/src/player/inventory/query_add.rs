@@ -416,8 +416,8 @@ impl GameWorld {
     }
 
     /// Trade item excluded from auto-destination — `player.cpp` ~2737. Stub until trade is ported.
-    fn player_trade_item(&self, _player_id: CreatureId) -> Option<ItemId> {
-        None
+    fn player_trade_item(&self, player_id: CreatureId) -> Option<ItemId> {
+        self.player_trade_item_id(player_id)
     }
 
     fn player_skip_destination_item(

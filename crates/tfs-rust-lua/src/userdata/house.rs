@@ -1,13 +1,14 @@
 //! House userdata for Lua (`House` in TFS scripts).
 //!
 //! Pack surface: TFS `luascript.cpp` `luaHouseCreate` / house methods.
-//! `startTrade` (`luaHouseStartTrade`) returns `RETURNVALUE_*` without native P2P trade.
+//! `startTrade` (`luaHouseStartTrade`) starts native P2P trade with a transfer document.
 
 use mlua::{MetaMethod, UserData, UserDataMethods, Value};
 
 use crate::context::{CreatureRef, ItemRef, current_ctx};
 use crate::lua_mutation::{
     call_house_kick_player, call_house_save, call_house_set_access_list, call_house_set_owner,
+    call_house_start_trade,
 };
 use crate::userdata::position::PositionRef;
 use crate::userdata::tile::TileRef;
@@ -197,9 +198,6 @@ impl UserData for HouseRef {
             call_house_kick_player(this.0, kicker_id, target_id).map_err(mlua::Error::runtime)
         });
 
-        // TFS `luaHouseStartTrade`. Player-to-player trade is not native — never
-        // creates a transfer item. Always returns `RETURNVALUE_*` (never nil) so
-        // `!sellhouse` can `sendCancelMessage(returnValue)`.
         methods.add_method(
             "startTrade",
             |_, this, (player, partner): (Value, Value)| {
@@ -234,14 +232,13 @@ fn positions_in_trade_range(a: tfs_rust_common::Position, b: tfs_rust_common::Po
     a.z == b.z && a.x.abs_diff(b.x) <= 2 && a.y.abs_diff(b.y) <= 2
 }
 
-/// TFS `luaHouseStartTrade` check order. Trade is not native → never starts a trade.
+/// TFS `luaHouseStartTrade` check order, then native `internalStartTrade`.
 fn house_start_trade(house_id: u32, player: &Value, partner: &Value) -> i32 {
     const NOT_POSSIBLE: i32 = 1; // RETURNVALUE_NOTPOSSIBLE
     const FAR_AWAY: i32 = 63; // RETURNVALUE_TRADEPLAYERFARAWAY
     const YOU_DONT_OWN: i32 = 64; // RETURNVALUE_YOUDONTOWNTHISHOUSE
     const ALREADY_OWNS: i32 = 65; // RETURNVALUE_TRADEPLAYERALREADYOWNSAHOUSE
     const HIGHEST_BIDDER: i32 = 66; // RETURNVALUE_TRADEPLAYERHIGHESTBIDDER
-    const CANNOT_TRADE: i32 = 67; // RETURNVALUE_YOUCANNOTTRADETHISHOUSE
 
     let Some(player_id) = creature_id_from_value(player) else {
         return NOT_POSSIBLE;
@@ -282,7 +279,10 @@ fn house_start_trade(house_id: u32, player: &Value, partner: &Value) -> i32 {
         }) {
             return HIGHEST_BIDDER;
         }
-        CANNOT_TRADE
+        match call_house_start_trade(house_id, player_id, partner_id) {
+            Ok(rv) => rv,
+            Err(_) => NOT_POSSIBLE,
+        }
     })
     .unwrap_or(NOT_POSSIBLE)
 }
@@ -479,8 +479,9 @@ mod tests {
     }
 
     #[test]
-    fn start_trade_owner_in_range_cannot_trade() {
-        assert_eq!(eval_start_trade(&HouseCtx::standard(), false), 67);
+    fn start_trade_owner_in_range_calls_native() {
+        // No mutation applier in this unit test → `NOTPOSSIBLE` after pack checks.
+        assert_eq!(eval_start_trade(&HouseCtx::standard(), false), 1);
     }
 
     #[test]

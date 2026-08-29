@@ -1014,6 +1014,7 @@ impl GameWorld {
                 to_work,
             );
         }
+        self.notify_trades(dest_id);
         Ok(dest_id)
     }
 }

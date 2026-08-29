@@ -407,6 +407,10 @@ fn game_packet_requires_timed_action(packet: &GamePacket) -> bool {
             | GamePacket::VipEdit { .. }
             | GamePacket::RequestOutfit
             | GamePacket::SetOutfit(_)
+            | GamePacket::RequestTrade { .. }
+            | GamePacket::LookInTrade { .. }
+            | GamePacket::AcceptTrade
+            | GamePacket::CloseTrade
     )
 }
 
@@ -1147,6 +1151,34 @@ fn handle_game_packet(
                 );
             }
         }
+        GamePacket::RequestTrade {
+            pos,
+            sprite_id,
+            stack_pos,
+            player_id,
+        } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_request_trade(conn_id, cid, pos, sprite_id, stack_pos, player_id);
+            }
+        }
+        GamePacket::LookInTrade {
+            counter_offer,
+            index,
+        } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_look_in_trade(conn_id, cid, counter_offer, index);
+            }
+        }
+        GamePacket::AcceptTrade => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_accept_trade(cid);
+            }
+        }
+        GamePacket::CloseTrade => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_close_trade(cid);
+            }
+        }
         _ => trace!(
             conn_id = conn_id.0,
             ?packet,
@@ -1715,6 +1747,22 @@ mod timed_action_gate_tests {
                 stack_pos: 0,
             }
         ));
+    }
+
+    #[test]
+    fn trade_packets_are_not_timed_action_gated() {
+        assert!(!game_packet_requires_timed_action(&GamePacket::RequestTrade {
+            pos: tfs_rust_common::Position::new(100, 100, 7),
+            sprite_id: 2148,
+            stack_pos: 0,
+            player_id: 11,
+        }));
+        assert!(!game_packet_requires_timed_action(&GamePacket::LookInTrade {
+            counter_offer: false,
+            index: 0,
+        }));
+        assert!(!game_packet_requires_timed_action(&GamePacket::AcceptTrade));
+        assert!(!game_packet_requires_timed_action(&GamePacket::CloseTrade));
     }
 
     #[test]

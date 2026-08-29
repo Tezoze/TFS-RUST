@@ -231,6 +231,18 @@ pub trait ProtocolCodec {
     /// Identical on 772 and 1098.
     fn encode_house_window(&self, window_text_id: u32, text: &str) -> NetworkMessage;
 
+    /// `ProtocolGame::sendTradeItemRequest` — own `0x7D` / partner `0x7E`, name, `u8` count, items.
+    /// 772: `gameserver/src/protocolgame.cpp` `sendTradeItemRequest`; 1098: `src/protocolgame.cpp`.
+    fn encode_trade_item_request(
+        &self,
+        trader_name: &str,
+        own_offer: bool,
+        items: &[ItemTemplateArgs],
+    ) -> NetworkMessage;
+
+    /// `ProtocolGame::sendCloseTrade` — `0x7F`.
+    fn encode_close_trade(&self) -> NetworkMessage;
+
     /// Era-correct wire value for the "cancel / failure" text-message channel used by
     /// `sendCancelMessage` (1098) / `SendResult` (772).
     ///
@@ -534,6 +546,19 @@ impl ProtocolCodec for Codec1098 {
         crate::outgoing_extra::send_house_window(window_text_id, text)
     }
 
+    fn encode_trade_item_request(
+        &self,
+        trader_name: &str,
+        own_offer: bool,
+        items: &[ItemTemplateArgs],
+    ) -> NetworkMessage {
+        Codec1098::encode_trade_item_request(self, trader_name, own_offer, items)
+    }
+
+    fn encode_close_trade(&self) -> NetworkMessage {
+        Codec1098::encode_close_trade(self)
+    }
+
     fn failure_message_type(&self) -> u8 {
         21 // MESSAGE_STATUS_SMALL — `src/const.h:190`
     }
@@ -824,6 +849,19 @@ impl ProtocolCodec for Codec772 {
         crate::outgoing_extra::send_house_window(window_text_id, text)
     }
 
+    fn encode_trade_item_request(
+        &self,
+        trader_name: &str,
+        own_offer: bool,
+        items: &[ItemTemplateArgs],
+    ) -> NetworkMessage {
+        Codec772::encode_trade_item_request(self, trader_name, own_offer, items)
+    }
+
+    fn encode_close_trade(&self) -> NetworkMessage {
+        Codec772::encode_close_trade(self)
+    }
+
     fn failure_message_type(&self) -> u8 {
         23 // TALK_FAILURE_MESSAGE — `sending.cc:339`, `enums.hh:674`
     }
@@ -1011,6 +1049,14 @@ impl Codec {
         encode_text_window(w: &wire::TextWindowWire) -> NetworkMessage;
 
         encode_house_window(window_text_id: u32, text: &str) -> NetworkMessage;
+
+        encode_trade_item_request(
+            trader_name: &str,
+            own_offer: bool,
+            items: &[ItemTemplateArgs],
+        ) -> NetworkMessage;
+
+        encode_close_trade() -> NetworkMessage;
 
         failure_message_type() -> u8;
 
@@ -1298,6 +1344,19 @@ impl ProtocolCodec for Codec {
 
     fn encode_house_window(&self, window_text_id: u32, text: &str) -> NetworkMessage {
         Codec::encode_house_window(self, window_text_id, text)
+    }
+
+    fn encode_trade_item_request(
+        &self,
+        trader_name: &str,
+        own_offer: bool,
+        items: &[ItemTemplateArgs],
+    ) -> NetworkMessage {
+        Codec::encode_trade_item_request(self, trader_name, own_offer, items)
+    }
+
+    fn encode_close_trade(&self) -> NetworkMessage {
+        Codec::encode_close_trade(self)
     }
 
     fn failure_message_type(&self) -> u8 {

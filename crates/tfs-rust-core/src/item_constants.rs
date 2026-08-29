@@ -9,5 +9,7 @@ pub const ITEM_DEPOT: u16 = 2594;
 pub const ITEM_INBOX: u16 = 14404;
 /// Stamped letter — `ITEM_LETTER_STAMPED` (`const.h`).
 pub const ITEM_LETTER_STAMPED: u16 = 2598;
+/// Read-only document — TFS `ITEM_DOCUMENT_RO` (`const.h`); house transfer item.
+pub const ITEM_DOCUMENT_RO: u16 = 1968;
 /// Market slot inside virtual depot locker — `ITEM_MARKET`.
 pub const ITEM_MARKET: u16 = 14405;

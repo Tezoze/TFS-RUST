@@ -584,6 +584,15 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             let _ = house_id;
             Ok(())
         }
+        LuaMutation::HouseStartTrade {
+            house_id,
+            player_id,
+            partner_id,
+        } => {
+            let rv = unsafe { &mut *world }.lua_house_start_trade(house_id, player_id, partner_id);
+            set_mutation_i32_result(rv);
+            Ok(())
+        }
         LuaMutation::PlayerSetEditHouse {
             creature_id,
             house_id,

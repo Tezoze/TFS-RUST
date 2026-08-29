@@ -206,20 +206,23 @@ impl GameWorld {
         }
     }
 
-    /// C++ `Player::onUpdateInventoryItem` — trade guards deferred (`player.cpp` ~1461).
+    /// C++ `Player::onUpdateInventoryItem` — `NotifyTrades` (`operate.cc:990`).
     fn on_update_inventory_item(
         &mut self,
         _cid: CreatureId,
         _slot: u8,
-        _old_item: Option<ItemId>,
-        _new_item: ItemId,
+        old_item: Option<ItemId>,
+        new_item: ItemId,
     ) {
-        // Trade `checkTradeState` when trade port lands.
+        if let Some(old) = old_item {
+            self.notify_trades(old);
+        }
+        self.notify_trades(new_item);
     }
 
-    /// C++ `Player::onRemoveInventoryItem` — trade guards deferred (`player.cpp` ~1472).
-    fn on_remove_inventory_item(&mut self, _cid: CreatureId, _item_id: ItemId) {
-        // Trade `checkTradeState` when trade port lands.
+    /// C++ `Player::onRemoveInventoryItem` — `NotifyTrades`.
+    fn on_remove_inventory_item(&mut self, _cid: CreatureId, item_id: ItemId) {
+        self.notify_trades(item_id);
     }
 
     fn clear_inventory_ability_on_deequip(&mut self, cid: CreatureId, slot: u8) {
