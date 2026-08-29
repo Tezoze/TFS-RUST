@@ -916,4 +916,7 @@
 413. **Official 772 keepalive is `0x1E`, not `0x1D`** (`player/ping.rs` `enqueue_periodic_ping`; TVP `protocolgame.cpp:1516` `sendPing`): `send_ping()` is always `0x1D` (1098 / OTClient). The real 7.72 client asserts `Control.cpp:1274` unknown packet type 29. `process_connections` (LastCommand 30/60) and lag `net_load_check` used `send_ping()` while `tick_player_pings` already used the codec. Official 772 → `0x1E`; OTClient → `0x1D`; 1098 always `0x1D`. Feels random because ping only fires after idle rounds (or under lag).
     *(August 2026)*
 
+414. **Login `last_command_round = 0` is an instant dead connection** (`register_conn_mapping`; `connections.cc:37` `LastCommand >= 90`): Player spawn left command/action stamps at 0. After ~90 Other rounds of uptime, the next `ProcessConnections` kicks the new session before the client can send a packet. Log order is `LOGOUT` then `game connection closed` (server closed TCP). Second Enter Game can stick if a ping/move stamps rounds before the next Other tick. Stamp both clocks on conn attach via `player_reset_connection_rounds(..., true)`.
+    *(August 2026)*
+
 

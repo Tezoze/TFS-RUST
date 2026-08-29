@@ -160,6 +160,11 @@ impl GameWorld {
     pub fn register_conn_mapping(&mut self, conn: ConnId, cid: CreatureId) {
         self.conn_to_creature.insert(conn, cid);
         self.creature_to_conn.insert(cid, conn);
+        // Connection attach is `ResetTimer` (`connections.cc:53`): `LastCommand`/`LastAction`
+        // start at current `RoundNr`. Leaving them at 0 makes `ProcessConnections` treat a
+        // fresh login as `LastCommand >= 90` after the server has been up ~90 Other rounds
+        // and kick immediately (`connections.cc:37`).
+        self.player_reset_connection_rounds(cid, true);
     }
 
     /// Remove a `ConnId ↔ CreatureId` mapping (audit #4). Companion to

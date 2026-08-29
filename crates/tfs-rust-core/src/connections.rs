@@ -238,6 +238,28 @@ mod tests {
         assert_eq!(kick.len(), 1, "kick at 660 (10+1 min)");
     }
 
+    /// Fresh login must not inherit `last_command_round = 0` vs a live `RoundNr`.
+    /// C++ new connection stamps `TimeStampCommand` at attach (`connections.cc:53`).
+    #[test]
+    fn login_mapping_does_not_trip_command_timeout() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let player = insert_player(&mut world, test_player("FreshLogin", pos));
+        let conn = tfs_rust_common::ConnId(1);
+        world.round_nr = 200;
+        world.register_conn_mapping(conn, player);
+        let kick = world.process_connections();
+        assert!(
+            kick.is_empty(),
+            "login attach must stamp LastCommand to RoundNr so timeout (90) does not fire"
+        );
+        if let Some(CreatureKind::Player(p)) = world.creatures.get(player) {
+            assert_eq!(p.last_command_round, 200);
+            assert_eq!(p.last_action_round, 200);
+        }
+    }
+
     /// C++ `LastCommand == 30` → `SendPing` (`connections.cc:24`).
     #[test]
     fn round_based_ping_at_30_rounds() {

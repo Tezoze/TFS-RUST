@@ -1,17 +1,14 @@
-# 772 client crash: unknown packet type 29 (0x1D)
+# Immediate logout on 772 login
 
 **Status:** complete.
-**Symptom:** Official 7.72 `Control.cpp:1274` — `unknown packet type during game (Type = 29)`. Last packet `001 000 029` (1-byte `0x1D`). Last types `029` then many `109` (`0x6D` moves). Feels random because keepalive only fires after ~30/60 idle rounds (or lag `NetLoadCheck`).
+**Symptom:** Login registers, then ~150ms later `LOGOUT` then `game connection closed`. Second Enter Game often sticks.
 
 ## Cause
 
-`server::SEND_PING = 0x1D` is **1098 / OTClient**. Official 772 keepalive is **`0x1E`** (`ProtocolGame::sendPing` in TVP `protocolgame.cpp:1516-1524`).
+`last_command_round` / `last_action_round` start at 0 (`login.rs`). `ProcessConnections` computes `round_nr - last_command_round`. After ~90 Other rounds of uptime that is already a dead connection (`connections.cc:37`). Next Other tick (often the first beat after login) kicks the player before the client can send a command.
 
-`tick_player_pings` already used `codec.periodic_ping_packet(is_otclient)`. The live 772 path did not:
-
-- `connections.rs` `process_connections` — always `send_ping()` (`0x1D`) at LastCommand 30/60
-- `game_world_tick.rs` `net_load_check` — same under lag
+Second attempt can survive if a ping/move stamps the rounds before the next Other fire (~1s).
 
 ## Fix
 
-Shared `GameWorld::enqueue_periodic_ping`. Tests: official 772 → `0x1E`; OTClient → `0x1D`; 1098 always `0x1D`.
+`register_conn_mapping` calls `player_reset_connection_rounds(..., true)` so attach stamps `LastCommand`/`LastAction` to current `RoundNr`.
