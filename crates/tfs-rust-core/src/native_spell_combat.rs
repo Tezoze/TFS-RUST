@@ -184,6 +184,7 @@ fn execute_compiled(
         create_item: compiled.create_item,
         no_damage: compiled.no_damage,
         distance_effect: compiled.distance_effect,
+        target_caster_or_topmost: compiled.target_caster_or_topmost,
     };
     world.combat_execute_from_lua(&request).is_ok()
 }
@@ -195,15 +196,16 @@ fn resolve_damage(world: &GameWorld, cid: CreatureId, compiled: &CompiledNativeS
         CompiledSpellDamage::LevelMagic {
             base,
             variation,
-            pvp_half,
+            limit_min,
+            limit_max,
             healing,
         } => {
             let (lo, hi) = world.compute_magic_damage_range(
                 cid_u64,
                 *base,
                 *variation,
-                false,
-                *pvp_half,
+                *limit_min,
+                *limit_max,
             );
             if *healing {
                 (lo, hi)

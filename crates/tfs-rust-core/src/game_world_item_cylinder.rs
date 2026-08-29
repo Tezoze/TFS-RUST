@@ -624,14 +624,11 @@ impl GameWorld {
             return self.add_ground_item_to_tile(pos, item_id, item_type);
         }
 
-        // 772 `CreatePool` (`operate.cc:2585-2619`): replace existing liquid pool, then
-        // Create — TOP objects (ladders) are skipped, not a hard block.
-        // TFS `addThing` "no splash in ladders" (`tile.cpp` ~884–893) discards the new
-        // splash when a remaining top item shares alwaysOnTopOrder — **772 wins**:
-        // splashes and ladders coexist in `top_items` via sorted insert (see
-        // `docs/772_SPLASH_LAYER_MISMATCH.md`). One splash per tile still holds.
+        // 772 `CreatePool` (`operate.cc:2585-2619`): delete any existing `LIQUIDPOOL`
+        // on the tile, then create — hit splatter (768-770) is replaced by the death
+        // pool (~TCreature `:216-226`) on the same tile.
         if is_splash {
-            self.remove_existing_splashes_on_tile(pos);
+            self.remove_existing_liquid_pools_on_tile(pos);
         }
 
         {
@@ -683,10 +680,9 @@ impl GameWorld {
         Ok(item_id)
     }
 
-    /// Remove splash items from the tile (top and down). 772 `CreatePool` deletes
-    /// existing `LIQUIDPOOL` then `Create`; TFS `addThing` replaces the first top splash.
-    /// Collect ids first — do not hold a tile borrow across `internal_remove_item_from_tile`.
-    fn remove_existing_splashes_on_tile(&mut self, pos: Position) {
+    /// Remove splash/pool items before `CreatePool` — 772 deletes every existing
+    /// bottom `LIQUIDPOOL` regardless of decay chain (`operate.cc:2585-2619`).
+    fn remove_existing_liquid_pools_on_tile(&mut self, pos: Position) {
         let existing: Vec<ItemId> = self
             .map
             .get_tile(pos)
@@ -710,10 +706,6 @@ impl GameWorld {
         }
     }
 
-    /// TFS `Tile::addThing` when `item->isGroundTile()` (`tile.cpp` ~852–867).
-    ///
-    /// Dirt overlays (4797/4799) are OTB group NONE + always-on-top, so they stay on the
-    /// top stack and do not take this path.
     fn add_ground_item_to_tile(
         &mut self,
         pos: Position,

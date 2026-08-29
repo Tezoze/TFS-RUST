@@ -579,6 +579,7 @@ impl GameWorld {
                     dispel: None,
                     apply_condition: None,
                     armor: physical_armor,
+                    skip_pvp_half: false,
                 };
 
                 self.combat_execute_with_stimulus(caster_id, target_id, &damage, &params);
@@ -737,6 +738,7 @@ mod tests {
             create_item: 0,
             no_damage: false,
             distance_effect: 0,
+            target_caster_or_topmost: false,
         };
         world.combat_execute_from_lua(&req).expect("execute");
         let hp = world.creatures.get(target).unwrap().base().health;

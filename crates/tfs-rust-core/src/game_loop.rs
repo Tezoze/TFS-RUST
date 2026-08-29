@@ -567,6 +567,7 @@ fn handle_player_loaded(
         Ok(login::ApplyPlayerOutcome::Spawned(cid)) => {
             world.register_conn_mapping(conn_id, cid);
             crate::login_out::enqueue_initial_login_packets(world, conn_id, cid);
+            login::finalize_player_login(world, cid);
             // 772 `TPlayer` ctor `FinishSendData`s only (`crplayer.cc:197-209`); `SendAll` is
             // `AdvanceGame` (`main.cc:455`). Beat-pending `SendAll` runs *before* dispatch.
         }
@@ -581,6 +582,7 @@ fn handle_player_loaded(
             }
             world.register_conn_mapping(conn_id, cid);
             crate::login_out::enqueue_initial_login_packets(world, conn_id, cid);
+            login::finalize_player_login(world, cid);
             // New conn waits for beat `SendAll`, same as spawn (`crplayer.cc:765-773`).
         }
         Err(e) => {

@@ -150,6 +150,7 @@ pub fn handle_creature_death(
     world_type: WorldType,
     mechanics: &MechanicsProfile,
     round_nr: u32,
+    victim_active_promotion: bool,
 ) -> (Vec<CreatureId>, Vec<XpShareGrant>) {
     if matches!(creatures.get(victim), Some(CreatureKind::Npc(_)) | None) {
         return (Vec::new(), Vec::new());
@@ -182,8 +183,7 @@ pub fn handle_creature_death(
     // 772 uses flat `(promoted ? 7 : 10) - blessings` percent; 1098 uses TFS curve.
     // Skill try loss is applied earlier via `GameWorld::apply_player_death_penalties`.
     if let Some(CreatureKind::Player(v)) = creatures.get_mut(victim) {
-        let promoted = v.vocation_profile.from_vocation != v.vocation_profile.id
-            && v.vocation_profile.from_vocation != 0;
+        let promoted = victim_active_promotion;
         let frac = death_loss_fraction_for_profile(
             mechanics,
             config,
@@ -355,6 +355,7 @@ mod tests {
         victim: CreatureId,
         world_type: WorldType,
     ) -> (Vec<CreatureId>, Vec<XpShareGrant>) {
+        let victim_active_promotion = world.player_active_promotion(victim);
         handle_creature_death(
             &mut world.creatures,
             &mut world.items,
@@ -370,6 +371,7 @@ mod tests {
             world_type,
             &world.mechanics.profile,
             world.round_nr,
+            victim_active_promotion,
         )
     }
 

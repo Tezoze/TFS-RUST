@@ -13,6 +13,7 @@
 //! `crate::player_flags::…` / `crate::player_inventory_util::…` / etc. call sites
 //! resolving unchanged until they are repointed opportunistically.
 
+pub(crate) mod active_vocation;
 pub(crate) mod combat;
 pub(crate) mod depot;
 pub(crate) mod flags;

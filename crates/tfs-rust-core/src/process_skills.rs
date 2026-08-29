@@ -112,7 +112,8 @@ impl GameWorld {
     fn process_creature_skills(&mut self, cid: CreatureId) {
         // C2 — Track which condition index fired an Event for field re-extension.
         // (origin, combat_type, dmg, condition_index_for_field_extend)
-        let mut dot_events: Vec<(Option<CreatureId>, CombatType, i32, Option<usize>)> = Vec::new();
+        let mut dot_events: Vec<(Option<CreatureId>, CombatType, i32, Option<usize>, bool)> =
+            Vec::new();
         let mut remove_indices: Vec<usize> = Vec::new();
         let mut ended_ctypes: Vec<ConditionType> = Vec::new();
 
@@ -167,7 +168,7 @@ impl GameWorld {
                         } else {
                             base.energy_damage_origin
                         };
-                        dot_events.push((origin, combat, dmg, Some(idx)));
+                        dot_events.push((origin, combat, dmg, Some(idx), cond.field_dot));
                         if ticks_left <= 1 {
                             remove_indices.push(idx);
                             ended_ctypes.push(cond.ctype);
@@ -207,6 +208,7 @@ impl GameWorld {
                                 CombatType::Earth,
                                 range.abs(),
                                 Some(idx),
+                                cond.field_dot,
                             ));
                         }
                     }
@@ -238,7 +240,7 @@ impl GameWorld {
             }
         }
 
-        for (origin, combat, dmg, cond_idx) in dot_events {
+        for (origin, combat, dmg, cond_idx, field_dot) in dot_events {
             if dmg <= 0 {
                 continue;
             }
@@ -249,8 +251,12 @@ impl GameWorld {
             // 772 `TSkillHitpoints::Set` → `SendPlayerData` (`crskill.cc:682-683`).
             // Snapshot before apply — death may remove the creature.
             let snap = self.combat_notify_snapshot(cid);
+            let params = CombatParams {
+                skip_pvp_half: field_dot,
+                ..CombatParams::default()
+            };
             let damage_scalar =
-                self.combat_execute_with_stimulus(origin, cid, &damage, &CombatParams::default());
+                self.combat_execute_with_stimulus(origin, cid, &damage, &params);
             // M2 — Use the real `Damage` scalar (includes mana-shield absorb).
             let damage_done = damage_scalar;
             if let Some(snap) = snap {
@@ -597,6 +603,7 @@ mod tests {
                 timer_rounds_left: Some(2),
                 skill_count: 0,
                 skill_max_count: 1,
+            field_dot: false,
             },
         );
 
@@ -641,6 +648,7 @@ mod tests {
                 timer_rounds_left: Some(3),
                 skill_count: 2,
                 skill_max_count: 2,
+            field_dot: false,
             },
         );
 
@@ -680,6 +688,7 @@ mod tests {
             timer_rounds_left: None,
             skill_count: 0,
             skill_max_count: 1, // Event every ProcessSkills for this unit test
+        field_dot: false,
         }];
         add_condition_merge(
             &mut conds,
@@ -694,6 +703,7 @@ mod tests {
                 timer_rounds_left: None,
                 skill_count: 0,
                 skill_max_count: 1,
+            field_dot: false,
             },
         );
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
@@ -1171,6 +1181,7 @@ mod tests {
                 timer_rounds_left: None,
                 skill_count: 0,
                 skill_max_count: 1, // Event every ProcessSkills
+            field_dot: false,
             });
         }
         let hp_before = world.creatures.get(player).unwrap().base().health;
@@ -1229,6 +1240,7 @@ mod tests {
                 timer_rounds_left: None,
                 skill_count: 0,
                 skill_max_count: 1, // Event every ProcessSkills
+            field_dot: false,
             });
         }
         let hp_start = world.creatures.get(player).unwrap().base().health;

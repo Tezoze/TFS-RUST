@@ -244,6 +244,7 @@ impl PartialCond {
             timer_rounds_left: rounds,
             skill_count: 0,
             skill_max_count: 0,
+            field_dot: false,
         })
     }
 }
@@ -480,6 +481,7 @@ mod tests {
                 timer_rounds_left: Some(200),
                 skill_count: 0,
                 skill_max_count: 0,
+                field_dot: false,
             },
             ActiveCondition {
                 id: 0,
@@ -489,6 +491,7 @@ mod tests {
                 timer_rounds_left: Some(30),
                 skill_count: 0,
                 skill_max_count: 0,
+                field_dot: false,
             },
             ActiveCondition {
                 id: 0,
@@ -498,6 +501,7 @@ mod tests {
                 timer_rounds_left: Some(200),
                 skill_count: 0,
                 skill_max_count: 0,
+                field_dot: false,
             },
         ];
         let blob = serialize_conditions(&conds);
@@ -523,6 +527,7 @@ mod tests {
             timer_rounds_left: Some(0),
             skill_count: 0,
             skill_max_count: 0,
+            field_dot: false,
         }];
         assert!(serialize_conditions(&conds).is_empty());
     }

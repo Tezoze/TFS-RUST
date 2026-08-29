@@ -2599,6 +2599,7 @@ fn config_key_to_lua_bool(key: &mlua::Value) -> Option<&'static str> {
     match key {
         mlua::Value::String(s) => match s.to_str().ok()?.as_ref() {
             "freePremium" | "FREE_PREMIUM" => Some("freePremium"),
+            "premiumPromotion" | "PREMIUM_PROMOTION" => Some("premiumPromotion"),
             "defaultWorldLight" | "DEFAULT_WORLD_LIGHT" => Some("defaultWorldLight"),
             "housesOnlyPremium" | "HOUSES_ONLY_PREMIUM" => Some("housesOnlyPremium"),
             "guildHallsOnlyForLeaders" | "GUILHALLS_ONLYFOR_LEADERS" => {
@@ -2617,6 +2618,7 @@ fn config_key_to_lua_bool(key: &mlua::Value) -> Option<&'static str> {
             // TVP `boolean_config_t::HOUSES_ONLY_PREMIUM`
             50 => Some("housesOnlyPremium"),
             51 => Some("useHouseAreaPrices"),
+            52 => Some("premiumPromotion"),
             _ => None,
         },
         mlua::Value::Number(n) => config_key_to_lua_bool(&mlua::Value::Integer(*n as i64)),
@@ -2661,9 +2663,28 @@ fn config_key_to_lua_number(key: &mlua::Value) -> Option<&'static str> {
     }
 }
 
+/// TFS `string_config_t` → `config.lua` key (`configmanager.cpp`).
+fn config_string_key_from_index(index: i64) -> Option<&'static str> {
+    match index {
+        0 => Some("serverName"),
+        1 => Some("ownerName"),
+        2 => Some("ownerEmail"),
+        3 => Some("url"),
+        4 => Some("location"),
+        5 => Some("ip"),
+        6 => Some("motd"),
+        7 => Some("worldType"),
+        8 => Some("mapName"),
+        9 => Some("mapAuthor"),
+        _ => None,
+    }
+}
+
 fn config_key_to_lua_string(key: &mlua::Value) -> Option<String> {
     match key {
         mlua::Value::String(s) => Some(s.to_str().ok()?.to_string()),
+        mlua::Value::Integer(i) => config_string_key_from_index(*i).map(str::to_string),
+        mlua::Value::Number(n) => config_string_key_from_index(*n as i64).map(str::to_string),
         _ => None,
     }
 }

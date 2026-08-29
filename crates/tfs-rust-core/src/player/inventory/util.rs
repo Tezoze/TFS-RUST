@@ -350,14 +350,18 @@ impl GameWorld {
     /// (`crcombat.cc:62-76`). Wands/rods keep Lua `WandDef` for strike content; item-flag
     /// gates still skip underleveled / wrong-voc gear from the combat snapshot.
     fn combat_weapon_passes_restrict_gates(&self, cid: CreatureId, it: &ItemType) -> bool {
-        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
-            return false;
+        let (level, stored_voc) = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => (p.level, p.vocation_id),
+            _ => return false,
         };
-        if it.min_req_level > 0 && (p.level as u32) < it.min_req_level {
+        if it.min_req_level > 0 && (level as u32) < it.min_req_level {
             return false;
         }
         if !it.voc_equip_names.is_empty() {
-            let Some(voc) = self.vocations.get(p.vocation_id) else {
+            let active_voc = self
+                .player_active_vocation_id(cid)
+                .unwrap_or(stored_voc);
+            let Some(voc) = self.vocations.get(active_voc) else {
                 return false;
             };
             let name = voc.name.to_ascii_lowercase();

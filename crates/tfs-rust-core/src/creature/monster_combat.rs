@@ -520,6 +520,7 @@ pub fn melee_poison_on_hit(
         timer_rounds_left: None,
         skill_count: 0,
         skill_max_count: 0,
+    field_dot: false,
     })
 }
 

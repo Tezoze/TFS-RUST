@@ -775,8 +775,18 @@ impl GameWorld {
         let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
             return Err("setVocation: not a player".into());
         };
-        p.vocation_id = vocation_id;
-        p.vocation_profile = profile;
+        {
+            p.vocation_id = vocation_id;
+            p.vocation_profile = profile;
+            if let Some(persist) = p.persist.as_mut() {
+                persist.player_row.vocation = vocation_id;
+            }
+        }
+        self.refresh_player_active_vocation_profile(cid);
+        if self.conn_for_creature(cid).is_some() {
+            self.send_player_stats(cid);
+            self.send_player_skills(cid);
+        }
         Ok(true)
     }
 
@@ -1718,10 +1728,12 @@ impl GameWorld {
                     let role_clause = match access_group {
                         Some(name) => format!("You are {name}."),
                         None => {
-                            // `vocation->getVocDescription()` (`vocation.h:18-20`); id 0 ⇒ "no vocation".
+                            let active_voc = self
+                                .player_active_vocation_id(target_cid)
+                                .unwrap_or(p.vocation_id);
                             let voc_desc = self
                                 .vocations
-                                .get(p.vocation_id)
+                                .get(active_voc)
                                 .filter(|v| v.id != 0)
                                 .map(|v| v.description.as_str());
                             match voc_desc {
@@ -1744,9 +1756,12 @@ impl GameWorld {
                             format!("You see {}. {pronoun} is {group_name}.", p.base.name)
                         }
                         None => {
+                            let active_voc = self
+                                .player_active_vocation_id(target_cid)
+                                .unwrap_or(p.vocation_id);
                             let voc_desc = self
                                 .vocations
-                                .get(p.vocation_id)
+                                .get(active_voc)
                                 .filter(|v| v.id != 0)
                                 .map(|v| v.description.as_str());
                             let vocation_clause = match voc_desc {

@@ -11,6 +11,13 @@ use crate::creature::CreatureKind;
 use crate::creature::vocation::VocationProfile;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
+use tfs_rust_content::otb::ItemType;
+
+/// C++ `Create` applies `Npc->Data` as object `Value` for subtype-bearing types
+/// (`operate.cc:1178-1187` — fluid, key, rune charges).
+fn npc_item_uses_session_data(it: &ItemType) -> bool {
+    it.is_fluid_container() || it.is_splash() || it.is_key() || it.is_rune()
+}
 
 impl NpcActionHost for GameWorld {
     fn create_item(
@@ -233,10 +240,11 @@ impl GameWorld {
         };
         let it = self.items_db.items.get(&item_id);
         let stackable = it.map(|t| t.stackable()).unwrap_or(false);
-        // `Npc->Data` only matters for items that store a subtype (fluid / key). For all
-        // other items the TFS API uses `-1` to mean "any subtype / don't care".
-        let needs_data = it.is_some_and(|t| t.is_fluid_container() || t.is_splash() || t.is_key());
-        let effective_data = if needs_data { data } else { -1 };
+        let effective_data = if it.is_some_and(npc_item_uses_session_data) {
+            data
+        } else {
+            -1
+        };
         if stackable {
             let mut remaining = amount;
             while remaining > 0 {
@@ -282,13 +290,13 @@ impl GameWorld {
             amount
         };
         let it = self.items_db.items.get(&item_id);
-        // `Npc->Data` only matters for items that store a subtype (fluid / key). For all
-        // other items the TFS API uses `-1` to mean "any subtype / don't care".
-        let needs_data = it.is_some_and(|t| t.is_fluid_container() || t.is_splash() || t.is_key());
-        let effective_data = if needs_data { data } else { -1 };
+        let effective_data = if it.is_some_and(npc_item_uses_session_data) {
+            data
+        } else {
+            -1
+        };
         // `player_remove_item_of_type` already branches on CUMULATIVE internally, mirroring
-        // `DeleteAtCreature`; the split is explicit here for parity with `npc_give_to` and to
-        // prepare for Phase 2 `data` plumbing.
+        // `DeleteAtCreature`; the split is explicit here for parity with `npc_give_to`.
         if !self.player_remove_item_of_type(player, item_id, amount, effective_data, false) {
             return Err(format!("failed to delete item {item_id} x{amount}"));
         }

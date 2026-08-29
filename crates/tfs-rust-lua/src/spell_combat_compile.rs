@@ -25,6 +25,7 @@ pub struct CompiledNativeSpellCombat {
     pub dispel_type: i32,
     pub create_item: i32,
     pub no_damage: bool,
+    pub target_caster_or_topmost: bool,
     pub area: Option<AreaCombat>,
     pub damage: CompiledSpellDamage,
     pub conditions: Vec<ConditionApplySpec>,
@@ -36,7 +37,10 @@ pub enum CompiledSpellDamage {
     LevelMagic {
         base: i32,
         variation: i32,
-        pvp_half: bool,
+        /// 3rd arg — decompile flag & 8 (`ComputeDamage` min clamp).
+        limit_min: bool,
+        /// 4th arg — decompile flag & 4 (`ComputeDamage` max clamp).
+        limit_max: bool,
         /// `computeHealing` instead of `computeDamage` — positive magnitudes.
         healing: bool,
     },
@@ -238,6 +242,7 @@ fn parse_handler_block(
         dispel_type: 0,
         create_item: 0,
         no_damage: false,
+        target_caster_or_topmost: false,
         area: None,
         damage: CompiledSpellDamage::None,
         conditions: Vec::new(),
@@ -257,6 +262,7 @@ fn parse_handler_block(
         dispel_type: compiled.dispel_type,
         create_item: compiled.create_item,
         no_damage: compiled.no_damage,
+        target_caster_or_topmost: compiled.target_caster_or_topmost,
         area: compiled.area,
         damage: compiled.damage,
         conditions: compiled.conditions,
@@ -273,6 +279,7 @@ struct ParsedCombatBlock {
     dispel_type: i32,
     create_item: i32,
     no_damage: bool,
+    target_caster_or_topmost: bool,
     area: Option<AreaCombat>,
     damage: CompiledSpellDamage,
     conditions: Vec<ConditionApplySpec>,
@@ -354,18 +361,40 @@ fn parse_combat_setup(
     Some(())
 }
 
+/// Split `:setParameter(key, value)` on the first comma at paren depth 0.
+fn parse_set_parameter_args(line: &str) -> Option<(String, String)> {
+    let marker = ":setParameter(";
+    let start = line.find(marker)? + marker.len();
+    let mut depth = 1i32;
+    let mut comma: Option<usize> = None;
+    for (idx, ch) in line[start..].char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    let inner = &line[start..start + idx];
+                    let key = comma
+                        .map(|c| inner[..c].trim())
+                        .unwrap_or(inner.trim())
+                        .to_string();
+                    let value = comma
+                        .map(|c| inner[c + 1..].trim())
+                        .unwrap_or("")
+                        .to_string();
+                    return Some((key, value));
+                }
+            }
+            ',' if depth == 1 && comma.is_none() => comma = Some(idx),
+            _ => {}
+        }
+    }
+    None
+}
+
 fn parse_set_parameter_line(line: &str) -> Option<(i32, i32)> {
-    if !line.contains(":setParameter(") {
-        return None;
-    }
-    let start = line.find(":setParameter(")? + ":setParameter(".len();
-    let tail = &line[start..];
-    let end = tail.find(')')?;
-    let args = tail[..end].split(',').map(str::trim).collect::<Vec<_>>();
-    if args.len() != 2 {
-        return None;
-    }
-    Some((resolve_lua_i32(args[0])?, resolve_lua_i32(args[1])?))
+    let (key, value) = parse_set_parameter_args(line)?;
+    Some((resolve_lua_i32(&key)?, resolve_lua_i32(&value)?))
 }
 
 fn parse_set_area_from_file(
@@ -477,6 +506,7 @@ fn apply_combat_param(out: &mut ParsedCombatBlock, key: i32, value: i32) {
         2 => out.distance_effect = value,
         3 => out.block_shield = value != 0,
         4 => out.block_armor = value != 0,
+        5 => out.target_caster_or_topmost = value != 0,
         6 => out.create_item = value,
         7 => out.aggressive = value != 0,
         8 => out.dispel_type = value,
@@ -494,12 +524,9 @@ fn parse_condition_decl(line: &str) -> Option<(String, ConditionApplySpec)> {
     let after_local = line.strip_prefix(marker)?;
     let name_end = after_local.find(cond_marker)?;
     let var = after_local[..name_end].trim().to_string();
-    let args_start = name_end + cond_marker.len();
-    let args_end = after_local.rfind(')')?;
-    let args = after_local[args_start..args_end]
-        .split(',')
-        .map(str::trim)
-        .collect::<Vec<_>>();
+    let cond_open = after_local.find("Condition(")? + "Condition".len();
+    let args_inner = extract_balanced_paren_content(&after_local[cond_open..])?;
+    let args = split_top_level_csv(args_inner);
     let ctype = resolve_lua_i32(args.first()?)?;
     let cond_id = args
         .get(1)
@@ -521,14 +548,8 @@ fn parse_condition_set_parameter(line: &str) -> Option<(String, i32, i32)> {
     }
     let colon = line.find(':')?;
     let var = line[..colon].trim().to_string();
-    let start = line.find(":setParameter(")? + ":setParameter(".len();
-    let tail = &line[start..];
-    let end = tail.find(')')?;
-    let args = tail[..end].split(',').map(str::trim).collect::<Vec<_>>();
-    if args.len() != 2 {
-        return None;
-    }
-    Some((var, resolve_lua_i32(args[0])?, resolve_lua_i32(args[1])?))
+    let (key, value) = parse_set_parameter_args(line)?;
+    Some((var, resolve_lua_i32(&key)?, resolve_lua_i32(&value)?))
 }
 
 fn apply_condition_param(spec: &mut ConditionApplySpec, key: i32, value: i32) {
@@ -545,20 +566,62 @@ fn apply_condition_param(spec: &mut ConditionApplySpec, key: i32, value: i32) {
         56 => spec.cycle = value,
         58 => spec.count = value,
         59 => spec.max_count = value,
+        60 => spec.owner_guid = value,
         _ => {}
     }
 }
 
 fn parse_combat_add_condition(line: &str) -> Option<String> {
-    let marker = ":addCondition(";
-    if !line.contains(marker) {
+    extract_method_call_arg(line, "addCondition").filter(|v| !v.is_empty())
+}
+
+/// Content inside the first `(...)` group — `s` must start with `(`.
+fn extract_balanced_paren_content(s: &str) -> Option<&str> {
+    if !s.starts_with('(') {
         return None;
     }
-    let start = line.find(marker)? + marker.len();
-    let tail = line[start..].trim();
-    let end = tail.find(')')?;
-    let var = tail[..end].trim();
-    (!var.is_empty()).then(|| var.to_string())
+    let mut depth = 0i32;
+    for (i, ch) in s.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(s[1..i].trim());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Split on commas at paren depth 0 (for `Condition(a, b)` arg lists).
+fn split_top_level_csv(s: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0i32;
+    let mut start = 0usize;
+    for (i, ch) in s.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                parts.push(s[start..i].trim());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(s[start..].trim());
+    parts.retain(|p| !p.is_empty());
+    parts
+}
+
+/// Argument of `:method(...)` with nested paren support.
+fn extract_method_call_arg(line: &str, method: &str) -> Option<String> {
+    let needle = format!(":{method}(");
+    let open = line.find(&needle)? + needle.len() - 1;
+    extract_balanced_paren_content(&line[open..]).map(str::trim).map(str::to_string)
 }
 
 fn extract_function_body(content: &str, name: &str) -> Option<String> {
@@ -585,13 +648,13 @@ fn parse_level_magic_damage(body: &str) -> Option<CompiledSpellDamage> {
     }
     let base: i32 = args[0].parse().ok()?;
     let variation: i32 = args[1].parse().ok()?;
-    let pvp_half = args
-        .get(2)
-        .is_some_and(|a| *a == "true");
+    let limit_min = args.get(2).is_some_and(|a| *a == "true");
+    let limit_max = args.get(3).is_some_and(|a| *a == "true");
     Some(CompiledSpellDamage::LevelMagic {
         base,
         variation,
-        pvp_half,
+        limit_min,
+        limit_max,
         healing,
     })
 }
@@ -623,8 +686,79 @@ fn resolve_lua_i32(token: &str) -> Option<i32> {
         "true" => Some(1),
         "false" => Some(0),
         _ if token.chars().all(|c| c.is_ascii_digit() || c == '-') => token.parse().ok(),
-        _ => enum_name_to_i32(token),
+        _ => enum_name_to_i32(token).or_else(|| eval_lua_int_expr(token)),
     }
+}
+
+/// Minimal integer math for spell `:setParameter` literals like `(6 * 60 + 10) * 1000`.
+fn eval_lua_int_expr(expr: &str) -> Option<i32> {
+    let expr = expr.trim();
+    if expr.is_empty() {
+        return None;
+    }
+    if expr.chars().all(|c| c.is_ascii_digit() || c == '-') {
+        return expr.parse().ok();
+    }
+    if expr.starts_with('(') {
+        let mut depth = 0i32;
+        for (i, ch) in expr.char_indices() {
+            match ch {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 && i == expr.len() - 1 {
+                        return eval_lua_int_expr(&expr[1..expr.len() - 1]);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    for op in ['+', '-'] {
+        if let Some(idx) = find_top_level_binary_op(expr, op) {
+            let left = eval_lua_int_expr(expr[..idx].trim())?;
+            let right = eval_lua_int_expr(expr[idx + op.len_utf8()..].trim())?;
+            return Some(match op {
+                '+' => left.checked_add(right)?,
+                '-' => left.checked_sub(right)?,
+                _ => unreachable!(),
+            });
+        }
+    }
+    for op in ['*', '/'] {
+        if let Some(idx) = find_top_level_binary_op(expr, op) {
+            let left = eval_lua_int_expr(expr[..idx].trim())?;
+            let right = eval_lua_int_expr(expr[idx + op.len_utf8()..].trim())?;
+            return Some(match op {
+                '*' => left.checked_mul(right)?,
+                '/' => left.checked_div(right)?,
+                _ => unreachable!(),
+            });
+        }
+    }
+    None
+}
+
+fn find_top_level_binary_op(expr: &str, op: char) -> Option<usize> {
+    let mut depth = 0i32;
+    let bytes = expr.as_bytes();
+    let mut i = expr.len();
+    while i > 0 {
+        i -= 1;
+        match bytes[i] as char {
+            ')' => depth += 1,
+            '(' => depth -= 1,
+            c if c == op && depth == 0 && i > 0 => {
+                // Unary minus on a negative literal, e.g. `-1` — not used in spell pack.
+                if op == '-' && i == 0 {
+                    continue;
+                }
+                return Some(i);
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn enum_name_to_i32(name: &str) -> Option<i32> {
@@ -689,11 +823,30 @@ fn enum_name_to_i32(name: &str) -> Option<i32> {
         // CONDITION_PARAM_* / CONDITIONID_*
         "CONDITION_PARAM_OWNER" => 1,
         "CONDITION_PARAM_TICKS" => 2,
+        "CONDITION_PARAM_HEALTHGAIN" => 4,
+        "CONDITION_PARAM_HEALTHTICKS" => 5,
+        "CONDITION_PARAM_MANAGAIN" => 6,
+        "CONDITION_PARAM_MANATICKS" => 7,
+        "CONDITION_PARAM_LIGHT_LEVEL" => 10,
+        "CONDITION_PARAM_LIGHT_COLOR" => 11,
         "CONDITION_PARAM_SPEED" => 9,
+        "CONDITION_PARAM_SUBID" => 45,
         "CONDITION_PARAM_CYCLE" => 56,
         "CONDITION_PARAM_COUNT" => 58,
         "CONDITION_PARAM_MAX_COUNT" => 59,
+        "CONDITION_PARAM_OWNERGUID" => 60,
         "CONDITIONID_DEFAULT" => -1,
+        "CONDITIONID_COMBAT" => 0,
+        "CONDITIONID_HEAD" => 1,
+        "CONDITIONID_NECKLACE" => 2,
+        "CONDITIONID_BACKPACK" => 3,
+        "CONDITIONID_ARMOR" => 4,
+        "CONDITIONID_RIGHT" => 5,
+        "CONDITIONID_LEFT" => 6,
+        "CONDITIONID_LEGS" => 7,
+        "CONDITIONID_FEET" => 8,
+        "CONDITIONID_RING" => 9,
+        "CONDITIONID_AMMO" => 10,
         // ITEM_* (CREATEITEM)
         "ITEM_POISONFIELD_PVP" => 1490,
         "ITEM_FIREFIELD_PVP_FULL" => 1487,
@@ -706,6 +859,7 @@ fn enum_name_to_i32(name: &str) -> Option<i32> {
         "COMBAT_PARAM_DISTANCEEFFECT" => 2,
         "COMBAT_PARAM_BLOCKSHIELD" => 3,
         "COMBAT_PARAM_BLOCKARMOR" => 4,
+        "COMBAT_PARAM_TARGETCASTERORTOPMOST" => 5,
         "COMBAT_PARAM_CREATEITEM" => 6,
         "COMBAT_PARAM_AGGRESSIVE" => 7,
         "COMBAT_PARAM_DISPEL" => 8,
@@ -740,7 +894,8 @@ mod tests {
             CompiledSpellDamage::LevelMagic {
                 base: 45,
                 variation: 10,
-                pvp_half: false,
+                limit_min: false,
+                limit_max: false,
                 healing: false,
             }
         );
@@ -765,6 +920,38 @@ mod tests {
         );
         assert!(entry.block_armor);
         assert!(!entry.block_shield);
+    }
+
+    #[test]
+    fn eval_lua_int_expr_parses_light_ticks() {
+        assert_eq!(eval_lua_int_expr("(6 * 60 + 10) * 1000"), Some(370_000));
+        assert_eq!(eval_lua_int_expr("(11 * 60 + 35) * 1000"), Some(695_000));
+        assert_eq!(eval_lua_int_expr("(60 * 33 + 10) * 1000"), Some(1_990_000));
+    }
+
+    #[test]
+    fn light_spells_compile_condition_level_and_ticks() {
+        let compiled = compile_native_spell_combats(&data_dir());
+        let light = compiled
+            .iter()
+            .find(|e| e.key == "ut,evo, lux")
+            .expect("utevo lux");
+        assert_eq!(light.conditions.len(), 1);
+        assert_eq!(light.conditions[0].ctype, 1 << 8);
+        assert_eq!(light.conditions[0].light_level, 6);
+        assert_eq!(light.conditions[0].ticks, (6 * 60 + 10) * 1000);
+
+        let gran = compiled
+            .iter()
+            .find(|e| e.key == "ut,evo, gran, lux")
+            .expect("utevo gran lux");
+        assert_eq!(gran.conditions[0].light_level, 7);
+
+        let ult = compiled
+            .iter()
+            .find(|e| e.key == "ut,evo, vis, lux")
+            .expect("utevo vis lux");
+        assert_eq!(ult.conditions[0].light_level, 9);
     }
 
     #[test]
@@ -802,7 +989,8 @@ mod tests {
             CompiledSpellDamage::LevelMagic {
                 base: 20,
                 variation: 5,
-                pvp_half: true,
+                limit_min: true,
+                limit_max: false,
                 healing: false,
             }
         );
@@ -819,6 +1007,25 @@ mod tests {
     }
 
     #[test]
+    fn ultimate_healing_rune_compiles_limit_min() {
+        let compiled = compile_native_spell_combats(&data_dir());
+        let entry = compiled
+            .iter()
+            .find(|e| e.key == "rune:2273")
+            .expect("ultimate healing rune");
+        assert_eq!(
+            entry.damage,
+            CompiledSpellDamage::LevelMagic {
+                base: 250,
+                variation: 0,
+                limit_min: true,
+                limit_max: false,
+                healing: true,
+            }
+        );
+    }
+
+    #[test]
     fn compile_pack_has_many_native_handlers() {
         let compiled = compile_native_spell_combats(&data_dir());
         assert!(
@@ -826,5 +1033,43 @@ mod tests {
             "expected most pure combat:execute handlers, got {}",
             compiled.len()
         );
+    }
+
+    #[test]
+    fn healing_spells_compile_target_caster_or_topmost() {
+        let compiled = compile_native_spell_combats(&data_dir());
+        for key in [
+            "ex,ura",
+            "ex,ura, gran",
+            "ex,ura, vita",
+            "ut,amo, vita",
+            "rune:2265",
+            "rune:2273",
+            "rune:2266",
+        ] {
+            let entry = compiled.iter().find(|e| e.key == key).expect(key);
+            assert!(
+                entry.target_caster_or_topmost,
+                "{key} must compile TARGETCASTERORTOPMOST"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_add_condition_nested_parens() {
+        let line = "combat:addCondition(getCondition())";
+        assert_eq!(
+            parse_combat_add_condition(line).as_deref(),
+            Some("getCondition()")
+        );
+    }
+
+    #[test]
+    fn parse_condition_decl_two_args() {
+        let line = "local cond = Condition(CONDITION_POISON, CONDITIONID_COMBAT)";
+        let (var, spec) = parse_condition_decl(line).expect("decl");
+        assert_eq!(var, "cond");
+        assert_eq!(spec.ctype, 1);
+        assert_eq!(spec.cond_id, 0);
     }
 }

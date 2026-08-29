@@ -14,16 +14,15 @@ function creatureevent.onLogin(player)
 	end
 	player:sendTextMessage(MESSAGE_STATUS_DEFAULT, loginStr)
 
-	-- Promotion
+	-- Apply NPC promotion storage; native `premiumPromotion` gates perks (no login demotion).
 	local isPromoted = player:getStorageValue(PlayerStorageKeys.promotion)
-	local vocation = player:getVocation()
-	local promotion = vocation:getPromotion()
-	if player:isPremium() then
-		if isPromoted == 1 then
+	if isPromoted == 1 then
+		local vocation = player:getVocation()
+		local promotion = vocation:getPromotion()
+		local premiumGated = configManager.getBoolean(configKeys.PREMIUM_PROMOTION)
+		if promotion and (player:isPremium() or not premiumGated) then
 			player:setVocation(promotion)
 		end
-	elseif isPromoted == 1 and not player:isPremium() then
-		player:setVocation(vocation:getDemotion())
 	end
 
 	player:registerEvent("PlayerDeath")

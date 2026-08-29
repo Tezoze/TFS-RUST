@@ -503,6 +503,7 @@ impl GameWorld {
         let decay_now = self.now_ms();
         // Players already placed corpse 3128 in `player_death_drop_inventory`; skip generic 3058.
         let schedule_generic_corpse = !is_player;
+        let victim_active_promotion = self.player_active_promotion(victim);
         let (leveled, xp_grants) = crate::lua_scope::with_lua_script_scope(self, |world| {
             crate::death::handle_creature_death(
                 &mut world.creatures,
@@ -519,6 +520,7 @@ impl GameWorld {
                 world.pvp_config.world_type,
                 &world.mechanics.profile,
                 world.round_nr,
+                victim_active_promotion,
             )
         });
         // C++ `cract.cc:1637` `CREATURE_SPEED_CHANGED` — announce new speed to spectators
@@ -753,7 +755,10 @@ impl GameWorld {
             }
         }
 
-        // Always create the corpse; items only move when lose mode is not NONE.
+        // C++ `~TCreature` blood pool before corpse (`crmain.cc:216-226`).
+        let blood = self.creature_blood_type(victim);
+        self.create_death_blood_pool(pos, blood);
+
         let corpse_id = self
             .items
             .insert(crate::item::Item::new(DEAD_HUMAN_CORPSE, 1));

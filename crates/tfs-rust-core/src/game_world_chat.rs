@@ -17,7 +17,7 @@ use tfs_rust_common::ConnId;
 use tfs_rust_common::enums::ConditionType;
 use tfs_rust_common::enums::WorldType;
 
-use crate::combat::apply_condition;
+use crate::combat::{apply_condition, set_dot_damage_origin};
 use crate::condition::{ActiveCondition, ConditionData};
 use crate::config::ConfigManager;
 use crate::creature::CreatureKind;
@@ -1141,6 +1141,7 @@ impl GameWorld {
                     timer_rounds_left: None,
                     skill_count: 0,
                     skill_max_count: 0,
+                field_dot: false,
                 });
             }
 
@@ -1271,6 +1272,11 @@ impl GameWorld {
         }
         let cond = active_condition_from_apply_spec(&spec);
         apply_condition(&mut self.creatures, cid, cond);
+        if spec.owner_guid > 0 {
+            if let Some(&origin) = self.player_by_guid.get(&(spec.owner_guid as u32)) {
+                set_dot_damage_origin(&mut self.creatures, cid, origin, ctype);
+            }
+        }
         self.on_condition_started(cid, ctype);
         Ok(())
     }
@@ -1694,6 +1700,7 @@ pub(crate) fn active_condition_from_apply_spec(
         timer_rounds_left,
         skill_count,
         skill_max_count,
+        field_dot: false,
     }
 }
 

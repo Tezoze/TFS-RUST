@@ -476,6 +476,13 @@ fn fluid_container(server_id: u16) -> ItemType {
     it
 }
 
+fn rune_item_type(server_id: u16, charges: u32) -> ItemType {
+    let mut it = crate::sim_harness::pickup_item_type(server_id);
+    it.type_tag = 10; // `ItemTypes_t::ITEM_TYPE_RUNE`
+    it.charges = charges;
+    it
+}
+
 fn npc5_world() -> GameWorld {
     let mut world = minimal_world();
     let mut items = HashMap::new();
@@ -1517,6 +1524,7 @@ fn npc_immune_to_combat_damage_and_conditions() {
             timer_rounds_left: None,
             skill_count: 0,
             skill_max_count: 0,
+        field_dot: false,
         },
     );
     assert!(
@@ -2172,6 +2180,68 @@ fn create_respects_data_subtype() {
         1,
         "exactly one vial created"
     );
+}
+
+#[test]
+fn create_respects_data_rune_charges() {
+    const LMM: u16 = 2287;
+    let mut world = npc5_world();
+    let mut items = HashMap::clone(&world.items_db.items);
+    items.insert(LMM, rune_item_type(LMM, 5));
+    world.items_db = Arc::new(ItemDatabase {
+        items,
+        client_to_server: world.items_db.client_to_server.clone(),
+    });
+
+    let sp = span();
+    let rule = DialogueRule {
+        predicates: vec![DialoguePredicate::Situation {
+            kind: DialogueSituation::Address,
+            span: sp.clone(),
+        }],
+        actions: vec![
+            DialogueAction::SetSession {
+                var: SessionVar::Data,
+                expr: DialogueExpr::Lit(5),
+                span: sp.clone(),
+            },
+            DialogueAction::Create {
+                item: DialogueExpr::Lit(i32::from(LMM)),
+                count: DialogueExpr::Lit(1),
+                span: sp.clone(),
+            },
+            DialogueAction::Idle { span: sp.clone() },
+        ],
+        span: sp.clone(),
+    };
+    register_named_npc(&mut world, pending_with_rules("RuneNpc", vec![rule]));
+    let home = Position::new(100, 100, 7);
+    place_tiles(&mut world, home);
+    let npc = insert_npc_from_db(&mut world, "RuneNpc", home);
+    let mut hero = sim_hero_player("Hero", Position::new(101, 100, 7));
+    hero.base.name = "Hero".into();
+    let p1 = insert_player(&mut world, hero);
+    equip_backpack(&mut world, p1);
+
+    let mut t = DialogueTrace::default();
+    world.npc_talk_stimulus(npc, p1, "hi", &mut t);
+
+    assert_eq!(count_item_instances(&world, p1, LMM), 1);
+    let bag = match world.creatures.get(p1) {
+        Some(CreatureKind::Player(p)) => p.equipment_slots[2].expect("backpack"),
+        _ => panic!("player"),
+    };
+    let iid = ContainerIterator::new(&world.container_registry, bag)
+        .find(|&child| {
+            world
+                .items
+                .get(child)
+                .is_some_and(|i| i.item_type == LMM)
+        })
+        .expect("lmm rune");
+    let item = world.items.get(iid).expect("item");
+    assert_eq!(item.count, 5, "wire count must match charges");
+    assert_eq!(item.charges(), 5, "772 shop runes use Npc->Data as CHARGES");
 }
 
 #[test]

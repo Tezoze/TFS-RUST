@@ -514,12 +514,8 @@ impl GameWorld {
             self.move_body_item_into_corpse(corpse_id, *body_item);
         }
 
-        // C++ `~TCreature` creates the blood/slime pool BEFORE the corpse (`crmain.cc:210-226`),
-        // keyed on the race blood family — NOT on the corpse item's `fluidsource` attribute
-        // (audit finding #14). Only BLOOD/SLIME races pool.
-        if let Some(fluid) = splash_fluid(blood) {
-            self.create_liquid_splash(pos, ITEM_FULLSPLASH, fluid);
-        }
+        // C++ `~TCreature` creates the blood/slime pool BEFORE the corpse (`crmain.cc:210-226`).
+        self.create_death_blood_pool(pos, blood);
 
         // Phase 3: both eras use the 772 `server_ms` decay clock.
         let decay_clock = self.now_ms();
@@ -545,6 +541,17 @@ impl GameWorld {
         match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => m.blood,
             _ => BloodType::Blood,
+        }
+    }
+
+    /// Death-tile blood/slime pool — C++ `~TCreature` (`crmain.cc:216-226`) before corpse.
+    pub(crate) fn create_death_blood_pool(
+        &mut self,
+        pos: tfs_rust_common::Position,
+        blood: BloodType,
+    ) {
+        if let Some(fluid) = splash_fluid(blood) {
+            self.create_liquid_splash(pos, ITEM_FULLSPLASH, fluid);
         }
     }
 
@@ -625,14 +632,16 @@ mod tests {
 
     use slotmap::SlotMap;
     use tfs_rust_common::Position;
-    use tfs_rust_common::enums::CombatType;
+    use tfs_rust_common::enums::{BloodType, CombatType};
     use tfs_rust_content::items::ItemDatabase;
     use tfs_rust_content::monsters::{
         LootBlock, MAX_LOOTCHANCE, MonsterDefenses, MonsterOutfit, MonsterType, MonsterTypeFlags,
     };
     use tfs_rust_content::otb::ItemType;
 
-    use super::{MonsterInventory, effective_monster_combat_stats};
+    use super::{
+        ITEM_FULLSPLASH, ITEM_SMALLSPLASH, MonsterInventory, effective_monster_combat_stats,
+    };
     use crate::combat::{CombatDamage, CombatParams};
     use crate::creature::{CreatureKind, MonsterAiConfig};
     use crate::game_world::GameWorld;
@@ -1031,6 +1040,51 @@ mod tests {
             exp_after.saturating_sub(exp_before),
             5,
             "rat race experience=5 must grant to sole killer"
+        );
+    }
+
+    /// Death pool replaces hit splatter — 772 `CreatePool` (`operate.cc:2585-2619`).
+    #[test]
+    fn death_pool_replaces_hit_splatter_on_tile() {
+        let mut world = beat_world(HashMap::new());
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+        let victim = insert_test_monster(&mut world, pos);
+
+        world.apply_physical_hit_blood(victim, pos);
+
+        let after_hit: BTreeSet<u16> = world
+            .map
+            .get_tile(pos)
+            .into_iter()
+            .flat_map(|t| t.body().top_items.iter().chain(t.body().down_items.iter()))
+            .filter_map(|&iid| world.items.get(iid).map(|it| it.item_type))
+            .collect();
+        assert!(
+            after_hit.contains(&ITEM_SMALLSPLASH),
+            "physical hit must leave small splatter"
+        );
+        assert!(
+            !after_hit.contains(&ITEM_FULLSPLASH),
+            "death pool must not exist before kill"
+        );
+
+        world.create_death_blood_pool(pos, BloodType::Blood);
+
+        let after_death: BTreeSet<u16> = world
+            .map
+            .get_tile(pos)
+            .into_iter()
+            .flat_map(|t| t.body().top_items.iter().chain(t.body().down_items.iter()))
+            .filter_map(|&iid| world.items.get(iid).map(|it| it.item_type))
+            .collect();
+        assert!(
+            after_death.contains(&ITEM_FULLSPLASH),
+            "death pool must be placed on the tile"
+        );
+        assert!(
+            !after_death.contains(&ITEM_SMALLSPLASH),
+            "CreatePool must replace hit splatter with death pool"
         );
     }
 }

@@ -14,6 +14,13 @@ use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 
+fn field_combat_params() -> CombatParams {
+    CombatParams {
+        skip_pvp_half: true,
+        ..CombatParams::default()
+    }
+}
+
 impl GameWorld {
     /// TFS `MoveEvent::AddItemField` — apply a newly placed magic field to every creature
     /// already on the tile (`movement.cpp:672-680`).
@@ -39,13 +46,13 @@ impl GameWorld {
             .map(|t| t.body().creatures.clone())
             .unwrap_or_default();
         for cid in targets {
-            self.apply_magic_field_to_creature(cid, server_id);
+            self.apply_magic_field_to_creature(cid, server_id, Some(field_item_id));
         }
     }
 
     /// Apply every magic field on `pos` to `cid` — TFS `StepInField` after a walk lands.
     pub(crate) fn apply_magic_fields_under_creature(&mut self, cid: CreatureId, pos: Position) {
-        let field_types: Vec<u16> = {
+        let field_items: Vec<(u16, ItemId)> = {
             let Some(tile) = self.map.get_tile(pos) else {
                 return;
             };
@@ -59,13 +66,23 @@ impl GameWorld {
                         .items
                         .get(&sid)
                         .filter(|t| t.is_magic_field())
-                        .map(|_| sid)
+                        .map(|_| (sid, iid))
                 })
                 .collect()
         };
-        for sid in field_types {
-            self.apply_magic_field_to_creature(cid, sid);
+        for (sid, iid) in field_items {
+            self.apply_magic_field_to_creature(cid, sid, Some(iid));
         }
+    }
+
+    /// Resolve field `RESPONSIBLE` / owner wire id → caster for kill credit (`moveuse.cc:1118-1123`).
+    fn field_owner_attacker(&self, field_item_id: Option<ItemId>) -> Option<CreatureId> {
+        let iid = field_item_id?;
+        let owner_wire = self.items.get(iid)?.attributes.as_ref()?.get_owner();
+        if owner_wire == 0 {
+            return None;
+        }
+        self.creature_by_wire_id(owner_wire)
     }
 
     /// TFS `MagicField::onStepInField` — `combat.cpp:1443`.
@@ -76,6 +93,7 @@ impl GameWorld {
         &mut self,
         target: CreatureId,
         field_server_id: u16,
+        field_item_id: Option<ItemId>,
     ) {
         let Some(field_kind) = self.items_db.avoid_damage_type(field_server_id) else {
             return;
@@ -122,13 +140,18 @@ impl GameWorld {
         };
 
         if init_damage > 0 {
+            let attacker = self.field_owner_attacker(field_item_id);
             let snap = self.combat_notify_snapshot(target);
             let damage = CombatDamage {
                 primary: (instant_combat, -(init_damage)),
                 secondary: (CombatType::Undefined, 0),
             };
-            let damage_done =
-                self.combat_execute_with_stimulus(None, target, &damage, &CombatParams::default());
+            let damage_done = self.combat_execute_with_stimulus(
+                attacker,
+                target,
+                &damage,
+                &field_combat_params(),
+            );
             // M2 — `damage_done` is the real `Damage` scalar (includes mana-shield absorb).
             if let Some(snap) = snap {
                 self.notify_player_combat_damage(None, target, damage_done, instant_combat, snap);
@@ -170,14 +193,15 @@ impl GameWorld {
                 (CombatType::PoisonPeriodic, rank.max(1))
             }
         };
+        let attacker = self.field_owner_attacker(field_item_id);
         let _ = self.combat_execute_with_stimulus(
-            None,
+            attacker,
             target,
             &CombatDamage {
                 primary: (periodic, -strength),
                 secondary: (CombatType::Undefined, 0),
             },
-            &CombatParams::default(),
+            &field_combat_params(),
         );
     }
 
@@ -317,6 +341,44 @@ mod tests {
 
     fn hp(world: &GameWorld, cid: CreatureId) -> i32 {
         world.creatures.get(cid).unwrap().base().health
+    }
+
+    /// Field init + burning ticks skip PvP `(d+1)/2` even when the field owner is a player.
+    #[test]
+    fn fire_field_pvp_init_not_halved() {
+        use crate::item_attributes::ItemAttributes;
+        use crate::login_out::creature_wire_id;
+
+        let mut world = beat_driven_test_world();
+        register_fire_field(&mut world, 1487, "20", "70", None);
+
+        let vpos = Position::new(100, 100, 7);
+        let apos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, vpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, apos, TEST_SYNTHETIC_GROUND_WP);
+
+        let attacker = insert_player(&mut world, test_player("Caster", apos));
+        let mut victim_p = test_player("Victim", vpos);
+        victim_p.base.health = 500;
+        victim_p.base.max_health = 500;
+        let victim = insert_player(&mut world, victim_p);
+
+        let mut item = Item::new_single(1487);
+        if let Some(kind) = world.creatures.get(attacker) {
+            item.attributes
+                .get_or_insert_with(|| Box::new(ItemAttributes::new()))
+                .set_owner(creature_wire_id(attacker, kind));
+        }
+        let iid = world.items.insert(item);
+
+        let hp_before = hp(&world, victim);
+        world.apply_magic_field_to_creature(victim, 1487, Some(iid));
+        let hp_after = hp(&world, victim);
+        assert_eq!(
+            hp_before - hp_after,
+            20,
+            "772 field initdamage 20 must not PvP-half between players"
+        );
     }
 
     /// Opt-in skip: a 1487-style field without skippeaceful still hits a player.

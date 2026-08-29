@@ -390,9 +390,8 @@ pub fn apply_loaded_player(
                 persist.player_row.lastip = peer_ip;
             }
         }
-        // TFS `ProtocolGame::connect` stamps `lastLoginSaved` without re-firing onLogin.
-        stamp_last_login_saved(world, cid);
-        // Live body kept — do not rehydrate inventory / place / onLogin from this load.
+        // `lastlogin` stamp + `onLogin` run in `finalize_player_login` after the
+        // login packet burst (`login.lua` welcome text + promotion demotion).
         world
             .houses
             .name_to_guid
@@ -498,11 +497,25 @@ pub fn apply_loaded_player(
         world.guilds.register_online(cid, gid);
     }
 
-    fire_on_login(world, cid);
-    // After onLogin — TFS `protocolgame.cpp` `lastLoginSaved = max(now, lastLoginSaved + 1)`.
-    stamp_last_login_saved(world, cid);
-    after_player_online(world, guid);
+    // `onLogin` / stamp / online record run in `finalize_player_login` after
+    // `register_conn_mapping` and the login packet burst (`login.lua`).
     Ok(ApplyPlayerOutcome::Spawned(cid))
+}
+
+/// After `register_conn_mapping` + `enqueue_initial_login_packets` — TFS
+/// `sendAddCreature` / map / stats first, then `playerLogin` scripts, then
+/// `lastLoginSaved = max(now, lastLoginSaved + 1)` (`protocolgame.cpp`).
+pub(crate) fn finalize_player_login(world: &mut GameWorld, cid: CreatureId) {
+    let guid = world.creatures.get(cid).and_then(|k| match k {
+        CreatureKind::Player(p) => Some(p.guid),
+        _ => None,
+    });
+    world.refresh_player_active_vocation_profile(cid);
+    fire_on_login(world, cid);
+    stamp_last_login_saved(world, cid);
+    if let Some(guid) = guid {
+        after_player_online(world, guid);
+    }
 }
 
 /// TFS `protocolgame.cpp` after `placeCreature` / `connect`:

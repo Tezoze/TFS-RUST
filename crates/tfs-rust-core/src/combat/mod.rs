@@ -51,6 +51,11 @@ pub struct CombatParams {
     /// it after PvP-half/absorb, before mana shield (`crmain.cc:624-630`).
     /// Callers that pre-rolled armor (legacy) leave this `None`.
     pub armor: Option<i32>,
+    /// Magic-field / trap init + DoT — full damage between players (`moveuse.dat` Trap Damage).
+    /// Decompile only skips PvP half for `DAMAGE_*_PERIODIC` arms; field init + burning/poison/
+    /// energy Event ticks use instant types and would halve when `Attacker`/`Origin` is set
+    /// (`crmain.cc:497-501`, `crskill.cc:1061`).
+    pub skip_pvp_half: bool,
 }
 
 impl Default for CombatParams {
@@ -60,6 +65,7 @@ impl Default for CombatParams {
             dispel: None,
             apply_condition: None,
             armor: None,
+            skip_pvp_half: false,
         }
     }
 }
@@ -106,24 +112,7 @@ pub fn execute_with_credit(
         // When Lua / melee poison proc applies a DoT condition with a known attacker,
         // store `*DamageOrigin` so Event ticks credit the killer (`crmain.cc:587-609`).
         if let Some(aid) = attacker {
-            match cond.ctype {
-                tfs_rust_common::enums::ConditionType::Poison => {
-                    if let Some(kind) = creatures.get_mut(target) {
-                        kind.base_mut().poison_damage_origin = Some(aid);
-                    }
-                }
-                tfs_rust_common::enums::ConditionType::Fire => {
-                    if let Some(kind) = creatures.get_mut(target) {
-                        kind.base_mut().fire_damage_origin = Some(aid);
-                    }
-                }
-                tfs_rust_common::enums::ConditionType::Energy => {
-                    if let Some(kind) = creatures.get_mut(target) {
-                        kind.base_mut().energy_damage_origin = Some(aid);
-                    }
-                }
-                _ => {}
-            }
+            set_dot_damage_origin(creatures, target, aid, cond.ctype);
         }
         apply_condition(creatures, target, cond.clone());
         applied_condition = true;
@@ -216,6 +205,29 @@ fn dispel_conditions(
     let before = base.active_conditions.len();
     base.active_conditions.retain(|c| c.ctype != dtype);
     before != base.active_conditions.len()
+}
+
+/// Store poison/fire/energy DoT credit origin on the target (`crmain.cc:587-609`).
+pub fn set_dot_damage_origin(
+    creatures: &mut SlotMap<CreatureId, CreatureKind>,
+    target: CreatureId,
+    origin: CreatureId,
+    ctype: tfs_rust_common::enums::ConditionType,
+) {
+    if let Some(kind) = creatures.get_mut(target) {
+        match ctype {
+            tfs_rust_common::enums::ConditionType::Poison => {
+                kind.base_mut().poison_damage_origin = Some(origin);
+            }
+            tfs_rust_common::enums::ConditionType::Fire => {
+                kind.base_mut().fire_damage_origin = Some(origin);
+            }
+            tfs_rust_common::enums::ConditionType::Energy => {
+                kind.base_mut().energy_damage_origin = Some(origin);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Add or merge a condition on the target creature.

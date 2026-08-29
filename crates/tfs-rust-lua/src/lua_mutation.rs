@@ -634,6 +634,8 @@ pub struct ConditionApplySpec {
     pub health_ticks: i32,
     pub mana_gain: i32,
     pub mana_ticks: i32,
+    /// `CONDITION_PARAM_OWNERGUID` — DoT credit when caster is offline / indirect.
+    pub owner_guid: i32,
 }
 
 /// Parameters for `Combat:execute()` — PC-3a. Built by the Lua `Combat:execute()`
@@ -685,6 +687,9 @@ pub struct CombatExecuteRequest {
     /// `COMBAT_PARAM_DISTANCEEFFECT` — shoot type (`CONST_ANI_*`); `0` = none.
     /// C++ `CombatParams::distanceEffect` / `postCombatEffects` — `combat.cpp:643`.
     pub distance_effect: i32,
+    /// `COMBAT_PARAM_TARGETCASTERORTOPMOST` — per tile, hit caster if standing there else topmost.
+    /// C++ `CombatParams::targetCasterOrTopMost` — `combat.cpp:751-788`.
+    pub target_caster_or_topmost: bool,
 }
 
 /// Destination for `item:moveTo` — `luascript.cpp` `luaItemMoveTo`.

@@ -369,7 +369,7 @@ impl GameWorld {
                 (self.creatures.get(attacker_id), self.creatures.get(target),),
                 (Some(CreatureKind::Player(_)), Some(CreatureKind::Player(_)))
             );
-            if both_players && !is_periodic {
+            if both_players && !is_periodic && !params.skip_pvp_half {
                 for v in [
                     &mut reduced_damage.primary.1,
                     &mut reduced_damage.secondary.1,
@@ -398,7 +398,7 @@ impl GameWorld {
 
         // 772 `DAMAGE_*_PERIODIC` — after absorb, before mana shield / HP (`crmain.cc:582-613`).
         if is_periodic {
-            return self.apply_periodic_damage_arm(attacker, target, &reduced_damage);
+            return self.apply_periodic_damage_arm(attacker, target, &reduced_damage, params);
         }
 
         // H1 — Armor subtraction (PHYSICAL only): C++ `Damage` subtracts `GetArmorStrength()`
@@ -565,6 +565,7 @@ impl GameWorld {
         attacker: Option<CreatureId>,
         target: CreatureId,
         damage: &CombatDamage,
+        params: &CombatParams,
     ) -> i32 {
         let strength = (-damage.primary.1).max(0);
         if strength <= 0 {
@@ -620,7 +621,8 @@ impl GameWorld {
                             },
                             None,
                         )
-                        .with_skill_timer(3, 3),
+                        .with_skill_timer(3, 3)
+                        .with_field_dot(params.skip_pvp_half),
                     )
                 } else {
                     None
@@ -640,7 +642,8 @@ impl GameWorld {
                             ConditionData::Generic { ticks: 0 },
                             Some(cycle),
                         )
-                        .with_skill_timer(interval, interval),
+                        .with_skill_timer(interval, interval)
+                        .with_field_dot(params.skip_pvp_half),
                     ),
                     true,
                 )
@@ -658,7 +661,8 @@ impl GameWorld {
                             ConditionData::Generic { ticks: 0 },
                             Some(cycle),
                         )
-                        .with_skill_timer(interval, interval),
+                        .with_skill_timer(interval, interval)
+                        .with_field_dot(params.skip_pvp_half),
                     ),
                     true,
                 )
@@ -1825,12 +1829,14 @@ impl GameWorld {
                             timer_rounds_left: None,
                             skill_count: 0,
                             skill_max_count: 0,
+                            field_dot: false,
                         };
                         let params = CombatParams {
                             primary_type: CombatType::Physical,
                             dispel: None,
                             apply_condition: Some(cond),
                             armor: None,
+                            skip_pvp_half: false,
                         };
                         let _ = self.combat_execute_with_stimulus(
                             Some(caster_id),
@@ -1989,12 +1995,14 @@ impl GameWorld {
                     timer_rounds_left: duration_ms_to_rounds(*duration),
                     skill_count: 0,
                     skill_max_count: 0,
+                    field_dot: false,
                 };
                 let params = CombatParams {
                     primary_type: CombatType::Physical,
                     dispel: None,
                     apply_condition: Some(cond),
                     armor: None,
+                    skip_pvp_half: false,
                 };
                 let _ = self.combat_execute_with_stimulus(
                     Some(caster_id),
@@ -2040,12 +2048,14 @@ impl GameWorld {
                             timer_rounds_left: Some(power as i32),
                             skill_count: rounds,
                             skill_max_count: rounds,
+                            field_dot: false,
                         };
                         let params = CombatParams {
                             primary_type: CombatType::Physical,
                             dispel: None,
                             apply_condition: Some(cond),
                             armor: None,
+                            skip_pvp_half: false,
                         };
                         let _ = self.combat_execute_with_stimulus(
                             Some(caster_id),
@@ -2086,12 +2096,14 @@ impl GameWorld {
                         timer_rounds_left: duration_ms_to_rounds(*duration),
                         skill_count: 0,
                         skill_max_count: 0,
+                        field_dot: false,
                     };
                     let params = CombatParams {
                         primary_type: CombatType::Physical,
                         dispel: None,
                         apply_condition: Some(cond),
                         armor: None,
+                        skip_pvp_half: false,
                     };
                     let _ = self.combat_execute_with_stimulus(
                         Some(caster_id),
@@ -2114,12 +2126,14 @@ impl GameWorld {
                     timer_rounds_left: duration_ms_to_rounds(*duration),
                     skill_count: 0,
                     skill_max_count: 0,
+                    field_dot: false,
                 };
                 let params = CombatParams {
                     primary_type: CombatType::Physical,
                     dispel: None,
                     apply_condition: Some(cond),
                     armor: None,
+                    skip_pvp_half: false,
                 };
                 let _ = self.combat_execute_with_stimulus(
                     Some(caster_id),

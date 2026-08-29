@@ -818,6 +818,14 @@ mod tests {
     }
 
     #[test]
+    fn ultimate_healing_rune_knight_153_ml7() {
+        let m = p772();
+        // decompile `ComputeDamage`: mult = 153*2 + 7*3 = 327; base 250, var 0 → 817.
+        let (lo, hi) = spell_damage_range(&m.profile, &m.hooks, 153, 7, 250, 0, false, true);
+        assert_eq!((lo, hi), (817, 817));
+    }
+
+    #[test]
     fn level_exp_curves_per_era() {
         let m1098 = p1098();
         let m772 = p772();

@@ -365,8 +365,11 @@ fn register_reload_types(globals: &mlua::Table) -> Result<(), mlua::Error> {
 /// `configManager.getBoolean` / `getNumber(configKeys.…)`.
 fn register_config_keys(lua: &Lua) -> Result<(), mlua::Error> {
     let keys = lua.create_table()?;
+    // TFS `string_config_t::STRING_SERVER_NAME` — `configmanager.h` index 0.
+    keys.set("SERVER_NAME", 0i32)?;
     // `boolean_config_t::FREE_PREMIUM` — index 7 in TVP `configmanager.h`.
     keys.set("FREE_PREMIUM", 7i32)?;
+    keys.set("PREMIUM_PROMOTION", 52i32)?;
     // TVP `boolean_config_t::GUILHALLS_ONLYFOR_LEADERS` / `HOUSES_ONLY_PREMIUM`.
     keys.set("GUILHALLS_ONLYFOR_LEADERS", 49i32)?;
     keys.set("HOUSES_ONLY_PREMIUM", 50i32)?;
@@ -464,6 +467,12 @@ mod tests {
         );
 
         let config_keys: mlua::Table = globals.get("configKeys").expect("configKeys");
+        assert_eq!(
+            config_keys
+                .get::<i32>("SERVER_NAME")
+                .expect("SERVER_NAME"),
+            0
+        );
         assert_eq!(
             config_keys
                 .get::<i32>("FREE_PREMIUM")

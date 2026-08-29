@@ -111,6 +111,7 @@ impl ConditionBuilder {
             health_ticks: self.health_ticks,
             mana_gain: self.mana_gain,
             mana_ticks: self.mana_ticks,
+            owner_guid: self.owner_guid,
         }
     }
 

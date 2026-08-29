@@ -131,6 +131,7 @@ const COMBAT_PARAM_EFFECT: i32 = 1;
 const COMBAT_PARAM_DISTANCEEFFECT: i32 = 2;
 const COMBAT_PARAM_BLOCKSHIELD: i32 = 3;
 const COMBAT_PARAM_BLOCKARMOR: i32 = 4;
+const COMBAT_PARAM_TARGETCASTERORTOPMOST: i32 = 5; // enums.h:118
 const COMBAT_PARAM_CREATEITEM: i32 = 6; // enums.h:119
 const COMBAT_PARAM_AGGRESSIVE: i32 = 7;
 const COMBAT_PARAM_DISPEL: i32 = 8; // enums.h:121
@@ -221,6 +222,9 @@ pub struct CombatDef {
     /// `COMBAT_PARAM_NODAMAGE` → whether combat applies no damage (e.g. soulfire).
     /// C++ `Combat::noDamage` — `combat.h`.
     pub no_damage: bool,
+    /// `COMBAT_PARAM_TARGETCASTERORTOPMOST` → per tile, caster or topmost creature only.
+    /// C++ `CombatParams::targetCasterOrTopMost` — `combat.h:52` / `combat.cpp:751`.
+    pub target_caster_or_topmost: bool,
 }
 
 impl CombatDef {
@@ -237,6 +241,9 @@ impl CombatDef {
             k if k == COMBAT_PARAM_DISTANCEEFFECT => self.distance_effect = value,
             k if k == COMBAT_PARAM_BLOCKSHIELD => self.block_shield = value != 0,
             k if k == COMBAT_PARAM_BLOCKARMOR => self.block_armor = value != 0,
+            k if k == COMBAT_PARAM_TARGETCASTERORTOPMOST => {
+                self.target_caster_or_topmost = value != 0
+            }
             k if k == COMBAT_PARAM_CREATEITEM => self.create_item = value,
             k if k == COMBAT_PARAM_AGGRESSIVE => self.aggressive = value != 0,
             k if k == COMBAT_PARAM_DISPEL => self.dispel_type = value,
@@ -577,6 +584,7 @@ impl UserData for CombatRef {
                     create_item: combat.create_item,
                     no_damage: combat.no_damage,
                     distance_effect: combat.distance_effect,
+                    target_caster_or_topmost: combat.target_caster_or_topmost,
                 };
                 // TFS `luaCombatExecute` returns boolean; `canDoCombat` failure
                 // is `false` (rune not consumed), not a Lua error.
@@ -1102,6 +1110,9 @@ mod tests {
 
         def.set_parameter(COMBAT_PARAM_BLOCKARMOR, 0);
         assert!(!def.block_armor);
+
+        def.set_parameter(COMBAT_PARAM_TARGETCASTERORTOPMOST, 1);
+        assert!(def.target_caster_or_topmost);
 
         def.set_parameter(COMBAT_PARAM_DISPEL, 1); // CONDITION_POISON
         assert_eq!(def.dispel_type, 1);

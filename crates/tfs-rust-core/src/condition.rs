@@ -76,6 +76,8 @@ pub struct ActiveCondition {
     pub skill_count: i32,
     /// 772 `TSkill::MaxCount` — Event interval in ProcessSkills rounds (fire=8, energy=10, poison=3).
     pub skill_max_count: i32,
+    /// Field/trap DoT — Event ticks skip PvP `(d+1)/2` even when `*DamageOrigin` is a player.
+    pub field_dot: bool,
 }
 
 impl ActiveCondition {
@@ -95,6 +97,7 @@ impl ActiveCondition {
             timer_rounds_left,
             skill_count: 0,
             skill_max_count: 0,
+            field_dot: false,
         }
     }
 
@@ -102,6 +105,11 @@ impl ActiveCondition {
     pub fn with_skill_timer(mut self, count: i32, max_count: i32) -> Self {
         self.skill_count = count.max(0);
         self.skill_max_count = max_count.max(0);
+        self
+    }
+
+    pub fn with_field_dot(mut self, field_dot: bool) -> Self {
+        self.field_dot = field_dot;
         self
     }
 }
@@ -179,6 +187,10 @@ fn merge_into(existing: &mut ActiveCondition, incoming: &ActiveCondition) {
                 }
             }
         }
+    }
+
+    if incoming.field_dot {
+        existing.field_dot = true;
     }
 
     if poison_strength_gated {
@@ -310,6 +322,7 @@ mod tests {
             timer_rounds_left: None,
             skill_count: 0,
             skill_max_count: 0,
+            field_dot: false,
         }];
         let again = ActiveCondition {
             id: 2,
@@ -319,6 +332,7 @@ mod tests {
             timer_rounds_left: None,
             skill_count: 0,
             skill_max_count: 0,
+            field_dot: false,
         };
         add_condition_merge(&mut v, again.clone());
         let one = v.clone();

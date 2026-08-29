@@ -211,6 +211,7 @@ impl GameWorld {
             dispel: None,
             apply_condition: None,
             armor: physical_armor,
+            skip_pvp_half: false,
         };
         self.combat_execute_with_stimulus(attacker_id, target_id, &damage, &params);
 
