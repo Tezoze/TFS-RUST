@@ -9,7 +9,7 @@ use tfs_rust_common::Position;
 use tfs_rust_common::WorldType;
 use tfs_rust_common::enums::SkullType;
 use tfs_rust_net::outgoing::send_text_message;
-use tfs_rust_net::outgoing_extra::send_creature_skull;
+use tfs_rust_net::outgoing_extra::{send_creature_shield, send_creature_skull};
 
 use crate::creature::CreatureKind;
 use crate::creature::Player;
@@ -94,7 +94,6 @@ impl Player {
     }
 
     /// Mark party leave for CheckFormer window — `crplayer.cc:1701–1703`.
-    #[allow(dead_code)] // party system not yet wired; test-exercised
     pub(crate) fn leave_party_marks(&mut self, round_nr: u32) {
         if let Some(pid) = self.social.party_id {
             self.social.former_party_id = Some(pid);
@@ -104,7 +103,6 @@ impl Player {
     }
 
     /// Join / rejoin clears leave window — `crplayer.cc:1696–1699`.
-    #[allow(dead_code)] // party system not yet wired; test-exercised
     pub(crate) fn join_party_marks(&mut self, party_id: u32) {
         self.social.party_id = Some(party_id);
         self.social.party_leaving_round = 0;
@@ -551,6 +549,60 @@ impl GameWorld {
         }
     }
 
+    /// 772 `TPlayer::GetPartyMark` — `crplayer.cc:1714-1739`.
+    pub(crate) fn player_get_party_mark(&self, subject: CreatureId, observer: CreatureId) -> u8 {
+        use crate::party::PartyShield;
+
+        let Some(CreatureKind::Player(_)) = self.creatures.get(subject) else {
+            return PartyShield::None.into();
+        };
+        let Some(CreatureKind::Player(_)) = self.creatures.get(observer) else {
+            return PartyShield::None.into();
+        };
+
+        if self.player_party_leader_cid(observer, false) == Some(subject) {
+            return PartyShield::Leader.into();
+        }
+        if self.player_in_party_with(subject, observer, false) {
+            return PartyShield::Member.into();
+        }
+        if self.player_is_party_leader(observer)
+            && self.is_invited_to_party(subject, observer)
+        {
+            return PartyShield::Guest.into();
+        }
+        if self.player_is_party_leader(subject)
+            && self.is_invited_to_party(observer, subject)
+        {
+            return PartyShield::Host.into();
+        }
+        PartyShield::None.into()
+    }
+
+    /// 772 `SendCreatureParty` — `sending.cc:1062-1077` (opcode `0x91`).
+    pub(crate) fn send_creature_shield_to_conn(
+        &mut self,
+        subject: CreatureId,
+        observer: CreatureId,
+    ) {
+        let Some(obs_conn) = self.creature_to_conn.get(&observer).copied() else {
+            return;
+        };
+        let wire_id = match self.creatures.get(subject) {
+            Some(k) => creature_wire_id(subject, k),
+            None => return,
+        };
+        let known = self
+            .known_creatures_by_conn
+            .get(&obs_conn)
+            .is_some_and(|set| set.contains(&wire_id));
+        if !known {
+            return;
+        }
+        let mark = self.player_get_party_mark(subject, observer);
+        self.enqueue_outgoing(obs_conn, send_creature_shield(wire_id, mark).into_bytes());
+    }
+
     /// 772 `SendCreatureSkull` to one observer connection — `sending.cc:1045–1060`.
     pub(crate) fn send_creature_skull_to_conn(
         &mut self,
@@ -606,7 +658,6 @@ impl GameWorld {
     }
 
     /// Apply FormerParty window when a player leaves a party — `crplayer.cc:1701`.
-    #[allow(dead_code)] // party system not yet wired; test-exercised
     pub(crate) fn player_leave_party(&mut self, cid: CreatureId) {
         let round_nr = self.round_nr;
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
@@ -615,7 +666,6 @@ impl GameWorld {
     }
 
     /// Assign live party id and clear FormerParty window — `crplayer.cc:1696`.
-    #[allow(dead_code)] // party system not yet wired; test-exercised
     pub(crate) fn player_join_party(&mut self, cid: CreatureId, party_id: u32) {
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.join_party_marks(party_id);

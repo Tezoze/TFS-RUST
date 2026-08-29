@@ -17,6 +17,17 @@ Ported stateful `data/lib/core` helpers to native Rust + Lua-callable bindings.
 
 **Stay Lua:** `constants.lua`, `storages.lua`, `create_functions.lua`, `container.createLootItem` error stub.
 
+## Party lifecycle — audit §1.2 (2026-08-29)
+
+Wire client opcodes `0xA3`–`0xA8` to corpus `operate.cc:3919–4214`.
+
+- [x] Extend `Party` (`invited`, `PartyShield`); fix `split_shared_experience` (even split, no TFS bonus)
+- [x] `party.rs` — invite / revoke / join / pass leadership / leave / disband / share XP
+- [x] `skulls.rs` — `player_get_party_mark`, `send_creature_shield_to_conn`
+- [x] `game_loop.rs` — dispatch + timed-action whitelist
+- [x] Logout forced leave; login `party_shield` from mark
+- [x] Unit tests in `party.rs`
+
 ## Phase 2 — EventCallback dispatch (ship first)
 - [x] Rust-side `has_event_callback` bitset + direct RegistryKey dispatch
 - [x] Sync from `EventCallbackData` at end of `load_scripts_interface`

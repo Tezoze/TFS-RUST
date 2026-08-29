@@ -161,8 +161,6 @@ fn test_player_base(name: &str, pos: Position) -> Player {
             last_auto_walk_armed_ms: u64::MAX,
         drop_loot: true,
         skill_loss: true,
-            drop_loot: true,
-            skill_loss: true,
         },
         account_id: 1,
         guid: 1,
@@ -309,8 +307,6 @@ pub fn minimal_creature_base() -> CreatureBase {
         todo: Default::default(),
         chase_mode: Default::default(),
         last_auto_walk_armed_ms: u64::MAX,
-        drop_loot: true,
-        skill_loss: true,
         drop_loot: true,
         skill_loss: true,
     }

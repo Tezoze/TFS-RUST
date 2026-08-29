@@ -75,13 +75,21 @@ impl SkillNr {
 
 impl Player {
     /// TFS `Player::getPercentLevel` — `player.cpp:1914-1925`.
+    ///
+    /// C++ uses unsigned wrap on `count * 100`; Rust debug builds panic instead.
+    /// Wide intermediate math preserves normal outcomes and maps oversize bars to `0`
+    /// (same as TFS when wrapped product exceeds 100%).
     #[inline]
     pub fn percent_level(count: u64, next_level_count: u64) -> u8 {
         if next_level_count == 0 {
             return 0;
         }
-        let result = (count * 100) / next_level_count;
-        if result > 100 { 0 } else { result as u8 }
+        let result = (count as u128 * 100) / next_level_count as u128;
+        if result > 100 {
+            0
+        } else {
+            result as u8
+        }
     }
 
     /// Percent toward next combat-skill level (TFS `skills[skill].percent` after `addSkillAdvance`).
@@ -376,6 +384,12 @@ mod tests {
         // TFS returns 0 when result would exceed 100.
         assert_eq!(Player::percent_level(101, 100), 0);
         assert_eq!(Player::percent_level(1, 0), 0);
+    }
+
+    #[test]
+    fn percent_level_oversize_count_no_panic() {
+        assert_eq!(Player::percent_level(u64::MAX, 100), 0);
+        assert_eq!(Player::percent_level(u64::MAX / 50, 50), 0);
     }
 
     #[test]

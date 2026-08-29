@@ -411,6 +411,12 @@ fn game_packet_requires_timed_action(packet: &GamePacket) -> bool {
             | GamePacket::LookInTrade { .. }
             | GamePacket::AcceptTrade
             | GamePacket::CloseTrade
+            | GamePacket::PartyInvite { .. }
+            | GamePacket::PartyJoin { .. }
+            | GamePacket::PartyRevokeInvite { .. }
+            | GamePacket::PartyPassLeadership { .. }
+            | GamePacket::PartyLeave
+            | GamePacket::PartyShareExperience { .. }
     )
 }
 
@@ -1177,6 +1183,36 @@ fn handle_game_packet(
         GamePacket::CloseTrade => {
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
                 world.player_close_trade(cid);
+            }
+        }
+        GamePacket::PartyInvite { target_id } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_party_invite(conn_id, cid, target_id);
+            }
+        }
+        GamePacket::PartyJoin { target_id } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_party_join(conn_id, cid, target_id);
+            }
+        }
+        GamePacket::PartyRevokeInvite { target_id } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_party_revoke_invite(conn_id, cid, target_id);
+            }
+        }
+        GamePacket::PartyPassLeadership { target_id } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_party_pass_leadership(conn_id, cid, target_id);
+            }
+        }
+        GamePacket::PartyLeave => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_party_leave(cid, false);
+            }
+        }
+        GamePacket::PartyShareExperience { active } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_party_share_experience(cid, active);
             }
         }
         _ => trace!(

@@ -135,6 +135,7 @@ pub(crate) fn build_add_creature_wire(
         Some(0) => {
             let light = world.player_creature_light(cid);
             let skull = world.player_get_killing_mark(cid, viewer);
+            let party_shield = world.player_get_party_mark(cid, viewer);
             let subject_guid = match world.creatures.get(cid) {
                 Some(CreatureKind::Player(p)) => p.guid,
                 _ => return AddCreatureWire::default(),
@@ -150,7 +151,7 @@ pub(crate) fn build_add_creature_wire(
             let Some(CreatureKind::Player(p)) = world.creatures.get(cid) else {
                 return AddCreatureWire::default();
             };
-            player_to_add_creature_wire(p, is_self, light, viewer_access, &world.mechanics, skull)
+            player_to_add_creature_wire(p, is_self, light, viewer_access, &world.mechanics, skull, party_shield)
         }
         Some(1) => match world.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => {
@@ -173,6 +174,7 @@ fn player_to_add_creature_wire(
     viewer_is_access: bool,
     mech: &crate::formulas::Mechanics,
     skull: SkullType,
+    party_shield: u8,
 ) -> AddCreatureWire {
     let hp = if !is_self && p.health_hidden {
         0
@@ -198,7 +200,7 @@ fn player_to_add_creature_wire(
         light_color: light.color,
         step_speed,
         skull: skull_byte(skull),
-        party_shield: 0,
+        party_shield,
         guild_emblem: 0,
         speech_bubble: 0,
         helpers: 0,
@@ -292,6 +294,7 @@ pub(crate) fn map_tile_content(
     let viewer_access = world.player_is_access_player(self_cid);
     let self_light = world.player_creature_light(self_cid);
     let self_skull = world.player_get_killing_mark(self_cid, self_cid);
+    let self_party_shield = world.player_get_party_mark(self_cid, self_cid);
     let Some(CreatureKind::Player(self_player)) = world.creatures.get(self_cid) else {
         return None;
     };
@@ -302,6 +305,7 @@ pub(crate) fn map_tile_content(
         viewer_access,
         &world.mechanics,
         self_skull,
+        self_party_shield,
     );
     let self_guid = self_player.guid;
 
@@ -394,6 +398,10 @@ pub(crate) fn map_tile_content(
                 Some(CreatureKind::Player(_)) => world.player_get_killing_mark(ocid, self_cid),
                 _ => SkullType::None,
             };
+            let party_shield = match world.creatures.get(ocid) {
+                Some(CreatureKind::Player(_)) => world.player_get_party_mark(ocid, self_cid),
+                _ => 0,
+            };
             let light = match world.creatures.get(ocid) {
                 Some(CreatureKind::Player(_)) => world.player_creature_light(ocid),
                 _ => LightInfo::default(),
@@ -406,6 +414,7 @@ pub(crate) fn map_tile_content(
                     viewer_access,
                     &world.mechanics,
                     skull,
+                    party_shield,
                 ),
                 Some(CreatureKind::Monster(m)) => {
                     monster_to_add_creature_wire(ocid, m, &world.mechanics)
@@ -856,7 +865,7 @@ mod map_creature_wire_tests {
             level: 7,
             color: 215,
         };
-        let wire = player_to_add_creature_wire(&p, true, light, false, &mech, SkullType::None);
+        let wire = player_to_add_creature_wire(&p, true, light, false, &mech, SkullType::None, 0);
         assert!(!wire.access_player);
         assert_eq!(wire.light_level, 7);
         assert_eq!(wire.light_color, 215);
@@ -873,6 +882,7 @@ mod map_creature_wire_tests {
             true,
             &mech,
             SkullType::None,
+            0,
         );
         assert!(wire.access_player);
     }
@@ -897,6 +907,7 @@ mod map_creature_wire_tests {
             false,
             &mech,
             SkullType::None,
+            0,
         );
 
         assert_eq!(wire.id, p.guid);
@@ -935,6 +946,7 @@ mod map_creature_wire_tests {
             false,
             &mech,
             SkullType::None,
+            0,
         );
         assert_eq!(wire.outfit.look_type, 0);
         assert_eq!(wire.outfit.look_type_ex, 0);
@@ -953,6 +965,7 @@ mod map_creature_wire_tests {
             false,
             &mech,
             SkullType::None,
+            0,
         );
         assert_eq!(wire.outfit.look_type, 0);
     }

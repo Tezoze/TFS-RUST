@@ -168,11 +168,11 @@ mod tests {
             .keys()
             .next()
             .expect("preMoveTransforms");
-        let to_id = world.tool_ids.move_item_policy.pre_move_transforms[from_id];
-        register_item_types(&mut world, &[*from_id, to_id]);
+        let to_id = world.tool_ids.move_item_policy.pre_move_transforms[&from_id];
+        register_item_types(&mut world, &[from_id, to_id]);
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, 100);
-        let iid = insert_item_on_tile(&mut world, pos, *from_id, 0);
+        let iid = insert_item_on_tile(&mut world, pos, from_id, 0);
         let dest = Position::new(101, 100, 7);
         ensure_walkable_tile(&mut world.map, dest, 100);
         assert_eq!(
@@ -222,11 +222,11 @@ mod tests {
             .keys()
             .next()
             .expect("postMoveTransforms");
-        let closed_id = world.tool_ids.move_item_policy.post_move_transforms[open_id];
-        register_item_types(&mut world, &[*open_id, closed_id]);
+        let closed_id = world.tool_ids.move_item_policy.post_move_transforms[&open_id];
+        register_item_types(&mut world, &[open_id, closed_id]);
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, 100);
-        let iid = insert_item_on_tile(&mut world, pos, *open_id, 0);
+        let iid = insert_item_on_tile(&mut world, pos, open_id, 0);
         on_player_item_moved(&mut world, iid, &Cylinder::Tile { pos });
         assert_eq!(world.items.get(iid).map(|i| i.item_type), Some(closed_id));
     }

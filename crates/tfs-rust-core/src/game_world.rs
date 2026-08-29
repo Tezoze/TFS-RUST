@@ -37,7 +37,7 @@ use crate::house::HouseManager;
 use crate::ids::{CreatureId, ItemId};
 use crate::item::Item;
 use crate::map::Map;
-use crate::party::{Party, PartyInviteState};
+use crate::party::Party;
 use crate::protocol_hooks::{NullProtocolHooks, SharedProtocolHooks};
 use crate::spawn::SpawnManager;
 use crate::stability::StabilityManager;
@@ -99,7 +99,6 @@ pub struct GameWorld {
     pub(crate) server_save: crate::server_save::ServerSaveController,
     pub guilds: GuildRegistry,
     pub parties: HashMap<u32, Party>,
-    pub party_invites: PartyInviteState,
     pub next_party_id: u32,
     pub trades: crate::trade::TradeRegistry,
     /// TFS `Chat` (`chat.h:105`) — static + private channel registry. Game-thread only.
@@ -429,7 +428,6 @@ impl GameWorld {
             }),
             guilds: GuildRegistry::default(),
             parties: HashMap::new(),
-            party_invites: PartyInviteState::default(),
             next_party_id: 1,
             trades: crate::trade::TradeRegistry::default(),
             decay: DecayManager::default(),

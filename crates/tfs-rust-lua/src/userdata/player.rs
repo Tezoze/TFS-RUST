@@ -1374,6 +1374,18 @@ impl UserData for CreatureRef {
         //
         // C++ reference: `luascript.cpp` `LuaScriptInterface::registerClass`
         // chains `Player` → `Creature`; shared helper in `class_registry`.
+        //
+        // Pack scripts (`experienceshare.lua`) compare `party:getLeader()` to `player`
+        // with `==` / `~=`; without `__eq`, Lua compares userdata by pointer identity.
+        methods.add_meta_method(MetaMethod::Eq, |_, this, other: Value| {
+            let Value::UserData(ud) = other else {
+                return Ok(false);
+            };
+            match ud.borrow::<CreatureRef>() {
+                Ok(other_ref) => Ok(this.0 == other_ref.0),
+                Err(_) => Ok(false),
+            }
+        });
         methods.add_meta_method(MetaMethod::Index, |lua, _this, key: mlua::LuaString| {
             crate::class_registry::class_index_lookup(
                 lua,
@@ -2442,6 +2454,61 @@ mod tests {
             assert!(matches!(missing, mlua::Value::Nil));
             let ip: u32 = lua.load("return player:getIp()").eval().expect("getIp");
             assert_eq!(ip, u32::from_le_bytes([192, 168, 1, 10]));
+        });
+    }
+
+    /// `experienceshare.lua` — `party:getLeader() == player` must compare creature ids.
+    #[test]
+    fn party_get_leader_eq_player_by_creature_id() {
+        use crate::userdata::party::PartyRef;
+
+        const LEADER: ScriptCreatureId = 42;
+        const PARTY_ID: u32 = 9;
+
+        struct PartyLeaderCtx;
+        impl ScriptContext for PartyLeaderCtx {
+            fn get_creature(&self, id: ScriptCreatureId) -> Option<ScriptCreatureData> {
+                (id == LEADER).then_some(ScriptCreatureData {
+                    name: "Leader".into(),
+                    guid: 1,
+                })
+            }
+            fn get_item(&self, _: ScriptItemId) -> Option<ScriptItemRef> {
+                None
+            }
+            fn get_config_string(&self, _: &str) -> Option<String> {
+                None
+            }
+            fn get_player_party_id(&self, creature_id: ScriptCreatureId) -> Option<u32> {
+                (creature_id == LEADER).then_some(PARTY_ID)
+            }
+            fn get_party_leader(&self, party_id: u32) -> Option<ScriptCreatureId> {
+                (party_id == PARTY_ID).then_some(LEADER)
+            }
+        }
+
+        let runtime = crate::runtime::LuaRuntime::new().expect("runtime");
+        let lua = &runtime.lua;
+        with_lua_context(&PartyLeaderCtx, || {
+            let player = lua.create_userdata(CreatureRef(LEADER)).expect("player");
+            let party = lua.create_userdata(PartyRef(PARTY_ID)).expect("party");
+            lua.globals().set("player", player).unwrap();
+            lua.globals().set("party", party).unwrap();
+            let is_leader: bool = lua
+                .load("return party:getLeader() == player")
+                .eval()
+                .expect("leader eq");
+            assert!(is_leader);
+            let not_self: bool = lua
+                .load(
+                    r#"
+                    local other = Creature(99)
+                    return party:getLeader() == other
+                "#,
+                )
+                .eval()
+                .expect("leader ne");
+            assert!(!not_self);
         });
     }
 }

@@ -72,6 +72,7 @@ impl GameWorld {
     pub fn remove_creature(&mut self, id: CreatureId) {
         if matches!(self.creatures.get(id), Some(CreatureKind::Player(_))) {
             self.cancel_trade_for_player(id);
+            self.player_forced_leave_party(id);
         }
         // NPC-7: fire onDisappear before teardown when registered.
         let disappear_cb = match self.creatures.get(id) {
@@ -338,6 +339,7 @@ impl GameWorld {
         self.chat.remove_user_from_all_channels(cid);
         let _ = self.container_registry.close_all_for_player(cid);
         self.cancel_trade_for_player(cid);
+        self.player_forced_leave_party(cid);
 
         tracing::info!(?cid, old_conn = ?old_conn.map(|c| c.0), "player takeover");
         old_conn
