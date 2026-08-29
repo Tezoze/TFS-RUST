@@ -156,6 +156,7 @@ impl LuaEventDispatcher {
         item: ItemId,
         item_type: u16,
         action_id: u16,
+        unique_id: u16,
         pos: Position,
         is_add: bool,
         tile_items: &[TileMoveEventItem],
@@ -166,7 +167,10 @@ impl LuaEventDispatcher {
             (MoveEventKind::RemoveItem, MoveEventKind::RemoveItemItemTile)
         };
 
-        if let Some(callback) = self.move_events.get_event(kind, item_type, action_id) {
+        if let Some(callback) = self
+            .move_events
+            .get_event(kind, item_type, action_id, unique_id)
+        {
             self.fire_add_rem_item(callback, item, None, pos, kind);
         }
 
@@ -174,10 +178,12 @@ impl LuaEventDispatcher {
             if sibling.item_id == item {
                 continue;
             }
-            let Some(callback) =
-                self.move_events
-                    .get_event(tile_kind, sibling.item_type, sibling.action_id)
-            else {
+            let Some(callback) = self.move_events.get_event(
+                tile_kind,
+                sibling.item_type,
+                sibling.action_id,
+                sibling.unique_id,
+            ) else {
                 continue;
             };
             self.fire_add_rem_item(callback, item, Some(sibling.item_id), pos, tile_kind);
@@ -209,13 +215,17 @@ impl LuaEventDispatcher {
         item: ItemId,
         item_type: u16,
         action_id: u16,
+        unique_id: u16,
         pos: Position,
         from_pos: Position,
     ) -> bool {
         let Some(actor) = actor else {
             return true;
         };
-        let Some(callback) = self.move_events.get_event(kind, item_type, action_id) else {
+        let Some(callback) = self
+            .move_events
+            .get_event(kind, item_type, action_id, unique_id)
+        else {
             return true;
         };
         match self.runtime.call_move_step(
@@ -313,11 +323,14 @@ impl EventDispatcher for LuaEventDispatcher {
         item: ItemId,
         item_type: u16,
         action_id: u16,
+        unique_id: u16,
         pos: Position,
         is_add: bool,
         tile_items: &[TileMoveEventItem],
     ) {
-        self.dispatch_item_move(item, item_type, action_id, pos, is_add, tile_items)
+        self.dispatch_item_move(
+            item, item_type, action_id, unique_id, pos, is_add, tile_items,
+        )
     }
 
     fn on_step_out(
@@ -326,6 +339,7 @@ impl EventDispatcher for LuaEventDispatcher {
         item: ItemId,
         item_type: u16,
         action_id: u16,
+        unique_id: u16,
         pos: Position,
         from_pos: Position,
     ) -> bool {
@@ -335,6 +349,7 @@ impl EventDispatcher for LuaEventDispatcher {
             item,
             item_type,
             action_id,
+            unique_id,
             pos,
             from_pos,
         )
@@ -346,6 +361,7 @@ impl EventDispatcher for LuaEventDispatcher {
         item: ItemId,
         item_type: u16,
         action_id: u16,
+        unique_id: u16,
         pos: Position,
         from_pos: Position,
     ) -> bool {
@@ -355,9 +371,26 @@ impl EventDispatcher for LuaEventDispatcher {
             item,
             item_type,
             action_id,
+            unique_id,
             pos,
             from_pos,
         )
+    }
+
+    fn has_creature_move_event(
+        &self,
+        step_in: bool,
+        item_type: u16,
+        action_id: u16,
+        unique_id: u16,
+    ) -> bool {
+        let kind = if step_in {
+            MoveEventKind::StepIn
+        } else {
+            MoveEventKind::StepOut
+        };
+        self.move_events
+            .has_event(kind, item_type, action_id, unique_id)
     }
 
     fn on_login(&self, creature: CreatureId, ctx: &dyn tfs_rust_common::ScriptContext) {
@@ -549,13 +582,14 @@ impl EventDispatcher for LuaEventDispatcher {
         item: ItemId,
         item_type: u16,
         action_id: u16,
+        unique_id: u16,
         from: Position,
         target_item: Option<ItemId>,
         target_creature: Option<CreatureId>,
         to: Position,
         is_hotkey: bool,
     ) -> bool {
-        let Some(entry) = self.actions.get(item_type, action_id) else {
+        let Some(entry) = self.actions.get(item_type, action_id, unique_id) else {
             return false;
         };
         match self.runtime.call_action_on_use(
@@ -581,9 +615,13 @@ impl EventDispatcher for LuaEventDispatcher {
         }
     }
 
+    fn has_use_action(&self, item_type: u16, action_id: u16, unique_id: u16) -> bool {
+        self.actions.has_event(item_type, action_id, unique_id)
+    }
+
     fn action_allows_far_use(&self, item_type: u16, action_id: u16) -> bool {
         self.actions
-            .get(item_type, action_id)
+            .get(item_type, action_id, 0)
             .is_some_and(|e| e.allow_far_use)
     }
 

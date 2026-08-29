@@ -154,6 +154,7 @@ pub struct PendingTalkAction {
 pub struct PendingAction {
     pub item_ids: Vec<u16>,
     pub action_ids: Vec<u16>,
+    pub unique_ids: Vec<u16>,
     pub on_use: Option<mlua::RegistryKey>,
     /// C++ `Action::allowFarUse` — `actions.h`. Default `false`.
     pub allow_far_use: bool,
@@ -167,6 +168,7 @@ pub struct PendingMoveEvent {
     pub kind: crate::move_events::MoveEventKind,
     pub item_ids: Vec<u16>,
     pub action_ids: Vec<u16>,
+    pub unique_ids: Vec<u16>,
     pub slot_mask: u32,
     pub req_level: u32,
     pub callback: Option<mlua::RegistryKey>,
@@ -602,6 +604,15 @@ impl LuaRuntime {
                     }
                 }
 
+                let mut unique_ids = Vec::new();
+                if let Ok(uids_table) = action_table.get::<mlua::Table>("_uids") {
+                    for j in 1..=uids_table.len()? {
+                        if let Ok(id) = uids_table.get::<u16>(j) {
+                            unique_ids.push(id);
+                        }
+                    }
+                }
+
                 let on_use = action_table
                     .get::<Option<mlua::Function>>("onUse")?
                     .map(|f| self.lua.create_registry_value(f))
@@ -615,6 +626,7 @@ impl LuaRuntime {
                 self.pending_actions.push(PendingAction {
                     item_ids,
                     action_ids,
+                    unique_ids,
                     on_use,
                     allow_far_use,
                 });
@@ -662,6 +674,15 @@ impl LuaRuntime {
                     }
                 }
 
+                let mut unique_ids = Vec::new();
+                if let Ok(uids_table) = me_table.get::<mlua::Table>("_uids") {
+                    for j in 1..=uids_table.len()? {
+                        if let Ok(id) = uids_table.get::<u16>(j) {
+                            unique_ids.push(id);
+                        }
+                    }
+                }
+
                 let type_name: Option<String> = match me_table.get::<Value>("_type")? {
                     Value::String(s) => Some(s.to_str()?.to_owned()),
                     _ => None,
@@ -685,6 +706,7 @@ impl LuaRuntime {
                     kind,
                     item_ids,
                     action_ids,
+                    unique_ids,
                     slot_mask,
                     req_level,
                     callback,
@@ -1606,6 +1628,7 @@ pub(crate) fn register_event_script_bootstrap_with(
         let action = lua.create_table()?;
         action.set("_ids", lua.create_table()?)?;
         action.set("_aids", lua.create_table()?)?;
+        action.set("_uids", lua.create_table()?)?;
         action.set("_allow_far_use", false)?;
         // `action:id(...)` — append one or more item type ids.
         action.set(
@@ -1637,6 +1660,23 @@ pub(crate) fn register_event_script_bootstrap_with(
                     };
                     let len = aids.len()?;
                     aids.set(len + 1, id)?;
+                }
+                Ok(this)
+            })?,
+        )?;
+        // `action:uid(...)` — append unique ids (TFS `uniqueItemMap`).
+        action.set(
+            "uid",
+            lua.create_function(|_lua, (this, args): (mlua::Table, mlua::Variadic<Value>)| {
+                let uids: mlua::Table = this.get("_uids")?;
+                for arg in args.iter() {
+                    let id = match arg {
+                        Value::Integer(n) => *n as u16,
+                        Value::Number(n) => *n as u16,
+                        _ => continue,
+                    };
+                    let len = uids.len()?;
+                    uids.set(len + 1, id)?;
                 }
                 Ok(this)
             })?,
@@ -1673,6 +1713,7 @@ pub(crate) fn register_event_script_bootstrap_with(
         let me = lua.create_table()?;
         me.set("_ids", lua.create_table()?)?;
         me.set("_aids", lua.create_table()?)?;
+        me.set("_uids", lua.create_table()?)?;
         me.set("_slot_mask", 0u32)?;
         me.set("_req_level", 0u32)?;
         me.set(
@@ -1703,6 +1744,22 @@ pub(crate) fn register_event_script_bootstrap_with(
                     };
                     let len = aids.len()?;
                     aids.set(len + 1, id)?;
+                }
+                Ok(this)
+            })?,
+        )?;
+        me.set(
+            "uid",
+            lua.create_function(|_lua, (this, args): (mlua::Table, mlua::Variadic<Value>)| {
+                let uids: mlua::Table = this.get("_uids")?;
+                for arg in args.iter() {
+                    let id = match arg {
+                        Value::Integer(n) => *n as u16,
+                        Value::Number(n) => *n as u16,
+                        _ => continue,
+                    };
+                    let len = uids.len()?;
+                    uids.set(len + 1, id)?;
                 }
                 Ok(this)
             })?,

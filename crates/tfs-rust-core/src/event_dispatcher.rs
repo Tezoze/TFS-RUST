@@ -20,6 +20,7 @@ pub struct TileMoveEventItem {
     pub item_id: ItemId,
     pub item_type: u16,
     pub action_id: u16,
+    pub unique_id: u16,
 }
 
 /// Cylinder identity for player move-item EventCallbacks.
@@ -182,6 +183,7 @@ pub trait EventDispatcher {
         _item: ItemId,
         _item_type: u16,
         _action_id: u16,
+        _unique_id: u16,
         _pos: Position,
         _is_add: bool,
         _tile_items: &[TileMoveEventItem],
@@ -191,13 +193,14 @@ pub trait EventDispatcher {
     /// TFS `MoveEvent::onStepOut` — creature/item leaving a tile.
     ///
     /// `pos` = tile being left; `from_pos` = creature last position (Lua 4th arg).
-    /// `action_id` feeds `MoveEvents::getEvent` (uid skipped → aid → itemid).
+    /// `action_id` / `unique_id` feed `MoveEvents::getEvent` (uid → aid → itemid).
     fn on_step_out(
         &self,
         _actor: Option<CreatureId>,
         _item: ItemId,
         _item_type: u16,
         _action_id: u16,
+        _unique_id: u16,
         _pos: Position,
         _from_pos: Position,
     ) -> bool {
@@ -207,17 +210,29 @@ pub trait EventDispatcher {
     /// TFS `MoveEvent::onStepIn` — creature/item entering a tile.
     ///
     /// `pos` = tile entered; `from_pos` = creature last position (Lua 4th arg).
-    /// `action_id` feeds `MoveEvents::getEvent` (uid skipped → aid → itemid).
+    /// `action_id` / `unique_id` feed `MoveEvents::getEvent` (uid → aid → itemid).
     fn on_step_in(
         &self,
         _actor: Option<CreatureId>,
         _item: ItemId,
         _item_type: u16,
         _action_id: u16,
+        _unique_id: u16,
         _pos: Position,
         _from_pos: Position,
     ) -> bool {
         true
+    }
+
+    /// HashMap membership for StepIn (`true`) / StepOut (`false`) — no Lua.
+    fn has_creature_move_event(
+        &self,
+        _step_in: bool,
+        _item_type: u16,
+        _action_id: u16,
+        _unique_id: u16,
+    ) -> bool {
+        false
     }
 
     /// TFS `Creature::onCreatureSay` — per-creature hear callback (e.g. NPC dialog,
@@ -299,7 +314,7 @@ pub trait EventDispatcher {
     /// Action `onUse` — `actions.cpp` `Action::executeUse`.
     ///
     /// Returns `true` if a script handled the use (skip native fallthrough).
-    /// `item_type` / `action_id` drive `Actions::getAction` lookup (aid then type).
+    /// `item_type` / `action_id` / `unique_id` drive `Actions::getAction`.
     /// `is_hotkey` is the 6th Lua arg (`callFunction(6)`).
     #[allow(clippy::too_many_arguments)]
     fn dispatch_on_use_action(
@@ -308,12 +323,18 @@ pub trait EventDispatcher {
         _item: ItemId,
         _item_type: u16,
         _action_id: u16,
+        _unique_id: u16,
         _from: Position,
         _target_item: Option<ItemId>,
         _target_creature: Option<CreatureId>,
         _to: Position,
         _is_hotkey: bool,
     ) -> bool {
+        false
+    }
+
+    /// HashMap membership for `onUse` — skip the Lua mutation scope on miss.
+    fn has_use_action(&self, _item_type: u16, _action_id: u16, _unique_id: u16) -> bool {
         false
     }
 

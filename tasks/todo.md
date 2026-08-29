@@ -1,14 +1,7 @@
-# Immediate logout on 772 login
+# Spectator 0x6D after StepIn doRelocate (bug0000017)
 
 **Status:** complete.
-**Symptom:** Login registers, then ~150ms later `LOGOUT` then `game connection closed`. Second Enter Game often sticks.
 
-## Cause
+Walk self NotifyGo `A→B`, then StepIn `doRelocate`/`teleportTo` with `dz≠0` was broadcasting spectator `0x6D` `B→C` before the walk’s `A→live`. Spectators still had the walker at `A` → stock 772 `Communication.cpp:1879`.
 
-`last_command_round` / `last_action_round` start at 0 (`login.rs`). `ProcessConnections` computes `round_nr - last_command_round`. After ~90 Other rounds of uptime that is already a dead connection (`connections.cc:37`). Next Other tick (often the first beat after login) kicks the player before the client can send a command.
-
-Second attempt can survive if a ping/move stamps the rounds before the next Other fire (~1s).
-
-## Fix
-
-`register_conn_mapping` calls `player_reset_connection_rounds(..., true)` so attach stamps `LastCommand`/`LastAction` to current `RoundNr`.
+Fix: `flushing_step_creature` — skip `broadcast_spectator_move` for that mover during their deferred StepIn/Out. Self packets unchanged. Outer walk still sends origin → live.

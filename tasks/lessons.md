@@ -919,4 +919,10 @@
 414. **Login `last_command_round = 0` is an instant dead connection** (`register_conn_mapping`; `connections.cc:37` `LastCommand >= 90`): Player spawn left command/action stamps at 0. After ~90 Other rounds of uptime, the next `ProcessConnections` kicks the new session before the client can send a packet. Log order is `LOGOUT` then `game connection closed` (server closed TCP). Second Enter Game can stick if a ping/move stamps rounds before the next Other tick. Stamp both clocks on conn attach via `player_reset_connection_rounds(..., true)`.
     *(August 2026)*
 
+415. **Skip Lua on ground/no-op tiles** (`lua_scope.rs` `fire_creature_step_events` / `fire_on_use_action`; `move_events.rs` `has_event`; corpus `moveuse.cc` `CollisionEvent` → `HandleEvent` only if `COLLISIONEVENT`): Entering mutation+context scope on every walk created Creature/Item/Position userdata for grass. Gate with O(1) uid/aid/itemid HashMap membership; StepIn vs StepOut are separate kinds. `with_lua_mutation_scope` has no drain — safe to skip when nothing will fire. Native stepping tiles / doors stay outside the scope.
+    *(August 2026)*
+
+416. **StepIn `doRelocate` 0x6D from the land tile crashes spectator 772** (`walk/mod.rs` `flushing_step_creature`; `Communication.cpp:1879` `bug0000017`): Walk sends **self** NotifyGo `A→B` then flush StepIn. `level_2_bridge.lua` `doRelocate` → `teleportTo(..., true)` with `dz≠0` is a teleport, so `internal_teleport_player` broadcast `B→C` **before** the walk’s spectator `A→live`. Other clients still have the walker at `A`. Skip `broadcast_spectator_move` for that mover while their step events run; self packets stay. Standalone `teleportTo` (no walk flush) still notifies.
+    *(August 2026)*
+
 

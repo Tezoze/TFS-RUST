@@ -144,6 +144,9 @@ pub struct GameWorld {
     pub deferred_turn_broadcast: HashMap<CreatureId, DeferredTurnBroadcast>,
     /// StepOut/StepIn deferred until after move packets — see [`PendingCreatureStepEvent`].
     pub(crate) pending_creature_step_events: Vec<PendingCreatureStepEvent>,
+    /// Mover whose deferred StepIn/Out is running — skip nested spectator `0x6D`
+    /// (`doRelocate` / `teleportTo`); the walk still broadcasts walk-origin → live.
+    pub(crate) flushing_step_creature: Option<CreatureId>,
     /// `ProtocolGame::knownCreatureSet` — must persist across `0x64` / move strips (`src/protocolgame.cpp`).
     pub known_creatures_by_conn: HashMap<ConnId, HashSet<u32>>,
     /// Wire ids this conn received with a full `AddCreature` block (map `known=false` or `0x6A`).
@@ -442,6 +445,7 @@ impl GameWorld {
             dead_connections: HashSet::new(),
             deferred_turn_broadcast: HashMap::new(),
             pending_creature_step_events: Vec::new(),
+            flushing_step_creature: None,
             known_creatures_by_conn: HashMap::new(),
             creature_fully_sent_by_conn: HashMap::new(),
             items_db,

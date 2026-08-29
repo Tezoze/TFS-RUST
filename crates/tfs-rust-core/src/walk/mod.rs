@@ -1296,6 +1296,13 @@ impl GameWorld {
         new_pos: Position,
         old_creatures: &[CreatureId],
     ) {
+        if self.flushing_step_creature == Some(mover) {
+            // Nested `doRelocate`/`teleportTo` during StepIn: spectators still have
+            // this creature on the *walk origin*. A 0x6D from the land tile is
+            // stock 772 `bug0000017` (`Communication.cpp:1879`). Outer walk/kick
+            // broadcasts origin → live after flush.
+            return;
+        }
         let wire_id = match self.creatures.get(mover) {
             Some(k) => creature_wire_id(mover, k),
             None => return,
@@ -2469,6 +2476,7 @@ impl GameWorld {
         while !self.pending_creature_step_events.is_empty() {
             let pending = std::mem::take(&mut self.pending_creature_step_events);
             for ev in pending {
+                let prev = self.flushing_step_creature.replace(ev.cid);
                 crate::lua_scope::fire_creature_step_events(
                     self,
                     ev.cid,
@@ -2477,6 +2485,7 @@ impl GameWorld {
                     &ev.step_out_items,
                     &ev.step_in_items,
                 );
+                self.flushing_step_creature = prev;
             }
         }
     }
@@ -2507,15 +2516,16 @@ impl GameWorld {
         &self,
         item_id: ItemId,
     ) -> crate::game_world::TileMoveEventItem {
-        let (item_type, action_id) = self
+        let (item_type, action_id, unique_id) = self
             .items
             .get(item_id)
-            .map(|i| (i.item_type, i.action_id()))
-            .unwrap_or((0, 0));
+            .map(|i| (i.item_type, i.action_id(), i.unique_id()))
+            .unwrap_or((0, 0, 0));
         crate::game_world::TileMoveEventItem {
             item_id,
             item_type,
             action_id,
+            unique_id,
         }
     }
 
@@ -3146,6 +3156,94 @@ mod monster_walk_tests {
         assert!(
             !opcodes.iter().any(|&o| o == 0x6A),
             "0x6A appear must not be sent for both-visible move (causes blink), got {opcodes:?}"
+        );
+    }
+
+    /// `level_2_bridge.lua` `doRelocate` during StepIn must not 0x6D spectators
+    /// from the bridge tile — they still have the walker on the walk origin
+    /// (stock 772 `bug0000017` / `Communication.cpp:1879`).
+    #[test]
+    fn spectator_stepin_relocate_skips_0x6d_from_land_tile() {
+        use crate::login_out::creature_wire_id;
+        use crate::walk::internal_teleport_player;
+
+        let mut world = support::beat_driven_test_world();
+        let walk_from = Position::new(100, 101, 6);
+        let bridge = Position::new(100, 100, 6);
+        let dest = Position::new(99, 101, 7);
+        let spectator_pos = Position::new(99, 102, 6);
+        for pos in [walk_from, bridge, dest, spectator_pos] {
+            support::ensure_walkable_tile(&mut world.map, pos, support::TEST_SYNTHETIC_GROUND_WP);
+        }
+
+        let walker_conn = ConnId(50);
+        let spec_conn = ConnId(51);
+        let walker = support::insert_spectator_player(
+            &mut world,
+            walker_conn,
+            support::test_player("Walker", walk_from),
+        );
+        let _spec = support::insert_spectator_player(
+            &mut world,
+            spec_conn,
+            support::test_player("Spec", spectator_pos),
+        );
+        let wire_id = creature_wire_id(walker, world.creatures.get(walker).unwrap());
+        world
+            .creature_fully_sent_by_conn
+            .entry(spec_conn)
+            .or_default()
+            .insert(wire_id);
+
+        let old_creatures = world
+            .map
+            .get_tile(walk_from)
+            .map(|t| t.body().creatures.clone())
+            .unwrap_or_default();
+        world.pending_outgoing.clear();
+
+        world.move_creature_on_map(walker, walk_from, bridge);
+        let prev = world.flushing_step_creature.replace(walker);
+        let ret = internal_teleport_player(&mut world, walker_conn, walker, dest, true);
+        world.flushing_step_creature = prev;
+        assert_eq!(ret, crate::return_value::ReturnValue::NoError);
+        world.flush_pending_creature_step_events();
+
+        let live = world.creatures.get(walker).map(|k| k.position()).unwrap();
+        assert_eq!(live, dest);
+        world.broadcast_spectator_move(walker, walk_from, live, &old_creatures);
+
+        let packets = world
+            .pending_outgoing
+            .get(&spec_conn)
+            .cloned()
+            .unwrap_or_default();
+        let mut saw_origin_move = false;
+        for p in &packets {
+            if p.first() != Some(&0x6D) || p.len() < 12 {
+                continue;
+            }
+            if p[1] == 0xFF && p[2] == 0xFF {
+                continue;
+            }
+            let ox = u16::from_le_bytes([p[1], p[2]]);
+            let oy = u16::from_le_bytes([p[3], p[4]]);
+            let oz = p[5];
+            assert!(
+                !(ox == bridge.x && oy == bridge.y && oz == bridge.z),
+                "spectator 0x6D must not start on the land tile {bridge:?} (client still has walker at {walk_from:?}): {p:?}"
+            );
+            if ox == walk_from.x && oy == walk_from.y && oz == walk_from.z {
+                saw_origin_move = true;
+            }
+        }
+        assert!(
+            saw_origin_move || packets.iter().any(|p| p.first() == Some(&0x6C)),
+            "spectator must get origin→live move or remove, got {:?}",
+            packets
+                .iter()
+                .filter_map(|p| p.first().copied())
+                .collect::<Vec<_>>()
         );
     }
 

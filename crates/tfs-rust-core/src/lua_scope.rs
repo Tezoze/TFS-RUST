@@ -933,8 +933,17 @@ pub fn fire_on_use_action(
     if crate::doors::try_use(world, player, item, target_item, to) {
         return true;
     }
-    let item_type = world.items.get(item).map(|i| i.item_type).unwrap_or(0);
-    let action_id = world.items.get(item).map(|i| i.action_id()).unwrap_or(0);
+    let (item_type, action_id, unique_id) = world
+        .items
+        .get(item)
+        .map(|i| (i.item_type, i.action_id(), i.unique_id()))
+        .unwrap_or((0, 0, 0));
+    if !world
+        .events
+        .has_use_action(item_type, action_id, unique_id)
+    {
+        return false;
+    }
     let world_ptr = std::ptr::from_mut(world);
     with_lua_mutation_scope(world_ptr as *mut (), || {
         let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
@@ -945,6 +954,7 @@ pub fn fire_on_use_action(
                 item,
                 item_type,
                 action_id,
+                unique_id,
                 from,
                 target_item,
                 target_creature,
@@ -972,6 +982,32 @@ pub(crate) fn fire_creature_step_events(
 ) {
     crate::stepping_tiles::on_creature_step(world, cid, from, to, step_out_items, step_in_items);
     crate::doors::on_creature_step(world, cid, from, step_out_items, step_in_items);
+
+    let step_out_lua: Vec<TileMoveEventItem> = step_out_items
+        .iter()
+        .copied()
+        .filter(|item| {
+            world.events.has_creature_move_event(
+                false,
+                item.item_type,
+                item.action_id,
+                item.unique_id,
+            )
+        })
+        .collect();
+    let step_in_lua: Vec<TileMoveEventItem> = step_in_items
+        .iter()
+        .copied()
+        .filter(|item| {
+            world
+                .events
+                .has_creature_move_event(true, item.item_type, item.action_id, item.unique_id)
+        })
+        .collect();
+    if step_out_lua.is_empty() && step_in_lua.is_empty() {
+        return;
+    }
+
     let world_ptr = std::ptr::from_mut(world);
     with_lua_mutation_scope(world_ptr as *mut (), || {
         let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
@@ -979,22 +1015,24 @@ pub(crate) fn fire_creature_step_events(
             let world = unsafe { &mut *world_ptr };
             // C++ `getLastPosition()` for executeStep — tile we left (`from`).
             let last_pos = from;
-            for item in step_out_items {
+            for item in &step_out_lua {
                 let _ = world.events.on_step_out(
                     Some(cid),
                     item.item_id,
                     item.item_type,
                     item.action_id,
+                    item.unique_id,
                     from,
                     last_pos,
                 );
             }
-            for item in step_in_items {
+            for item in &step_in_lua {
                 let _ = world.events.on_step_in(
                     Some(cid),
                     item.item_id,
                     item.item_type,
                     item.action_id,
+                    item.unique_id,
                     to,
                     last_pos,
                 );
@@ -1015,20 +1053,26 @@ pub(crate) fn fire_item_move_events(
     pos: tfs_rust_common::Position,
     is_add: bool,
 ) {
-    let (item_type, action_id) = world
+    let (item_type, action_id, unique_id) = world
         .items
         .get(item)
-        .map(|i| (i.item_type, i.action_id()))
-        .unwrap_or((0, 0));
+        .map(|i| (i.item_type, i.action_id(), i.unique_id()))
+        .unwrap_or((0, 0, 0));
     let tile_items = world.tile_move_event_items(pos);
     let world_ptr = std::ptr::from_mut(world);
     with_lua_mutation_scope(world_ptr as *mut (), || {
         let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
         with_lua_context(ctx, || {
             let world = unsafe { &mut *world_ptr };
-            world
-                .events
-                .on_item_move(item, item_type, action_id, pos, is_add, &tile_items);
+            world.events.on_item_move(
+                item,
+                item_type,
+                action_id,
+                unique_id,
+                pos,
+                is_add,
+                &tile_items,
+            );
         });
     });
 }

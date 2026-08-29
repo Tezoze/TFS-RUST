@@ -984,6 +984,7 @@ mod item_move_event_tests {
             item: ItemId,
             item_type: u16,
             action_id: u16,
+            _unique_id: u16,
             pos: Position,
             is_add: bool,
             tile_items: &[TileMoveEventItem],

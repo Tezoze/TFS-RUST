@@ -283,6 +283,7 @@ mod tests {
             item_id: iid,
             item_type: item.item_type,
             action_id: item.action_id(),
+            unique_id: item.unique_id(),
         }
     }
 

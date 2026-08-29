@@ -16,6 +16,7 @@ use crate::runtime::{LuaError, LuaRuntime, PendingAction};
 pub struct ActionDef {
     pub item_ids: Vec<u16>,
     pub action_ids: Vec<u16>,
+    pub unique_ids: Vec<u16>,
     pub on_use: Option<Arc<mlua::RegistryKey>>,
     /// C++ `Action::allowFarUse` — `actions.h`. Default `false`.
     pub allow_far_use: bool,
@@ -26,6 +27,7 @@ impl From<PendingAction> for ActionDef {
         Self {
             item_ids: pending.item_ids,
             action_ids: pending.action_ids,
+            unique_ids: pending.unique_ids,
             on_use: pending.on_use.map(Arc::new),
             allow_far_use: pending.allow_far_use,
         }

@@ -87,6 +87,16 @@ pub struct MoveEventAidEntry {
     pub callback: CallbackRef,
 }
 
+/// Unique-id keyed step/equip events (`MoveEvents::uniqueIdMap`).
+#[derive(Debug)]
+pub struct MoveEventUidEntry {
+    pub kind: MoveEventKind,
+    pub unique_id: u16,
+    pub slot_mask: u32,
+    pub req_level: u32,
+    pub callback: CallbackRef,
+}
+
 /// Revscript MoveEvent definition drained from `MoveEvent():register()`.
 ///
 /// C++ reference: `movement.h` `MoveEvent` — item/action id ranges + script callback.
@@ -95,6 +105,7 @@ pub struct MoveEventDef {
     pub kind: MoveEventKind,
     pub item_ids: Vec<u16>,
     pub action_ids: Vec<u16>,
+    pub unique_ids: Vec<u16>,
     pub slot_mask: u32,
     pub req_level: u32,
     pub callback: Option<Arc<mlua::RegistryKey>>,
@@ -106,6 +117,7 @@ impl From<PendingMoveEvent> for MoveEventDef {
             kind: pending.kind,
             item_ids: pending.item_ids,
             action_ids: pending.action_ids,
+            unique_ids: pending.unique_ids,
             slot_mask: pending.slot_mask,
             req_level: pending.req_level,
             callback: pending.callback.map(Arc::new),
@@ -118,6 +130,7 @@ impl From<PendingMoveEvent> for MoveEventDef {
 pub struct MoveEventsRegistry {
     by_item: HashMap<(MoveEventKind, u16), MoveEventEntry>,
     by_aid: HashMap<(MoveEventKind, u16), MoveEventAidEntry>,
+    by_uid: HashMap<(MoveEventKind, u16), MoveEventUidEntry>,
 }
 
 impl MoveEventsRegistry {
@@ -129,18 +142,61 @@ impl MoveEventsRegistry {
         self.by_aid.get(&(kind, action_id))
     }
 
+    pub fn get_by_uid(&self, kind: MoveEventKind, unique_id: u16) -> Option<&MoveEventUidEntry> {
+        self.by_uid.get(&(kind, unique_id))
+    }
+
+    /// O(1) `itemIdMap` membership for this event kind.
+    #[inline]
+    pub fn has_item_id(&self, kind: MoveEventKind, item_type: u16) -> bool {
+        self.by_item.contains_key(&(kind, item_type))
+    }
+
+    /// O(1) `actionIdMap` membership for this event kind.
+    #[inline]
+    pub fn has_aid(&self, kind: MoveEventKind, action_id: u16) -> bool {
+        self.by_aid.contains_key(&(kind, action_id))
+    }
+
+    /// O(1) `uniqueIdMap` membership for this event kind.
+    #[inline]
+    pub fn has_uid(&self, kind: MoveEventKind, unique_id: u16) -> bool {
+        self.by_uid.contains_key(&(kind, unique_id))
+    }
+
+    /// Whether `get_event` would return a callback — HashMap membership only.
+    ///
+    /// StepIn and StepOut are separate kinds; do not OR them across sides.
+    #[inline]
+    pub fn has_event(
+        &self,
+        kind: MoveEventKind,
+        item_type: u16,
+        action_id: u16,
+        unique_id: u16,
+    ) -> bool {
+        (unique_id != 0 && self.has_uid(kind, unique_id))
+            || (action_id != 0 && self.has_aid(kind, action_id))
+            || self.has_item_id(kind, item_type)
+    }
+
     /// TFS `MoveEvents::getEvent(Item*, MoveEvent_t)` — `movement.cpp:366-397`.
     ///
-    /// Unique-id map skipped this pass (no `:uid` scripts). Aid hit returns the first
-    /// registered event for that `(kind, aid)` and does not consult itemid. Aid miss
-    /// (unset, or no event of this kind) falls through to itemid — C++ does the same
-    /// when `actionIdMap` has no list for this `eventType`.
+    /// Order: uniqueid → actionid → itemid. A uid/aid hit returns that event and
+    /// does not consult later maps. Miss (unset, or no event of this kind) falls
+    /// through — C++ does the same when that map has no list for `eventType`.
     pub fn get_event(
         &self,
         kind: MoveEventKind,
         item_type: u16,
         action_id: u16,
+        unique_id: u16,
     ) -> Option<&CallbackRef> {
+        if unique_id != 0
+            && let Some(entry) = self.get_by_uid(kind, unique_id)
+        {
+            return Some(&entry.callback);
+        }
         if action_id != 0
             && let Some(entry) = self.get_by_aid(kind, action_id)
         {
@@ -150,7 +206,7 @@ impl MoveEventsRegistry {
     }
 
     pub fn len(&self) -> usize {
-        self.by_item.len() + self.by_aid.len()
+        self.by_item.len() + self.by_aid.len() + self.by_uid.len()
     }
 
     /// Count of action-id keyed events (`MoveEvents::actionIdMap`).
@@ -159,7 +215,7 @@ impl MoveEventsRegistry {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.by_item.is_empty() && self.by_aid.is_empty()
+        self.by_item.is_empty() && self.by_aid.is_empty() && self.by_uid.is_empty()
     }
 
     /// First registered event per `(kind, item_id)` wins — C++ `addEvent` + `begin()`.
@@ -186,6 +242,20 @@ impl MoveEventsRegistry {
                 kind = ?key.0,
                 action_id = key.1,
                 "duplicate MoveEvent action id; keeping first"
+            );
+        }
+    }
+
+    /// First registered event per `(kind, unique_id)` wins — C++ `addEvent` + `begin()`.
+    pub fn register_uid(&mut self, entry: MoveEventUidEntry) {
+        let key = (entry.kind, entry.unique_id);
+        if let std::collections::hash_map::Entry::Vacant(slot) = self.by_uid.entry(key) {
+            slot.insert(entry);
+        } else {
+            tracing::warn!(
+                kind = ?key.0,
+                unique_id = key.1,
+                "duplicate MoveEvent unique id; keeping first"
             );
         }
     }
@@ -264,6 +334,18 @@ pub fn merge_move_event_defs(
             registry.register_aid(MoveEventAidEntry {
                 kind: def.kind,
                 action_id,
+                slot_mask: def.slot_mask,
+                req_level: def.req_level,
+                callback: CallbackRef::from_registry_key(reg_key),
+            });
+        }
+        for &unique_id in &def.unique_ids {
+            let Ok(reg_key) = runtime.lua.create_registry_value(func.clone()) else {
+                continue;
+            };
+            registry.register_uid(MoveEventUidEntry {
+                kind: def.kind,
+                unique_id,
                 slot_mask: def.slot_mask,
                 req_level: def.req_level,
                 callback: CallbackRef::from_registry_key(reg_key),
@@ -386,13 +468,13 @@ mod tests {
         });
 
         let resolved = registry
-            .get_event(MoveEventKind::StepIn, 1510, 3052)
+            .get_event(MoveEventKind::StepIn, 1510, 3052, 0)
             .expect("aid event");
         fire_step(&runtime, resolved);
         assert_eq!(fired_marker(&runtime), "aid_3052");
 
         let id_only = registry
-            .get_event(MoveEventKind::StepIn, 1510, 0)
+            .get_event(MoveEventKind::StepIn, 1510, 0, 0)
             .expect("itemid event");
         fire_step(&runtime, id_only);
         assert_eq!(fired_marker(&runtime), "trap_id");
@@ -420,7 +502,7 @@ mod tests {
         });
 
         let resolved = registry
-            .get_event(MoveEventKind::StepIn, 1510, 3052)
+            .get_event(MoveEventKind::StepIn, 1510, 3052, 0)
             .expect("itemid fallthrough");
         fire_step(&runtime, resolved);
         assert_eq!(fired_marker(&runtime), "trap_fallthrough");
@@ -462,14 +544,14 @@ mod tests {
         fire_step(
             &runtime,
             registry
-                .get_event(MoveEventKind::StepIn, 1510, 3052)
+                .get_event(MoveEventKind::StepIn, 1510, 3052, 0)
                 .expect("aid"),
         );
         assert_eq!(fired_marker(&runtime), "first_aid");
         fire_step(
             &runtime,
             registry
-                .get_event(MoveEventKind::StepIn, 1510, 0)
+                .get_event(MoveEventKind::StepIn, 1510, 0, 0)
                 .expect("id"),
         );
         assert_eq!(fired_marker(&runtime), "first_id");
@@ -530,14 +612,14 @@ mod tests {
             .get_by_aid(MoveEventKind::StepIn, 3052)
             .expect("aid 3052");
         let resolved = registry
-            .get_event(MoveEventKind::StepIn, 1510, 3052)
+            .get_event(MoveEventKind::StepIn, 1510, 3052, 0)
             .expect("get_event aid");
         assert!(
             std::ptr::eq(resolved, &aid.callback),
             "aid 3052 must win over trap itemid 1510"
         );
         let id_only = registry
-            .get_event(MoveEventKind::StepIn, 1510, 0)
+            .get_event(MoveEventKind::StepIn, 1510, 0, 0)
             .expect("get_event itemid");
         assert!(
             std::ptr::eq(id_only, &trap.callback),
@@ -704,14 +786,14 @@ mod tests {
 
         assert!(
             registry
-                .get_event(MoveEventKind::AddItem, 2148, 3052)
+                .get_event(MoveEventKind::AddItem, 2148, 3052, 0)
                 .is_some()
         );
         let additem = registry
-            .get_event(MoveEventKind::AddItem, 2148, 3052)
+            .get_event(MoveEventKind::AddItem, 2148, 3052, 0)
             .expect("ADD_ITEM fallthrough");
         let tile = registry
-            .get_event(MoveEventKind::AddItemItemTile, 100, 3052)
+            .get_event(MoveEventKind::AddItemItemTile, 100, 3052, 0)
             .expect("ITEMTILE aid");
         let pos = tfs_rust_common::Position::new(1, 1, 7);
         let ctx = AddItemCtx {
@@ -730,5 +812,87 @@ mod tests {
                 .expect("itemtile");
         });
         assert_eq!(fired_marker(&runtime), "itemtile_3052");
+    }
+
+    #[test]
+    fn has_event_is_kind_specific_hashmap_membership() {
+        let mut runtime = LuaRuntime::new().expect("runtime");
+        let mut registry = MoveEventsRegistry::default();
+        registry.register_aid(MoveEventAidEntry {
+            kind: MoveEventKind::StepIn,
+            action_id: 3052,
+            slot_mask: 0,
+            req_level: 0,
+            callback: dummy_step_callback(&mut runtime, "stepin_only"),
+        });
+        registry.register(MoveEventEntry {
+            kind: MoveEventKind::StepIn,
+            item_id: 1510,
+            slot_mask: 0,
+            req_level: 0,
+            callback: dummy_step_callback(&mut runtime, "trap"),
+        });
+        registry.register_uid(MoveEventUidEntry {
+            kind: MoveEventKind::StepOut,
+            unique_id: 2001,
+            slot_mask: 0,
+            req_level: 0,
+            callback: dummy_step_callback(&mut runtime, "uid_stepout"),
+        });
+
+        assert!(registry.has_aid(MoveEventKind::StepIn, 3052));
+        assert!(!registry.has_aid(MoveEventKind::StepOut, 3052));
+        assert!(registry.has_item_id(MoveEventKind::StepIn, 1510));
+        assert!(!registry.has_item_id(MoveEventKind::StepOut, 1510));
+        assert!(registry.has_uid(MoveEventKind::StepOut, 2001));
+        assert!(!registry.has_uid(MoveEventKind::StepIn, 2001));
+
+        assert!(registry.has_event(MoveEventKind::StepIn, 100, 3052, 0));
+        assert!(!registry.has_event(MoveEventKind::StepOut, 100, 3052, 0));
+        assert!(registry.has_event(MoveEventKind::StepOut, 100, 0, 2001));
+        assert!(!registry.has_event(MoveEventKind::StepIn, 100, 0, 2001));
+        assert!(!registry.has_event(MoveEventKind::StepIn, 1, 0, 0));
+    }
+
+    #[test]
+    fn get_event_uid_wins_over_aid_and_itemid() {
+        let mut runtime = LuaRuntime::new().expect("runtime");
+        let mut registry = MoveEventsRegistry::default();
+        registry.register(MoveEventEntry {
+            kind: MoveEventKind::StepIn,
+            item_id: 1510,
+            slot_mask: 0,
+            req_level: 0,
+            callback: dummy_step_callback(&mut runtime, "id"),
+        });
+        registry.register_aid(MoveEventAidEntry {
+            kind: MoveEventKind::StepIn,
+            action_id: 3052,
+            slot_mask: 0,
+            req_level: 0,
+            callback: dummy_step_callback(&mut runtime, "aid"),
+        });
+        registry.register_uid(MoveEventUidEntry {
+            kind: MoveEventKind::StepIn,
+            unique_id: 2001,
+            slot_mask: 0,
+            req_level: 0,
+            callback: dummy_step_callback(&mut runtime, "uid"),
+        });
+
+        fire_step(
+            &runtime,
+            registry
+                .get_event(MoveEventKind::StepIn, 1510, 3052, 2001)
+                .expect("uid"),
+        );
+        assert_eq!(fired_marker(&runtime), "uid");
+        fire_step(
+            &runtime,
+            registry
+                .get_event(MoveEventKind::StepIn, 1510, 3052, 0)
+                .expect("aid"),
+        );
+        assert_eq!(fired_marker(&runtime), "aid");
     }
 }
