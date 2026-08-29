@@ -5,7 +5,7 @@
 
 use std::time::{Duration, Instant};
 
-use tfs_rust_common::{CLIENTOS_OTCLIENT_LINUX, ConnId};
+use tfs_rust_common::ConnId;
 use tfs_rust_net::outgoing::send_ping_back;
 
 use crate::creature::CreatureKind;
@@ -35,6 +35,18 @@ impl GameWorld {
         self.enqueue_outgoing(conn_id, send_ping_back().into_bytes());
     }
 
+    /// TVP `ProtocolGame::sendPing` (`gameserver/src/protocolgame.cpp:1516`).
+    /// Official 772: `0x1E`. OTClient: `0x1D`. 1098: always `0x1D`.
+    /// Hardcoding `send_ping()` (`0x1D`) crashes the real 7.72 client (`Control.cpp:1274`).
+    pub(crate) fn enqueue_periodic_ping(&mut self, conn_id: ConnId, cid: CreatureId) {
+        let is_otclient = matches!(
+            self.creatures.get(cid),
+            Some(CreatureKind::Player(p)) if p.is_otclient()
+        );
+        let pkt = self.codec.periodic_ping_packet(is_otclient);
+        self.enqueue_outgoing(conn_id, pkt.into_bytes());
+    }
+
     /// Periodic OTClient/TFS `sendPing` — not on the 772 Other arm (`main.cc` AdvanceGame).
     /// Keepalive is `ProcessConnections` at LastCommand 30/60 (`connections.cc:24`).
     #[allow(dead_code)]
@@ -51,15 +63,10 @@ impl GameWorld {
             if now.duration_since(p.last_ping_sent) < PING_INTERVAL {
                 continue;
             }
-            // TVP 772: OTClient gets 0x1D, non-OTClient gets 0x1E.
-            // 1098: always 0x1D (send_ping).
-            let is_otclient = p.operating_system >= CLIENTOS_OTCLIENT_LINUX;
             if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
                 p.last_ping_sent = now;
             }
-            // X1: opcode selection pushed to the codec — core only signals "send periodic ping".
-            let pkt = self.codec.periodic_ping_packet(is_otclient);
-            self.enqueue_outgoing(conn_id, pkt.into_bytes());
+            self.enqueue_periodic_ping(conn_id, cid);
         }
     }
 }

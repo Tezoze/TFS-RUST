@@ -37,6 +37,18 @@ fn ping_and_ping_back() {
     assert_eq!(send_ping_back().as_bytes(), &[0x1E]);
 }
 
+/// TVP `ProtocolGame::sendPing` (`gameserver/src/protocolgame.cpp:1516`): official 772 is `0x1E`.
+/// Sending `0x1D` to the real client is `Control.cpp:1274` unknown packet type 29.
+#[test]
+fn v772_periodic_ping_opcode_by_client_family() {
+    let codec = Codec::from_version(ProtocolVersion::V772).expect("772 codec");
+    assert_eq!(codec.periodic_ping_packet(false).as_bytes(), &[0x1E]);
+    assert_eq!(codec.periodic_ping_packet(true).as_bytes(), &[0x1D]);
+    let c1098 = Codec::from_version(ProtocolVersion::V1098).expect("1098 codec");
+    assert_eq!(c1098.periodic_ping_packet(false).as_bytes(), &[0x1D]);
+    assert_eq!(c1098.periodic_ping_packet(true).as_bytes(), &[0x1D]);
+}
+
 #[test]
 fn magic_effect_encoding() {
     let pos = Position::new(0x0102, 0x0304, 5);

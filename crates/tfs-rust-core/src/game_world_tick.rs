@@ -71,7 +71,7 @@ impl GameWorld {
             if let Some(crate::creature::CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
                 p.last_command_round = p.last_command_round.saturating_sub(100);
             }
-            self.enqueue_outgoing(conn_id, tfs_rust_net::outgoing::send_ping().into_bytes());
+            self.enqueue_periodic_ping(conn_id, cid);
         }
     }
 

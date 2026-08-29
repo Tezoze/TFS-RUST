@@ -913,4 +913,7 @@
 412. **Talkactions Phase 5–6 pack surface** (`lua_game.rs`, `lua_script_talkaction.rs`, `userdata/party.rs`): `Game.setGameState` **is** bound despite globalevents lesson 373 — TVP values `NORMAL=2` / `CLOSED=3` / `SHUTDOWN=4`; shutdown queues `FlushShutdown`. `Game.unlockAccount` / `unlockIp` are TFS login-attempt unlocks (always `true`); they do **not** DELETE `account_bans` / `ip_bans` (`/unban` does SQL). `refreshMap` returns `0` and logs. `removeTotalMoney` / `getPremiumDays` / `addPremiumDays` already live in pack `data/lib/core/player.lua` over native money/bank/`setPremiumEndsAt`. `getIPNumberFromString` LSB = first octet (`convertIpToString`). `Game.reload` only rescans talkactions (`15`) and scripts-interface (`13` / `ALL`); other types log+true.
     *(August 2026)*
 
+413. **Official 772 keepalive is `0x1E`, not `0x1D`** (`player/ping.rs` `enqueue_periodic_ping`; TVP `protocolgame.cpp:1516` `sendPing`): `send_ping()` is always `0x1D` (1098 / OTClient). The real 7.72 client asserts `Control.cpp:1274` unknown packet type 29. `process_connections` (LastCommand 30/60) and lag `net_load_check` used `send_ping()` while `tick_player_pings` already used the codec. Official 772 → `0x1E`; OTClient → `0x1D`; 1098 always `0x1D`. Feels random because ping only fires after idle rounds (or under lag).
+    *(August 2026)*
+
 

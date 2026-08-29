@@ -1,22 +1,17 @@
-# Player-to-player trade (audit 1.1)
+# 772 client crash: unknown packet type 29 (0x1D)
 
 **Status:** complete.
-**Source:** `docs/772_PARITY_GAP_AUDIT.md` §1.1.
+**Symptom:** Official 7.72 `Control.cpp:1274` — `unknown packet type during game (Type = 29)`. Last packet `001 000 029` (1-byte `0x1D`). Last types `029` then many `109` (`0x6D` moves). Feels random because keepalive only fires after ~30/60 idle rounds (or lag `NetLoadCheck`).
 
-## Delivered
+## Cause
 
-- `crates/tfs-rust-core/src/trade.rs` — `TradeRegistry`, ToDo `TDTrade`, look/accept/reject, `NotifyTrades`, walk cancel, house transfer on accept.
-- Wire: `ProtocolCodec::encode_trade_item_request` / `encode_close_trade`; opcodes in `protocol_opcodes::server`; golden in `protocol_compat` v772.
-- `game_loop.rs` — dispatch `0x7D`–`0x80`; trade packets ungated from timed-action drop.
-- `house:startTrade` → `LuaMutation::HouseStartTrade` + dual document counter-offer; `!sellhouse` unblocked when mutation scope is live.
-- Tests: 9× `trade::tests`, house cancel codes, protocol goldens.
+`server::SEND_PING = 0x1D` is **1098 / OTClient**. Official 772 keepalive is **`0x1E`** (`ProtocolGame::sendPing` in TVP `protocolgame.cpp:1516-1524`).
 
-## Verify
+`tick_player_pings` already used `codec.periodic_ping_packet(is_otclient)`. The live 772 path did not:
 
-```
-rtk cargo test -p tfs-rust-core --lib trade
-rtk cargo test -p tfs-rust-net --test protocol_compat trade
-rtk cargo test -p tfs-rust-lua --lib userdata::house
-rtk cargo check --workspace
-rtk cargo clippy --workspace --all-targets
-```
+- `connections.rs` `process_connections` — always `send_ping()` (`0x1D`) at LastCommand 30/60
+- `game_world_tick.rs` `net_load_check` — same under lag
+
+## Fix
+
+Shared `GameWorld::enqueue_periodic_ping`. Tests: official 772 → `0x1E`; OTClient → `0x1D`; 1098 always `0x1D`.

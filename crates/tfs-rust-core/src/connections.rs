@@ -4,7 +4,7 @@
 
 use tfs_rust_common::ConnId;
 use tfs_rust_common::GamePacket;
-use tfs_rust_net::outgoing::{send_ping, send_text_message};
+use tfs_rust_net::outgoing::send_text_message;
 
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
@@ -80,8 +80,10 @@ impl GameWorld {
             let last_action = round.saturating_sub(p.last_action_round);
 
             // C++ `LastCommand == 30 || LastCommand == 60` → `SendPing` (`connections.cc:24`).
-            if last_command == PING_ROUND_1 || last_command == PING_ROUND_2 {
-                self.enqueue_outgoing(conn_id, send_ping().into_bytes());
+            // Opcode via codec: official 772 is 0x1E, not 0x1D (`protocolgame.cpp:1516`).
+            let should_ping = last_command == PING_ROUND_1 || last_command == PING_ROUND_2;
+            if should_ping {
+                self.enqueue_periodic_ping(conn_id, cid);
             }
 
             if last_action == idle_warn_rounds {
@@ -254,9 +256,38 @@ mod tests {
         let kick = world.process_connections();
         assert!(kick.is_empty(), "ping round must not kick");
         let outgoing = world.pending_outgoing.get(&conn);
-        assert!(
-            outgoing.is_some_and(|q| !q.is_empty()),
-            "ping must be enqueued"
+        assert_eq!(
+            outgoing.and_then(|q| q.first()).map(|b| b.as_slice()),
+            Some(&[0x1E][..]),
+            "official 772 keepalive is 0x1E (Control.cpp rejects 0x1D)"
+        );
+    }
+
+    /// TVP `sendPing`: OTClient family gets `0x1D` (`protocolgame.cpp:1519`).
+    #[test]
+    fn round_based_ping_otclient_uses_0x1d() {
+        use tfs_rust_common::CLIENTOS_OTCLIENT_LINUX;
+
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let player = insert_player(&mut world, test_player("OtcPinged", pos));
+        let conn = tfs_rust_common::ConnId(1);
+        world.register_conn_mapping(conn, player);
+
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.last_command_round = 0;
+            p.last_action_round = 0;
+            p.operating_system = CLIENTOS_OTCLIENT_LINUX;
+        }
+        world.round_nr = 30;
+        let kick = world.process_connections();
+        assert!(kick.is_empty(), "ping round must not kick");
+        let outgoing = world.pending_outgoing.get(&conn);
+        assert_eq!(
+            outgoing.and_then(|q| q.first()).map(|b| b.as_slice()),
+            Some(&[0x1D][..]),
+            "OTClient keepalive is 0x1D"
         );
     }
 
