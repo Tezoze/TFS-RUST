@@ -21,7 +21,7 @@ Likewise, several corpus subsystems are deliberately **not** ported as engines �
 | Houses | `houses.cc` | ~75% | Ownership, rent, lists, doors, eviction, **in-game sell via trade** done. Policy evictions and transfer missing. |
 | Move / use | `moveuse.cc`, `objects.cc` | ~70% | Typed handlers, doors, fields, tools done. Mail missing; script numerics drift. |
 | Chat / channels | `operate.cc`, `crplayer.cc` | ~68% | Say/whisper/yell/private/channels live. Flood model and yell radius diverge. |
-| Player operations | `operate.cc` | ~68% | Trade done (1.1). Party, shop, VIP still parse but are never dispatched. |
+| Player operations | `operate.cc` | ~78% | Trade (1.1), party (1.2), and NPC shop (1.3) dispatched. VIP still parse-only. |
 | Info / script | `info.cc`, `script.cc`, `config.cc` | ~55% | Mostly replaced by OTBM + `config.lua` + Lua by design. |
 
 Note that `communication.cc` turned out to contain no chat mechanics at all — it is socket, login, and waiting-list only (`communication.hh:24-64`). The 772 talk and channel behavior lives in `operate.cc` (`Talk`, `TChannel`, `OpenChannel`) and `crplayer.cc` (`RecordTalk`, `LeaveAllChannels`). Cite those instead.
@@ -32,7 +32,7 @@ Note that `communication.cc` turned out to contain no chat mechanics at all — 
 
 These are whole features where the client sends a request and nothing happens. They dominate the remaining work.
 
-Three items below share the same failure shape: the packet parses correctly in `crates/tfs-rust-net/src/game_parse.rs`, produces a `GamePacket` variant, and then falls into the catch-all at `crates/tfs-rust-core/src/game_loop.rs:1150` where it is traced and dropped. **§1.1 trade is complete** — see below.
+VIP still shares the old failure shape: the packet parses correctly in `crates/tfs-rust-net/src/game_parse.rs`, produces a `GamePacket` variant, and then falls into the catch-all in `crates/tfs-rust-core/src/game_loop.rs` where it is traced and dropped. **§1.1 trade, §1.2 party, and §1.3 shop are complete** — see below.
 
 ### 1.1 Player-to-player trade — **DONE**
 
@@ -51,19 +51,33 @@ Three items below share the same failure shape: the packet parses correctly in `
 
 **Corpus notes (lesson 411):** partner-trading string `"This person is already trading."`; cancel always `"Trade cancelled."`; reject is asymmetric; max 100 nested objects; Chebyshev ≤2 + LOS.
 
-### 1.2 Party lifecycle
+### 1.2 Party lifecycle — **DONE**
 
 **Corpus:** `InviteToParty` / `RevokeInvitation` / `JoinParty` / `PassLeadership` / `LeaveParty` / `DisbandParty` and `IsInvitedToParty` / `GetParty` (`operate.hh:189-196`, bodies at `operate.cc:3919-4214`). `TParty` holds leader, member vector, and invited-player vector (`operate.hh:68-82`).
 
-**Rust:** `crates/tfs-rust-core/src/party.rs` is 70 lines of pure data — `new`, `add_member`, `remove_member`, `transfer_leadership`, `split_shared_experience`. No packet handlers for `0xA3`–`0xA8`. The party skull helpers in `player/combat/skulls.rs:610` are marked `#[allow(dead_code)]` because nothing drives them.
+**Rust (August 2026):**
 
-**Needed:** the six lifecycle operations, invited-player tracking, party skull/emblem broadcast, and the `CREATURE_PARTY_CHANGED` notify (`operate.hh:15`). The PvP same-party XP skip already works (`death.rs:250-256`), so shared XP wiring is partly in place.
+- Focused module [`crates/tfs-rust-core/src/party.rs`](../crates/tfs-rust-core/src/party.rs) — `Party` with leader, members, invited; `PartyShield` marks.
+- Packets `0xA3`–`0xA8` dispatched in [`game_loop.rs`](../crates/tfs-rust-core/src/game_loop.rs): invite / join / revoke / pass leadership / leave / share-XP toggle.
+- Logout forced leave; invite tracking; skull/shield broadcast via `player_get_party_mark` / `send_party_creature_updates`.
+- `split_shared_experience` is even divide only (no TFS party bonus). Same-party XP skip in `death.rs` unchanged.
 
-### 1.3 NPC shop runtime
+**Tests:** `cargo test -p tfs-rust-core --lib party`.
 
-**Rust:** `LookInShop` / `PlayerPurchase` / `PlayerSale` / `CloseShop` parse at `game_parse.rs:64-81`. `crates/tfs-rust-content/src/npcs/shop.rs` is a 32-line data model. `updateSaleShopList` is a stub (`player/inventory/notifications.rs:195`).
+### 1.3 NPC shop runtime — **DONE**
 
-**Needed:** `shop_owner` assignment on NPC focus, buy/sell with capacity and money checks, and sale-list refresh on inventory change. Note that 772 itself drives vendors through `.npc` behaviour rules rather than a shop opcode, so this is a TFS pack surface obligation rather than strict corpus parity — but the pack ships shop NPCs and the client shop UI is unusable without it.
+**Pack surface:** TFS `Game::playerPurchaseItem` / `playerSellItem` / `playerCloseShop` / `playerLookInShop` (`game.cpp`); `Player::openShopWindow` / `updateSaleShopList` (`player.cpp`); Lua `openShopWindow` / `closeShopWindow` (`npc.cpp`). 772 corpus vendors stay dialogue `create`/`delete`/`createmoney` — the shop window is a TFS pack/UI obligation.
+
+**Rust (September 2026):**
+
+- Focused module [`crates/tfs-rust-core/src/shop.rs`](../crates/tfs-rust-core/src/shop.rs) — `ActiveShopItem` catalog on `Player` (`shop_owner` + `shop_items`), not a world registry.
+- Packets `0x79`–`0x7C` dispatched in [`game_loop.rs`](../crates/tfs-rust-core/src/game_loop.rs); look / buy / sell / close.
+- Wire: `send_shop` / `send_sale_item_list` / `send_close_shop` (`0x7A` / `0x7B` / `0x7C`).
+- Native buy: money (`player_remove_total_money`) + capacity; native sell: `player_remove_item_of_type` + `player_create_money`. Lua buy/sell callbacks run when `openShopWindow` registered them.
+- `updateSaleShopList` on inventory add/remove; close shop on logout / creature remove.
+- Lua: [`crates/tfs-rust-lua/src/npc_shop.rs`](../crates/tfs-rust-lua/src/npc_shop.rs) `openShopWindow` / `closeShopWindow`; `LuaMutation::OpenShopWindow`.
+
+**Tests:** `cargo test -p tfs-rust-core --lib shop`.
 
 ### 1.4 VIP runtime
 
@@ -142,7 +156,7 @@ This system is in the best shape; what remains is mostly bookkeeping.
 - **Soul timer does not persist.** `soul` is saved (`game_world_save.rs:139`) but `soul_cycle` / `count` / `max_count` are session-only, so the timer resets on relog.
 - **Attack rearm snapback is incomplete.** No player `CreatureMoveStimulus` snapback when the chase target walks away (`crmain.cc:920-965`); tracked as L3/S5 in `docs/SNAPBACK_KNOCKBACK_AUDIT.md`.
 - **Death skill-loss abort quirk.** `TSkillLevel::Decrease` aborts when `Amount > Exp && Exp > 100000` (`crskill.cc:300-303`); Rust applies this only on `remove_experience` (`player.rs:476-477`), not in the death skill loop.
-- **Latent TFS leak in party XP.** `split_shared_experience` (`party.rs:63-69`) adds a party bonus that 772 `DistributeExperiencePoints` does not have (`crcombat.cc:906-921`). Harmless today because callers pass `None`, but it should be removed or gated to 1098 before party work lands.
+- **Latent TFS leak in party XP — fixed with §1.2.** `split_shared_experience` (`party.rs`) even-divides; 772 `DistributeExperiencePoints` has no party bonus (`crcombat.cc:906-921`).
 - **`WriteKillStatistics` (`main.cc:394`) is not ported.**
 
 ---
@@ -189,13 +203,17 @@ Ordered by gameplay impact per unit of effort. Steps 2–3 are the bulk of what 
 
 Shipped in `trade.rs`: four packet handlers, ToDo `TDTrade`, wire encode, `NotifyTrades`, walk cancel, `house:startTrade` / `!sellhouse` on the same engine. See [§1.1](#11-player-to-player-trade--done).
 
-### Step 2 — Party lifecycle
+### ~~Step 2 — Party lifecycle~~ **Done (audit 1.2, August 2026)**
 
-Second largest. `party.rs` already holds the data model; add the six operations from `operate.cc:3919-4214`, invited-player tracking, and the party skull broadcast that `skulls.rs:610` is waiting for. Remove the non-corpus XP bonus at `party.rs:63-69` while in there.
+Shipped in `party.rs`: invite / revoke / join / pass leadership / leave / disband, invited-player tracking, shield/skull broadcast, even XP split. See [§1.2](#12-party-lifecycle--done).
 
-### Step 3 — NPC shop and VIP runtime
+### ~~Step 3a — NPC shop~~ **Done (audit 1.3, September 2026)**
 
-Both are small handler-wiring jobs against existing data models. Shop needs `shop_owner` plus buy/sell and the `updateSaleShopList` stub at `notifications.rs:195`; VIP needs three handlers and a DB persist.
+Shipped in `shop.rs`: four packet handlers, `shop_owner` / catalog, buy/sell money+capacity, `updateSaleShopList`, Lua `openShopWindow`. See [§1.3](#13-npc-shop-runtime--done).
+
+### Step 3b — VIP runtime
+
+Three handlers (`VipAdd` / `VipRemove` / `VipEdit`) and a DB persist, honoring `max_vip_entries` from `groups.xml`. List already loads at login.
 
 ### Step 4 — Rune and spell gates
 
@@ -285,6 +303,8 @@ Per-area suites worth running while working the steps above:
 
 ```
 rtk cargo test -p tfs-rust-core --lib trade
+rtk cargo test -p tfs-rust-core --lib party
+rtk cargo test -p tfs-rust-core --lib shop
 rtk cargo test -p tfs-rust-core --lib idle_stimulus
 rtk cargo test -p tfs-rust-core --lib monster_ai
 rtk cargo test -p tfs-rust-core --lib player::combat

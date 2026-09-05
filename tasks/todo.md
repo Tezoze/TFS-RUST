@@ -28,6 +28,16 @@ Wire client opcodes `0xA3`–`0xA8` to corpus `operate.cc:3919–4214`.
 - [x] Logout forced leave; login `party_shield` from mark
 - [x] Unit tests in `party.rs`
 
+## NPC shop runtime — audit §1.3 (2026-09-05)
+
+TFS shop-window pack surface (`0x79`–`0x7C`). 772 dialogue trading stays on `npc/host.rs`.
+
+- [x] `shop.rs` — open/close, look, buy, sell, sale-list refresh
+- [x] `Player.shop_owner` + `shop_items`; money + capacity on native buy
+- [x] `game_loop.rs` dispatch; logout/remove close shop
+- [x] Lua `openShopWindow` / `closeShopWindow` (`npc_shop.rs`)
+- [x] Unit tests in `shop.rs`
+
 ## Phase 2 — EventCallback dispatch (ship first)
 - [x] Rust-side `has_event_callback` bitset + direct RegistryKey dispatch
 - [x] Sync from `EventCallbackData` at end of `load_scripts_interface`

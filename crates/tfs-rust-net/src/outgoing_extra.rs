@@ -437,6 +437,13 @@ pub fn send_shop(npc_name: &str, items: &[ShopItemWire]) -> NetworkMessage {
     m
 }
 
+/// `ProtocolGame::sendCloseShop` — opcode `0x7C`.
+pub fn send_close_shop() -> NetworkMessage {
+    let mut m = NetworkMessage::new();
+    m.write_u8(0x7C);
+    m
+}
+
 /// `ProtocolGame::sendSaleItemList` — opcode `0x7B`. Pairs are `(client_item_id, count)` per `addItemId`.
 pub fn send_sale_item_list(coins_total: u64, sale_counts: &[(u16, u8)]) -> NetworkMessage {
     let mut m = NetworkMessage::new();

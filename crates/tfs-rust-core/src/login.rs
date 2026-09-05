@@ -236,6 +236,7 @@ pub fn player_from_loaded(
         var_stats: [0; 4],
         condition_suppressions: 0,
         shop_owner: None,
+        shop_items: Vec::new(),
         vip_list: data.vip_list.clone(),
         outfits,
         health_hidden: false,

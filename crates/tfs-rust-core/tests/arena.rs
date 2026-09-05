@@ -101,6 +101,7 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
         var_stats: [0; 4],
         condition_suppressions: 0,
         shop_owner: None,
+        shop_items: Vec::new(),
         vip_list: Vec::new(),
         outfits: Vec::new(),
         health_hidden: false,

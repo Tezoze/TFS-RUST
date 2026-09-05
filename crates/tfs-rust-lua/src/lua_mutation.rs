@@ -492,6 +492,18 @@ pub enum LuaMutation {
         house_id: u32,
         list_id: u32,
     },
+    /// `openShopWindow(cid, items, buyFn, sellFn)` — `npc.cpp` `luaOpenShopWindow`.
+    OpenShopWindow {
+        player_id: u64,
+        npc_id: u64,
+        items: Vec<ShopItemSpec>,
+    },
+    /// `closeShopWindow(cid)` — `npc.cpp` `luaCloseShopWindow`.
+    CloseShopWindow {
+        player_id: u64,
+        npc_id: Option<u64>,
+        send_wire: bool,
+    },
     /// Native pack helpers (`onUseQuest` / `destroyItem` / `onUse*` / `checkScarabTile`).
     ToolUse {
         request: ToolUseRequest,
@@ -562,6 +574,16 @@ pub struct QuestChestSpec {
     pub storage_value: u32,
     pub item: QuestRewardSpec,
     pub content: Vec<QuestRewardSpec>,
+}
+
+/// One NPC shop catalog row from `openShopWindow` item table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShopItemSpec {
+    pub item_id: u16,
+    pub sub_type: u8,
+    pub buy_price: u32,
+    pub sell_price: u32,
+    pub name: String,
 }
 
 /// One native tool-use helper. Inner op keeps a single `LuaMutation` variant.
@@ -1694,4 +1716,30 @@ pub fn call_tile_relocate_to(
 /// `Game.setStorageValue` — ephemeral quest globals.
 pub fn call_game_set_global_storage(key: u32, value: i32) -> Result<(), String> {
     apply_mutation(LuaMutation::GameSetGlobalStorage { key, value })
+}
+
+/// TFS `openShopWindow` — native shop open after callbacks are stored.
+pub fn call_lua_open_shop_window(
+    player_id: u64,
+    npc_id: u64,
+    items: Vec<ShopItemSpec>,
+) -> Result<(), String> {
+    apply_mutation(LuaMutation::OpenShopWindow {
+        player_id,
+        npc_id,
+        items,
+    })
+}
+
+/// TFS `closeShopWindow` — native shop close.
+pub fn call_lua_close_shop_window(
+    player_id: u64,
+    npc_id: Option<u64>,
+    send_wire: bool,
+) -> Result<(), String> {
+    apply_mutation(LuaMutation::CloseShopWindow {
+        player_id,
+        npc_id,
+        send_wire,
+    })
 }

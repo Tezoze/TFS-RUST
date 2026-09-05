@@ -765,6 +765,71 @@ impl EventDispatcher for LuaEventDispatcher {
         }
     }
 
+    fn on_npc_shop_buy(
+        &self,
+        _npc: CreatureId,
+        player: CreatureId,
+        item_id: u16,
+        sub_type: u8,
+        amount: u8,
+        ignore_cap: bool,
+        in_backpacks: bool,
+    ) -> bool {
+        let (has_buy, _) = self.runtime.has_shop_callbacks(player.data().as_ffi());
+        if !has_buy {
+            return false;
+        }
+        match self.runtime.call_shop_buy(
+            player.data().as_ffi(),
+            item_id,
+            sub_type,
+            amount,
+            ignore_cap,
+            in_backpacks,
+        ) {
+            Ok(()) => true,
+            Err(e) => {
+                tracing::error!(?player, ?item_id, "Lua shop buy failed: {e}");
+                true
+            }
+        }
+    }
+
+    fn on_npc_shop_sell(
+        &self,
+        _npc: CreatureId,
+        player: CreatureId,
+        item_id: u16,
+        sub_type: u8,
+        amount: u8,
+        ignore_equipped: bool,
+    ) -> bool {
+        let (_, has_sell) = self.runtime.has_shop_callbacks(player.data().as_ffi());
+        if !has_sell {
+            return false;
+        }
+        match self.runtime.call_shop_sell(
+            player.data().as_ffi(),
+            item_id,
+            sub_type,
+            amount,
+            ignore_equipped,
+        ) {
+            Ok(()) => true,
+            Err(e) => {
+                tracing::error!(?player, ?item_id, "Lua shop sell failed: {e}");
+                true
+            }
+        }
+    }
+
+    fn on_npc_shop_close(&self, _npc: CreatureId, _player: CreatureId) {}
+
+    fn clear_player_shop_lua_callbacks(&mut self, player: CreatureId) {
+        self.runtime_mut()
+            .clear_shop_callbacks(player.data().as_ffi());
+    }
+
     fn on_monster_spawned(
         &self,
         creature: CreatureId,

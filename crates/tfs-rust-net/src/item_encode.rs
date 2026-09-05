@@ -25,6 +25,12 @@ pub fn server_fluid_to_client(server_fluid: u8) -> u8 {
     0
 }
 
+/// Client shop fluid byte → server fluid id (`clientFluidToServer`, `src/tools.cpp`).
+#[inline]
+pub fn client_fluid_to_server(client_fluid: u8) -> u8 {
+    fluid_map_byte(client_fluid)
+}
+
 /// Template item (no live `Item*`): matches `NetworkMessage::addItem(uint16_t id, uint8_t count, …)`
 /// **without** the trailing duration byte (OTClient v8 compatibility).
 ///

@@ -25,6 +25,7 @@ mod monster_spawn;
 pub mod move_events;
 pub mod npc_dialogue;
 pub mod npc_loader;
+mod npc_shop;
 pub mod npc_type;
 mod player_move_item;
 mod player_report_bug;

@@ -411,6 +411,10 @@ fn game_packet_requires_timed_action(packet: &GamePacket) -> bool {
             | GamePacket::LookInTrade { .. }
             | GamePacket::AcceptTrade
             | GamePacket::CloseTrade
+            | GamePacket::LookInShop { .. }
+            | GamePacket::PlayerPurchase { .. }
+            | GamePacket::PlayerSale { .. }
+            | GamePacket::CloseShop
             | GamePacket::PartyInvite { .. }
             | GamePacket::PartyJoin { .. }
             | GamePacket::PartyRevokeInvite { .. }
@@ -1185,6 +1189,37 @@ fn handle_game_packet(
         GamePacket::CloseTrade => {
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
                 world.player_close_trade(cid);
+            }
+        }
+        GamePacket::LookInShop { item_id, count } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_look_in_shop(conn_id, cid, item_id, count);
+            }
+        }
+        GamePacket::PlayerPurchase {
+            item_id,
+            count,
+            amount,
+            ignore_cap,
+            in_backpacks,
+        } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_purchase_item(cid, item_id, count, amount, ignore_cap, in_backpacks);
+            }
+        }
+        GamePacket::PlayerSale {
+            item_id,
+            count,
+            amount,
+            ignore_equipped,
+        } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_sell_item(cid, item_id, count, amount, ignore_equipped);
+            }
+        }
+        GamePacket::CloseShop => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_close_shop(cid, true);
             }
         }
         GamePacket::PartyInvite { target_id } => {

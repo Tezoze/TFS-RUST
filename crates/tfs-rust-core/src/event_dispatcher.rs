@@ -410,32 +410,34 @@ pub trait EventDispatcher {
     ) -> bool {
         false
     }
-    /// NPC-8 stubs — shop window callbacks (no-op until shop subsystem).
+    /// NPC shop buy callback — returns `true` when a per-player Lua callback ran.
     fn on_npc_shop_buy(
         &self,
         _npc: CreatureId,
         _player: CreatureId,
         _item_id: u16,
-        _count: u16,
-        _callback: Option<NpcCallbackId>,
-    ) {
+        _sub_type: u8,
+        _amount: u8,
+        _ignore_cap: bool,
+        _in_backpacks: bool,
+    ) -> bool {
+        false
     }
+    /// NPC shop sell callback — returns `true` when a per-player Lua callback ran.
     fn on_npc_shop_sell(
         &self,
         _npc: CreatureId,
         _player: CreatureId,
         _item_id: u16,
-        _count: u16,
-        _callback: Option<NpcCallbackId>,
-    ) {
+        _sub_type: u8,
+        _amount: u8,
+        _ignore_equipped: bool,
+    ) -> bool {
+        false
     }
-    fn on_npc_shop_close(
-        &self,
-        _npc: CreatureId,
-        _player: CreatureId,
-        _callback: Option<NpcCallbackId>,
-    ) {
-    }
+    fn on_npc_shop_close(&self, _npc: CreatureId, _player: CreatureId) {}
+    /// Drop per-player shop Lua callback refs on close/logout.
+    fn clear_player_shop_lua_callbacks(&mut self, _player: CreatureId) {}
 
     /// `Game.reload(type)` — TFS `luaGameReload`. Default no-op (Null dispatcher).
     fn reload_scripts(&mut self, _reload_type: i32) {}

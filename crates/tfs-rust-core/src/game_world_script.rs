@@ -1600,6 +1600,11 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         }
     }
 
+    fn find_shop_npc_for_player(&self, player_id: ScriptCreatureId) -> Option<ScriptCreatureId> {
+        let player = self.resolve_creature_u64(player_id)?;
+        GameWorld::find_shop_npc_for_player(self, player).map(|npc| npc.data().as_ffi())
+    }
+
     fn get_player_bank_balance(&self, creature_id: ScriptCreatureId) -> Option<u64> {
         let cid = self.resolve_creature_u64(creature_id)?;
         match self.creatures.get(cid)? {

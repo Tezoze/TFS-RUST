@@ -73,6 +73,7 @@ impl GameWorld {
         if matches!(self.creatures.get(id), Some(CreatureKind::Player(_))) {
             self.cancel_trade_for_player(id);
             self.player_forced_leave_party(id);
+            self.player_close_shop(id, true);
         }
         // NPC-7: fire onDisappear before teardown when registered.
         let disappear_cb = match self.creatures.get(id) {
@@ -340,6 +341,7 @@ impl GameWorld {
         let _ = self.container_registry.close_all_for_player(cid);
         self.cancel_trade_for_player(cid);
         self.player_forced_leave_party(cid);
+        self.player_close_shop(cid, false);
 
         tracing::info!(?cid, old_conn = ?old_conn.map(|c| c.0), "player takeover");
         old_conn

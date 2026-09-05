@@ -258,8 +258,10 @@ pub struct Player {
     pub var_stats: [i32; 4],
     /// TFS `Player::conditionSuppressions` — `addConditionSuppressions` (`player.cpp`).
     pub condition_suppressions: u32,
-    /// Active NPC shop session — `Player::shopOwner` (`player.h`); list refresh deferred until shop runtime.
+    /// Active NPC shop session — `Player::shopOwner` (`player.h`); NPC wire id while open.
     pub shop_owner: Option<u32>,
+    /// Active shop catalog — `Player::shopItemList` (`player.h`).
+    pub shop_items: Vec<crate::shop::ActiveShopItem>,
     /// `sendVIPEntries` payload from `account_viplist`.
     pub vip_list: Vec<VipEntry>,
     /// Owned/unlocked outfit entries — TFS `Player::outfits` (`player.h`).

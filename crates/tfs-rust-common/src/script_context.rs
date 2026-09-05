@@ -1054,6 +1054,12 @@ pub trait ScriptContext {
         None
     }
 
+    /// TFS shop open — NPC with dialogue focus on the player.
+    fn find_shop_npc_for_player(&self, player_id: ScriptCreatureId) -> Option<ScriptCreatureId> {
+        let _ = player_id;
+        None
+    }
+
     /// NPC-7: `player:getBankBalance()` — `PlayerEconomy.balance`.
     fn get_player_bank_balance(&self, creature_id: ScriptCreatureId) -> Option<u64> {
         let _ = creature_id;

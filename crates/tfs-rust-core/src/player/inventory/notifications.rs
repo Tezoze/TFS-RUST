@@ -192,20 +192,6 @@ impl GameWorld {
         }
     }
 
-    /// C++ `Player::updateSaleShopList` — stub until NPC shop runtime (`player.cpp` ~3193).
-    fn try_update_sale_shop_list(&self, cid: CreatureId, item_id: ItemId) {
-        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
-            return;
-        };
-        if p.shop_owner.is_some() {
-            tracing::debug!(
-                ?cid,
-                ?item_id,
-                "updateSaleShopList deferred until shop runtime"
-            );
-        }
-    }
-
     /// C++ `Player::onUpdateInventoryItem` — `NotifyTrades` (`operate.cc:990`).
     fn on_update_inventory_item(
         &mut self,
@@ -547,6 +533,7 @@ mod tests {
             var_stats: [0; 4],
             condition_suppressions: 0,
             shop_owner: None,
+            shop_items: Vec::new(),
             vip_list: Vec::new(),
             outfits: Vec::new(),
             health_hidden: false,

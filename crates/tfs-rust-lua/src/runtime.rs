@@ -83,6 +83,8 @@ pub struct LuaRuntime {
     /// NPC-1: custom predicate/action callbacks keyed by opaque [`tfs_rust_content::npcs::NpcCallbackId`].
     /// Content defs store the id; RegistryKeys stay here (!Send, game thread).
     pub(crate) npc_callbacks: HashMap<tfs_rust_content::npcs::NpcCallbackId, RegistryKey>,
+    /// Per-player shop window callbacks — TFS `purchaseCallback` / `saleCallback` (`player.h`).
+    pub(crate) shop_callbacks: std::rc::Rc<std::cell::RefCell<HashMap<u64, crate::npc_shop::ShopWindowCallbacks>>>,
     /// Per-invocation instruction budget (pillar 4). Synced to the game-thread
     /// local used by [`crate::instruction_budget::with_lua_instruction_budget`].
     instruction_budget: Cell<u32>,
@@ -237,6 +239,10 @@ impl LuaRuntime {
         register_game_api(&lua).map_err(LuaError::Registration)?;
         crate::lua_database::register_lua_database(&lua).map_err(LuaError::Registration)?;
         crate::tool_use::register_tool_use_globals(&lua).map_err(LuaError::Registration)?;
+        let shop_callbacks: Rc<RefCell<HashMap<u64, crate::npc_shop::ShopWindowCallbacks>>> =
+            Rc::new(RefCell::new(HashMap::new()));
+        crate::npc_shop::register_npc_shop_globals(&lua, Rc::clone(&shop_callbacks))
+            .map_err(LuaError::Registration)?;
         register_variant_constructor(&lua).map_err(LuaError::Registration)?;
         register_monster_type_constructor(&lua).map_err(LuaError::Registration)?;
         // TFS Lua global constants (ACCOUNT_TYPE_*, TALKTYPE_*, PlayerFlag_*,
@@ -314,6 +320,7 @@ impl LuaRuntime {
             spell_callbacks: HashMap::new(),
             weapon_callbacks: HashMap::new(),
             npc_callbacks: HashMap::new(),
+            shop_callbacks,
             instruction_budget: Cell::new(DEFAULT_LUA_INSTRUCTION_BUDGET),
             scripts_interface,
             data_lib_loaded: Cell::new(false),

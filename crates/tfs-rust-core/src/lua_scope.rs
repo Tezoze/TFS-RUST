@@ -679,6 +679,48 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             set_mutation_bool_result(ok);
             Ok(())
         }
+        LuaMutation::OpenShopWindow {
+            player_id,
+            npc_id,
+            items,
+        } => {
+            let Some(player) = unsafe { &*world }.resolve_creature_from_script(player_id) else {
+                return Err("openShopWindow: player not found".into());
+            };
+            let Some(npc) = unsafe { &*world }.resolve_creature_from_script(npc_id) else {
+                return Err("openShopWindow: npc not found".into());
+            };
+            let active = items
+                .into_iter()
+                .map(|item| crate::shop::ActiveShopItem {
+                    item_id: item.item_id,
+                    sub_type: item.sub_type,
+                    buy_price: item.buy_price,
+                    sell_price: item.sell_price,
+                    name: item.name,
+                })
+                .collect();
+            unsafe { &mut *world }.player_open_shop(player, npc, active);
+            Ok(())
+        }
+        LuaMutation::CloseShopWindow {
+            player_id,
+            npc_id,
+            send_wire,
+        } => {
+            let Some(player) = unsafe { &*world }.resolve_creature_from_script(player_id) else {
+                return Ok(());
+            };
+            if let Some(npc_u64) = npc_id {
+                let merchant = unsafe { &*world }.player_shop_npc(player);
+                let expected = unsafe { &*world }.resolve_creature_from_script(npc_u64);
+                if merchant != expected {
+                    return Ok(());
+                }
+            }
+            unsafe { &mut *world }.player_close_shop(player, send_wire);
+            Ok(())
+        }
         LuaMutation::ToolUse { request } => {
             let ok = crate::tool_use::apply(unsafe { &mut *world }, &request);
             set_mutation_bool_result(ok);
