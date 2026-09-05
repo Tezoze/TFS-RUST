@@ -76,6 +76,12 @@ pub struct PlayerRecord {
     /// (`crmain.cc:1087` `RegenInterval = Skills[SKILL_FED]->Get()`).
     /// TVP/TFS-1.4.2 do not track food; column defaults to `0`.
     pub food_level: i32,
+    /// 772 `TSkillSoulpoints` Cycle — `crskill.cc` Save; load `crplayer.cc`.
+    pub soul_cycle: i32,
+    /// 772 `TSkillSoulpoints` Count — not CONDITION_SOUL.
+    pub soul_count: i32,
+    /// 772 `TSkillSoulpoints` MaxCount.
+    pub soul_max_count: i32,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -155,7 +161,7 @@ impl<'a> PlayerStore<'a> {
             skill_fist, skill_fist_tries, skill_club, skill_club_tries, skill_sword, skill_sword_tries,
             skill_axe, skill_axe_tries, skill_dist, skill_dist_tries, skill_shielding, skill_shielding_tries,
             skill_fishing, skill_fishing_tries, direction, save, onlinetime, deletion,
-            food_remaining, food_level
+            food_remaining, food_level, soul_cycle, soul_count, soul_max_count
             FROM players WHERE name = ? AND deletion = 0"#;
 
         let Some(player) = self
@@ -364,7 +370,8 @@ impl<'a> PlayerStore<'a> {
             skill_sword = ?, skill_sword_tries = ?, skill_axe = ?, skill_axe_tries = ?,
             skill_dist = ?, skill_dist_tries = ?, skill_shielding = ?, skill_shielding_tries = ?,
             skill_fishing = ?, skill_fishing_tries = ?, direction = ?, onlinetime = ?, blessings = ?,
-            food_remaining = ?, food_level = ?
+            food_remaining = ?, food_level = ?,
+            soul_cycle = ?, soul_count = ?, soul_max_count = ?
             WHERE id = ?"#,
         )
         .bind(p.level)
@@ -420,6 +427,9 @@ impl<'a> PlayerStore<'a> {
         .bind(p.blessings)
         .bind(p.food_remaining)
         .bind(p.food_level)
+        .bind(p.soul_cycle)
+        .bind(p.soul_count)
+        .bind(p.soul_max_count)
         .bind(p.id)
         .execute(&mut *tx)
         .await

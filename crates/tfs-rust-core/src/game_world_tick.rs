@@ -6,6 +6,8 @@
 
 use std::time::Instant;
 
+use chrono::Timelike;
+
 use crate::game_world::GameWorld;
 
 /// C++ `AdvanceGame` skips `MoveCreatures` when accumulated lag ≥ 1000 ms (`main.cc:445`).
@@ -53,6 +55,10 @@ impl GameWorld {
         let period = self.house_rent_period_from_config();
         let grace = self.house_grace_secs_from_config();
         self.process_houses_online(now, period, grace);
+        // `WriteKillStatistics` at wall-clock minute 55 (`main.cc:393-394`).
+        if chrono::Local::now().minute() == 55 {
+            self.spawn_kill_statistics_flush();
+        }
         self.next_minute_round = Self::get_round_for_next_minute(self.round_nr);
     }
 

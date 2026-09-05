@@ -824,7 +824,7 @@ mod push_gate_a_tests {
     #[test]
     fn npc_passes_gate_a() {
         use crate::creature::{CreatureBase, Npc, Outfit};
-        use tfs_rust_common::enums::{Direction, SkullType};
+        use tfs_rust_common::enums::{CombatType, Direction, SkullType};
 
         let mut world = beat_driven_world();
         world.pvp_config.world_type = WorldType::NoPvp;
@@ -872,6 +872,7 @@ mod push_gate_a_tests {
             master: None,
             damage_map: Default::default(),
             last_hit_by: None,
+            last_damage_type: CombatType::Physical,
             poison_damage_origin: None,
             fire_damage_origin: None,
             energy_damage_origin: None,
@@ -1355,7 +1356,7 @@ mod push_phase_d_tests {
     };
     use crate::tile::{HouseTile, Tile, TileBody};
     use tfs_rust_common::Position;
-    use tfs_rust_common::enums::{Direction, SkullType, ZoneType};
+    use tfs_rust_common::enums::{CombatType, Direction, SkullType, ZoneType};
 
     /// Register ground type 1 as a BANK ground tile in the items_db.
     /// `beat_driven_world()` doesn't register ground type 1 by default — needed for
@@ -1692,6 +1693,7 @@ mod push_phase_d_tests {
             master: None,
             damage_map: Default::default(),
             last_hit_by: None,
+            last_damage_type: CombatType::Physical,
             poison_damage_origin: None,
             fire_damage_origin: None,
             energy_damage_origin: None,
@@ -1750,7 +1752,7 @@ mod push_gm_bypass_tests {
     use crate::tile::{HouseTile, Tile, TileBody};
     use tfs_rust_common::Position;
     use tfs_rust_common::enums::{Direction, SkullType, ZoneType};
-    use tfs_rust_content::groups::{Group, GroupDatabase};
+    use tfs_rust_content::groups::Group;
 
     /// Register a GM group (id 2) with `canpushallcreatures` flag and assign the actor to it.
     fn make_gm(world: &mut GameWorld, actor: CreatureId) {

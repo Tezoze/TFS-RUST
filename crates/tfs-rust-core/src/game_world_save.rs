@@ -189,6 +189,10 @@ impl GameWorld {
         // 772 `SKILL_FED` persistence — `crplayer.cc:2496` save Cycle, `crplayer.cc:2486` save Act.
         row.food_remaining = player.food_remaining as i32;
         row.food_level = player.food_level;
+        // 772 `TSkillSoulpoints` Cycle/Count/MaxCount — `crskill.cc` Save, not CONDITION_SOUL.
+        row.soul_cycle = player.soul_cycle;
+        row.soul_count = player.soul_count;
+        row.soul_max_count = player.soul_max_count;
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)

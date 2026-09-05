@@ -278,6 +278,14 @@ CREATE TABLE IF NOT EXISTS `player_deaths` (
   KEY `mostdamage_by` (`mostdamage_by`)
 ) ENGINE=InnoDB DEFAULT CHARACTER SET=utf8;
 
+CREATE TABLE IF NOT EXISTS `kill_statistics` (
+  `name` varchar(35) NOT NULL,
+  `killed_by` int unsigned NOT NULL DEFAULT 0,
+  `killed` int unsigned NOT NULL DEFAULT 0,
+  `time` int unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`name`)
+) ENGINE=InnoDB DEFAULT CHARACTER SET=utf8;
+
 CREATE TABLE IF NOT EXISTS `player_depotitems` (
   `player_id` int NOT NULL,
   `sid` int NOT NULL COMMENT 'any given range eg 0-100 will be reserved for depot lockers and all > 100 will be then normal items inside depots',

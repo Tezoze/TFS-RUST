@@ -14,7 +14,7 @@ Likewise, several corpus subsystems are deliberately **not** ported as engines �
 
 | System | Corpus files | Estimate | State |
 |---|---|---|---|
-| Player / skills / combat | `crplayer.cc`, `crskill.cc`, `crcombat.cc`, `crmain.cc` | ~85% | Strongest area. Remaining items are metadata and fidelity, not mechanics. |
+| Player / skills / combat | `crplayer.cc`, `crskill.cc`, `crcombat.cc`, `crmain.cc` | ~90% | Strongest area. Remaining items are snapback and kill-stat cosmetics, not core combat. |
 | Monster / NPC AI | `crnonpl.cc`, `cract.cc` | ~90% | Idle-stimulus engine, spawn, chase, casting, loot, NPC dialogue, home/LifeEnd despawn all live. |
 | Magic / spells | `magic.cc` | ~85% | Pre-cast rune ML / exhaust / PZ and spoken premium done. Remaining: heal-paralyze, AoE rings, berserk, mana fluid. |
 | Map | `map.cc`, `info.cc` | ~82% | Stacking, flags, throw LOS, decay cron, splash insert, elevation climb done. Live sector refresh missing. |
@@ -158,13 +158,13 @@ VIP, trade, party, and shop packets parse in `crates/tfs-rust-net/src/game_parse
 
 This system is in the best shape; what remains is mostly bookkeeping.
 
-- **No death metadata.** `RecordDeath` and `AddKillStatistics` (`crmain.cc:830-860`) plus the `Murderer` field (`crplayer.cc:1546`) have no counterpart — there is no DB death row and no kill statistics. Only the last-hit name reaches the corpse description.
-- **Armor slot check is a proxy.** `crcombat.cc:295-297` gates on the CLOTHES and ARMOR flags; `values.rs:288-291` substitutes `armor > 0`.
-- **Soul timer does not persist.** `soul` is saved (`game_world_save.rs:139`) but `soul_cycle` / `count` / `max_count` are session-only, so the timer resets on relog.
+- **Death metadata — DONE (Step 9, September 2026).** Native `player_deaths` insert (`death_record.rs`) with corpus remarks (`"a hit"` / `"poison"` / `"fire"` / `"energy"`) and TFS columns including `mostdamage_*`. Kill statistics in RAM + flush at minute 55 and shutdown (`kill_statistics.rs`). Corpse last-hit name already live.
+- **Armor slot check — DONE (Step 9).** `item_counts_as_armor_at_slot` is CLOTHES (`slot_position`) + ARMOR (`armor > 0`) + BODYPOSITION. OTB has no FLAG_ARMOR; observably identical to `objects.srv` flags.
+- **Soul timer persist — DONE (Step 9).** `players.soul_cycle` / `soul_count` / `soul_max_count` like food; not `CONDITION_SOUL`.
 - **Attack rearm snapback is incomplete.** No player `CreatureMoveStimulus` snapback when the chase target walks away (`crmain.cc:920-965`); tracked as L3/S5 in `docs/SNAPBACK_KNOCKBACK_AUDIT.md`.
-- **Death skill-loss abort quirk.** `TSkillLevel::Decrease` aborts when `Amount > Exp && Exp > 100000` (`crskill.cc:300-303`); Rust applies this only on `remove_experience` (`player.rs:476-477`), not in the death skill loop.
+- **Death skill-loss abort — DONE (Step 9).** `TSkillLevel::Decrease` abort is LEVEL/exp only (`remove_experience`). Combat/ML death loop is `TSkillProbe::Decrease` (no 100000 abort).
 - **Latent TFS leak in party XP — fixed with §1.2.** `split_shared_experience` (`party.rs`) even-divides; 772 `DistributeExperiencePoints` has no party bonus (`crcombat.cc:906-921`).
-- **`WriteKillStatistics` (`main.cc:394`) is not ported.**
+- **`WriteKillStatistics` — DONE (Step 9).** Minute 55 + shutdown upsert into TFS `kill_statistics`.
 
 ---
 
@@ -204,7 +204,7 @@ Recorded so future audits do not re-file them as gaps.
 
 ## Recommended next steps
 
-Ordered by gameplay impact per unit of effort. Steps 1–8 (trade, party, shop, VIP, rune/spell gates, chat, LifeEndRound + monsterhome, script numerics, splash/elevation) are done. Step 9 death metadata is next.
+Ordered by gameplay impact per unit of effort. Steps 1–9 (trade, party, shop, VIP, rune/spell gates, chat, LifeEndRound + monsterhome, script numerics, splash/elevation, death metadata) are done. Step 10 mail / sector refresh is next.
 
 ### ~~Step 1 — Player trade~~ **Done (audit 1.1, August 2026)**
 
@@ -244,9 +244,9 @@ Shipped the whole [Tier 3](#tier-3--script-probability-and-threshold-drift--done
 
 Splash stays in sorted `top_items` (Option A rejected). Combat `CreatePool` NOROOM proxy for Bottom scenery; corpses do not block. Elevation G1–G4 shipped in [`walk/walk_tile.rs`](../crates/tfs-rust-core/src/walk/walk_tile.rs) `try_player_elevation_climb` + `ItemType::elevation()`. See [Map / houses](#map--houses).
 
-### Step 9 — Death metadata and persistence
+### ~~Step 9 — Death metadata and persistence~~ **Done (September 2026)**
 
-`RecordDeath` DB row, kill statistics, armor slot flags, soul timer fields, and the skill-decrease abort quirk.
+Shipped in [`death_record.rs`](../crates/tfs-rust-core/src/death_record.rs) / [`kill_statistics.rs`](../crates/tfs-rust-core/src/kill_statistics.rs): native `player_deaths` INSERT (corpus remarks, TFS columns), kill-stat RAM + minute-55/shutdown flush, soul timer columns, `item_counts_as_armor_at_slot`. `TSkillLevel::Decrease` abort stays on `remove_experience` only. See [Player / combat](#player--combat).
 
 ### Step 10 — Longer tail
 
@@ -322,6 +322,9 @@ rtk cargo test -p tfs-rust-core --lib monster_ai
 rtk cargo test -p tfs-rust-core --lib walk::elevation_climb_tests
 rtk cargo test -p tfs-rust-content --lib elevation
 rtk cargo test -p tfs-rust-core --lib -- create_liquid_splash create_item_splash
+rtk cargo test -p tfs-rust-core --lib death_record
+rtk cargo test -p tfs-rust-core --lib kill_statistics
+rtk cargo test -p tfs-rust-core --lib inventory::tests
 rtk cargo test -p tfs-rust-core --lib player::combat
 rtk cargo test -p tfs-rust-net --test protocol_compat
 ```

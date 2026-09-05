@@ -113,6 +113,14 @@ pub fn slot_type_for_item_type(it: &ItemType) -> u8 {
     InventorySlot::Right as u8
 }
 
+/// CLOTHES at this body slot AND ARMOR (`armor > 0`).
+///
+/// C++ `GetArmorStrength` — `crcombat.cc:295-297` (`CLOTHES` + `ARMOR` + `BODYPOSITION`).
+/// OTB has no FLAG_ARMOR; Clothes→`slotPosition`, Armor→`armor` value.
+pub fn item_counts_as_armor_at_slot(it: &ItemType, slot: u8) -> bool {
+    it.armor > 0 && slot_type_for_item_type(it) == slot
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,5 +141,32 @@ mod tests {
         let it = ItemType::default();
         assert!(item_fits_equipment_slot(5, &it));
         assert!(item_fits_equipment_slot(6, &it));
+    }
+
+    #[test]
+    fn shield_at_right_slot_is_not_armor() {
+        let it = ItemType {
+            weapon_type: WEAPON_SHIELD,
+            armor: 0,
+            slot_position: SLOTP_RIGHT,
+            ..Default::default()
+        };
+        assert!(!item_counts_as_armor_at_slot(
+            &it,
+            InventorySlot::Right as u8
+        ));
+    }
+
+    #[test]
+    fn plate_at_armor_slot_counts() {
+        let it = ItemType {
+            armor: 10,
+            slot_position: SLOTP_ARMOR,
+            ..Default::default()
+        };
+        assert!(item_counts_as_armor_at_slot(
+            &it,
+            InventorySlot::Armor as u8
+        ));
     }
 }

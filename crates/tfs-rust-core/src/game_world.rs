@@ -101,6 +101,7 @@ pub struct GameWorld {
     pub parties: HashMap<u32, Party>,
     pub next_party_id: u32,
     pub trades: crate::trade::TradeRegistry,
+    pub kill_stats: crate::kill_statistics::KillStatistics,
     /// TFS `Chat` (`chat.h:105`) — static + private channel registry. Game-thread only.
     /// CH-1: skeleton only (SAY does not touch channels); CH-4 seeds static channels
     /// from `data/scripts/chatchannels/*.lua` and adds membership/lookup methods.
@@ -430,6 +431,7 @@ impl GameWorld {
             parties: HashMap::new(),
             next_party_id: 1,
             trades: crate::trade::TradeRegistry::default(),
+            kill_stats: crate::kill_statistics::KillStatistics::default(),
             decay: DecayManager::default(),
             chat: ChatRegistry::new(),
             mute_count_map: HashMap::new(),

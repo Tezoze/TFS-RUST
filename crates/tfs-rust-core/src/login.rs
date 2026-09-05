@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
-use tfs_rust_common::enums::{Direction, SkullType};
+use tfs_rust_common::enums::{CombatType, Direction, SkullType};
 use tfs_rust_common::error::{Result, TfsRustError};
 use tfs_rust_db::player::{LoadedPlayerData, PlayerStore};
 
@@ -139,6 +139,7 @@ pub fn player_from_loaded(
         master: None,
         damage_map: Default::default(),
         last_hit_by: None,
+        last_damage_type: CombatType::Physical,
         poison_damage_origin: None,
         fire_damage_origin: None,
         energy_damage_origin: None,
@@ -260,9 +261,9 @@ pub fn player_from_loaded(
         last_action_round: 0,
         food_remaining: apply_offline_food_drain(p.food_remaining.max(0) as u32, p.lastlogout),
         food_level: p.food_level,
-        soul_cycle: 0,
-        soul_count: 0,
-        soul_max_count: 0,
+        soul_cycle: p.soul_cycle,
+        soul_count: p.soul_count,
+        soul_max_count: p.soul_max_count,
         earliest_logout_round: 0,
         attacked_players: Vec::new(),
         former_attacked_players: Vec::new(),

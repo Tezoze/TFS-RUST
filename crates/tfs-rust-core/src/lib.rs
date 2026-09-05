@@ -25,6 +25,7 @@ pub mod cylinder;
 #[cfg(test)]
 mod data_pack_lua_tests;
 mod death;
+mod death_record;
 mod decay;
 mod decay_apply;
 mod doors;
@@ -58,6 +59,7 @@ pub mod item_attributes;
 mod item_blob;
 mod item_constants;
 mod item_look;
+mod kill_statistics;
 pub mod login;
 mod login_out;
 pub mod lua_command;

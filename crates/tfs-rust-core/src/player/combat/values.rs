@@ -24,7 +24,7 @@ use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::inventory::{
     PLAYER_INVENTORY_SLOT_FIRST, PLAYER_INVENTORY_SLOT_LAST, WEAPON_AMMO, WEAPON_AXE, WEAPON_CLUB,
-    WEAPON_DISTANCE, WEAPON_SHIELD, WEAPON_SWORD, slot_type_for_item_type,
+    WEAPON_DISTANCE, WEAPON_SHIELD, WEAPON_SWORD, item_counts_as_armor_at_slot,
 };
 
 /// Skill index used by `ProbeValue` — C++ `SKILL_*` (`enums.hh:555-566`).
@@ -286,8 +286,7 @@ impl GameWorld {
                 continue;
             };
             // C++ checks `CLOTHES` + `ARMOR` flags + `BODYPOSITION == Position` (`crcombat.cc:295-297`).
-            // Rust: item has an armor value and is at its designated body slot.
-            if it.armor > 0 && slot_type_for_item_type(it) == slot {
+            if item_counts_as_armor_at_slot(it, slot) {
                 armor += it.armor;
             }
         }

@@ -8,7 +8,7 @@ use crate::condition::ActiveCondition;
 use crate::creature_todo::CreatureTodo;
 use crate::ids::CreatureId;
 use tfs_rust_common::Position;
-use tfs_rust_common::enums::{Direction, SkullType};
+use tfs_rust_common::enums::{CombatType, Direction, SkullType};
 
 /// C++ `TCombat::ChaseMode` — `crcombat.cc:338`; 1098 ignores (era gating via profile).
 ///
@@ -253,6 +253,8 @@ pub struct CreatureBase {
     pub damage_map: DamageMap,
     /// Last creature that dealt HP damage — 772 `Attacker` on killing blow (`crmain.cc:822`).
     pub last_hit_by: Option<CreatureId>,
+    /// Last HP-loss combat type — env `RecordDeath` remarks (`crplayer.cc` CharacterDeathOrder).
+    pub last_damage_type: CombatType,
     /// 772 `PoisonDamageOrigin` — credited on poison Event ticks (`crmain.cc:587`, `crskill.cc`).
     pub poison_damage_origin: Option<CreatureId>,
     /// 772 `FireDamageOrigin` — credited on burning Event ticks (`crmain.cc:599`).

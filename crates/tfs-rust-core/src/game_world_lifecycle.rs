@@ -449,6 +449,9 @@ impl GameWorld {
             return;
         }
 
+        // Kill stats + `player_deaths` snapshot before skill/exp loss (`crmain.cc:830-860`).
+        self.record_lethal_outcome(victim);
+
         let is_player = matches!(self.creatures.get(victim), Some(CreatureKind::Player(_)));
 
         // 772 kill logout + RecordMurder before XP/remove (`crmain.cc:822–870`).
@@ -653,6 +656,8 @@ impl GameWorld {
     ///
     /// TFS `Player::death` skill loop (`player.cpp:2099-2108`); 772 `DecreasePercent`
     /// (`crplayer.cc:352-360`) produces the same demotion outcomes with per-level tries.
+    /// `TSkillProbe::Decrease` has no 100000 abort (`crskill.cc`); that quirk is
+    /// `TSkillLevel::Decrease` only ([`Player::remove_experience`]).
     fn apply_player_death_skill_loss(&mut self, victim: CreatureId) {
         let profile = self.mechanics.profile;
         let hooks = &self.mechanics.hooks;

@@ -1,4 +1,5 @@
 pub mod account;
+pub mod death;
 pub mod house;
 pub mod items;
 pub mod lua_sql;
@@ -15,6 +16,7 @@ pub use account::{
     gameworld_authentication, gameworld_authentication_by_number, loginserver_authentication,
     loginserver_authentication_by_number, update_premium_ends_at,
 };
+pub use death::{DeathStore, KillStatisticDelta, PlayerDeathRow};
 pub use house::{HouseInfoUpsert, HouseListRow, HouseOwnerRow, HouseStore, TileStoreRow};
 pub use items::{ItemRecord, ItemStore, ItemTable};
 pub use market::{

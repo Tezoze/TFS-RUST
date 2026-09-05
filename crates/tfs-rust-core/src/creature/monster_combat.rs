@@ -1253,6 +1253,7 @@ mod tests {
             master: None,
             damage_map: Default::default(),
             last_hit_by: None,
+            last_damage_type: CombatType::Physical,
             poison_damage_origin: None,
             fire_damage_origin: None,
             energy_damage_origin: None,

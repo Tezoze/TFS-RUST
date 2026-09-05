@@ -1,3 +1,17 @@
+# Death metadata and persistence — audit Step 9 (2026-09-05)
+
+`docs/772_PARITY_GAP_AUDIT.md` Step 9. Corpus: `RecordDeath` / `AddKillStatistics` (`crmain.cc:830-860`), `Murderer` (`crplayer.cc:1546`), `GetArmorStrength` flags (`crcombat.cc:295-297`), `TSkillSoulpoints` Cycle/Count/MaxCount (`crskill.cc` / `crcombat.cc:938-955`), `TSkillLevel::Decrease` abort (`crskill.cc:300-303`), `WriteKillStatistics` (`main.cc:394`). Pack surface: TFS `player_deaths` / `kill_statistics` / `/deathlist`; death row stays native (lessons 369/409). Corpse "killed by" last-hit name is already live.
+
+**Architecture:** focused modules, not more `GameWorld` methods. `death_record.rs` (snapshot + persist spawn, VIP-style `Handle::spawn`). `kill_statistics.rs` (in-memory race table + shutdown write). Armor helper next to `slot_type_for_item_type`. Soul columns follow `food_remaining`/`food_level` (772-only extras, not `CONDITION_SOUL` blob). Thin call from `apply_creature_death` / shutdown flush.
+
+- [x] C++ analysis — `RecordDeath` writer order; kill-stat race counters; soul Cycle/Count/MaxCount; armor CLOTHES+ARMOR ≡ `armor>0`+slot; `TSkillLevel::Decrease` abort is LEVEL-only (already on `remove_experience`; Probe has no abort)
+- [x] `RecordDeath` — native INSERT `player_deaths` (VIP-style spawn). Corpus remarks; TFS columns; one row with `mostdamage_*` (not two corpus rows). Snapshot OldLevel before skill/exp loss. Store `last_damage_type` on `CreatureBase` for env remarks.
+- [x] Kill statistics — in-memory by race name; `AddKillStatistics` on every lethal death; flush at wall-clock minute 55 + shutdown (no boot load). Env name `"(fire/poison/energy)"`. SQLx `kill_statistics` + UNIQUE(name) upsert-add.
+- [x] Armor slot — named helper `item_counts_as_armor_at_slot` (CLOTHES=`slot_position` + ARMOR=`armor>0` + BODYPOSITION); same observable as today; cite `crcombat.cc:295-297`
+- [x] Soul timer persist — `players.soul_cycle` / `soul_count` / `soul_max_count` like food; not `CONDITION_SOUL`
+- [x] Death skill-loss abort — keep on `remove_experience` only; do **not** add to `skill_decrease` / `magic_decrease` (`TSkillProbe::Decrease` has no 100000 abort)
+- [x] Tests + audit Step 9 marked done + lesson
+
 # Splash layer + elevation climb — audit Step 8 (2026-09-05)
 
 `docs/772_PARITY_GAP_AUDIT.md` Step 8. Corpus: `CreatePool` (`operate.cc:2596`), `GoExec` climb (`cract.cc:415-431`), `GetHeight` (`info.cc:689`). Write-ups: `docs/772_SPLASH_LAYER_MISMATCH.md`, restore `docs/772_ELEVATION_WALK_PARITY.md` (deleted in `f2123185`).

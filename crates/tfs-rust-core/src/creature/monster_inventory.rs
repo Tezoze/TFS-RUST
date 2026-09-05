@@ -15,8 +15,8 @@ use crate::cylinder::CylinderFlags;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::inventory::{
-    WEAPON_NONE, WEAPON_SHIELD, item_fits_equipment_slot, slot_to_array_index,
-    slot_type_for_item_type,
+    WEAPON_NONE, WEAPON_SHIELD, item_counts_as_armor_at_slot, item_fits_equipment_slot,
+    slot_to_array_index,
 };
 use crate::item::Item;
 
@@ -231,7 +231,7 @@ pub fn effective_monster_combat_stats(
         };
         // C++ `CLOTHES`+`ARMOR`+`BODYPOSITION == Position` (`crcombat.cc:295-297`).
         // Same gate as [`GameWorld::player_get_armor_strength`].
-        if it.armor > 0 && slot_type_for_item_type(it) == slot {
+        if item_counts_as_armor_at_slot(it, slot) {
             armor = armor.saturating_add(it.armor);
         }
     }

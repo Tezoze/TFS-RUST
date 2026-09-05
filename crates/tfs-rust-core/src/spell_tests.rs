@@ -9,7 +9,7 @@ use crate::creature::PlayerSkills;
 use crate::creature::PlayerSocial;
 use crate::creature::{CreatureBase, Outfit};
 use tfs_rust_common::Position;
-use tfs_rust_common::enums::{Direction, SkullType};
+use tfs_rust_common::enums::{CombatType, Direction, SkullType};
 
 fn minimal_player(next_action_until: Option<u64>) -> Player {
     Player {
@@ -48,6 +48,7 @@ fn minimal_player(next_action_until: Option<u64>) -> Player {
             master: None,
             damage_map: Default::default(),
             last_hit_by: None,
+            last_damage_type: CombatType::Physical,
             poison_damage_origin: None,
             fire_damage_origin: None,
             energy_damage_origin: None,

@@ -464,6 +464,25 @@ mod tests {
         assert_eq!(p.level, 20);
     }
 
+    #[test]
+    fn skill_decrease_does_not_abort_on_large_tries() {
+        // `TSkillProbe::Decrease` has no 100000 abort (`crskill.cc`); only `TSkillLevel::Decrease`.
+        let m = Mechanics::for_version(tfs_rust_common::ProtocolVersion::V772);
+        let mut p = bare_player();
+        p.skills.sword = 20;
+        p.skills.sword_tries = 150_000;
+        p.vocation_profile = VocationProfile {
+            skill_multipliers: [1.5, 2.0, 2.0, 2.0, 2.0, 1.5, 1.1],
+            ..p.vocation_profile
+        };
+        let changed = p.skill_decrease(SkillNr::Sword, 200_000, &m.profile, &m.hooks);
+        assert!(
+            changed,
+            "amount > tries and tries > 100000 must still demote"
+        );
+        assert!(p.skills.sword < 20);
+    }
+
     /// 772 `TSkill::Get` — `max(Act, Min) + MDAct + DAct` (`crskill.cc:19-25`).
     #[test]
     fn skill_get_applies_min_floor_and_both_modifiers() {

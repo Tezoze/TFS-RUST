@@ -124,7 +124,8 @@ pub fn execute_with_credit(
     }
 
     let total = damage.primary.1 + damage.secondary.1;
-    apply_health_delta(creatures, attacker, target, total, credit) || applied_condition
+    apply_health_delta(creatures, attacker, target, total, damage.primary.0, credit)
+        || applied_condition
 }
 
 fn apply_mana_change(
@@ -149,6 +150,7 @@ fn apply_health_delta(
     attacker: Option<CreatureId>,
     target: CreatureId,
     delta: i32,
+    combat_type: CombatType,
     credit: Option<CombatListCredit>,
 ) -> bool {
     // Belt-and-suspenders: NPCs never take HP loss (TFS `Npc::isAttackable` false).
@@ -166,6 +168,8 @@ fn apply_health_delta(
     {
         let base = kind.base_mut();
         if new_hp < old_hp {
+            // Stamp even when attacker is None (env / DoT origin gone) — `RecordDeath` remarks.
+            base.last_damage_type = combat_type;
             let lost = (old_hp - new_hp) as u64;
             if let Some(aid) = attacker {
                 base.last_hit_by = Some(aid);

@@ -26,6 +26,7 @@ use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::login::{self, MAX_CONCURRENT_LOGIN_LOADS};
 use crate::return_value::ReturnValue;
+use tfs_rust_db::death::DeathStore;
 use tfs_rust_db::player::{LoadedPlayerData, PlayerStore};
 use tfs_rust_net::{
     GameCmdTx, MAX_GAME_COMMANDS_PER_TURN, OutRegistry, OutboundSendError, OutboundTx,
@@ -72,7 +73,7 @@ fn defer_extra_same_conn_game(
 /// Fire-and-forget `spawn` + await of `JoinHandle` is fine: other runtime workers poll DB I/O
 /// while this LocalSet task yields.
 // C++ ref: `src/game.cpp` `Game::saveGameState`
-async fn flush_online_players_to_db(world: &GameWorld) -> anyhow::Result<()> {
+async fn flush_online_players_to_db(world: &mut GameWorld) -> anyhow::Result<()> {
     let cids: Vec<CreatureId> = world.conn_to_creature.values().copied().collect();
     let mut datas = Vec::with_capacity(cids.len());
     for cid in cids {
@@ -87,53 +88,74 @@ async fn flush_online_players_to_db(world: &GameWorld) -> anyhow::Result<()> {
             }
         }
     }
+    let mut any_err = false;
     if datas.is_empty() {
         info!("shutdown: no online players to flush");
-        return Ok(());
-    }
-    let n = datas.len();
-    info!(saved = n, "shutdown: flushing online players to DB");
-    let db = world.db.clone();
-    const MAX_IN_FLIGHT: usize = 8;
-    let mut set = JoinSet::new();
-    let mut any_err = false;
-    for data in datas {
-        while set.len() >= MAX_IN_FLIGHT {
-            if let Some(j) = set.join_next().await {
-                match j {
-                    Ok(Ok(())) => {}
-                    Ok(Err(e)) => {
-                        any_err = true;
-                        error!(?e, "player save on shutdown failed");
-                    }
-                    Err(e) => {
-                        any_err = true;
-                        error!(?e, "shutdown save task join error");
+    } else {
+        let n = datas.len();
+        info!(saved = n, "shutdown: flushing online players to DB");
+        let db = world.db.clone();
+        const MAX_IN_FLIGHT: usize = 8;
+        let mut set = JoinSet::new();
+        for data in datas {
+            while set.len() >= MAX_IN_FLIGHT {
+                if let Some(j) = set.join_next().await {
+                    match j {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => {
+                            any_err = true;
+                            error!(?e, "player save on shutdown failed");
+                        }
+                        Err(e) => {
+                            any_err = true;
+                            error!(?e, "shutdown save task join error");
+                        }
                     }
                 }
             }
+            let dpool = db.clone();
+            set.spawn(async move { PlayerStore::new(&dpool).save_player(&data).await });
         }
-        let dpool = db.clone();
-        set.spawn(async move { PlayerStore::new(&dpool).save_player(&data).await });
+        while let Some(j) = set.join_next().await {
+            match j {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    any_err = true;
+                    error!(?e, "player save on shutdown failed");
+                }
+                Err(e) => {
+                    any_err = true;
+                    error!(?e, "shutdown save task join error");
+                }
+            }
+        }
+        info!(saved = n, "shutdown: flushed online players to DB");
     }
-    while let Some(j) = set.join_next().await {
-        match j {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => {
-                any_err = true;
-                error!(?e, "player save on shutdown failed");
-            }
-            Err(e) => {
-                any_err = true;
-                error!(?e, "shutdown save task join error");
-            }
-        }
+    if let Err(e) = flush_kill_statistics(world).await {
+        any_err = true;
+        error!(?e, "kill statistics flush on shutdown failed");
     }
     if any_err {
         anyhow::bail!("shutdown flush: one or more player saves failed (see error logs above)");
     }
-    info!(saved = n, "shutdown: flushed online players to DB");
     Ok(())
+}
+
+/// Awaited kill-stat upsert (daily save / shutdown). Zeros RAM even with no players online.
+async fn flush_kill_statistics(world: &mut GameWorld) -> anyhow::Result<()> {
+    let rows = world.take_kill_statistics_flush();
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs().min(u64::from(u32::MAX)) as u32)
+        .unwrap_or(0);
+    let db = world.db.clone();
+    DeathStore::new(&db)
+        .upsert_kill_statistics(&rows, time)
+        .await
+        .map_err(|e| anyhow::anyhow!("kill statistics flush failed: {e}"))
 }
 
 async fn handle_pending_save_tick(world: &mut GameWorld) -> anyhow::Result<bool> {
@@ -1676,7 +1698,7 @@ pub async fn run_game_loop(
                         if let Err(e) = world.process_and_persist_houses().await {
                             tracing::warn!(error = %e, "house save on SIGINT failed");
                         }
-                        flush_online_players_to_db(&world).await?;
+                        flush_online_players_to_db(&mut world).await?;
                         break;
                     }
                     ControlFlow::Break(LoopExit::ChannelClosed) => break,
@@ -1719,7 +1741,7 @@ pub async fn run_game_loop(
                                     if let Err(e) = world.process_and_persist_houses().await {
                                         tracing::warn!(error = %e, "house save on SIGINT failed");
                                     }
-                                    flush_online_players_to_db(&world).await?;
+                                    flush_online_players_to_db(&mut world).await?;
                                     return Ok(());
                                 }
                                 ControlFlow::Break(LoopExit::ChannelClosed) => return Ok(()),
