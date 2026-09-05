@@ -1,4 +1,26 @@
+# Unified item catalog (RON)
+
+**Status:** converter complete (2026-09-05). Engine cutover later — **unify on client id**, no dual-id alias.
+
+`data/items/clientid_output/items.ron` is the future single catalog for every `clientVersion` (replaces runtime `items.otb` + `items.xml`). Converter: `scripts/convert_itemid_to_clientid.py`.
+
+- [x] Nested `field.*` (`cycles` / `initdamage` / `skippeaceful` / TFS `ticks`/`count`) — runtime `xml_attributes`
+- [x] Typed RON fields for every `parseItemNode` + `apply_ability_attribute` key (all versions, omit-if-absent)
+- [x] OTB `flags` stay OTB bits only; XML overlays as `ItemType` fields (`block_solid`, `force_use`, `unlay`, …)
+- [x] `vocations: [...]` (repeatable XML key)
+- [x] Self-check: no dropped pack keys; regenerate `items.ron` (`--self-test`)
+- [x] Duplicate client ids: first OTB wins (`clientIdToServerIdMap`); fill missing XML/group
+- [ ] **Later campaign** (one cutover, remap data then flip engine):
+  1. Lua / monster loot / NPC type / rune / weapon rewriter (extend the converter; dry-run first)
+  2. OTBM + house `tile_store` rewrite; PVP field table into client-id space
+  3. Rust `ITEM_*` / money / field constants + Lua globals + hardcoded tests
+  4. SQL `itemtype` remap (player/depot/inbox/market) + seed
+  5. Engine DTO→`ItemType` loader; promote `items.ron`; drop runtime OTB+XML
+  6. Delete `client_id_for_server` / `server_id_for_client`; shop/quick-equip/npc_import become identity
+  7. Soak: gold 3031, fire decay, doors, loot, shops, depot, waypoints, 6 collision rows
+
 # Native Handler Migration
+
 
 **Status:** complete.
 
@@ -47,6 +69,76 @@ TFS pack surface `Game::playerAddVip` / `playerRemoveVip` / `playerEditVip`. Lis
 - [x] `PlayerStore` INSERT/DELETE/UPDATE `account_viplist` (not on `savePlayer`)
 - [x] Login/logout `notifyStatusChange`; era-correct `0xD2` / `0xD3` (`0xD4` logout on 772)
 - [x] Unit tests in `vip.rs`; VIP codec goldens
+- [x] `account_viplist.icon` decode as `u8` (`TINYINT UNSIGNED`, not `i32`)
+
+## Rune and spell gates — audit Step 4 (2026-09-05)
+
+Corpus `CheckRuneLevel` / `EarliestSpellTime` / `CheckAccount` / `UseMagicItem` target walk (`magic.cc`). Pack surface stays TFS Spell Lua.
+
+- [x] `spell.rs` — `prefer_rune_tile_target`, `rune_magic_level_ok`; `LOWMAGICLEVEL` cancel text
+- [x] `player_cast_rune` — ML + `EarliestSpellTime` (+ aggressive PZ) before fire; no consume on fail
+- [x] `ActionObjectRef.creature_id` seed from `UseWithCreature`; rune-only stacked-tile preference
+- [x] `player_say_spell` — `is_premium` → `YouNeedPremiumAccount` (`CheckAccount`, no `ALL_SPELLS` skip)
+- [x] Tests: target helper, rune ML, exhaust, premium say-spell
+- [x] Audit Step 4 marked done; lesson captured
+
+## learnSpells config (2026-09-05)
+
+Global `config.lua` `learnSpells` — not per-script `needLearn`. 772 NPC `TeachSpell` is native `NpcDialogue` (not TFS `StdModule.learnSpell`).
+
+- [x] `config.lua.dist` `learnSpells = true` (missing key = false)
+- [x] SpellNr ↔ Comment name table; `teach_spell` stores name; NPC `spellKnown`/`spellLevel` resolve nr
+- [x] `player_knows_instant`: true → SpellKnown for ex/ut/ad; false → vocation only (ignore `needLearn`)
+- [x] House `al*` / level 0 skip the learn gate
+- [x] Tests + lesson
+
+## NPC vocation properties (2026-09-05)
+
+`property = "knight"` used 772 profession ids; pack Elite Knight is id 8.
+
+- [x] Map NPC vocation properties from `vocations.lua` names (TFS ids 4|8 = knight)
+- [x] Tests + lesson
+
+## 772 classic item look (2026-09-05)
+
+TFS `Item::getDescription` dumps `showattributes` (speed, skills) and absorb % (`ice`/`holy`/`death`). 772 look is name + Arm/Atk/Def/Range + charges + weight.
+
+- [x] `item_look_description(..., classic_look)` — skip speed/skills/absorbs/Hit%/Atk Spd/extra Def
+- [x] Gate on `Codec::V772` at look / shop / trade / Lua `getDescription`
+- [x] Tests: boots of haste, might ring, plate/sword keep Arm/Atk/Def
+
+## absorbpercentmagic 8.1 types (2026-09-05)
+
+TFS `absorbpercentmagic` synthesizes ice/holy/death (8.1+). Corpus magic is energy/fire/earth. Same for all `clientVersion`.
+
+- [x] `absorbpercentmagic` / `absorbpercentelements` expand 772 types only
+- [x] Keep explicit `absorbpercentice` / `holy` / `death` XML keys (pack surface)
+- [x] Tests + lesson
+
+## items.xml absorbs from objects.srv (2026-09-05)
+
+Runtime loads `data/items/items.otb` + `data/items/items.xml` only (not merged_objects.srv). Align XML `absorbpercent*` with 772 `ProtectionDamageTypes` + `DamageReduction`.
+
+- [x] Might ring / elven: 25% / 10% on physical+magic+lifedrain (mask 287); bronze manadrain 15%
+- [x] Drop TFS-only absorbs on dwarven set / wood cape (srv Armor only, no Protection)
+- [x] Pack-xml load test; lesson
+
+## Rings/amulets protection + charges (2026-09-05)
+
+Might ring (and other WearOut jewelry) spawned with `Item::new` so `charges` attr was 0; absorb never wore out. 772 `TotalUses` seeds `RemainingUses`; `crmain.cc` WearOut on absorb.
+
+- [x] `Item::from_item_type` seeds charges from `ItemType.charges` (count 0/1)
+- [x] Lua/loot/player-add create paths use it; login hydrates missing charge attr
+- [x] Combat absorb decrements jewelry charges / destroys at 0
+- [x] Tests + lesson
+
+## Private tell window (2026-09-05)
+
+VIP "Message" / `0x9A` was mixed up with owned private chat rooms (`0xAA` / `0xB2`).
+
+- [x] `player_open_private_channel` always `sendOpenPrivateChannel` `0xAD`
+- [x] `player_speak_to` case-insensitive name lookup
+- [x] Tests + lesson
 
 ## Phase 2 — EventCallback dispatch (ship first)
 - [x] Rust-side `has_event_callback` bitset + direct RegistryKey dispatch

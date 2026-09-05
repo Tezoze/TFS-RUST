@@ -28,10 +28,7 @@ pub fn on_player_move_item(world: &mut GameWorld, item: ItemId, to: &Cylinder) -
     }
     if let Cylinder::Tile { pos } = to
         && let Some(blocking_aid) = world.tool_ids.action_ids.get("blockingTile").copied()
-        && let Some(ground_id) = world
-            .map
-            .get_tile(*pos)
-            .and_then(|t| t.body().ground_item)
+        && let Some(ground_id) = world.map.get_tile(*pos).and_then(|t| t.body().ground_item)
         && let Some(ground) = world.items.get(ground_id)
         && ground.action_id() == blocking_aid
     {
@@ -50,8 +47,7 @@ pub fn on_player_item_moved(world: &mut GameWorld, item: ItemId, to: &Cylinder) 
         return;
     };
     let effect_id = policy.post_move_effect_id;
-    let _ = world
-        .lua_script_item_transform(item.data().as_ffi(), new_type, -1);
+    let _ = world.lua_script_item_transform(item.data().as_ffi(), new_type, -1);
     if let (Some(effect_id), Some(pos)) = (effect_id, cylinder_effect_position(world, to)) {
         world.broadcast_magic_effect(pos, effect_id);
     }

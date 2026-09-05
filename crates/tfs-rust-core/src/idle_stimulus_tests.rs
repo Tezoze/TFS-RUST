@@ -6669,6 +6669,7 @@ fn place_bag_on_tile_772(
         pos,
         stack_pos: 0,
         sprite_id: 0,
+        creature_id: None,
     }
 }
 
@@ -6863,11 +6864,13 @@ fn setup_action_far_use_world(
         pos: Position::new(0xFFFF, 10, 0),
         stack_pos: 0,
         sprite_id,
+        creature_id: None,
     };
     let obj2 = ActionObjectRef {
         pos: water_pos,
         stack_pos: 0,
         sprite_id: 0,
+        creature_id: None,
     };
     (world, player, conn, obj1, obj2)
 }

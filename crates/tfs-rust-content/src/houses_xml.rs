@@ -182,12 +182,17 @@ mod tests {
 
     #[test]
     fn parses_forgotten_houses_xml() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/world/forgotten-houses.xml");
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/world/forgotten-houses.xml");
         if !path.is_file() {
             return;
         }
         let houses = load_houses_xml(&path).expect("forgotten-houses.xml");
-        assert!(houses.len() > 100, "expected a full house list, got {}", houses.len());
+        assert!(
+            houses.len() > 100,
+            "expected a full house list, got {}",
+            houses.len()
+        );
         let spirit = houses.iter().find(|h| h.id == 1).expect("house 1");
         assert_eq!(spirit.name, "Spiritkeep");
         assert_eq!(spirit.rent, 19210);

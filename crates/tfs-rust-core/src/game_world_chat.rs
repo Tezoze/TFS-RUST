@@ -198,10 +198,14 @@ impl GameWorld {
     /// TFS `InstantSpell::canCast` learn/vocation arm (`spells.cpp:617-627`).
     /// 772 `SpellKnown` (`crplayer.cc:1130`) / GetSpellbook (`magic.cc:3830`).
     ///
-    /// `needLearn` → `persist.spells`. Else vocation name map (empty voc list = any).
+    /// `config.lua` `learnSpells`: true → persist `player_spells` (NPC `TeachSpell`);
+    /// house `al*` / level 0 skip. false → vocation map only (`needLearn` ignored).
     /// Does **not** honor `IGNORE_SPELL_CHECK` — GetSpellbook never dumps ALL_SPELLS.
     pub(crate) fn player_knows_instant(&self, cid: CreatureId, spell: &InstantSpellDef) -> bool {
-        if spell.need_learn {
+        if self.config.get_bool("learnSpells").unwrap_or(false) {
+            if !crate::spell_learn::spoken_spell_requires_learn(spell) {
+                return true;
+            }
             return self
                 .creatures
                 .get(cid)
@@ -209,7 +213,7 @@ impl GameWorld {
                     CreatureKind::Player(p) => p.persist.as_ref(),
                     _ => None,
                 })
-                .is_some_and(|b| b.spells.iter().any(|s| s.eq_ignore_ascii_case(&spell.name)));
+                .is_some_and(|b| crate::spell_learn::persist_knows_spell(&b.spells, spell));
         }
         if spell.vocations.is_empty() {
             return true;
@@ -316,7 +320,7 @@ impl GameWorld {
             // IGNORE_SPELL_CHECK / ALL_SPELLS skips this for CAST only — GetSpellbook
             // still uses `player_knows_instant` (GM dump does not fill the book).
             if !self.player_knows_instant(cid, &spell) {
-                let fail = if spell.need_learn {
+                let fail = if self.config.get_bool("learnSpells").unwrap_or(false) {
                     ReturnValue::YouNeedToLearnThisSpell
                 } else {
                     ReturnValue::YourVocationCannotUseThisSpell
@@ -324,7 +328,15 @@ impl GameWorld {
                 self.send_spell_fail(cid, fail);
                 return true;
             }
+        }
 
+        // 772 `CheckAccount` — `magic.cc:625-640`. No `ALL_SPELLS` bypass.
+        if spell.is_premium && !self.player_is_premium(cid) {
+            self.send_spell_fail(cid, ReturnValue::YouNeedPremiumAccount);
+            return true;
+        }
+
+        if !ignore_spell_check {
             if player_level < spell.level as i32 {
                 self.send_spell_fail(cid, ReturnValue::NotEnoughLevel);
                 return true;
@@ -802,47 +814,40 @@ impl GameWorld {
         // TODO(chat CH-4): Send info text to both parties
     }
 
-    /// TFS `Game::playerOpenPrivateChannel` — `game.cpp:3490-3502`.
-    ///
-    /// Opens a private channel dialog by name. Validates the name and rejects
-    /// self-channel.
-    ///
-    /// C++ reference: `src/game.cpp` `Game::playerOpenPrivateChannel`.
+    /// TFS `Game::playerOpenPrivateChannel` — `game.cpp` (~3490).
+    /// 772 VIP "Message" / channel list: client `0x9A` + name → `sendOpenPrivateChannel` `0xAD`.
+    /// This is the **tell window**, not an owned `PrivateChatChannel` (`0xAA` / `0xB2`).
     pub fn player_open_private_channel(
         &mut self,
         conn_id: ConnId,
         cid: CreatureId,
         receiver_name: &str,
     ) {
-        let Some(CreatureKind::Player(player)) = self.creatures.get(cid) else {
-            return;
+        let own_name = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(player)) => player.base.name.clone(),
+            _ => return,
         };
-
-        // Reject self-channel
-        if receiver_name == player.base.name {
-            // TODO(chat CH-4): Send "You cannot create a private channel with yourself." message
+        let receiver = receiver_name.trim();
+        if receiver.is_empty() {
             return;
         }
-
-        // TODO(chat CH-4): Validate name format (IOLoginData::formatPlayerName equivalent)
-
-        // Find private channel by name (owned by this player)
-        let private_channel = self
-            .chat
-            .private_channels
-            .values()
-            .find(|pc| pc.owner == cid && pc.base.name == receiver_name);
-
-        if let Some(_pc) = private_channel {
-            // Use existing send_open_private_channel (takes receiver name only)
-            let msg = outgoing_extra::send_open_private_channel(receiver_name);
-            self.pending_outgoing
-                .entry(conn_id)
-                .or_default()
-                .push(msg.into_bytes());
-        } else {
-            // TODO(chat CH-4): Send "Private channel not found." message
+        if receiver.eq_ignore_ascii_case(own_name.as_str()) {
+            let msg = outgoing_extra::send_text_message_simple(
+                self.codec.failure_message_type(),
+                "You cannot set up a private message channel with yourself.",
+            );
+            self.enqueue_outgoing(conn_id, msg.into_bytes());
+            return;
         }
+        let display = self
+            .find_online_player_by_name(receiver)
+            .and_then(|tid| match self.creatures.get(tid) {
+                Some(CreatureKind::Player(p)) => Some(p.base.name.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| receiver.to_string());
+        let msg = outgoing_extra::send_open_private_channel(&display);
+        self.enqueue_outgoing(conn_id, msg.into_bytes());
     }
 
     /// TFS `Game::playerWhisper` — `gameserver/src/game.cpp:3400-3422`.
@@ -955,8 +960,13 @@ impl GameWorld {
             return;
         };
 
-        // C++ `Player* toPlayer = getPlayerByName(receiver);` — `game.cpp:3657-3661`.
-        let Some(target_cid) = self.player_by_name.get(receiver).copied() else {
+        let receiver = receiver.trim();
+        if receiver.is_empty() {
+            return;
+        }
+
+        // C++ `Player* toPlayer = getPlayerByName(receiver);` — case-insensitive.
+        let Some(target_cid) = self.find_online_player_by_name(receiver) else {
             use tfs_rust_net::outgoing_extra::send_text_message_simple;
             self.enqueue_outgoing(
                 speaker_conn,
@@ -1141,7 +1151,7 @@ impl GameWorld {
                     timer_rounds_left: None,
                     skill_count: 0,
                     skill_max_count: 0,
-                field_dot: false,
+                    field_dot: false,
                 });
             }
 
@@ -2137,5 +2147,228 @@ mod apply_spec_tests {
         let base = world.creatures.get(cid).unwrap().base();
         assert_eq!(base.earliest_multiuse_server_ms, 4_000);
         assert_eq!(base.earliest_spell_server_ms, 5_000);
+    }
+
+    #[test]
+    fn player_say_spell_premium_blocks_non_premium() {
+        use crate::sim_harness::{
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
+            insert_spectator_player, test_player,
+        };
+        use tfs_rust_common::Position;
+        use tfs_rust_content::spells::InstantSpellDef;
+
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let mut player = test_player("FreeHero", pos);
+        player.level = 50;
+        player.mana = 500;
+        player.max_mana = 500;
+        player.premium_ends_at = 0;
+        let cid = insert_spectator_player(&mut world, ConnId(7), player);
+
+        let def = InstantSpellDef {
+            name: "Haste".into(),
+            words: "ut,ani, hur".into(),
+            level: 1,
+            mana: 10,
+            is_premium: true,
+            is_aggressive: false,
+            vocations: vec![],
+            ..Default::default()
+        };
+        std::sync::Arc::make_mut(&mut world.spells)
+            .instant_by_words
+            .insert("ut,ani, hur".into(), def);
+
+        assert!(world.player_say_spell(cid, 1, "utani hur"));
+        let mana = match world.creatures.get(cid).unwrap() {
+            CreatureKind::Player(p) => p.mana,
+            _ => panic!("player"),
+        };
+        assert_eq!(mana, 500, "premium gate before mana deduct");
+    }
+
+    #[test]
+    fn player_say_spell_premium_allows_premium_account() {
+        use crate::sim_harness::{
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
+            insert_spectator_player, test_player,
+        };
+        use tfs_rust_common::Position;
+        use tfs_rust_content::spells::InstantSpellDef;
+
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let mut player = test_player("PremHero", pos);
+        player.level = 50;
+        player.mana = 500;
+        player.max_mana = 500;
+        player.premium_ends_at = u32::MAX;
+        let cid = insert_spectator_player(&mut world, ConnId(8), player);
+
+        let def = InstantSpellDef {
+            name: "Haste".into(),
+            words: "ut,ani, hur".into(),
+            level: 1,
+            mana: 10,
+            is_premium: true,
+            is_aggressive: false,
+            vocations: vec![],
+            ..Default::default()
+        };
+        std::sync::Arc::make_mut(&mut world.spells)
+            .instant_by_words
+            .insert("ut,ani, hur".into(), def);
+
+        assert!(world.player_say_spell(cid, 1, "utani hur"));
+        let mana = match world.creatures.get(cid).unwrap() {
+            CreatureKind::Player(p) => p.mana,
+            _ => panic!("player"),
+        };
+        assert_eq!(mana, 490, "premium player casts haste");
+    }
+
+    #[test]
+    fn player_say_spell_learn_spells_blocks_unknown() {
+        use crate::sim_harness::{
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
+            insert_spectator_player, test_player,
+        };
+        use tfs_rust_common::Position;
+        use tfs_rust_content::spells::InstantSpellDef;
+
+        let mut world = beat_driven_test_world();
+        world
+            .config
+            .lua()
+            .globals()
+            .set("learnSpells", true)
+            .expect("set learnSpells");
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let mut player = test_player("BookHero", pos);
+        player.level = 50;
+        player.mana = 500;
+        player.max_mana = 500;
+        let cid = insert_spectator_player(&mut world, ConnId(9), player);
+
+        let def = InstantSpellDef {
+            name: "Haste".into(),
+            words: "ut,ani, hur".into(),
+            level: 14,
+            mana: 10,
+            vocations: vec![],
+            ..Default::default()
+        };
+        std::sync::Arc::make_mut(&mut world.spells)
+            .instant_by_words
+            .insert("ut,ani, hur".into(), def);
+
+        assert!(world.player_say_spell(cid, 1, "utani hur"));
+        let mana = match world.creatures.get(cid).unwrap() {
+            CreatureKind::Player(p) => p.mana,
+            _ => panic!("player"),
+        };
+        assert_eq!(mana, 500, "learnSpells blocks before mana deduct");
+    }
+
+    #[test]
+    fn player_say_spell_learn_spells_allows_taught_name() {
+        use crate::sim_harness::{
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
+            insert_spectator_player, test_player,
+        };
+        use tfs_rust_common::Position;
+        use tfs_rust_content::spells::InstantSpellDef;
+
+        let mut world = beat_driven_test_world();
+        world
+            .config
+            .lua()
+            .globals()
+            .set("learnSpells", true)
+            .expect("set learnSpells");
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let mut player = test_player("BookHero2", pos);
+        player.level = 50;
+        player.mana = 500;
+        player.max_mana = 500;
+        if let Some(b) = player.persist.as_mut() {
+            b.spells.push("Haste".into());
+        }
+        let cid = insert_spectator_player(&mut world, ConnId(10), player);
+
+        let def = InstantSpellDef {
+            name: "Haste".into(),
+            words: "ut,ani, hur".into(),
+            level: 14,
+            mana: 10,
+            vocations: vec![],
+            ..Default::default()
+        };
+        std::sync::Arc::make_mut(&mut world.spells)
+            .instant_by_words
+            .insert("ut,ani, hur".into(), def);
+
+        assert!(world.player_say_spell(cid, 1, "utani hur"));
+        let mana = match world.creatures.get(cid).unwrap() {
+            CreatureKind::Player(p) => p.mana,
+            _ => panic!("player"),
+        };
+        assert_eq!(mana, 490, "taught haste casts");
+    }
+
+    #[test]
+    fn open_private_channel_sends_tell_window_without_owned_channel() {
+        use crate::sim_harness::{
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
+            insert_spectator_player, test_player,
+        };
+        use tfs_rust_common::Position;
+        use tfs_rust_common::protocol_opcodes::server;
+
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let cid = insert_spectator_player(&mut world, ConnId(1), test_player("Sender", pos));
+        world.player_open_private_channel(ConnId(1), cid, "Alice");
+        let pkts = world.pending_outgoing.get(&ConnId(1)).expect("outgoing");
+        assert!(
+            pkts.iter()
+                .any(|p| p.first() == Some(&server::OPEN_PRIVATE_CHANNEL)),
+            "VIP Message must send 0xAD even when no PrivateChatChannel exists: {pkts:?}"
+        );
+        assert!(world.chat.private_channels.is_empty());
+    }
+
+    #[test]
+    fn player_speak_to_delivers_private_message_case_insensitive() {
+        use crate::sim_harness::{
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
+            insert_spectator_player, test_player,
+        };
+        use tfs_rust_common::Position;
+
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let alice = insert_spectator_player(&mut world, ConnId(1), test_player("Alice", pos));
+        let bob = insert_spectator_player(&mut world, ConnId(2), test_player("Bob", pos));
+        world.player_by_name.insert("Alice".into(), alice);
+        world.player_by_name.insert("Bob".into(), bob);
+
+        world.player_say(ConnId(1), alice, TALKTYPE_PRIVATE, 0, "bob", "hello");
+        let bob_pkts = world
+            .pending_outgoing
+            .get(&ConnId(2))
+            .expect("bob outgoing");
+        assert!(
+            bob_pkts.iter().any(|p| p.first() == Some(&0xAA)),
+            "receiver must get sendPrivateMessage 0xAA: {bob_pkts:?}"
+        );
     }
 }

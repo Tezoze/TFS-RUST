@@ -458,7 +458,10 @@ impl GameWorld {
         } else {
             count.clamp(1, u32::from(u16::MAX)) as u16
         };
-        let mut new_item = Item::new(item_type, stack_count);
+        let mut new_item = match self.items_db.items.get(&item_type) {
+            Some(it) => Item::from_item_type(it, stack_count),
+            None => Item::new(item_type, stack_count),
+        };
         if sub_type > 0 && !stackable {
             // 772 / TFS: `subType` is fluid type for liquid containers/splashes, key number
             // for keys, and charges for charge-bearing items. The client-visible `count`

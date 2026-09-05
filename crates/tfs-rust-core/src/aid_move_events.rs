@@ -145,7 +145,8 @@ pub fn item_move_needs_lua(
 fn gate_allows(gate: &AidMoveGate, world: &GameWorld, actor: Option<CreatureId>) -> bool {
     match gate {
         AidMoveGate::None => true,
-        AidMoveGate::IsPlayer => actor.is_some_and(|cid| matches!(world.creatures.get(cid), Some(CreatureKind::Player(_)))),
+        AidMoveGate::IsPlayer => actor
+            .is_some_and(|cid| matches!(world.creatures.get(cid), Some(CreatureKind::Player(_)))),
         AidMoveGate::PlayerLevelBelow { level } => {
             let Some(cid) = actor else {
                 return false;
@@ -163,7 +164,9 @@ fn gate_allows(gate: &AidMoveGate, world: &GameWorld, actor: Option<CreatureId>)
         }
         AidMoveGate::VocationBranch { is_player, .. } => {
             if *is_player {
-                actor.is_some_and(|cid| matches!(world.creatures.get(cid), Some(CreatureKind::Player(_))))
+                actor.is_some_and(|cid| {
+                    matches!(world.creatures.get(cid), Some(CreatureKind::Player(_)))
+                })
             } else {
                 true
             }
@@ -226,9 +229,7 @@ fn resolve_reloc_to(
     match spec {
         AidMoveRelocSpec::Single { to, .. } => resolve_reloc_to_pos(to, item_pos),
         AidMoveRelocSpec::VocationBranch {
-            then_to,
-            else_to,
-            ..
+            then_to, else_to, ..
         } => {
             let voc_match = match gate {
                 AidMoveGate::VocationBranch { vocation_ids, .. } => {
@@ -259,11 +260,9 @@ fn vocation_matches(world: &GameWorld, actor: Option<CreatureId>, ids: &[u8]) ->
 fn resolve_reloc_to_pos(to: &RelocTo, item_pos: Position) -> Position {
     match to {
         RelocTo::Absolute { x, y, z } => Position::new(*x, *y, *z),
-        RelocTo::ItemXOffset { dx, y, z } => Position::new(
-            apply_i16_offset(item_pos.x, *dx),
-            *y,
-            *z,
-        ),
+        RelocTo::ItemXOffset { dx, y, z } => {
+            Position::new(apply_i16_offset(item_pos.x, *dx), *y, *z)
+        }
         RelocTo::ItemRelative { dx, dy, z } => Position::new(
             apply_i16_offset(item_pos.x, *dx),
             apply_i16_offset(item_pos.y, *dy),
@@ -276,11 +275,9 @@ fn resolve_effect_pos(_world: &GameWorld, spec: &EffectPosition, item_pos: Posit
     match spec {
         EffectPosition::Absolute { x, y, z } => Position::new(*x, *y, *z),
         EffectPosition::ItemPosition => item_pos,
-        EffectPosition::ItemXOffset { dx, y, z } => Position::new(
-            apply_i16_offset(item_pos.x, *dx),
-            *y,
-            *z,
-        ),
+        EffectPosition::ItemXOffset { dx, y, z } => {
+            Position::new(apply_i16_offset(item_pos.x, *dx), *y, *z)
+        }
         EffectPosition::ItemRelative { dx, dy, z } => Position::new(
             apply_i16_offset(item_pos.x, *dx),
             apply_i16_offset(item_pos.y, *dy),
@@ -333,7 +330,11 @@ fn native_do_relocate(world: &mut GameWorld, from: Position, to: Position) -> bo
         if let Some(conn) = world.conn_for_creature(cid) {
             let _ = crate::walk::internal_teleport_player(world, conn, cid, to, true);
         } else {
-            let old = world.creatures.get(cid).map(|k| k.position()).unwrap_or(from);
+            let old = world
+                .creatures
+                .get(cid)
+                .map(|k| k.position())
+                .unwrap_or(from);
             world.move_creature_on_map(cid, old, to);
         }
     }
@@ -431,8 +432,7 @@ mod tests {
         }
         let compiled = tfs_rust_lua::compile_aid_move_handlers(&data);
         let mut world = minimal_world();
-        world.aid_move_handlers =
-            NativeAidMoveRegistry::from_compiled(compiled, &world.map.towns);
+        world.aid_move_handlers = NativeAidMoveRegistry::from_compiled(compiled, &world.map.towns);
 
         let bridge = Position::new(32057, 32192, 7);
         let dest = Position::new(32060, 32192, 7);

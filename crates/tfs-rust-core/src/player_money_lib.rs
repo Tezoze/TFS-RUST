@@ -11,9 +11,7 @@ use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::inventory::InventorySlot;
-use crate::player::inventory::money::{
-    ITEM_CRYSTAL_COIN, ITEM_GOLD_COIN, ITEM_PLATINUM_COIN,
-};
+use crate::player::inventory::money::{ITEM_CRYSTAL_COIN, ITEM_GOLD_COIN, ITEM_PLATINUM_COIN};
 
 /// Lua `MESSAGE_INFO_DESCR` (`const.h`).
 const MESSAGE_INFO_DESCR: u8 = 0x16;
@@ -47,11 +45,8 @@ pub fn player_remove_total_money(world: &mut GameWorld, cid: CreatureId, amount:
         let msg = format!(
             "Paid {money_count} from inventory and {bank_paid} gold from bank account. Your account balance is now {new_bank} gold."
         );
-        let _ = world.lua_script_player_send_text_message(
-            cid.data().as_ffi(),
-            MESSAGE_INFO_DESCR,
-            msg,
-        );
+        let _ =
+            world.lua_script_player_send_text_message(cid.data().as_ffi(), MESSAGE_INFO_DESCR, msg);
         return true;
     }
     let new_bank = bank_count - amount;
@@ -59,11 +54,7 @@ pub fn player_remove_total_money(world: &mut GameWorld, cid: CreatureId, amount:
     let msg = format!(
         "Paid {amount} gold from bank account. Your account balance is now {new_bank} gold."
     );
-    let _ = world.lua_script_player_send_text_message(
-        cid.data().as_ffi(),
-        MESSAGE_INFO_DESCR,
-        msg,
-    );
+    let _ = world.lua_script_player_send_text_message(cid.data().as_ffi(), MESSAGE_INFO_DESCR, msg);
     true
 }
 
@@ -164,8 +155,7 @@ fn accumulate_coin_stacks(
 ) {
     while *remaining > 0 {
         let count = (*remaining).min(100) as u16;
-        *total_weight =
-            total_weight.saturating_add(item_type_weight(world, item_type, count));
+        *total_weight = total_weight.saturating_add(item_type_weight(world, item_type, count));
         *remaining -= u64::from(count);
         *inventory_slots += 1;
     }

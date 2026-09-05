@@ -78,9 +78,7 @@ impl GameWorld {
     pub fn creature_can_access_pz(&self, cid: CreatureId) -> bool {
         match self.creatures.get(cid) {
             Some(CreatureKind::Monster(_)) => false,
-            Some(CreatureKind::Player(p)) => {
-                p.earliest_protection_zone_round <= self.round_nr
-            }
+            Some(CreatureKind::Player(p)) => p.earliest_protection_zone_round <= self.round_nr,
             Some(CreatureKind::Npc(_)) => true,
             None => false,
         }

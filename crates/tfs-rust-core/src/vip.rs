@@ -239,7 +239,7 @@ impl GameWorld {
         self.enqueue_encoded(conn, pkt);
     }
 
-    fn find_online_player_by_name(&self, name: &str) -> Option<CreatureId> {
+    pub(crate) fn find_online_player_by_name(&self, name: &str) -> Option<CreatureId> {
         if let Some(&cid) = self.player_by_name.get(name) {
             return Some(cid);
         }

@@ -1,7 +1,7 @@
 -- 772 `UseAnnouncer` case 4 → `SendEditText` / `GetSpellbook`
 -- (`moveuse.cc:1947-1948`, `sending.cc:1102-1112`, `magic.cc:3830-3901`).
--- Learned / vocation instants only (`SpellKnown` on TFS domain — not ALL_SPELLS).
--- `player:getInstantSpells()` = needLearn → persist.spells; else vocation map.
+-- Learned instants only when `learnSpells` (`SpellKnown`); else vocation map.
+-- `player:getInstantSpells()` follows `player_knows_instant` (not ALL_SPELLS).
 -- OTB 2175 only — 2217 is fontsize-1 stored text, not a spellbook.
 
 local function spellbookWords(words)

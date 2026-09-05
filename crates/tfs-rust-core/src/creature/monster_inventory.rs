@@ -136,10 +136,12 @@ fn roll_loot_block_glibc(
         return None;
     }
     let server_id = block.id as u16;
-    let _item_type = world.items_db.items.get(&server_id)?;
+    if !world.items_db.items.contains_key(&server_id) {
+        return None;
+    }
     let count = roll_loot_count_glibc(world, block.countmax);
-
-    let mut item = Item::new(server_id, count);
+    let item_type = world.items_db.items.get(&server_id)?;
+    let mut item = Item::from_item_type(item_type, count);
     if block.sub_type != 0 {
         item.set_duration(block.sub_type);
     }

@@ -174,3 +174,58 @@ fn can_cast_instant_772_blocks_on_earliest_spell_time() {
     p.base.earliest_spell_server_ms = now_tick;
     assert!(can_cast_instant(&p, &spell, now_tick).is_ok());
 }
+
+fn fake_cid(n: u64) -> CreatureId {
+    use slotmap::Key;
+    CreatureId::from(slotmap::KeyData::from_ffi(n))
+}
+
+#[test]
+fn prefer_rune_tile_target_aggressive_last_non_self() {
+    let caster = fake_cid(1);
+    let a = fake_cid(2);
+    let b = fake_cid(3);
+    assert_eq!(
+        prefer_rune_tile_target(caster, &[caster, a, b], true, None),
+        Some(b),
+        "aggressive: last non-self wins"
+    );
+}
+
+#[test]
+fn prefer_rune_tile_target_heal_prefers_self() {
+    let caster = fake_cid(1);
+    let other = fake_cid(2);
+    assert_eq!(
+        prefer_rune_tile_target(caster, &[other, caster], false, Some(other)),
+        Some(caster),
+        "non-aggressive: self wins even when seed is other"
+    );
+}
+
+#[test]
+fn prefer_rune_tile_target_heal_keeps_seed_among_others() {
+    let caster = fake_cid(1);
+    let a = fake_cid(2);
+    let b = fake_cid(3);
+    assert_eq!(
+        prefer_rune_tile_target(caster, &[a, b], false, Some(a)),
+        Some(a),
+        "UH on stacked others keeps clicked seed"
+    );
+}
+
+#[test]
+fn prefer_rune_tile_target_empty_is_none() {
+    let caster = fake_cid(1);
+    assert_eq!(prefer_rune_tile_target(caster, &[], true, None), None);
+}
+
+#[test]
+fn rune_magic_level_ok_respects_required_and_all_spells() {
+    assert!(!rune_magic_level_ok(4, 15, false));
+    assert!(rune_magic_level_ok(15, 15, false));
+    assert!(rune_magic_level_ok(0, 15, true));
+    assert_eq!(required_rune_magic_level(15, 4), 15);
+    assert_eq!(required_rune_magic_level(0, 4), 4);
+}

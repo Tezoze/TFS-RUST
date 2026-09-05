@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use roxmltree::Document;
-use tfs_rust_common::error::{Result, TfsRustError};
 use tfs_rust_common::Position;
+use tfs_rust_common::error::{Result, TfsRustError};
 use tracing::info;
 
 /// One `<monster>` under `<areaspawn>`.

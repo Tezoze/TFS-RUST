@@ -72,6 +72,9 @@ deathLosePercent = -1
 -- World
 allowChangeOutfit = true
 freePremium = false -- true = every account is premium
+-- 772 SpellKnown: spoken ex/ut/ad spells require NPC TeachSpell (`player_spells`).
+-- false = vocation-only (TFS default). House al* / GM om* never need the book.
+learnSpells = true
 kickIdlePlayerAfterMinutes = 15
 maxMessageBuffer = 4
 yellMinimumLevel = 2

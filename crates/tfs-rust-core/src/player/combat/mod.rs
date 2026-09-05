@@ -17,6 +17,7 @@
 //! toward the target on the attack beat.
 
 pub(crate) mod fight_mode;
+pub(crate) mod protection_absorb;
 pub(crate) mod ranged;
 pub(crate) mod skills;
 pub(crate) mod skulls;

@@ -20,7 +20,7 @@ use crate::ids::{CreatureId, ItemId};
 use crate::inventory::InventorySlot;
 use crate::item::Item;
 use crate::item_constants::ITEM_DOCUMENT_RO;
-use crate::item_look::{item_get_description_cpp, look_distance_tfs};
+use crate::item_look::{classic_item_look, item_look_description, look_distance_tfs};
 use crate::return_value::ReturnValue;
 use crate::thing::Thing;
 use crate::walk::are_in_range_1_1_0;
@@ -70,6 +70,7 @@ impl GameWorld {
             pos,
             stack_pos,
             sprite_id,
+            creature_id: None,
         };
         self.player_todo_clear_with_snapback(conn_id, cid);
         if let Err(rv) = self.enqueue_player_trade(cid, obj, partner_wire) {
@@ -182,10 +183,7 @@ impl GameWorld {
             .items
             .get(item_id)
             .is_some_and(|i| i.item_type == ITEM_DOCUMENT_RO);
-        if house_id.is_none()
-            && !is_house_doc
-            && !self.trade_item_accessible(cid, item_id)
-        {
+        if house_id.is_none() && !is_house_doc && !self.trade_item_accessible(cid, item_id) {
             return Err(ReturnValue::NotPossible);
         }
         if !is_house_doc
@@ -254,10 +252,7 @@ impl GameWorld {
                 self.send_trade_offer(cid, &partner_name, false, pitem);
             }
         } else {
-            self.send_trade_info(
-                partner,
-                &format!("{name} wants to trade with you."),
-            );
+            self.send_trade_info(partner, &format!("{name} wants to trade with you."));
             self.send_trade_offer(cid, &name, true, item_id);
         }
         Ok(())
@@ -297,14 +292,18 @@ impl GameWorld {
         let Some(it) = self.items_db.items.get(&item.item_type) else {
             return;
         };
-        let player_pos = self.creatures.get(cid).map(|k| k.position()).unwrap_or_default();
+        let player_pos = self
+            .creatures
+            .get(cid)
+            .map(|k| k.position())
+            .unwrap_or_default();
         let thing_pos = self.script_item_position(item_id).unwrap_or(player_pos);
         let look_d = look_distance_tfs(player_pos, thing_pos);
         let rune_vocs = self
             .spells
             .get_rune(item.item_type)
             .map(|r| r.vocations.as_slice());
-        let desc = item_get_description_cpp(
+        let desc = item_look_description(
             item,
             it,
             it.weight,
@@ -313,9 +312,13 @@ impl GameWorld {
             None,
             rune_vocs,
             None,
+            classic_item_look(&self.codec),
         );
         let msg = format!("You see {desc}");
-        self.enqueue_outgoing(conn_id, send_text_message_simple(MESSAGE_INFO_DESCR, &msg).into_bytes());
+        self.enqueue_outgoing(
+            conn_id,
+            send_text_message_simple(MESSAGE_INFO_DESCR, &msg).into_bytes(),
+        );
     }
 
     /// `TPlayer::InspectTrade` (`crplayer.cc:811-843`). `own_offer` true = own root.
@@ -412,17 +415,41 @@ impl GameWorld {
         self.trades.sides.remove(&b);
         self.send_close_trade_to(a);
         self.send_close_trade_to(b);
-        let pos_a = self.creatures.get(a).map(|k| k.position()).unwrap_or_default();
-        let pos_b = self.creatures.get(b).map(|k| k.position()).unwrap_or_default();
+        let pos_a = self
+            .creatures
+            .get(a)
+            .map(|k| k.position())
+            .unwrap_or_default();
+        let pos_b = self
+            .creatures
+            .get(b)
+            .map(|k| k.position())
+            .unwrap_or_default();
         let from_a = self.items.get(item_a).and_then(|i| i.parent);
         let from_b = self.items.get(item_b).and_then(|i| i.parent);
         let tile_b = Cylinder::Tile { pos: pos_b };
         let tile_a = Cylinder::Tile { pos: pos_a };
         if let Some(from) = from_a {
-            let _ = self.internal_move_item(None, from, tile_b, item_a, u16::MAX, crate::cylinder::CylinderFlags::NONE, None);
+            let _ = self.internal_move_item(
+                None,
+                from,
+                tile_b,
+                item_a,
+                u16::MAX,
+                crate::cylinder::CylinderFlags::NONE,
+                None,
+            );
         }
         if let Some(from) = from_b {
-            let _ = self.internal_move_item(None, from, tile_a, item_b, u16::MAX, crate::cylinder::CylinderFlags::NONE, None);
+            let _ = self.internal_move_item(
+                None,
+                from,
+                tile_a,
+                item_b,
+                u16::MAX,
+                crate::cylinder::CylinderFlags::NONE,
+                None,
+            );
         }
         let _ = self.internal_move_item(
             None,
@@ -625,8 +652,7 @@ impl GameWorld {
         match item.parent {
             Some(Cylinder::Inventory { player_id, .. }) => player_id == cid,
             Some(Cylinder::Container { item_id: cont, .. }) => {
-                self.get_container_owner(cont) == Some(cid)
-                    || self.trade_item_accessible(cid, cont)
+                self.get_container_owner(cont) == Some(cid) || self.trade_item_accessible(cid, cont)
             }
             Some(Cylinder::Tile { pos }) => self
                 .creatures
@@ -767,16 +793,13 @@ impl GameWorld {
             send_text_message_simple(MESSAGE_INFO_DESCR, text).into_bytes(),
         );
     }
-
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::container::Container;
-    use crate::sim_harness::{
-        ensure_walkable_tile, insert_player, minimal_world, test_player,
-    };
+    use crate::sim_harness::{ensure_walkable_tile, insert_player, minimal_world, test_player};
     use slotmap::Key;
     use tfs_rust_common::ConnId;
 
@@ -897,7 +920,10 @@ mod tests {
         {
             let mut reg = std::mem::take(&mut world.container_registry);
             reg.register(Container::new(bag, 20));
-            reg.get_mut(bag).unwrap().add_item(coin).expect("coin in bag");
+            reg.get_mut(bag)
+                .unwrap()
+                .add_item(coin)
+                .expect("coin in bag");
             world.container_registry = reg;
         }
         if let Some(item) = world.items.get_mut(coin) {

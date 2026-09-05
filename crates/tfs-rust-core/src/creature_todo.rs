@@ -97,6 +97,8 @@ pub struct ActionObjectRef {
     /// Expected client sprite id — re-validated at execute time via
     /// `validate_item_sprite` (mirrors `Obj.exists()` type check).
     pub sprite_id: u16,
+    /// Clicked creature for `UseWithCreature` — `UseMagicItem` dest seed (`magic.cc:4063`).
+    pub creature_id: Option<CreatureId>,
 }
 
 /// 772 ToDo action kinds — Rust enum instead of C++ `void*` task list.
@@ -1165,6 +1167,7 @@ mod tests {
             pos: Position::new(100, 100, 7),
             stack_pos: 0,
             sprite_id: 100,
+            creature_id: None,
         };
         let mut todo = CreatureTodo::default();
         assert!(!todo.has_use());
@@ -1220,6 +1223,7 @@ mod tests {
             pos,
             stack_pos: 0,
             sprite_id: 0, // matches default `client_id=0` in test items_db
+            creature_id: None,
         }
     }
 
@@ -1241,6 +1245,7 @@ mod tests {
             pos,
             stack_pos: 0,
             sprite_id: 0,
+            creature_id: None,
         }
     }
 
@@ -1387,6 +1392,7 @@ mod tests {
             pos: Position::new(200, 200, 7), // no tile, no item
             stack_pos: 0,
             sprite_id: 0,
+            creature_id: None,
         };
 
         let result = world.enqueue_player_use(cid, absent, None, 0);
@@ -1407,6 +1413,7 @@ mod tests {
             pos: Position::new(200, 200, 7),
             stack_pos: 0,
             sprite_id: 0,
+            creature_id: None,
         };
 
         let result = world.enqueue_player_turn(cid, absent);
@@ -1427,6 +1434,7 @@ mod tests {
             pos: Position::new(200, 200, 7),
             stack_pos: 0,
             sprite_id: 0,
+            creature_id: None,
         };
 
         let result = world.enqueue_player_move(cid, absent, Position::new(105, 100, 7), 1);
@@ -1487,6 +1495,7 @@ mod tests {
             pos,
             stack_pos: 0,
             sprite_id: 0, // default client_id=0 in test items_db
+            creature_id: None,
         }
     }
 
@@ -1565,6 +1574,7 @@ mod tests {
             pos: Position::new(200, 200, 7),
             stack_pos: 0,
             sprite_id: 0,
+            creature_id: None,
         };
 
         let result = world.player_rotate_item(cid, absent);
@@ -1760,6 +1770,7 @@ mod tests {
             // (772 `Type.isMapContainer()`). Use a non-zero sprite so the absent
             // object is actually re-resolved and rejected.
             sprite_id: 100,
+            creature_id: None,
         };
 
         let result = world.execute_player_move(cid, absent, Position::new(105, 100, 7), 1);
@@ -1930,6 +1941,7 @@ mod tests {
             pos: Position::new(0xFFFF, 0x40 | 1, 7),
             stack_pos: 0,
             sprite_id: 0,
+            creature_id: None,
         };
 
         // Enqueue — validate_action_object_ref may fail for an empty inventory slot,
@@ -2414,6 +2426,7 @@ mod tests {
             pos: Position::new(0xFFFF, 0x40 | 1, 99),
             stack_pos: 0,
             sprite_id: 0,
+            creature_id: None,
         };
 
         let result = world.validate_action_object_z_floor(cid, inv_obj);
@@ -2478,12 +2491,14 @@ mod tests {
             pos: Position::new(0xFFFF, 10, 0), // inventory ammo slot
             stack_pos: 0,
             sprite_id: 0,
+            creature_id: None,
         };
         // Client empty-ground aim: stackpos 0 + ground sprite — no ItemId on tile.
         let obj2 = ActionObjectRef {
             pos: ground_pos,
             stack_pos: 0,
-            sprite_id: 99, // any; tile accepted by position, not sprite match
+            sprite_id: 99, // any; tile accepted by position, not sprite match,
+            creature_id: None,
         };
         (conn, cid, obj1, obj2)
     }
@@ -2500,6 +2515,7 @@ mod tests {
             pos: ground_pos,
             stack_pos: 0,
             sprite_id: 99,
+            creature_id: None,
         };
         world
             .validate_use_ex_target_ref(cid, obj)
@@ -2515,6 +2531,7 @@ mod tests {
             pos: Position::new(200, 200, 7),
             stack_pos: 0,
             sprite_id: 0,
+            creature_id: None,
         };
         assert_eq!(
             world.validate_use_ex_target_ref(cid, void),
@@ -2621,6 +2638,95 @@ mod tests {
         );
     }
 
+    fn pop_and_execute_use(
+        world: &mut crate::game_world::GameWorld,
+        cid: CreatureId,
+    ) -> Result<(), crate::return_value::ReturnValue> {
+        let use_action = world
+            .creatures
+            .get_mut(cid)
+            .unwrap()
+            .base_mut()
+            .todo
+            .queue
+            .pop_back()
+            .expect("Use action");
+        let CreatureAction::Use {
+            obj1,
+            obj2,
+            open_index,
+        } = use_action
+        else {
+            panic!("expected Use, got {use_action:?}");
+        };
+        world.execute_player_use(cid, obj1, obj2, open_index)
+    }
+
+    fn ammo_rune_count(world: &crate::game_world::GameWorld, cid: CreatureId) -> u16 {
+        let Some(CreatureKind::Player(p)) = world.creatures.get(cid) else {
+            panic!("player");
+        };
+        let item_id = p.equipment_slots[9].expect("ammo rune");
+        world.items.get(item_id).expect("rune item").count
+    }
+
+    #[test]
+    fn rune_cast_blocks_when_magic_level_too_low() {
+        let mut world = beat_driven_test_world();
+        let (_conn, cid, obj1, obj2) = inventory_rune_and_empty_ground(&mut world, 2304, false);
+        std::sync::Arc::make_mut(&mut world.spells)
+            .runes_by_id
+            .get_mut(&2304)
+            .unwrap()
+            .rune_magic_level = 15;
+        world
+            .enqueue_player_use(cid, obj1, Some(obj2), 0)
+            .expect("enqueue");
+        assert_eq!(
+            pop_and_execute_use(&mut world, cid),
+            Err(crate::return_value::ReturnValue::NotRequiredLevelToUseRune)
+        );
+        assert_eq!(ammo_rune_count(&world, cid), 1, "ML fail must not consume");
+    }
+
+    #[test]
+    fn rune_cast_blocks_when_earliest_spell_time_pending() {
+        let mut world = beat_driven_test_world();
+        world.server_ms = 1_000;
+        let (_conn, cid, obj1, obj2) = inventory_rune_and_empty_ground(&mut world, 2304, false);
+        if let Some(k) = world.creatures.get_mut(cid) {
+            k.base_mut().earliest_spell_server_ms = 5_000;
+        }
+        world
+            .enqueue_player_use(cid, obj1, Some(obj2), 0)
+            .expect("enqueue");
+        assert_eq!(
+            pop_and_execute_use(&mut world, cid),
+            Err(crate::return_value::ReturnValue::YouAreExhausted)
+        );
+        assert_eq!(ammo_rune_count(&world, cid), 1, "exhaust must not consume");
+    }
+
+    #[test]
+    fn aggressive_rune_in_pz_does_not_consume() {
+        use tfs_rust_common::enums::ZoneType;
+
+        let mut world = beat_driven_test_world();
+        let (_conn, cid, obj1, obj2) = inventory_rune_and_empty_ground(&mut world, 2304, false);
+        let pos = world.creatures.get(cid).unwrap().position();
+        if let Some(tile) = world.map.get_tile_mut(pos) {
+            tile.body_mut().zone = ZoneType::Protection;
+        }
+        world
+            .enqueue_player_use(cid, obj1, Some(obj2), 0)
+            .expect("enqueue");
+        assert_eq!(
+            pop_and_execute_use(&mut world, cid),
+            Err(crate::return_value::ReturnValue::ActionNotPermittedInProtectionZone)
+        );
+        assert_eq!(ammo_rune_count(&world, cid), 1, "PZ fail must not consume");
+    }
+
     // === Single-object Use on bare ground (no SlotMap ItemId) ===
     // 772 `GetObject` matches bank by TypeID (`info.cc:412-419`). Wrong TypeID →
     // NOTACCESSIBLE (no walk). Non-usable ground after walk → NOTUSABLE
@@ -2631,6 +2737,7 @@ mod tests {
             pos,
             stack_pos: 0,
             sprite_id: TEST_SYNTHETIC_GROUND_WP, // server id; client_id often 0 in tests
+            creature_id: None,
         }
     }
 
@@ -2672,7 +2779,8 @@ mod tests {
         let obj1 = ActionObjectRef {
             pos: ground_pos,
             stack_pos: 0,
-            sprite_id: 9999, // not ground TypeID — 772 GetObject → NONE
+            sprite_id: 9999, // not ground TypeID — 772 GetObject → NONE,
+            creature_id: None,
         };
 
         assert_eq!(
@@ -2746,6 +2854,7 @@ mod tests {
             pos: grate_pos,
             stack_pos: 0,
             sprite_id: 430,
+            creature_id: None,
         };
         world
             .enqueue_player_use(cid, obj1, None, 0)

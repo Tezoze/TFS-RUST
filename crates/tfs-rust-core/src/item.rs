@@ -41,6 +41,45 @@ impl Item {
         Self::new(item_type, 1)
     }
 
+    /// TFS `Item::CreateItem` + 772 `TotalUses` → `RemainingUses` (`map.cc:1973`).
+    ///
+    /// Chargeable non-stackable jewelry (might ring) with `count` 0 or 1 gets
+    /// [`ItemType::charges`], not a dummy 1. Explicit `count >= 2` is remaining uses.
+    pub fn from_item_type(it: &ItemType, count: u16) -> Self {
+        if it.stackable() {
+            return Self::new(it.id, count.clamp(1, 100));
+        }
+        if it.is_fluid_container() || it.is_splash() {
+            let mut item = Self::new(it.id, count);
+            if count > 0 {
+                item.set_fluid_type(count);
+            }
+            return item;
+        }
+        if it.charges != 0 {
+            let charges = if count <= 1 {
+                it.charges.min(u16::MAX as u32) as u16
+            } else {
+                count
+            };
+            let mut item = Self::new(it.id, 1);
+            item.set_charges(charges);
+            return item;
+        }
+        Self::new(it.id, count.max(1))
+    }
+
+    /// Seed `RemainingUses` when the blob/create path never wrote `ITEM_ATTRIBUTE_CHARGES`.
+    pub fn seed_charges_from_type_if_missing(&mut self, it: &ItemType) {
+        if it.charges == 0 || it.stackable() {
+            return;
+        }
+        if self.attributes.as_deref().is_some_and(|a| a.has_charges()) {
+            return;
+        }
+        self.set_charges(it.charges.min(u16::MAX as u32) as u16);
+    }
+
     /// 772 `SplitObject` → `CopyObject` — copies all attributes before setting the new count.
     pub fn clone_for_split(&self, count: u16) -> Self {
         let mut copy = self.clone();
@@ -333,6 +372,9 @@ impl Item {
                 }
             }
         }
+        if let Some(it) = items_db.items.get(&rec.itemtype) {
+            item.seed_charges_from_type_if_missing(it);
+        }
         Ok(item)
     }
 
@@ -450,5 +492,18 @@ mod tests {
         assert_eq!(item.wire_count_byte(&it), 0);
         assert_eq!(item.count, 0);
         assert_eq!(item.fluid_type(), 0);
+    }
+
+    #[test]
+    fn from_item_type_seeds_jewelry_charges() {
+        let it = ItemType {
+            id: 2164,
+            charges: 20,
+            ..Default::default()
+        };
+        let item = Item::from_item_type(&it, 1);
+        assert_eq!(item.charges(), 20);
+        let explicit = Item::from_item_type(&it, 7);
+        assert_eq!(explicit.charges(), 7);
     }
 }

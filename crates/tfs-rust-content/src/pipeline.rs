@@ -214,4 +214,3 @@ mod tests {
         assert!(!names.iter().skip(1).any(|n| n == "map-houses.xml"));
     }
 }
-

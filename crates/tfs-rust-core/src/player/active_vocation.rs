@@ -6,8 +6,8 @@
 //! keep full promoted vocation and perks.
 
 use crate::config::{ConfigManager, get_bool_or};
-use crate::creature::vocation::VocationProfile;
 use crate::creature::CreatureKind;
+use crate::creature::vocation::VocationProfile;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use tfs_rust_content::vocations::VocationRegistry;
@@ -28,9 +28,7 @@ pub fn is_stored_promoted(vocations: &VocationRegistry, stored_id: i32) -> bool 
 /// `GetEffectiveProfession` — demote stored promotion for mechanics/display.
 pub fn effective_vocation_id(vocations: &VocationRegistry, stored_id: i32) -> i32 {
     if is_stored_promoted(vocations, stored_id) {
-        vocations
-            .demotion_id(stored_id)
-            .unwrap_or(stored_id)
+        vocations.demotion_id(stored_id).unwrap_or(stored_id)
     } else {
         stored_id
     }
@@ -60,11 +58,7 @@ pub fn active_promotion(
     if !is_stored_promoted(vocations, stored_id) {
         return false;
     }
-    if premium_promotion {
-        premium
-    } else {
-        true
-    }
+    if premium_promotion { premium } else { true }
 }
 
 fn profile_for_active_vocation(
@@ -128,12 +122,8 @@ impl GameWorld {
             .creatures
             .get(cid)
             .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.soul_max_count > 0));
-        let profile = profile_for_active_vocation(
-            &self.vocations,
-            stored,
-            premium,
-            premium_promotion,
-        );
+        let profile =
+            profile_for_active_vocation(&self.vocations, stored, premium, premium_promotion);
         let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
             return;
         };

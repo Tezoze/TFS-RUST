@@ -164,10 +164,7 @@ impl GameWorld {
 
         if !self.player_has_party(host, true) {
             if self.player_has_party(guest, true) {
-                self.send_party_info(
-                    host,
-                    format!("{guest_name} is already member of a party."),
-                );
+                self.send_party_info(host, format!("{guest_name} is already member of a party."));
                 return;
             }
             let party_id = self.next_party_id;
@@ -268,7 +265,11 @@ impl GameWorld {
                 return;
             }
         };
-        if !self.parties.get(&party_id).is_some_and(|p| p.is_invited(guest_cid)) {
+        if !self
+            .parties
+            .get(&party_id)
+            .is_some_and(|p| p.is_invited(guest_cid))
+        {
             if self.creatures.get(guest_cid).is_some() {
                 let guest_name = self.player_name(guest_cid);
                 self.send_party_info(host, format!("{guest_name} has not been invited."));
@@ -281,7 +282,10 @@ impl GameWorld {
             party.revoke_invite(guest_cid);
         }
         let guest_name = self.player_name(guest_cid);
-        self.send_party_info(host, format!("Invitation for {guest_name} has been revoked."));
+        self.send_party_info(
+            host,
+            format!("Invitation for {guest_name} has been revoked."),
+        );
         if self.creatures.get(guest_cid).is_some() {
             self.send_party_info(
                 guest_cid,
@@ -315,10 +319,7 @@ impl GameWorld {
         if self.player_has_party(guest, true) {
             let same = self.player_in_party_with(guest, host, true);
             let word = if same { "this" } else { "a" };
-            self.send_party_info(
-                guest,
-                format!("You are already member of {word} party."),
-            );
+            self.send_party_info(guest, format!("You are already member of {word} party."));
             return;
         }
 
@@ -360,10 +361,7 @@ impl GameWorld {
         for member in &members {
             self.send_party_creature_updates(guest, *member);
             if *member != guest {
-                self.send_party_info(
-                    *member,
-                    format!("{guest_name} has joined the party."),
-                );
+                self.send_party_info(*member, format!("{guest_name} has joined the party."));
                 self.send_party_creature_updates(*member, guest);
             }
         }
@@ -612,9 +610,7 @@ impl GameWorld {
 
     pub(crate) fn player_has_party(&self, cid: CreatureId, check_former: bool) -> bool {
         match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => {
-                p.party_key(check_former, self.round_nr).is_some()
-            }
+            Some(CreatureKind::Player(p)) => p.party_key(check_former, self.round_nr).is_some(),
             _ => false,
         }
     }
@@ -623,9 +619,7 @@ impl GameWorld {
         let Some(party_id) = self.player_party_id(cid) else {
             return false;
         };
-        self.parties
-            .get(&party_id)
-            .is_some_and(|p| p.leader == cid)
+        self.parties.get(&party_id).is_some_and(|p| p.leader == cid)
     }
 
     pub(crate) fn player_in_party_with(
@@ -708,7 +702,11 @@ impl GameWorld {
         );
     }
 
-    pub(crate) fn send_party_creature_updates(&mut self, observer: CreatureId, subject: CreatureId) {
+    pub(crate) fn send_party_creature_updates(
+        &mut self,
+        observer: CreatureId,
+        subject: CreatureId,
+    ) {
         self.send_creature_shield_to_conn(subject, observer);
         self.send_creature_skull_to_conn(subject, observer);
     }
@@ -790,7 +788,10 @@ mod tests {
             p.earliest_logout_round = world.round_nr + 10;
         }
         world.player_party_leave(b, false);
-        assert_eq!(world.player_party_id(b), Some(world.player_party_id(a).unwrap()));
+        assert_eq!(
+            world.player_party_id(b),
+            Some(world.player_party_id(a).unwrap())
+        );
     }
 
     #[test]
@@ -817,14 +818,8 @@ mod tests {
         let (mut world, a, b) = two_players();
         world.player_party_invite(ConnId(1), a, 11);
         world.player_party_join(ConnId(2), b, 10);
-        assert_eq!(
-            world.player_get_party_mark(a, b),
-            PartyShield::Leader as u8
-        );
-        assert_eq!(
-            world.player_get_party_mark(b, a),
-            PartyShield::Member as u8
-        );
+        assert_eq!(world.player_get_party_mark(a, b), PartyShield::Leader as u8);
+        assert_eq!(world.player_get_party_mark(b, a), PartyShield::Member as u8);
     }
 
     /// Regression: downgraded high-level char (level 1, voc 0, ML/skills intact) killed

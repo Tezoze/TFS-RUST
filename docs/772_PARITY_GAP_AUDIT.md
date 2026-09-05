@@ -16,7 +16,7 @@ Likewise, several corpus subsystems are deliberately **not** ported as engines �
 |---|---|---|---|
 | Player / skills / combat | `crplayer.cc`, `crskill.cc`, `crcombat.cc`, `crmain.cc` | ~85% | Strongest area. Remaining items are metadata and fidelity, not mechanics. |
 | Monster / NPC AI | `crnonpl.cc`, `cract.cc` | ~85–90% | Idle-stimulus engine, spawn, chase, casting, loot, NPC dialogue all live. |
-| Magic / spells | `magic.cc` | ~75–85% | Impacts, shapes, `ComputeDamage`, fields done. Rune pre-cast gates missing. |
+| Magic / spells | `magic.cc` | ~85% | Pre-cast rune ML / exhaust / PZ and spoken premium done. Remaining: heal-paralyze, AoE rings, berserk, mana fluid. |
 | Map | `map.cc`, `info.cc` | ~78% | Stacking, flags, throw LOS, decay cron done. Live sector refresh missing. |
 | Houses | `houses.cc` | ~75% | Ownership, rent, lists, doors, eviction, **in-game sell via trade** done. Policy evictions and transfer missing. |
 | Move / use | `moveuse.cc`, `objects.cc` | ~70% | Typed handlers, doors, fields, tools done. Mail missing; script numerics drift. |
@@ -111,9 +111,9 @@ VIP, trade, party, and shop packets parse in `crates/tfs-rust-net/src/game_parse
 
 ### Magic / spells
 
-- **Rune use has no pre-cast gates.** `CheckRuneLevel` (`magic.cc:662-679`, called from `UseMagicItem:4085`) enforces magic level before a rune fires. Rust stores `rune_magic_level` (`items.rs:89-106`, `spell.rs:362-365`) but uses it only for look text (`item_look.rs:500-531`); `player_cast_rune` (`container_ui.rs:1021-1095`) has no level check. The `EarliestSpellTime` check at `magic.cc:4087` is also missing — Rust only applies exhaustion *after* the cast.
-- **Premium spells are not enforced.** `CheckAccount` tests flag bit 2 (`magic.cc:625-641`). `InstantSpellDef.is_premium` is populated from Lua (`spell.rs:237`) but never read in `player_say_spell` (`game_world_chat.rs:250-493`).
-- **Rune target selection picks the wrong creature on stacked tiles.** `UseMagicItem` (`magic.cc:4062-4082`) prefers a non-self target for aggressive runes and self for non-aggressive; `resolve_creature_at_action_target` (`container_ui.rs:1112+`) takes `creatures.first()`.
+- **Rune pre-cast gates — DONE (Step 4, September 2026).** `player_cast_rune` now runs `CheckRuneLevel` (`rune_magic_level_ok`), `EarliestSpellTime`, and aggressive PZ before `fire_on_cast_rune`; fail does not consume. Helpers in [`spell.rs`](../crates/tfs-rust-core/src/spell.rs). Cancel text is corpus `"Your magic level is too low."`
+- **Premium spells — DONE (Step 4).** `player_say_spell` reads `InstantSpellDef.is_premium` (`CheckAccount`); rune *use* still does not (corpus `UseMagicItem` never calls it).
+- **Rune stacked-tile targeting — DONE (Step 4).** `prefer_rune_tile_target` + `UseWithCreature` `ActionObjectRef.creature_id` seed. Aggressive last non-self; heal prefers self. Generic use-with still takes `creatures.first()`.
 - **Healing does not clear paralyze natively.** `THealingImpact` and `Heal` reset `SKILL_GO_STRENGTH` when the delta is negative (`magic.cc:203-205`, `:2113-2115`). Rust relies on individual scripts setting `COMBAT_PARAM_DISPEL`.
 - **AoE radii use TFS matrices where the corpus uses rings.** Ultimate explosion is r=6 in the corpus (`magic.cc:3485-3487`) but `AREA_CIRCLE5X5` in `ultimate_explosion.lua:7` — note `AREA_CIRCLE6X6` already exists at `areas.lua:177`. Poison storm is r=8 (`magic.cc:3536-3539`) against `AREA_CIRCLE5X5`. Cancel invisibility is r=4 skipping origin (`magic.cc:2353-2450`) against `AREA_CIRCLE3X3`.
 - **Berserk uses a different formula path.** Corpus case 80 is `(Level * ComputeDamage(...)) / 25` with mana `Level*4` (`magic.cc:3557-3562`); `berserk.lua:10` routes through `computeSkillDamage`.
@@ -205,7 +205,7 @@ Recorded so future audits do not re-file them as gaps.
 
 ## Recommended next steps
 
-Ordered by gameplay impact per unit of effort. Steps 2–3 are the bulk of what "feature complete" means from a player's seat.
+Ordered by gameplay impact per unit of effort. Steps 1–4 (trade, party, shop, VIP, rune/spell gates) are done; Step 5 chat is the next player-facing cluster.
 
 ### ~~Step 1 — Player trade~~ **Done (audit 1.1, August 2026)**
 
@@ -223,9 +223,9 @@ Shipped in `shop.rs`: four packet handlers, `shop_owner` / catalog, buy/sell mon
 
 Shipped in `vip.rs`: add / remove / edit, `getMaxVIPEntries`, immediate `account_viplist` persist, login/logout status. See [§1.4](#14-vip-runtime--done).
 
-### Step 4 — Rune and spell gates
+### ~~Step 4 — Rune and spell gates~~ **Done (September 2026)**
 
-Cheap and high-fidelity. Add `CheckRuneLevel` and the `EarliestSpellTime` check to `player_cast_rune`, the premium check to `player_say_spell`, and aggressive/non-aggressive target preference to `resolve_creature_at_action_target`.
+Shipped: `CheckRuneLevel` + `EarliestSpellTime` + aggressive PZ on `player_cast_rune`; `CheckAccount` premium on `player_say_spell`; stacked-tile aggressive/self preference via `prefer_rune_tile_target`. See [Magic / spells](#magic--spells).
 
 ### Step 5 — Chat parity pass
 
@@ -314,6 +314,7 @@ rtk cargo test -p tfs-rust-core --lib trade
 rtk cargo test -p tfs-rust-core --lib party
 rtk cargo test -p tfs-rust-core --lib shop
 rtk cargo test -p tfs-rust-core --lib vip
+rtk cargo test -p tfs-rust-core --lib spell::tests
 rtk cargo test -p tfs-rust-core --lib idle_stimulus
 rtk cargo test -p tfs-rust-core --lib monster_ai
 rtk cargo test -p tfs-rust-core --lib player::combat

@@ -384,16 +384,17 @@ impl GameWorld {
 
         // M2 — Equipment damage reduction: C++ `Damage` iterates equipped `PROTECTION`+`CLOTHES`
         // items and reduces incoming damage by `DAMAGEREDUCTION%` per item (`crmain.cc:540-574`).
-        // The TFS 1.4.2 equivalent is `absorb_percent[combat_type]` on `ItemAbilities`, summed
-        // across all equipped items. Player targets only (monsters/NPCs have no inventory).
-        // Applied before the poff check, matching C++ order — and before periodic arms.
+        // WearOut decrements `RemainingUses` on each matching hit. Pack surface is
+        // `absorb_percent` + item charges (`tvp-772` `Player::blockHit`).
         if reduced_damage.primary.1 < 0 || reduced_damage.secondary.1 < 0 {
-            let absorb_pct = self.player_absorb_percent(target, reduced_damage.primary.0);
-            if absorb_pct > 0 {
-                let factor = 100 - absorb_pct;
-                reduced_damage.primary.1 = (reduced_damage.primary.1 * factor) / 100;
-                reduced_damage.secondary.1 = (reduced_damage.secondary.1 * factor) / 100;
-            }
+            let (p, s) = self.apply_player_protection_absorb(
+                target,
+                reduced_damage.primary.0,
+                reduced_damage.primary.1,
+                reduced_damage.secondary.1,
+            );
+            reduced_damage.primary.1 = p;
+            reduced_damage.secondary.1 = s;
         }
 
         // 772 `DAMAGE_*_PERIODIC` — after absorb, before mana shield / HP (`crmain.cc:582-613`).
@@ -850,29 +851,6 @@ impl GameWorld {
             }
         }
         absorbed
-    }
-
-    /// M2 — Sum `absorb_percent[combat_type]` across all equipped items for a player target.
-    /// C++ `Damage` iterates equipped `PROTECTION`+`CLOTHES` items (`crmain.cc:540-574`);
-    /// the TFS 1.4.2 equivalent is `ItemAbilities.absorb_percent` keyed by `CombatType`.
-    /// Returns 0 for non-players or when no items have absorb for the given type.
-    fn player_absorb_percent(&self, cid: CreatureId, combat_type: CombatType) -> i32 {
-        let slots = match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => p.equipment_slots,
-            _ => return 0,
-        };
-        let absorb_idx = tfs_rust_content::item_abilities::combat_absorb_index(combat_type);
-        let mut total: i32 = 0;
-        for slot_iid in slots.iter().flatten().copied() {
-            let Some(item) = self.items.get(slot_iid) else {
-                continue;
-            };
-            let Some(it) = self.items_db.items.get(&item.item_type) else {
-                continue;
-            };
-            total += it.abilities.absorb_percent[absorb_idx] as i32;
-        }
-        total
     }
 
     /// M4 — Clear `ConditionType::Invisible` from a non-player creature and announce the outfit

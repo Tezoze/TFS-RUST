@@ -704,6 +704,7 @@ impl GameWorld {
         let tuning = self.mechanics.profile.npc;
         let npc_name = def.name.clone();
         let premium = self.player_is_premium(player);
+        let premium_promotion = self.premium_promotion_enabled();
 
         let (player_name, sex, level, hp, vocation, maglevel, promoted, pz_block, poison, burning) =
             match self.creatures.get(player) {
@@ -730,9 +731,14 @@ impl GameWorld {
                         },
                         p.level,
                         p.base.health,
-                        vocation_kind(p.vocation_id),
+                        vocation_kind(&self.vocations, p.vocation_id),
                         p.magic_level(),
-                        p.vocation_id >= 5,
+                        crate::player::active_vocation::active_promotion(
+                            &self.vocations,
+                            p.vocation_id,
+                            premium,
+                            premium_promotion,
+                        ),
                         p.earliest_protection_zone_round > self.round_nr,
                         poison,
                         burning,
@@ -786,25 +792,22 @@ impl GameWorld {
         let quest =
             move |id: u32| -> i32 { unsafe { (*world_ptr).player_get_storage(player, id) } };
         let spell_k = move |id: i32| -> i32 {
-            let key = id.to_string();
             unsafe {
                 match (*world_ptr).creatures.get(player) {
                     Some(CreatureKind::Player(p)) => p
                         .persist
                         .as_ref()
                         .map(|b| {
-                            i32::from(
-                                b.spells
-                                    .iter()
-                                    .any(|s| s == &key || s.eq_ignore_ascii_case(&key)),
-                            )
+                            i32::from(crate::spell_learn::persist_knows_spell_nr(&b.spells, id))
                         })
                         .unwrap_or(0),
                     _ => 0,
                 }
             }
         };
-        let spell_l = move |_id: i32| -> i32 { 0 };
+        let spell_l = move |id: i32| -> i32 {
+            unsafe { crate::spell_learn::spell_level_for_nr(&(*world_ptr).spells, id) }
+        };
         let mut rng =
             move |lo: i32, hi: i32| -> i32 { unsafe { (*world_ptr).parity_random(lo, hi) } };
 
@@ -1090,14 +1093,69 @@ impl GameWorld {
     }
 }
 
-fn vocation_kind(vocation_id: i32) -> PlayerVocationKind {
-    // Best-effort mapping for property predicates; exact vocation tables are content-defined.
+/// Pack `vocations.lua` names (and TFS ids) for `property = "knight"` etc.
+/// 772 `PROFESSION_*` ids are not the stored `vocation_id` (Elite Knight = 8).
+fn vocation_kind(
+    vocations: &tfs_rust_content::vocations::VocationRegistry,
+    vocation_id: i32,
+) -> PlayerVocationKind {
+    if let Some(def) = vocations.get(vocation_id) {
+        return vocation_kind_from_name(&def.name);
+    }
+    vocation_kind_tfs_ids(vocation_id)
+}
+
+fn vocation_kind_from_name(name: &str) -> PlayerVocationKind {
+    let n = name.to_ascii_lowercase();
+    if n.contains("knight") {
+        PlayerVocationKind::Knight
+    } else if n.contains("paladin") {
+        PlayerVocationKind::Paladin
+    } else if n.contains("sorcerer") {
+        PlayerVocationKind::Sorcerer
+    } else if n.contains("druid") {
+        PlayerVocationKind::Druid
+    } else {
+        PlayerVocationKind::None
+    }
+}
+
+fn vocation_kind_tfs_ids(vocation_id: i32) -> PlayerVocationKind {
     match vocation_id {
-        1 | 5 => PlayerVocationKind::Knight,
-        2 | 6 => PlayerVocationKind::Paladin,
-        3 | 7 => PlayerVocationKind::Sorcerer,
-        4 | 8 => PlayerVocationKind::Druid,
+        1 | 5 => PlayerVocationKind::Sorcerer,
+        2 | 6 => PlayerVocationKind::Druid,
+        3 | 7 => PlayerVocationKind::Paladin,
+        4 | 8 => PlayerVocationKind::Knight,
         _ => PlayerVocationKind::None,
+    }
+}
+
+#[cfg(test)]
+mod vocation_kind_tests {
+    use super::*;
+
+    #[test]
+    fn elite_knight_is_knight_property() {
+        assert_eq!(
+            vocation_kind_from_name("Elite Knight"),
+            PlayerVocationKind::Knight
+        );
+        assert_eq!(vocation_kind_tfs_ids(8), PlayerVocationKind::Knight);
+        assert_eq!(vocation_kind_tfs_ids(4), PlayerVocationKind::Knight);
+        assert_eq!(
+            vocation_kind_from_name("Master Sorcerer"),
+            PlayerVocationKind::Sorcerer
+        );
+        assert_eq!(vocation_kind_tfs_ids(5), PlayerVocationKind::Sorcerer);
+        assert_eq!(
+            vocation_kind_from_name("Royal Paladin"),
+            PlayerVocationKind::Paladin
+        );
+        assert_eq!(
+            vocation_kind_from_name("Elder Druid"),
+            PlayerVocationKind::Druid
+        );
+        assert_eq!(vocation_kind_from_name("None"), PlayerVocationKind::None);
     }
 }
 

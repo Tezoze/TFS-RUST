@@ -358,9 +358,7 @@ impl GameWorld {
             return false;
         }
         if !it.voc_equip_names.is_empty() {
-            let active_voc = self
-                .player_active_vocation_id(cid)
-                .unwrap_or(stored_voc);
+            let active_voc = self.player_active_vocation_id(cid).unwrap_or(stored_voc);
             let Some(voc) = self.vocations.get(active_voc) else {
                 return false;
             };

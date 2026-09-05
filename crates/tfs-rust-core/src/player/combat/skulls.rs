@@ -566,14 +566,10 @@ impl GameWorld {
         if self.player_in_party_with(subject, observer, false) {
             return PartyShield::Member.into();
         }
-        if self.player_is_party_leader(observer)
-            && self.is_invited_to_party(subject, observer)
-        {
+        if self.player_is_party_leader(observer) && self.is_invited_to_party(subject, observer) {
             return PartyShield::Guest.into();
         }
-        if self.player_is_party_leader(subject)
-            && self.is_invited_to_party(observer, subject)
-        {
+        if self.player_is_party_leader(subject) && self.is_invited_to_party(observer, subject) {
             return PartyShield::Host.into();
         }
         PartyShield::None.into()

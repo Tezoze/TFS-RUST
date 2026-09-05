@@ -255,8 +255,7 @@ impl GameWorld {
                 skip_pvp_half: field_dot,
                 ..CombatParams::default()
             };
-            let damage_scalar =
-                self.combat_execute_with_stimulus(origin, cid, &damage, &params);
+            let damage_scalar = self.combat_execute_with_stimulus(origin, cid, &damage, &params);
             // M2 — Use the real `Damage` scalar (includes mana-shield absorb).
             let damage_done = damage_scalar;
             if let Some(snap) = snap {
@@ -603,7 +602,7 @@ mod tests {
                 timer_rounds_left: Some(2),
                 skill_count: 0,
                 skill_max_count: 1,
-            field_dot: false,
+                field_dot: false,
             },
         );
 
@@ -648,7 +647,7 @@ mod tests {
                 timer_rounds_left: Some(3),
                 skill_count: 2,
                 skill_max_count: 2,
-            field_dot: false,
+                field_dot: false,
             },
         );
 
@@ -688,7 +687,7 @@ mod tests {
             timer_rounds_left: None,
             skill_count: 0,
             skill_max_count: 1, // Event every ProcessSkills for this unit test
-        field_dot: false,
+            field_dot: false,
         }];
         add_condition_merge(
             &mut conds,
@@ -703,7 +702,7 @@ mod tests {
                 timer_rounds_left: None,
                 skill_count: 0,
                 skill_max_count: 1,
-            field_dot: false,
+                field_dot: false,
             },
         );
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
@@ -1181,7 +1180,7 @@ mod tests {
                 timer_rounds_left: None,
                 skill_count: 0,
                 skill_max_count: 1, // Event every ProcessSkills
-            field_dot: false,
+                field_dot: false,
             });
         }
         let hp_before = world.creatures.get(player).unwrap().base().health;
@@ -1240,7 +1239,7 @@ mod tests {
                 timer_rounds_left: None,
                 skill_count: 0,
                 skill_max_count: 1, // Event every ProcessSkills
-            field_dot: false,
+                field_dot: false,
             });
         }
         let hp_start = world.creatures.get(player).unwrap().base().health;

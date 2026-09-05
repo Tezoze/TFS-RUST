@@ -7,7 +7,7 @@ use rustc_hash::FxHashMap;
 use slotmap::Key;
 use tfs_rust_common::{Position, ScriptContext};
 use tfs_rust_lua::{
-    oriented_area_offsets, CombatExecuteRequest, CompiledNativeSpellCombat, CompiledSpellDamage,
+    CombatExecuteRequest, CompiledNativeSpellCombat, CompiledSpellDamage, oriented_area_offsets,
 };
 
 use crate::game_world::GameWorld;
@@ -52,7 +52,13 @@ pub fn try_native_instant_cast(
 ) -> Option<bool> {
     let key = words.to_ascii_lowercase();
     let compiled = world.native_spell_combats.get(&key)?.clone();
-    let center = resolve_instant_center(world, cid, need_direction || compiled.need_direction, has_param, param)?;
+    let center = resolve_instant_center(
+        world,
+        cid,
+        need_direction || compiled.need_direction,
+        has_param,
+        param,
+    )?;
     Some(execute_compiled(world, cid, &compiled, center))
 }
 
@@ -108,13 +114,16 @@ fn resolve_rune_center(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tfs_rust_lua::compile_native_spell_combats;
     use std::path::PathBuf;
+    use tfs_rust_lua::compile_native_spell_combats;
 
     #[test]
     fn registry_finds_energy_strike() {
         let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data");
-        if !data.join("scripts/spells/attack/energy_strike.lua").exists() {
+        if !data
+            .join("scripts/spells/attack/energy_strike.lua")
+            .exists()
+        {
             return;
         }
         let reg = NativeSpellCombatRegistry::from_compiled(compile_native_spell_combats(&data));
@@ -189,7 +198,11 @@ fn execute_compiled(
     world.combat_execute_from_lua(&request).is_ok()
 }
 
-fn resolve_damage(world: &GameWorld, cid: CreatureId, compiled: &CompiledNativeSpellCombat) -> (i32, i32) {
+fn resolve_damage(
+    world: &GameWorld,
+    cid: CreatureId,
+    compiled: &CompiledNativeSpellCombat,
+) -> (i32, i32) {
     let cid_u64 = cid.data().as_ffi();
     match &compiled.damage {
         CompiledSpellDamage::None => (0, 0),
@@ -200,18 +213,9 @@ fn resolve_damage(world: &GameWorld, cid: CreatureId, compiled: &CompiledNativeS
             limit_max,
             healing,
         } => {
-            let (lo, hi) = world.compute_magic_damage_range(
-                cid_u64,
-                *base,
-                *variation,
-                *limit_min,
-                *limit_max,
-            );
-            if *healing {
-                (lo, hi)
-            } else {
-                (-lo, -hi)
-            }
+            let (lo, hi) = world
+                .compute_magic_damage_range(cid_u64, *base, *variation, *limit_min, *limit_max);
+            if *healing { (lo, hi) } else { (-lo, -hi) }
         }
         CompiledSpellDamage::Skill {
             base,
@@ -220,13 +224,8 @@ fn resolve_damage(world: &GameWorld, cid: CreatureId, compiled: &CompiledNativeS
             limit_max,
         } => {
             let level = world.get_player_level(cid_u64).unwrap_or(0);
-            let (lo, hi) = world.compute_magic_damage_range(
-                cid_u64,
-                *base,
-                *variation,
-                *limit_min,
-                *limit_max,
-            );
+            let (lo, hi) = world
+                .compute_magic_damage_range(cid_u64, *base, *variation, *limit_min, *limit_max);
             let lo = (lo * level) / 25;
             let hi = (hi * level) / 25;
             (-lo, -hi)

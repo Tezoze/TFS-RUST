@@ -1016,8 +1016,10 @@ impl GameWorld {
         Ok(())
     }
 
-    /// PC-3a Gap 6: rune use-with → Lua `onCastSpell`.
-    /// C++ `RuneSpell::castSpell` / `playerCastRune` — `spells.cpp`.
+    /// Rune use-with → Lua `onCastSpell`.
+    /// Pack: `RuneSpell::castSpell` / `playerCastRune` — `spells.cpp`.
+    /// Corpus: `UseMagicItem` — `magic.cc:4059-4089` (target walk, `CheckRuneLevel`,
+    /// `EarliestSpellTime`, aggressive PZ) then impact; no charge on pre-try fail.
     fn player_cast_rune(
         &mut self,
         _conn_id: ConnId,
@@ -1030,7 +1032,7 @@ impl GameWorld {
         // C++ `Spell::playerRuneCheck` — `spells.cpp:743-746`: miss → cancel + CONST_ME_POFF.
         // Cancel text is sent by `apply_todo_result_catch` on the ToDo path.
         let target_creature = if rune.need_target {
-            self.resolve_creature_at_action_target(cid, target)
+            self.resolve_rune_creature_at_action_target(cid, target, rune.is_aggressive)
         } else {
             None
         };
@@ -1059,6 +1061,53 @@ impl GameWorld {
                 }
             }
         }
+
+        // Pre-try gates — `UseMagicItem` `magic.cc:4085-4089`. No POFF / no consume.
+        let flags = self.player_group_flags(cid);
+        let ignore_spell_check = crate::player_flags::has_player_flag(
+            flags,
+            crate::player_flags::PLAYER_FLAG_IGNORE_SPELL_CHECK,
+        );
+        let no_exhaustion = crate::player_flags::has_player_flag(
+            flags,
+            crate::player_flags::PLAYER_FLAG_HAS_NO_EXHAUSTION,
+        );
+        let maglevel = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.skills.maglevel,
+            _ => 0,
+        };
+        let required =
+            crate::spell::required_rune_magic_level(rune.rune_magic_level, rune.magic_level);
+        if !crate::spell::rune_magic_level_ok(maglevel, required, ignore_spell_check) {
+            return Err(ReturnValue::NotRequiredLevelToUseRune);
+        }
+        if !no_exhaustion {
+            let server_ms = self.server_ms;
+            let spell_ready = self
+                .creatures
+                .get(cid)
+                .map(|k| k.base().spell_ready_at(server_ms))
+                .unwrap_or(true);
+            if !spell_ready {
+                return Err(ReturnValue::YouAreExhausted);
+            }
+        }
+        if rune.is_aggressive {
+            let caster_pos = self.creatures.get(cid).map(|k| k.position());
+            let dest_pos = target_creature
+                .and_then(|tid| self.creatures.get(tid).map(|k| k.position()))
+                .or((target.pos.x != 0xFFFF).then_some(target.pos));
+            let caster_pz = caster_pos
+                .and_then(|p| self.map.get_tile(p))
+                .is_some_and(|t| t.body().zone == tfs_rust_common::enums::ZoneType::Protection);
+            let dest_pz = dest_pos
+                .and_then(|p| self.map.get_tile(p))
+                .is_some_and(|t| t.body().zone == tfs_rust_common::enums::ZoneType::Protection);
+            if caster_pz || dest_pz {
+                return Err(ReturnValue::ActionNotPermittedInProtectionZone);
+            }
+        }
+
         let target_pos = if target_creature.is_none() {
             Some((target.pos.x, target.pos.y, target.pos.z))
         } else {
@@ -1122,9 +1171,26 @@ impl GameWorld {
         if body.creatures.is_empty() {
             return None;
         }
-        // UseWithCreature synthesizes stack_pos=0 / sprite_id=0 — take first creature.
-        // UseItemEx on a creature stack may still land on the tile's creature list.
         body.creatures.first().copied()
+    }
+
+    /// Rune dest walk — `UseMagicItem` (`magic.cc:4059-4081`). Generic use-with stays `first()`.
+    fn resolve_rune_creature_at_action_target(
+        &self,
+        caster: CreatureId,
+        target: crate::creature_todo::ActionObjectRef,
+        aggressive: bool,
+    ) -> Option<CreatureId> {
+        if target.pos.x == 0xFFFF {
+            return None;
+        }
+        let tile = self.map.get_tile(target.pos)?;
+        crate::spell::prefer_rune_tile_target(
+            caster,
+            &tile.body().creatures,
+            aggressive,
+            target.creature_id,
+        )
     }
 
     /// C++ `Actions::internalUseItem` container branch — toggle if already open; else `addContainer(index, ...)`.

@@ -85,11 +85,7 @@ impl Player {
             return 0;
         }
         let result = (count as u128 * 100) / next_level_count as u128;
-        if result > 100 {
-            0
-        } else {
-            result as u8
-        }
+        if result > 100 { 0 } else { result as u8 }
     }
 
     /// Percent toward next combat-skill level (TFS `skills[skill].percent` after `addSkillAdvance`).

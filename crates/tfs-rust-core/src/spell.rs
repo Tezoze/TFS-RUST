@@ -1,9 +1,12 @@
 //! Instant / rune spell gating (mana, soul, level, vocation, cooldowns).
-// C++ reference: `spells.cpp` `Spell::playerSpellCheck`, `playerInstantSpellCheck`.
+//!
+//! - Pack: `spells.cpp` `Spell::playerSpellCheck`, `playerInstantSpellCheck`.
+//! - Corpus: `magic.cc` `CheckRuneLevel` / `CheckAccount` / `UseMagicItem` target walk.
 
 use std::collections::HashMap;
 
 use crate::creature::Player;
+use crate::ids::CreatureId;
 use crate::matrix_area::MatrixArea;
 
 #[derive(Debug, Clone)]
@@ -126,6 +129,48 @@ pub fn spell_damage_scaled(
         clamp_max_100,
         clamp_min_100,
     )
+}
+
+/// Spell-table `RuneLevel` used by `CheckRuneLevel` (`magic.cc:662-678`).
+///
+/// Lua `rune:runeMagicLevel(n)` writes both fields; prefer `rune_magic_level`.
+pub fn required_rune_magic_level(rune_magic_level: u32, magic_level: u32) -> u32 {
+    if rune_magic_level > 0 {
+        rune_magic_level
+    } else {
+        magic_level
+    }
+}
+
+/// `CheckRuneLevel` — skip when `IgnoreSpellCheck` / `ALL_SPELLS` (`magic.cc:665`).
+pub fn rune_magic_level_ok(player_ml: i32, required: u32, ignore_spell_check: bool) -> bool {
+    if ignore_spell_check {
+        return true;
+    }
+    player_ml >= required as i32
+}
+
+/// `UseMagicItem` dest-creature walk (`magic.cc:4059-4081`).
+///
+/// `creatures` is bottom→top (tile push order). Aggressive: last non-self wins.
+/// Non-aggressive: self wins if present; otherwise `seed` (clicked creature) is kept.
+pub fn prefer_rune_tile_target(
+    caster: CreatureId,
+    creatures: &[CreatureId],
+    aggressive: bool,
+    seed: Option<CreatureId>,
+) -> Option<CreatureId> {
+    let seed = seed.filter(|id| creatures.contains(id));
+    let mut target = seed;
+    for &other in creatures {
+        let replace = target.is_none()
+            || (aggressive && other != caster && Some(other) != target)
+            || (!aggressive && other == caster && Some(other) != target);
+        if replace {
+            target = Some(other);
+        }
+    }
+    target
 }
 
 #[cfg(test)]

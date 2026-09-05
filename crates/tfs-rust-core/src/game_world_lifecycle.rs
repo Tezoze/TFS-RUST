@@ -463,10 +463,7 @@ impl GameWorld {
         ) {
             self.apply_player_death_skill_loss(victim);
         }
-        if matches!(
-            self.creatures.get(victim),
-            Some(CreatureKind::Player(_))
-        ) {
+        if matches!(self.creatures.get(victim), Some(CreatureKind::Player(_))) {
             self.player_death_drop_inventory(victim);
         }
 

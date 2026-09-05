@@ -1443,8 +1443,14 @@ impl tfs_rust_common::ScriptContext for GameWorld {
     ) -> Option<Vec<u8>> {
         let cid = self.resolve_creature_u64(creature_id)?;
         let target = tfs_rust_common::Position { x, y, z };
-        self.creature_has_path_to(cid, target, min_target_dist, max_target_dist, max_search_dist)
-            .map(|steps| steps.into_iter().rev().map(|d| d as u8).collect())
+        self.creature_has_path_to(
+            cid,
+            target,
+            min_target_dist,
+            max_target_dist,
+            max_search_dist,
+        )
+        .map(|steps| steps.into_iter().rev().map(|d| d as u8).collect())
     }
 
     fn is_creature_monster(&self, creature_id: ScriptCreatureId) -> bool {
@@ -1646,7 +1652,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
                 CreatureKind::Player(p) => p.persist.as_ref(),
                 _ => None,
             })
-            .is_some_and(|b| b.spells.iter().any(|s| s.eq_ignore_ascii_case(name)))
+            .is_some_and(|b| crate::spell_learn::persist_knows_spell_name(&b.spells, name))
     }
 
     fn list_instant_spells(&self) -> Vec<tfs_rust_common::ScriptInstantSpell> {
@@ -1859,10 +1865,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         z: u8,
         item_type: u16,
     ) -> Result<bool, String> {
-        self.game_is_item_in_position(
-            tfs_rust_common::Position { x, y, z },
-            item_type,
-        )
+        self.game_is_item_in_position(tfs_rust_common::Position { x, y, z }, item_type)
     }
 }
 
@@ -1934,18 +1937,81 @@ mod e5_e6_e7_script_tests {
                 words: "exana mort".into(),
                 level: 15,
                 need_learn: true,
-                vocations: Vec::new(),
+                vocations: vec!["Druid".into()],
                 ..Default::default()
             },
         );
         let listed = world.list_player_instant_spells(cid.data().as_ffi());
         assert!(
             listed.iter().any(|s| s.name == "Light Healing"),
-            "vocation/needLearn=false must appear with empty player_spells: {listed:?}"
+            "vocation/empty voc must appear with learnSpells unset: {listed:?}"
         );
         assert!(
             !listed.iter().any(|s| s.name == "Undead Legion"),
-            "needLearn with empty persist must stay out: {listed:?}"
+            "wrong vocation stays out: {listed:?}"
+        );
+    }
+
+    #[test]
+    fn learn_spells_config_requires_persist_for_ex_words() {
+        use tfs_rust_content::spells::InstantSpellDef;
+
+        let mut world = minimal_world();
+        world
+            .config
+            .lua()
+            .globals()
+            .set("learnSpells", true)
+            .expect("set learnSpells");
+        let pos = Position::new(50, 50, 7);
+        let mut player = test_player("Mage", pos);
+        if let Some(b) = player.persist.as_mut() {
+            b.spells.push("20".into()); // SpellNr Find Person leftover
+        }
+        let cid = insert_player(&mut world, player);
+        let spells = std::sync::Arc::make_mut(&mut world.spells);
+        spells.instant_by_name.insert(
+            "Find Person".into(),
+            InstantSpellDef {
+                name: "Find Person".into(),
+                words: "ex,iva".into(),
+                level: 8,
+                vocations: Vec::new(),
+                ..Default::default()
+            },
+        );
+        spells.instant_by_name.insert(
+            "Light Healing".into(),
+            InstantSpellDef {
+                name: "Light Healing".into(),
+                words: "ex,ura".into(),
+                level: 9,
+                vocations: Vec::new(),
+                ..Default::default()
+            },
+        );
+        spells.instant_by_name.insert(
+            "Invite Guests".into(),
+            InstantSpellDef {
+                name: "Invite Guests".into(),
+                words: "aleta sio".into(),
+                level: 0,
+                vocations: Vec::new(),
+                ..Default::default()
+            },
+        );
+        let listed = world.list_player_instant_spells(cid.data().as_ffi());
+        assert!(
+            listed.iter().any(|s| s.name == "Find Person"),
+            "SpellNr persist key must count as known: {listed:?}"
+        );
+        assert!(
+            !listed.iter().any(|s| s.name == "Light Healing"),
+            "unlearned ex spell must stay out: {listed:?}"
+        );
+        assert!(
+            listed.iter().any(|s| s.name == "Invite Guests"),
+            "house al* skips SpellKnown: {listed:?}"
         );
     }
 

@@ -860,6 +860,7 @@ fn handle_game_packet(
                     pos: payload.from_pos,
                     stack_pos: payload.from_stack_pos,
                     sprite_id: payload.sprite_id,
+                    creature_id: None,
                 };
                 world.player_todo_clear_with_snapback(conn_id, cid);
                 if let Err(rv) = world.enqueue_player_move(cid, obj, payload.to_pos, payload.count)
@@ -882,6 +883,7 @@ fn handle_game_packet(
                     pos: payload.pos,
                     stack_pos: payload.stack_pos,
                     sprite_id: payload.sprite_id,
+                    creature_id: None,
                 };
                 world.player_todo_clear_with_snapback(conn_id, cid);
                 if let Err(rv) = world.enqueue_player_use(cid, obj, None, payload.index) {
@@ -901,11 +903,13 @@ fn handle_game_packet(
                     pos: payload.from_pos,
                     stack_pos: payload.from_stack_pos,
                     sprite_id: payload.from_sprite_id,
+                    creature_id: None,
                 };
                 let obj2 = ActionObjectRef {
                     pos: payload.to_pos,
                     stack_pos: payload.to_stack_pos,
                     sprite_id: payload.to_sprite_id,
+                    creature_id: None,
                 };
                 world.player_todo_clear_with_snapback(conn_id, cid);
                 if let Err(rv) = world.enqueue_player_use(cid, obj1, Some(obj2), 0) {
@@ -948,13 +952,14 @@ fn handle_game_packet(
                     pos: from_pos,
                     stack_pos: from_stack_pos,
                     sprite_id,
+                    creature_id: None,
                 };
-                // Synthetic obj2 at the creature's tile — `validate_use_ex_target_ref`
-                // accepts creatures; `player_cast_rune` resolves the creature on the tile.
+                // Synthetic obj2 at the creature's tile — seed dest for `UseMagicItem` walk.
                 let obj2 = ActionObjectRef {
                     pos: target_pos,
                     stack_pos: 0,
                     sprite_id: 0,
+                    creature_id: Some(target_cid),
                 };
                 world.player_todo_clear_with_snapback(conn_id, cid);
                 if let Err(rv) = world.enqueue_player_use(cid, obj1, Some(obj2), 0) {
@@ -980,6 +985,7 @@ fn handle_game_packet(
                     pos,
                     stack_pos,
                     sprite_id,
+                    creature_id: None,
                 };
                 world.player_todo_clear_with_snapback(conn_id, cid);
                 if let Err(rv) = world.enqueue_player_turn(cid, obj) {
@@ -1852,16 +1858,20 @@ mod timed_action_gate_tests {
 
     #[test]
     fn trade_packets_are_not_timed_action_gated() {
-        assert!(!game_packet_requires_timed_action(&GamePacket::RequestTrade {
-            pos: tfs_rust_common::Position::new(100, 100, 7),
-            sprite_id: 2148,
-            stack_pos: 0,
-            player_id: 11,
-        }));
-        assert!(!game_packet_requires_timed_action(&GamePacket::LookInTrade {
-            counter_offer: false,
-            index: 0,
-        }));
+        assert!(!game_packet_requires_timed_action(
+            &GamePacket::RequestTrade {
+                pos: tfs_rust_common::Position::new(100, 100, 7),
+                sprite_id: 2148,
+                stack_pos: 0,
+                player_id: 11,
+            }
+        ));
+        assert!(!game_packet_requires_timed_action(
+            &GamePacket::LookInTrade {
+                counter_offer: false,
+                index: 0,
+            }
+        ));
         assert!(!game_packet_requires_timed_action(&GamePacket::AcceptTrade));
         assert!(!game_packet_requires_timed_action(&GamePacket::CloseTrade));
     }
@@ -1917,6 +1927,7 @@ mod f8_s6_handler_routing_tests {
             pos,
             stack_pos: 0,
             sprite_id: 0,
+            creature_id: None,
         }
     }
 
@@ -1936,6 +1947,7 @@ mod f8_s6_handler_routing_tests {
             pos,
             stack_pos: 0,
             sprite_id: 0,
+            creature_id: None,
         }
     }
 

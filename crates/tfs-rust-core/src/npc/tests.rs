@@ -1524,7 +1524,7 @@ fn npc_immune_to_combat_damage_and_conditions() {
             timer_rounds_left: None,
             skill_count: 0,
             skill_max_count: 0,
-        field_dot: false,
+            field_dot: false,
         },
     );
     assert!(
@@ -2232,12 +2232,7 @@ fn create_respects_data_rune_charges() {
         _ => panic!("player"),
     };
     let iid = ContainerIterator::new(&world.container_registry, bag)
-        .find(|&child| {
-            world
-                .items
-                .get(child)
-                .is_some_and(|i| i.item_type == LMM)
-        })
+        .find(|&child| world.items.get(child).is_some_and(|i| i.item_type == LMM))
         .expect("lmm rune");
     let item = world.items.get(iid).expect("item");
     assert_eq!(item.count, 5, "wire count must match charges");

@@ -279,7 +279,8 @@ impl<'a> PlayerStore<'a> {
             player_id: i32,
             name: Option<String>,
             description: String,
-            icon: i32,
+            /// `tinyint unsigned` — sqlx MySQL decode is `u8`, not `i32`.
+            icon: u8,
             notify: i8,
         }
         let rows: Vec<Row> = self
@@ -306,7 +307,7 @@ impl<'a> PlayerStore<'a> {
                 player_id: r.player_id as u32,
                 name: r.name.unwrap_or_default(),
                 description: r.description,
-                icon: r.icon.max(0) as u32,
+                icon: u32::from(r.icon),
                 notify: r.notify != 0,
             })
             .collect())
@@ -557,7 +558,7 @@ impl<'a> PlayerStore<'a> {
         notify: bool,
     ) -> Result<()> {
         let description = description.to_string();
-        let icon = i32::try_from(icon.min(255)).unwrap_or(0);
+        let icon = u8::try_from(icon.min(u32::from(u8::MAX))).unwrap_or(0);
         let notify = i8::from(notify);
         self.pool
             .execute_with_retry(|| {
@@ -613,7 +614,7 @@ impl<'a> PlayerStore<'a> {
         notify: bool,
     ) -> Result<()> {
         let description = description.to_string();
-        let icon = i32::try_from(icon.min(255)).unwrap_or(0);
+        let icon = u8::try_from(icon.min(u32::from(u8::MAX))).unwrap_or(0);
         let notify = i8::from(notify);
         self.pool
             .execute_with_retry(|| {

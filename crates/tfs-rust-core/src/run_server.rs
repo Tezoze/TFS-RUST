@@ -497,11 +497,10 @@ pub async fn run() -> anyhow::Result<()> {
     {
         let compiled = tfs_rust_lua::compile_aid_move_handlers(&data_path);
         let native_count = compiled.len();
-        world.aid_move_handlers =
-            crate::aid_move_events::NativeAidMoveRegistry::from_compiled(
-                compiled,
-                &world.map.towns,
-            );
+        world.aid_move_handlers = crate::aid_move_events::NativeAidMoveRegistry::from_compiled(
+            compiled,
+            &world.map.towns,
+        );
         let lua_move_fallback = world
             .events
             .move_event_registration_count()

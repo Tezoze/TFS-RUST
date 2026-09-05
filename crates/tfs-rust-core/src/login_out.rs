@@ -151,7 +151,15 @@ pub(crate) fn build_add_creature_wire(
             let Some(CreatureKind::Player(p)) = world.creatures.get(cid) else {
                 return AddCreatureWire::default();
             };
-            player_to_add_creature_wire(p, is_self, light, viewer_access, &world.mechanics, skull, party_shield)
+            player_to_add_creature_wire(
+                p,
+                is_self,
+                light,
+                viewer_access,
+                &world.mechanics,
+                skull,
+                party_shield,
+            )
         }
         Some(1) => match world.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => {

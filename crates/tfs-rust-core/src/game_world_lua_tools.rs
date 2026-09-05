@@ -53,13 +53,7 @@ impl GameWorld {
 
     fn lua_create_item_instance(&self, item_type: u16, count: u16) -> Option<Item> {
         let it = self.items_db.items.get(&item_type)?;
-        let mut count = count;
-        if it.stackable() {
-            count = count.clamp(1, 100);
-        } else if count == 0 {
-            count = 1;
-        }
-        Some(Item::new(item_type, count))
+        Some(Item::from_item_type(it, count))
     }
 
     /// SlotMap id for Lua after a successful create. Hydrates containers

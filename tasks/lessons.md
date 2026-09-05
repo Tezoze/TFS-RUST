@@ -931,4 +931,37 @@
 418. **VIP persist is immediate SQL, not `savePlayer`** (`vip.rs`, `PlayerStore::{add,remove,edit}_vip_entry`): TFS writes `account_viplist` in `IOLoginData::addVIPEntry` at add/remove/edit time; `PlayerSaveData` already documents that VIP is not in the character save. `groups.max_vip_entries == 0` (shipped player/tutor groups) means premium **100** / free **20**, not unlimited — then hard-cap 200. Offline add must leave the game thread (`VipLookupFinished`); 772 `sendVIP` is guid+name+online byte, logout is `0xD4`, while 1098 carries description/icon/notify on `0xD2` and status on `0xD3`. `VipEdit` (`0xDE`) is 1098-only incoming.
     *(September 2026)*
 
+419. **Rune/spell gates are corpus `UseMagicItem` / `CheckAccount`, not TFS `playerSpellCheck`** (`spell.rs` `prefer_rune_tile_target` / `rune_magic_level_ok`; `container_ui.rs` `player_cast_rune`; `game_world_chat.rs` `player_say_spell`): Rune **use** checks magic level (`SpellList.RuneLevel`) and `EarliestSpellTime` **before** impact and does **not** consume on fail; cancel is `"Your magic level is too low."` (`LOWMAGICLEVEL`), not the TFS rune-level sentence. Spoken premium is `CheckAccount` (Flags bit 2) with **no** `ALL_SPELLS` skip — GM groups already have `isalwayspremium`. Stacked tiles: aggressive last non-self, heal prefers self; `UseWithCreature` must seed dest (`ActionObjectRef.creature_id`) or UH on two others always hits `creatures.first()`. Generic use-with stays first-creature. Aggressive PZ is the same pre-try block as ML/exhaust.
+    *(September 2026)*
+
+420. **`learnSpells` is a config flag, not per-script `needLearn`** (`spell_learn.rs`; `game_world_chat.rs` `player_knows_instant`; `npc/host.rs` `teach_spell`): Pack instants almost all have `needLearn(false)`, so a script-by-script gate never matches 772 `SpellKnown`. `config.lua` `learnSpells = true` (`.dist` default) requires persist `player_spells` for spoken ex/ut/ad; house `al*` / GM `om*` / level 0 skip. Missing key or `false` is vocation map only and **ignores** `needLearn`. NPC teach is native `NpcDialogue` `TeachSpell` (SpellNr) — not TFS `StdModule.learnSpell` (`data/npc/archive/` + `npcsystem` are unused). Store pack `spell:name()`; still accept leftover SpellNr strings (`"20"`) and Comment/pack aliases (`Invisible`/`Invisibility`, `Power Bolt`/`Conjure Power Bolt`). `IGNORE_SPELL_CHECK` still skips the *cast* gate; spellbook does not.
+    *(September 2026)*
+
+421. **NPC `property = "knight"` is pack vocation names, not 772 profession ids** (`npc/focus.rs` `vocation_kind`): Stored `vocation_id` is TFS (`Knight=4`, `Elite Knight=8`). The mapper used 772 `PROFESSION_KNIGHT=1` … so id 8 was Druid. Gregor then took the unguarded `"spell"` line (`Sorry, I only sell spells to knights.`). Map from `vocations.lua` name (`Elite Knight` contains knight); TFS id fallback `4|8` knight, `1|5` sorcerer. `player_promoted` uses `active_promotion`, not `vocation_id >= 5`.
+    *(September 2026)*
+
+422. **sqlx MySQL decode of `TINYINT UNSIGNED` is `u8`, not `i32`** (`player.rs` `load_vip_entries`): `account_viplist.icon` is unsigned tinyint. Login `SELECT` into `i32` failed (`mismatched types`) so any account with a VIP row could not enter the game. Bind/insert the same `u8`. Signed `notify` tinyint stays `i8`.
+    *(September 2026)*
+
+423. **VIP "Message" is `sendOpenPrivateChannel` (`0xAD`), not an owned private chat room** (`game_world_chat.rs` `player_open_private_channel` / `player_speak_to`): Client `0x9A` + name must always ack `0xAD` so the tell window opens. The handler required a `PrivateChatChannel` named after the target (`0xAA`/`0xB2` owner rooms), so VIP Message and any private tell UI did nothing. Tells use `getPlayerByName` (case-insensitive) via `find_online_player_by_name`, not exact `player_by_name` keys.
+    *(September 2026)*
+
+424. **772 item look is not TFS `showattributes` / absorb dump** (`item_look.rs` `classic_look`): Pack `items.xml` sets `showattributes` + `speed` on boots of haste and `absorbpercentmagic` on might ring. TFS `Item::getDescription` then prints `(speed +20)` and a protection list that includes later-era `ice`/`holy`/`death` (`absorbpercentmagic` expands to energy/fire/earth/ice/holy/death). 772 look is name + Arm/Atk/Def/Range + charges + weight. Gate on `Codec::V772`; do not strip XML absorbs (mechanics still use them). 1098 keeps the TFS dump.
+    *(September 2026)*
+
+425. **`absorbpercentmagic` must not synthesize 8.1 combat types** (`item_abilities.rs` `CLASSIC_MAGIC_ABSORB`): TFS 1.4.2 `ITEM_PARSE_ABSORBPERCENTMAGIC` writes energy/fire/earth/**ice/holy/death**; `ABSORBPERCENTELEMENTS` writes ice. 772 `enums.hh` has no `DAMAGE_ICE/HOLY/DEATH`. TVP 772 `items.cpp` already expands both keys to energy/fire/earth only. Corpus wins for every `clientVersion`. Explicit `absorbpercentice` / `holy` / `death` XML keys stay as pack surface and are not auto-filled.
+    *(September 2026)*
+
+426. **Jewelry charges are `TotalUses` / `ITEM_ATTRIBUTE_CHARGES`, not `Item::new` count** (`item.rs` `from_item_type`; `protection_absorb.rs`): `Item::new(2164, 1)` left might ring with no charges attr, so look omitted "N charges left" and WearOut never ran. 772 `map.cc` seeds `RemainingUses` from `TotalUses` (20); `crmain.cc:554-564` decrements on each matching protection hit (destroy at 1). TFS `blockHit` does the same via `getCharges`/`transformItem`. Create/loot/Lua add and login (missing attr) seed type charges; combat absorb wears the charges field (not weapon `count`). 772 Use still does **not** equip jewelry (`NOTUSABLE`) — move onto the ring/necklace slot.
+    *(September 2026)*
+
+427. **Jewelry absorbs live in pack `items.xml`, not `merged_objects.srv`** (`data/items/items.xml`): Runtime is OTB + XML only. TFS XML had might ring 20% magic+physical (no lifedrain), elven 5%, bronze manadrain 20%, and invented dwarf-set/wood-cape percents. 772 `objects.srv` `DamageReduction` is 25/10/15 on `ProtectionDamageTypes` 287/287/512; dwarf armor is `Armor` only. Mask 287 includes unnamed bit `0x10` (also in SSA/protection amulet 17) — no XML key; named types are physical/poison/fire/energy/lifedrain. `absorbpercentmagic` still covers energy/fire/earth.
+    *(September 2026)*
+
+428. **Magic-field combat is nested `field.*`, not `field: Fire` alone** (`magic_field.rs`; `items.rs` `apply_nested_xml_attribute`): `parseItemNode` stores `field.cycles` / `field.initdamage` / `field.skippeaceful` (TFS also `ticks`/`count`). A unified catalog that only keeps the parent `field` value drops DoT length, instant damage, and peaceful skip. RON uses `Field(kind, init_damage, cycles, skip_peaceful)`. OTB `flags` stay `itemflags_t` bits; XML overlays (`blocking`, `forceuse`, `unlay`) are separate `ItemType` fields so a later RON loader can apply `parseItemNode` override rules. XML `pickupable` is `allow_pickupable`, not `FLAG_PICKUPABLE`.
+    *(September 2026)*
+
+429. **Duplicate client ids: first OTB wins, later fills gaps** (`convert_itemid_to_clientid.py`): C++ `clientIdToServerIdMap.emplace` keeps the first server id; TFS still stores both `ItemType`s. A catalog keyed by client id can only keep one row. Last-write dropped 422’s walkable sandstone `Animation` (client 425) and 3058’s `Moveable` corpse (4240). First OTB flags/speed/light/toporder win; group 0 may upgrade (coffin/tree `Container`); XML `setdefault` fills missing keys (containersize) without replacing name/suffix. Editor disguise suffixes stay off the canonical row.
+    *(September 2026)*
+
 

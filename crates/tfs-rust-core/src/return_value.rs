@@ -143,9 +143,8 @@ impl ReturnValue {
             ReturnValue::DepotIsFull => "You cannot put more items in this depot.",
             ReturnValue::CannotUseThisObject => "You cannot use this object.",
             ReturnValue::PlayerWithThisNameIsNotOnline => "A player with this name is not online.",
-            ReturnValue::NotRequiredLevelToUseRune => {
-                "You do not have the required magic level to use this rune."
-            }
+            // 772 `LOWMAGICLEVEL` (`sending.cc:324` `CheckRuneLevel`).
+            ReturnValue::NotRequiredLevelToUseRune => "Your magic level is too low.",
             ReturnValue::YouAreAlreadyTrading => {
                 "You are already trading. Finish this trade first."
             }
@@ -227,9 +226,7 @@ impl ReturnValue {
             ReturnValue::TooManyParts => "There are too many parts.",
             ReturnValue::NotCumulable => "This object is not stackable.",
             ReturnValue::NoMatch => "This object does not match.",
-            ReturnValue::TooManyTradeObjects => {
-                "You can only trade up to 100 objects at one time."
-            }
+            ReturnValue::TooManyTradeObjects => "You can only trade up to 100 objects at one time.",
             // `RETURNVALUE_NOTPOSSIBLE`, `RETURNVALUE_CREATUREBLOCK`, etc. — `tools.cpp` default.
             ReturnValue::NotPossible | ReturnValue::CreatureBlock => "Sorry, not possible.",
         }

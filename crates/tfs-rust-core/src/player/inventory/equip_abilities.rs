@@ -133,6 +133,17 @@ impl GameWorld {
         let Some(item_type) = self.items.get(item_id).map(|i| i.item_type) else {
             return;
         };
+        let type_charges = self
+            .items_db
+            .items
+            .get(&item_type)
+            .and_then(|it| (!it.stackable() && it.charges != 0).then_some(it.charges));
+        if let Some(charges) = type_charges
+            && let Some(item) = self.items.get_mut(item_id)
+            && !item.attributes.as_deref().is_some_and(|a| a.has_charges())
+        {
+            item.set_charges(charges.min(u16::MAX as u32) as u16);
+        }
 
         // Transform inactive → active (time/skill rings). Abilities live on the **active**
         // type in this data pack — apply from the post-transform id (outcome parity).

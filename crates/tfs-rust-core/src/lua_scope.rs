@@ -309,8 +309,11 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             monster_name,
             ticks_ms,
         } => {
-            let ok = unsafe { &mut *world }
-                .lua_script_set_monster_outfit(creature_id, &monster_name, ticks_ms)?;
+            let ok = unsafe { &mut *world }.lua_script_set_monster_outfit(
+                creature_id,
+                &monster_name,
+                ticks_ms,
+            )?;
             set_mutation_bool_result(ok);
             Ok(())
         }
@@ -319,8 +322,11 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             item_type,
             ticks_ms,
         } => {
-            let ok =
-                unsafe { &mut *world }.lua_script_set_item_outfit(creature_id, item_type, ticks_ms)?;
+            let ok = unsafe { &mut *world }.lua_script_set_item_outfit(
+                creature_id,
+                item_type,
+                ticks_ms,
+            )?;
             set_mutation_bool_result(ok);
             Ok(())
         }
@@ -334,7 +340,13 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             rounds,
         } => {
             let ok = unsafe { &mut *world }.lua_script_add_damage_condition(
-                attacker_id, target_id, ctype, list, damage, period, rounds,
+                attacker_id,
+                target_id,
+                ctype,
+                list,
+                damage,
+                period,
+                rounds,
             )?;
             set_mutation_bool_result(ok);
             Ok(())
@@ -406,8 +418,7 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             creature_id,
             amount,
         } => {
-            let ok =
-                unsafe { &mut *world }.player_remove_total_money_u64(creature_id, amount);
+            let ok = unsafe { &mut *world }.player_remove_total_money_u64(creature_id, amount);
             set_mutation_bool_result(ok);
             Ok(())
         }
@@ -731,12 +742,7 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             set_mutation_bool_result(ok);
             Ok(())
         }
-        LuaMutation::GameMapRemoveItem {
-            x,
-            y,
-            z,
-            item_type,
-        } => {
+        LuaMutation::GameMapRemoveItem { x, y, z, item_type } => {
             let pos = tfs_rust_common::Position { x, y, z };
             let ok = unsafe { &mut *world }.game_remove_item_in_position(pos, item_type)?;
             set_mutation_bool_result(ok);
@@ -1100,10 +1106,7 @@ pub fn fire_on_use_action(
         .get(item)
         .map(|i| (i.item_type, i.action_id(), i.unique_id()))
         .unwrap_or((0, 0, 0));
-    if !world
-        .events
-        .has_use_action(item_type, action_id, unique_id)
-    {
+    if !world.events.has_use_action(item_type, action_id, unique_id) {
         return false;
     }
     let world_ptr = std::ptr::from_mut(world);
@@ -1144,14 +1147,7 @@ pub(crate) fn fire_creature_step_events(
 ) {
     crate::stepping_tiles::on_creature_step(world, cid, from, to, step_out_items, step_in_items);
     crate::doors::on_creature_step(world, cid, from, step_out_items, step_in_items);
-    crate::aid_move_events::on_creature_step(
-        world,
-        cid,
-        from,
-        to,
-        step_out_items,
-        step_in_items,
-    );
+    crate::aid_move_events::on_creature_step(world, cid, from, to, step_out_items, step_in_items);
 
     let step_out_lua: Vec<TileMoveEventItem> = step_out_items
         .iter()
@@ -1181,9 +1177,12 @@ pub(crate) fn fire_creature_step_events(
             {
                 return false;
             }
-            world
-                .events
-                .has_creature_move_event(true, item.item_type, item.action_id, item.unique_id)
+            world.events.has_creature_move_event(
+                true,
+                item.item_type,
+                item.action_id,
+                item.unique_id,
+            )
         })
         .collect();
     if step_out_lua.is_empty() && step_in_lua.is_empty() {

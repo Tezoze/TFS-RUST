@@ -124,7 +124,7 @@ impl NpcActionHost for GameWorld {
     }
 
     fn teach_spell(&mut self, player: CreatureId, spell: i32) -> Result<(), String> {
-        let name = spell_learn_key(self, spell);
+        let name = crate::spell_learn::teach_spell_persist_key_for_registry(spell, &self.spells);
         let Some(CreatureKind::Player(p)) = self.creatures.get_mut(player) else {
             return Err("teach_spell: player not found".into());
         };
@@ -132,7 +132,7 @@ impl NpcActionHost for GameWorld {
             .persist
             .as_mut()
             .ok_or_else(|| "teach_spell: player has no persist baseline".to_string())?;
-        if !persist.spells.iter().any(|s| s == &name) {
+        if !crate::spell_learn::persist_knows_spell_nr(&persist.spells, spell) {
             persist.spells.push(name);
         }
         Ok(())
@@ -402,18 +402,6 @@ fn set_dot_condition(
     apply_condition(&mut world.creatures, player, cond);
     world.on_condition_started(player, ctype);
     Ok(())
-}
-
-fn spell_learn_key(world: &GameWorld, spell: i32) -> String {
-    // Prefer a registered instant name when the numeric id matches nothing better;
-    // 772 stores SpellNr — persist as decimal string for round-trip.
-    let key = spell.to_string();
-    for def in world.spells.instant_by_name.values() {
-        if def.name.eq_ignore_ascii_case(&key) {
-            return def.name.clone();
-        }
-    }
-    key
 }
 
 impl GameWorld {

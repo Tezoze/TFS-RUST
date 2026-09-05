@@ -488,6 +488,7 @@ impl GameWorld {
             pos: Position::new(0xFFFF, temp_slot as u16, 0),
             stack_pos: 0,
             sprite_id,
+            creature_id: None,
         };
 
         let has_steps = self
@@ -934,6 +935,7 @@ mod push_phase_b_tests {
             pos: from,
             stack_pos: 0,
             sprite_id: MONSTER_SPRITE,
+            creature_id: None,
         };
         (actor, mover, obj)
     }
@@ -1009,6 +1011,7 @@ mod push_phase_b_tests {
             pos: from,
             stack_pos: 0,
             sprite_id: MONSTER_SPRITE,
+            creature_id: None,
         };
 
         let rv = world.enqueue_player_move(actor, obj, to, 1);

@@ -166,10 +166,7 @@ fn parse_move_item_policy(root: &mlua::Table) -> Result<MoveItemPolicyTables, St
 }
 
 fn table_optional_u16(table: &mlua::Table, key: &str) -> Option<u16> {
-    table
-        .get(key)
-        .ok()
-        .and_then(|v| value_as_u16(&v))
+    table.get(key).ok().and_then(|v| value_as_u16(&v))
 }
 
 fn parse_u16_map_field(table: &mlua::Table, key: &str) -> Result<HashMap<u16, u16>, String> {
@@ -1023,8 +1020,14 @@ mod tests {
         assert!(tables.sand_hole_chance > 0);
         assert_eq!(tables.move_item_policy.quest_object_aid_min, Some(1000));
         assert_eq!(tables.move_item_policy.quest_object_aid_max, Some(2000));
-        assert_eq!(tables.move_item_policy.pre_move_transforms.get(&2057), Some(&2042));
-        assert_eq!(tables.move_item_policy.post_move_transforms.get(&2579), Some(&2578));
+        assert_eq!(
+            tables.move_item_policy.pre_move_transforms.get(&2057),
+            Some(&2042)
+        );
+        assert_eq!(
+            tables.move_item_policy.post_move_transforms.get(&2579),
+            Some(&2578)
+        );
         assert_eq!(tables.move_item_policy.post_move_effect_id, Some(3));
     }
 

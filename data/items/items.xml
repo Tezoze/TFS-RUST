@@ -4257,8 +4257,9 @@
 		<attribute key="charges" value="20"/>
 		<attribute key="showcharges" value="1"/>
 		<attribute key="showattributes" value="1"/>
-		<attribute key="absorbpercentmagic" value="20"/>
-		<attribute key="absorbpercentphysical" value="20"/>
+		<attribute key="absorbpercentmagic" value="25"/>
+		<attribute key="absorbpercentphysical" value="25"/>
+		<attribute key="absorbpercentlifedrain" value="25"/>
 	</item>
 	<item id="2165" article="a" name="stealth ring">
 		<attribute key="weight" value="100"/>
@@ -4315,7 +4316,7 @@
 		<attribute key="charges" value="200"/>
 		<attribute key="showcharges" value="1"/>
 		<attribute key="showattributes" value="1"/>
-		<attribute key="absorbpercentmanadrain" value="20"/>
+		<attribute key="absorbpercentmanadrain" value="15"/>
 	</item>
 	<item id="2173" article="an" name="amulet of loss">
 		<attribute key="weight" value="420"/>
@@ -4447,8 +4448,9 @@
 		<attribute key="charges" value="50"/>
 		<attribute key="showcharges" value="1"/>
 		<attribute key="showattributes" value="1"/>
-		<attribute key="absorbpercentmagic" value="5"/>
-		<attribute key="absorbpercentphysical" value="5"/>
+		<attribute key="absorbpercentmagic" value="10"/>
+		<attribute key="absorbpercentphysical" value="10"/>
+		<attribute key="absorbpercentlifedrain" value="10"/>
 	</item>
 	<item id="2199" article="a" name="garlic necklace">
 		<attribute key="weight" value="380"/>
@@ -5955,23 +5957,20 @@
 		<attribute key="armor" value="9"/>
 		<attribute key="slottype" value="head"/>
 	</item>
-	<item id="2502" article="a" name="dwarfen helmet">
+	<item id="2502" article="a" name="dwarven helmet">
 		<attribute key="weight" value="4200"/>
 		<attribute key="armor" value="6"/>
 		<attribute key="slottype" value="head"/>
-		<attribute key="absorbpercentphysical" value="2"/>
 	</item>
 	<item id="2503" article="a" name="dwarven armor">
 		<attribute key="weight" value="13000"/>
 		<attribute key="armor" value="10"/>
 		<attribute key="slottype" value="body"/>
-		<attribute key="absorbpercentphysical" value="5"/>
 	</item>
 	<item id="2504" name="dwarfen legs">
 		<attribute key="weight" value="4900"/>
 		<attribute key="armor" value="6"/>
 		<attribute key="slottype" value="legs"/>
-		<attribute key="absorbpercentphysical" value="3"/>
 	</item>
 	<item id="2505" article="an" name="elven mail">
 		<attribute key="weight" value="9000"/>
@@ -6641,7 +6640,6 @@
 		<attribute key="weight" value="1100"/>
 		<attribute key="armor" value="2"/>
 		<attribute key="slottype" value="head"/>
-		<attribute key="absorbpercentpoison" value="4"/>
 	</item>
 	<item id="2665" article="a" name="post officers hat">
 		<attribute key="description" value="This hat is the insignia of all tibian post officers."/>

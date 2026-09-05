@@ -1511,6 +1511,46 @@ mod tests {
         assert_eq!(db.items.get(&1762).map(|t| t.transform_to_free), Some(1754));
     }
 
+    /// Pack absorb percents match 772 `objects.srv` `ProtectionDamageTypes` / `DamageReduction`
+    /// (`crmain.cc` `DamageReduction`). Mask 287 = physical+poison+fire+energy+0x10+lifedrain;
+    /// unnamed bit 0x10 is omitted. SSA/protection mask 17 keeps physical only.
+    #[test]
+    /// 772 `objects.srv` `ProtectionDamageTypes` + `DamageReduction` (`crmain.cc` absorb).
+    /// Mask 287 = physical/poison/fire/energy/lifedrain (+ unused 0x10). TFS-only armor absorbs must stay 0.
+    fn pack_xml_772_objects_srv_jewelry_absorbs() {
+        use std::path::Path;
+
+        let otb = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.otb");
+        let xml = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.xml");
+        let db = ItemDatabase::load(&otb, &xml).expect("items load");
+
+        let absorb = |id: u16, ct: CombatType| -> i16 {
+            db.items.get(&id).expect("item").abilities.absorb_percent[combat_absorb_index(ct)]
+        };
+
+        assert_eq!(absorb(2161, CombatType::Energy), 10);
+        assert_eq!(absorb(2170, CombatType::Earth), 10);
+        assert_eq!(absorb(2172, CombatType::ManaDrain), 15);
+        assert_eq!(absorb(2197, CombatType::Physical), 80);
+        assert_eq!(absorb(2199, CombatType::LifeDrain), 20);
+        assert_eq!(absorb(2200, CombatType::Physical), 6);
+        assert_eq!(absorb(2201, CombatType::Fire), 8);
+
+        for ct in [CombatType::Energy, CombatType::Fire, CombatType::Earth] {
+            assert_eq!(absorb(2164, ct), 25);
+            assert_eq!(absorb(2198, ct), 10);
+        }
+        assert_eq!(absorb(2164, CombatType::Physical), 25);
+        assert_eq!(absorb(2164, CombatType::LifeDrain), 25);
+        assert_eq!(absorb(2198, CombatType::Physical), 10);
+        assert_eq!(absorb(2198, CombatType::LifeDrain), 10);
+
+        for id in [2502_u16, 2503, 2504, 2664] {
+            assert_eq!(absorb(id, CombatType::Physical), 0);
+            assert_eq!(absorb(id, CombatType::Earth), 0);
+        }
+    }
+
     #[test]
     fn can_read_text_xml_overrides_otb_readable_flag() {
         const FLAG_READABLE: u32 = 1 << 14;
