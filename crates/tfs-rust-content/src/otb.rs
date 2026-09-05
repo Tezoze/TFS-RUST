@@ -134,9 +134,10 @@ pub struct ItemType {
     pub rune_mag_level: i32,
     /// 772 `UNLAY` flag — items.xml `unlay="true"` override of the OTB-derived rule.
     pub unlay: bool,
-    /// 772 `ELEVATION` attribute (`enums.hh:760`, `info.cc:689` `GetHeight`) — the elevation
-    /// value summed by `GetHeight` for `HEIGHT`-flagged items. Parsed from items.xml
-    /// `<attribute key="elevation" value="N"/>`. Default `0`.
+    /// 772 `ELEVATION` attribute (`enums.hh:760`, `info.cc:689` `GetHeight`).
+    /// Raw field from items.xml `<attribute key="elevation" value="N"/>`; `0` means
+    /// no override. [`Self::elevation()`] supplies the 772 default of `8` for
+    /// `HEIGHT` types when this is `0`.
     pub elevation: i32,
     /// XML `forceuse` — OR’d into [`Self::force_use`]. TFS has no `ITEM_PARSE_FORCEUSE`;
     /// 772 `FLAG_FORCEUSE` (`operate.cc:368` `CheckTopUseObject`). Pack ladders 1386/3678
@@ -562,11 +563,19 @@ impl ItemType {
         self.flags & Self::FLAG_HAS_HEIGHT != 0
     }
 
-    /// 772 `ELEVATION` attribute (`enums.hh:760`) — elevation value used by `GetHeight`
-    /// (`info.cc:689`) to sum `HEIGHT`-flagged items on a tile.
+    /// 772 `ELEVATION` for `GetHeight` (`info.cc:689`, `enums.hh:760`).
+    ///
+    /// XML override wins when non-zero. Otherwise every 772 `HEIGHT` type is
+    /// `Elevation=8` (`objects.srv`; 357/357). OTB has no elevation attribute.
     #[inline]
     pub fn elevation(&self) -> i32 {
-        self.elevation
+        if self.elevation != 0 {
+            self.elevation
+        } else if self.has_height() {
+            8
+        } else {
+            0
+        }
     }
 
     #[inline]
@@ -818,9 +827,45 @@ impl ItemType {
     /// (`MagicField`, no `Bottom`) are `PRIORITY_LOW` and sit *after* creatures
     /// (`map.cc:1999-2013`). Treating fields as BOTTOM inflates `GetObjectRNum` /
     /// MoveCreature stackpos after `0x6A` add → stock 772 client `bug0000017`.
+    ///
+    /// Wire-only: splash/pool. Do **not** fold furniture/corpses in here — that
+    /// desyncs creature stackpos. CreatePool's NOROOM scan is
+    /// [`Self::is_create_pool_bottom_blocker`].
     #[inline]
     pub fn is_cip_priority_bottom(&self) -> bool {
         self.is_splash()
+    }
+
+    /// XML `corpsetype` — TFS `ItemType::corpseType`. 772 `objects.srv` `Corpse`
+    /// (341 types) carry **no** `Bottom` (`PRIORITY_LOW` after creatures).
+    #[inline]
+    pub fn is_corpse(&self) -> bool {
+        self.xml_attributes.contains_key("corpsetype")
+    }
+
+    /// 772 `CreatePool` (`operate.cc:2596-2629`): `BOTTOM && !LIQUIDPOOL` → `NOROOM`.
+    ///
+    /// OTB has no Bottom bit. Proxy = leftover unmoveable down scenery after
+    /// excluding layers CreatePool ignores or replaces:
+    /// - splash (`LIQUIDPOOL` — delete + Create)
+    /// - `FLAG_ALWAYSONTOP` / TOP (ladders, signs) — skip; blood-on-ladders
+    /// - bank / magic field / corpse (`Corpse` in srv has no Bottom)
+    /// - `TAKE` / moveable loot (not Bottom)
+    ///
+    /// Do not use [`Self::pickupable`]: XML `allowpickupable` means place-*onto*
+    /// (tables), and tables **are** Bottom in `objects.srv`.
+    #[inline]
+    pub fn is_create_pool_bottom_blocker(&self) -> bool {
+        if self.is_splash() || self.always_on_top() || self.is_ground_tile() {
+            return false;
+        }
+        if self.is_magic_field() || self.is_corpse() {
+            return false;
+        }
+        if self.takeable() || self.moveable() {
+            return false;
+        }
+        true
     }
 }
 
@@ -955,16 +1000,118 @@ mod tests {
     #[test]
     fn magic_fields_are_cip_priority_low_not_bottom() {
         // 772 objects.srv MagicField entries have no Bottom flag → PRIORITY_LOW.
-        let mut field = super::ItemType::default();
-        field.type_tag = 6; // ITEM_TYPE_MAGICFIELD
+        let field = super::ItemType {
+            type_tag: 6, // ITEM_TYPE_MAGICFIELD
+            ..super::ItemType::default()
+        };
         assert!(field.is_magic_field());
         assert!(
             !field.is_cip_priority_bottom(),
             "magic fields must not inflate creature stackpos (bug0000017)"
         );
+        assert!(
+            !field.is_create_pool_bottom_blocker(),
+            "CreatePool does not treat MagicField as BOTTOM"
+        );
     }
 
-    /// R1: `ItemType::getPluralName` (`src/items.h` ~268–286).
+    /// 772 `CreatePool` (`operate.cc:2596-2629`) Bottom proxy vs OTB (no Bottom bit).
+    #[test]
+    fn create_pool_bottom_blocker_excludes_top_loot_corpse_splash() {
+        let splash = super::ItemType {
+            group: super::ItemType::GROUP_SPLASH,
+            flags: 1 << 13, // FLAG_ALWAYSONTOP
+            ..super::ItemType::default()
+        };
+        assert!(!splash.is_create_pool_bottom_blocker());
+
+        let ladder = super::ItemType {
+            flags: 1 << 13,
+            always_on_top_order: 2,
+            ..super::ItemType::default()
+        };
+        assert!(!ladder.is_create_pool_bottom_blocker());
+
+        let mut corpse = super::ItemType::default();
+        corpse
+            .xml_attributes
+            .insert("corpsetype".into(), "blood".into());
+        assert!(corpse.is_corpse());
+        assert!(
+            !corpse.is_create_pool_bottom_blocker(),
+            "objects.srv Corpse has no Bottom"
+        );
+
+        let loot = super::ItemType {
+            flags: 1 << 5, // FLAG_PICKUPABLE / TAKE
+            ..super::ItemType::default()
+        };
+        assert!(!loot.is_create_pool_bottom_blocker());
+
+        let table = super::ItemType {
+            flags: 1 << 0,          // FLAG_BLOCK_SOLID
+            allow_pickupable: true, // place-*onto*, not TAKE
+            ..super::ItemType::default()
+        };
+        assert!(
+            table.is_create_pool_bottom_blocker(),
+            "unmoveable table/furniture is srv Bottom"
+        );
+    }
+
+    /// G1: `HEIGHT` types with no xml elevation use 8 (`objects.srv` Elevation=8).
+    #[test]
+    fn elevation_default_8_when_has_height_and_field_zero() {
+        let item = super::ItemType {
+            flags: super::ItemType::FLAG_HAS_HEIGHT,
+            elevation: 0,
+            ..Default::default()
+        };
+        assert!(item.has_height());
+        assert_eq!(item.elevation(), 8);
+    }
+
+    /// G1: items.xml `elevation` override wins over the HEIGHT default.
+    #[test]
+    fn elevation_xml_override_wins() {
+        let item = super::ItemType {
+            flags: super::ItemType::FLAG_HAS_HEIGHT,
+            elevation: 16,
+            ..Default::default()
+        };
+        assert_eq!(item.elevation(), 16);
+    }
+
+    /// G1: non-HEIGHT types stay at 0 when the field is unset.
+    #[test]
+    fn elevation_zero_without_has_height() {
+        let item = super::ItemType::default();
+        assert!(!item.has_height());
+        assert_eq!(item.elevation(), 0);
+    }
+
+    /// G1: live `items.otb` HEIGHT types (parcel/box/crate/chair) report 8.
+    #[test]
+    fn elevation_loaded_from_item_db() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.otb");
+        let db = OtbLoader::load_from_file(&path).expect("items.otb should load");
+        for id in [2595u16, 1738, 1739, 1650] {
+            let it = db
+                .get(&id)
+                .unwrap_or_else(|| panic!("item {id} missing from items.otb"));
+            assert!(
+                it.has_height(),
+                "item {id} ({}) should have FLAG_HAS_HEIGHT",
+                it.name
+            );
+            assert_eq!(
+                it.elevation, 0,
+                "OTB has no elevation attr; xml should not set {id}"
+            );
+            assert_eq!(it.elevation(), 8, "772 HEIGHT default elevation for {id}");
+        }
+    }
+
     #[test]
     fn get_plural_name_follows_items_h() {
         let gold = super::ItemType {

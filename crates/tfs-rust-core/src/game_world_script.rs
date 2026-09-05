@@ -1511,7 +1511,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         self.items_db
             .items
             .get(&item_type)
-            .is_some_and(|t| t.xml_attributes.contains_key("corpsetype"))
+            .is_some_and(|t| t.is_corpse())
     }
 
     fn get_item_type_is_movable(&self, item_type: u16) -> bool {

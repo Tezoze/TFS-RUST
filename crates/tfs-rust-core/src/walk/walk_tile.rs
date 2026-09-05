@@ -1,12 +1,12 @@
-//! Tile traversal checks for walking — `Tile::queryAdd`, `queryDestination`, height floor changes.
+//! Tile traversal checks for walking — `Tile::queryAdd`, `queryDestination`, elevation climb.
 //!
 //! - `Tile::queryAdd` monster/player/NPC arms — `tile.cpp` (~484–628).
 //! - `Tile::queryDestination` — `tile.cpp` (~735–830).
-//! - `Game::internalMoveCreature` height floor change — `game.cpp` (~804–834).
-//! - `Tile::hasHeight(n)` — `tile.cpp` (~62–87).
+//! - `GoExec` elevation climb — `cract.cc` (~415–431); TFS pack shape `game.cpp` (~804–834).
+//! - `GetHeight` / `JumpPossible` — `info.cc` (~689, ~702).
 
 use tfs_rust_common::Position;
-use tfs_rust_common::enums::{Direction, ZoneType};
+use tfs_rust_common::enums::ZoneType;
 use tfs_rust_content::items::ItemDatabase;
 
 use crate::creature::CreatureKind;
@@ -19,8 +19,11 @@ use crate::tile::flags as tilestate;
 
 use super::{
     FLAG_IGNOREBLOCKCREATURE, FLAG_IGNOREBLOCKITEM, FLAG_IGNOREFIELDDAMAGE, FLAG_NOLIMIT,
-    FLAG_PATHFINDING, is_diagonal,
+    FLAG_PATHFINDING,
 };
+
+/// 772 `GetHeight >= 24` climb gate (`cract.cc:421,426`, `info.cc:689`).
+const CLIMB_ELEVATION: i32 = 24;
 
 /// Bank+`Waypoints==0` with OTB `blockSolid` cleared for player cliffs (lesson 171).
 ///
@@ -35,92 +38,9 @@ fn ground_is_cleared_zero_waypoint_bank(world: &GameWorld, ground: Option<u16>) 
     t.is_terrain_bank() && t.waypoints_raw() == 0 && !t.block_solid()
 }
 
-/// TFS `Tile::hasHeight(n)` (`src/tile.cpp` ~62–87) — nth item with `CONST_PROP_HASHEIGHT` along stack.
-pub(crate) fn tile_has_height_n(
-    pos: Position,
-    body: &crate::tile::TileBody,
-    items_db: &ItemDatabase,
-    items: &slotmap::SlotMap<crate::ids::ItemId, crate::item::Item>,
-    n: u32,
-) -> bool {
-    let mut height = 0u32;
-    tracing::debug!(
-        "tile_has_height_n: checking tile at {:?}, ground: {:?}, down_items: {:?}, top_items: {:?}",
-        pos,
-        body.ground,
-        body.down_items,
-        body.top_items
-    );
-
-    if let Some(gid) = body.ground {
-        let has_height = items_db.items.get(&gid).is_some_and(|t| t.has_height());
-        tracing::debug!(
-            "tile_has_height_n: ground item {} has_height: {} at {:?}",
-            gid,
-            has_height,
-            pos
-        );
-        if has_height {
-            height += 1;
-            if height == n {
-                return true;
-            }
-        }
-    }
-    for &item_id in &body.down_items {
-        if let Some(item) = items.get(item_id) {
-            let has_height = items_db
-                .items
-                .get(&item.item_type)
-                .is_some_and(|t| t.has_height());
-            tracing::debug!(
-                "tile_has_height_n: down item {:?} (type {}) has_height: {} at {:?}",
-                item_id,
-                item.item_type,
-                has_height,
-                pos
-            );
-            if has_height {
-                height += 1;
-                if height == n {
-                    return true;
-                }
-            }
-        }
-    }
-    for &item_id in &body.top_items {
-        if let Some(item) = items.get(item_id) {
-            let has_height = items_db
-                .items
-                .get(&item.item_type)
-                .is_some_and(|t| t.has_height());
-            tracing::debug!(
-                "tile_has_height_n: top item {:?} (type {}) has_height: {} at {:?}",
-                item_id,
-                item.item_type,
-                has_height,
-                pos
-            );
-            if has_height {
-                height += 1;
-                if height == n {
-                    return true;
-                }
-            }
-        }
-    }
-    tracing::debug!(
-        "tile_has_height_n: total height {} at {:?}, needed {}",
-        height,
-        pos,
-        n
-    );
-    false
-}
-
 /// 772 `GetHeight` (`info.cc:689`) — sums the `ELEVATION` attribute of every `HEIGHT`-flagged
-/// object on the tile stack. Distinct from `tile_has_height_n` (a hasHeight **count**);
-/// this is an **elevation sum** used by the `CheckMapDestination` floor-change gate (P5/C1).
+/// object on the tile stack. Used by the `CheckMapDestination` floor-change gate (P5/C1)
+/// and `GoExec` climb (`cract.cc:421`).
 pub(crate) fn tile_elevation_sum(
     body: &crate::tile::TileBody,
     items_db: &ItemDatabase,
@@ -151,91 +71,110 @@ pub(crate) fn tile_elevation_sum(
     sum
 }
 
-#[inline]
-fn tile_is_hole_like(body: &crate::tile::TileBody) -> bool {
-    body.ground.is_none() && (body.flags & tilestate::BLOCKSOLID) == 0
+/// 772 `CoordinateFlag(BANK)` — terrain bank on the tile (`info.cc` / `is_terrain_bank`).
+fn tile_has_bank(world: &GameWorld, body: &crate::tile::TileBody) -> bool {
+    body.ground
+        .and_then(|gid| world.items_db.items.get(&gid))
+        .is_some_and(|t| t.is_terrain_bank())
 }
 
-/// TFS `Game::internalMoveCreature(Creature*, Direction, flags)` — height-based floor change
-/// (`game.cpp` ~804–834). Only runs for cardinal (non-diagonal) player moves.
-/// C++ ref: src/game.cpp:797-841
-pub(crate) fn resolve_player_move_destination(
-    map: &Map,
-    items_db: &ItemDatabase,
-    items: &slotmap::SlotMap<crate::ids::ItemId, crate::item::Item>,
-    current_pos: Position,
-    direction: Direction,
-    mut flags: u32,
-) -> (Position, u32) {
-    let mut dest_pos = current_pos.offset(direction);
-    if is_diagonal(direction) {
-        return (dest_pos, flags);
+/// 772 `CoordinateFlag(UNPASS)` — solid item, `BLOCKSOLID` tile flag, or a creature
+/// (`objects.srv` TypeID 99 `{Container,Unpass}`).
+fn tile_has_unpass(world: &GameWorld, body: &crate::tile::TileBody) -> bool {
+    if (body.flags & tilestate::BLOCKSOLID) != 0 {
+        return true;
     }
-
-    // C++ ref: src/game.cpp:807-820 — try to go up
-    if current_pos.z != 8
-        && let Some(cur_tile) = map.get_tile(current_pos)
+    if !body.creatures.is_empty() {
+        return true;
+    }
+    if let Some(gid) = body.ground
+        && world.items_db.is_unpassable(gid)
     {
-        let has_h3 = tile_has_height_n(current_pos, cur_tile.body(), items_db, items, 3);
-        if has_h3 {
-            let z_above = current_pos.z.wrapping_sub(1);
-            let tmp = map.get_tile(Position {
-                x: current_pos.x,
-                y: current_pos.y,
-                z: z_above,
-            });
-            let open = tmp.map(|t| tile_is_hole_like(t.body())).unwrap_or(true);
-            if open {
-                let tmp2 = map.get_tile(Position {
-                    x: dest_pos.x,
-                    y: dest_pos.y,
-                    z: z_above,
-                });
-                if let Some(tt) = tmp2 {
-                    let tb = tt.body();
-                    if tb.ground.is_some() && (tb.flags & tilestate::IMMOVABLEBLOCKSOLID) == 0 {
-                        flags |= FLAG_IGNOREBLOCKITEM | FLAG_IGNOREBLOCKCREATURE;
-                        if (tb.flags & tilestate::FLOORCHANGE) == 0 {
-                            dest_pos.z = z_above;
-                        }
-                    }
-                }
+        return true;
+    }
+    body.down_items
+        .iter()
+        .chain(body.top_items.iter())
+        .any(|&iid| {
+            world
+                .items
+                .get(iid)
+                .is_some_and(|it| world.items_db.is_unpassable(it.item_type))
+        })
+}
+
+/// 772 `!CoordinateFlag(BANK) && !CoordinateFlag(UNPASS)` — air/hole for `GoExec` climb
+/// (`cract.cc:422-428`). Missing tiles are air (both flags false). BANK-less UNPASS
+/// is not climb-through.
+fn tile_is_climb_air(world: &GameWorld, pos: Position) -> bool {
+    let Some(tile) = world.map.get_tile(pos) else {
+        return true;
+    };
+    let body = tile.body();
+    !tile_has_bank(world, body) && !tile_has_unpass(world, body)
+}
+
+fn tile_get_height(world: &GameWorld, pos: Position) -> i32 {
+    world
+        .map
+        .get_tile(pos)
+        .map(|t| tile_elevation_sum(t.body(), world.items_db.as_ref(), &world.items))
+        .unwrap_or(0)
+}
+
+/// 772 `GoExec` elevation climb (`cract.cc` ~415-431).
+///
+/// Called only after `MovePossible(flat dest, Execute=true, Jump=false)` failed, for a
+/// non-diagonal player step. Climb dest uses `Jump=true` → `JumpPossible` (`info.cc:702`)
+/// via [`GameWorld::player_move_possible_push`], not TFS `FLAG_IGNOREBLOCKITEM`.
+///
+/// Floor bounds are corpus `DestZ > 0` / `DestZ < 15` (not TFS surface/underground 7/8).
+pub(crate) fn try_player_elevation_climb(
+    world: &GameWorld,
+    cid: CreatureId,
+    origin: Position,
+    flat_dest: Position,
+) -> Result<Option<Position>, ReturnValue> {
+    // Up: DestZ > 0 && GetHeight(Orig) >= 24 && !BANK && !UNPASS on (OrigX,OrigY,OrigZ-1)
+    //     && MovePossible(DestX, DestY, DestZ-1, Execute=true, Jump=true)
+    if flat_dest.z > 0 && tile_get_height(world, origin) >= CLIMB_ELEVATION {
+        let air = Position {
+            x: origin.x,
+            y: origin.y,
+            z: origin.z - 1,
+        };
+        if tile_is_climb_air(world, air) {
+            let climb_dest = Position {
+                x: flat_dest.x,
+                y: flat_dest.y,
+                z: flat_dest.z - 1,
+            };
+            match world.player_move_possible_push(cid, climb_dest, origin, true) {
+                Ok(true) => return Ok(Some(climb_dest)),
+                Ok(false) => {}
+                Err(e) => return Err(e),
             }
         }
     }
 
-    // C++ ref: src/game.cpp:823-833 — try to go down
-    if current_pos.z != 7 && current_pos.z == dest_pos.z {
-        let tmp = map.get_tile(dest_pos);
-        let open = tmp.map(|t| tile_is_hole_like(t.body())).unwrap_or(true);
-        if open {
-            let z_below = dest_pos.z.wrapping_add(1);
-            if let Some(tt) = map.get_tile(Position {
-                x: dest_pos.x,
-                y: dest_pos.y,
-                z: z_below,
-            }) {
-                let tb = tt.body();
-                if tile_has_height_n(
-                    Position {
-                        x: dest_pos.x,
-                        y: dest_pos.y,
-                        z: z_below,
-                    },
-                    tb,
-                    items_db,
-                    items,
-                    3,
-                ) && (tb.flags & tilestate::IMMOVABLEBLOCKSOLID) == 0
-                {
-                    flags |= FLAG_IGNOREBLOCKITEM | FLAG_IGNOREBLOCKCREATURE;
-                    dest_pos.z = z_below;
-                }
+    // Down: DestZ < 15 && GetHeight(DestX, DestY, DestZ+1) >= 24
+    //       && !BANK && !UNPASS on the flat dest && MovePossible(..., DestZ+1, true, true)
+    if flat_dest.z < 15 {
+        let below = Position {
+            x: flat_dest.x,
+            y: flat_dest.y,
+            z: flat_dest.z + 1,
+        };
+        if tile_get_height(world, below) >= CLIMB_ELEVATION && tile_is_climb_air(world, flat_dest) {
+            match world.player_move_possible_push(cid, below, origin, true) {
+                Ok(true) => return Ok(Some(below)),
+                Ok(false) => {}
+                Err(e) => return Err(e),
             }
         }
     }
 
-    (dest_pos, flags)
+    Ok(None)
 }
 
 /// TFS `Tile::queryDestination` — flag-based floor change after creature has landed on a tile.

@@ -394,7 +394,7 @@ impl GameWorld {
         self.items_db
             .items
             .get(&item_type)
-            .is_some_and(|t| t.xml_attributes.contains_key("corpsetype"))
+            .is_some_and(|t| t.is_corpse())
     }
 
     /// Iteratively destroy an item and nested container contents (post-order stack).

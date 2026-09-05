@@ -8,8 +8,8 @@
 //! - `Map::moveCreature` (facing from dx/dy) — `map.cpp` (~295–306).
 //! - `Game::checkCreatureWalk` — `game.cpp` (~3773–3779).
 //!
-//! **Partial:** cardinal **floor change** before `queryAdd` (`game.cpp` ~804–834); `queryDestination`
-//! chaining (`game.cpp` ~863–880), full PZ / `Tile::queryAdd`, Lua — not ported.
+//! **Partial:** cardinal **floor change** after a failed flat `MovePossible` (`cract.cc` ~415–431);
+//! `queryDestination` chaining (`game.cpp` ~863–880), full PZ / `Tile::queryAdd`, Lua — not ported.
 //!
 //! **Timing:** `get_walk_delay` uses `last_step_ground_speed` (**destination** tile of the completed step,
 //! OTCv8 / TFS `getWalkDelay`). When `walk_delay <= 0`, `get_event_step_ticks` uses the **current** tile for
@@ -178,10 +178,13 @@ fn is_adjacent_move(
 pub(crate) mod walk_tile;
 mod walk_timing;
 
+#[cfg(test)]
+mod elevation_climb_tests;
+
 pub(crate) use walk_tile::query_destination_chain;
 use walk_tile::{
-    query_destination, resolve_player_move_destination, tile_query_add_monster, tile_query_add_npc,
-    tile_query_add_player,
+    query_destination, tile_query_add_monster, tile_query_add_npc, tile_query_add_player,
+    try_player_elevation_climb,
 };
 pub(crate) use walk_timing::{WalkSpeedRole, get_step_duration_ms_with_direction, wire_step_speed};
 use walk_timing::{
@@ -194,6 +197,16 @@ fn is_diagonal(direction: Direction) -> bool {
         direction,
         Direction::NorthEast | Direction::NorthWest | Direction::SouthEast | Direction::SouthWest
     )
+}
+
+/// 772 `GoExec` throws `MOVENOTPOSSIBLE` for a blocked walk (`cract.cc:434`).
+/// TFS `queryAdd` may return `NotEnoughRoom` (`NOROOM`); remap only on this walk-step
+/// path so item-move `queryAdd` NOROOM is unchanged. PZ/house throws pass through.
+fn remap_walk_step_err(ret: ReturnValue) -> ReturnValue {
+    match ret {
+        ReturnValue::NotEnoughRoom => ReturnValue::NotPossible,
+        other => other,
+    }
 }
 
 fn has_drunk_condition(base: &crate::creature::CreatureBase) -> bool {
@@ -2142,19 +2155,31 @@ impl GameWorld {
             .get(cid)
             .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.is_otclient()));
 
-        // Phase 1: destination — height-based floor change is player-only (`game.cpp` ~805).
-        let (dest_pos, flags) = if is_player {
-            resolve_player_move_destination(
-                &self.map,
-                self.items_db.as_ref(),
-                &self.items,
-                current_pos,
-                direction,
-                flags_in,
-            )
-        } else {
-            (current_pos.offset(direction), flags_in)
-        };
+        // Phase 1: destination. Flat dest first; 772 `GoExec` climbs only when
+        // `MovePossible(Dest, Execute=true, Jump=false)` fails (`cract.cc:415-431`).
+        // Monsters/NPCs never climb (`Type == PLAYER`).
+        let mut dest_pos = current_pos.offset(direction);
+        let mut flags = flags_in;
+        if is_player {
+            match self.player_move_possible_push(cid, dest_pos, current_pos, false) {
+                Ok(true) => {}
+                Ok(false) if !is_diagonal(direction) => {
+                    match try_player_elevation_climb(self, cid, current_pos, dest_pos) {
+                        Ok(Some(climbed)) => {
+                            dest_pos = climbed;
+                            // `JumpPossible` rejects only UNPASS∧UNMOVE; TFS climb sets the
+                            // same ignore flags (`game.cpp` ~817) so queryAdd does not re-block
+                            // movable items / creatures that 772 already allowed.
+                            flags |= FLAG_IGNOREBLOCKITEM | FLAG_IGNOREBLOCKCREATURE;
+                        }
+                        Ok(None) => {}
+                        Err(e) => return Err(remap_walk_step_err(e)),
+                    }
+                }
+                Ok(false) => {}
+                Err(e) => return Err(remap_walk_step_err(e)),
+            }
+        }
         let is_floor_change = dest_pos.z != current_pos.z;
         let Some(to_tile) = self.map.get_tile(dest_pos) else {
             tracing::warn!(
@@ -2169,7 +2194,7 @@ impl GameWorld {
 
         let ret = tile_query_add_creature(self, to_tile, cid, flags);
         if ret != ReturnValue::NoError {
-            return Err(ret);
+            return Err(remap_walk_step_err(ret));
         }
 
         let old_pos = current_pos;

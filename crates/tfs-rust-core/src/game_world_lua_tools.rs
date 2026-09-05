@@ -376,6 +376,36 @@ mod tests {
         world.items_db = Arc::new(db);
     }
 
+    /// Unmoveable furniture — 772 `objects.srv` Bottom (no LiquidPool). Not TAKE.
+    fn register_bottom_blocker_type(world: &mut GameWorld, id: u16) {
+        use tfs_rust_content::otb::ItemType;
+        let it = ItemType {
+            id,
+            server_id: id,
+            flags: 1 << 0,          // FLAG_BLOCK_SOLID
+            allow_pickupable: true, // place-onto, not TAKE
+            ..ItemType::default()
+        };
+        let mut db = (*world.items_db).clone();
+        db.items.insert(id, it);
+        world.items_db = Arc::new(db);
+    }
+
+    /// Corpse without TAKE — still not Bottom in `objects.srv`.
+    fn register_unmoveable_corpse_type(world: &mut GameWorld, id: u16) {
+        use tfs_rust_content::otb::ItemType;
+        let mut it = ItemType {
+            id,
+            server_id: id,
+            ..ItemType::default()
+        };
+        it.xml_attributes
+            .insert("corpsetype".into(), "blood".into());
+        let mut db = (*world.items_db).clone();
+        db.items.insert(id, it);
+        world.items_db = Arc::new(db);
+    }
+
     #[test]
     fn lua_script_add_skill_tries_advances_fishing() {
         let mut world = minimal_world();
@@ -708,6 +738,135 @@ mod tests {
         let remaining = body.top_items[0];
         assert_eq!(world.items.get(remaining).map(|i| i.count), Some(4));
         assert_eq!(world.items.get(remaining).map(|i| i.fluid_type()), Some(4));
+    }
+
+    /// 772 `CreatePool` `NOROOM` (`operate.cc:2616-2617`) — Bottom non-pool aborts silently.
+    #[test]
+    fn create_liquid_splash_aborts_on_bottom_non_pool() {
+        let mut world = minimal_world();
+        register_splash_type(&mut world, 2019);
+        register_bottom_blocker_type(&mut world, 1622);
+        let pos = Position::new(50, 50, 7);
+        world
+            .lua_script_game_create_tile(pos.x, pos.y, pos.z, true)
+            .unwrap();
+        let table = world
+            .lua_script_game_create_item(1622, 1, Some((pos.x, pos.y, pos.z)))
+            .unwrap()
+            .expect("table");
+        let table_iid = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(table));
+        let items_before = world.items.len();
+        let decay_before = world.decay.live_count();
+        world.create_liquid_splash(pos, 2019, 2);
+        assert_eq!(
+            world.items.len(),
+            items_before,
+            "NOROOM must not leak splash"
+        );
+        assert_eq!(world.decay.live_count(), decay_before);
+        let body = world.map.get_tile(pos).unwrap().body();
+        assert_eq!(body.down_items.as_slice(), &[table_iid]);
+        assert!(
+            body.top_items.is_empty(),
+            "no combat pool on Bottom furniture"
+        );
+    }
+
+    /// `objects.srv` Corpse has no Bottom — CreatePool still Create's (PRIORITY_LOW).
+    #[test]
+    fn create_liquid_splash_lands_on_corpse_tile() {
+        let mut world = minimal_world();
+        register_splash_type(&mut world, 2019);
+        register_unmoveable_corpse_type(&mut world, 2808);
+        let pos = Position::new(50, 50, 7);
+        world
+            .lua_script_game_create_tile(pos.x, pos.y, pos.z, true)
+            .unwrap();
+        let corpse = world
+            .lua_script_game_create_item(2808, 1, Some((pos.x, pos.y, pos.z)))
+            .unwrap()
+            .expect("corpse");
+        let corpse_iid = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(corpse));
+        world.create_liquid_splash(pos, 2019, 2);
+        let body = world.map.get_tile(pos).unwrap().body();
+        assert_eq!(body.down_items.as_slice(), &[corpse_iid]);
+        assert_eq!(body.top_items.len(), 1, "combat splash lands beside corpse");
+        assert_eq!(
+            world.items.get(body.top_items[0]).map(|i| i.item_type),
+            Some(2019)
+        );
+    }
+
+    /// Lua `Game.createItem` is generic Create, not CreatePool — still lands on Bottom.
+    #[test]
+    fn lua_create_item_splash_lands_on_bottom_blocker() {
+        let mut world = minimal_world();
+        register_splash_type(&mut world, 2016);
+        register_bottom_blocker_type(&mut world, 1622);
+        let pos = Position::new(50, 50, 7);
+        world
+            .lua_script_game_create_tile(pos.x, pos.y, pos.z, true)
+            .unwrap();
+        world
+            .lua_script_game_create_item(1622, 1, Some((pos.x, pos.y, pos.z)))
+            .unwrap()
+            .expect("table");
+        let splash = world
+            .lua_script_game_create_item(2016, 1, Some((pos.x, pos.y, pos.z)))
+            .unwrap();
+        assert!(
+            splash.is_some(),
+            "fluids.lua spill is not CreatePool NOROOM"
+        );
+        let splash_iid = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(splash.unwrap()));
+        let body = world.map.get_tile(pos).unwrap().body();
+        assert!(body.top_items.contains(&splash_iid));
+    }
+
+    /// Combat splash on ladder: CreatePool skips TOP (`operate.cc:2626`).
+    #[test]
+    fn create_liquid_splash_lands_on_ladder_tile() {
+        let mut world = minimal_world();
+        register_splash_type(&mut world, 2019);
+        let mut ladder = pickup_item_type(1386);
+        ladder.id = 1386;
+        ladder.server_id = 1386;
+        ladder.flags = 1 << 13;
+        ladder.always_on_top_order = 2;
+        let mut db = (*world.items_db).clone();
+        db.items.insert(1386, ladder);
+        world.items_db = Arc::new(db);
+
+        let pos = Position::new(50, 50, 7);
+        world
+            .lua_script_game_create_tile(pos.x, pos.y, pos.z, true)
+            .unwrap();
+        let ladder_id = world
+            .lua_script_game_create_item(1386, 1, Some((pos.x, pos.y, pos.z)))
+            .unwrap()
+            .expect("ladder");
+        let ladder_iid = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(ladder_id));
+        world.create_liquid_splash(pos, 2019, 2);
+        let body = world.map.get_tile(pos).unwrap().body();
+        assert_eq!(body.top_items.len(), 2);
+        assert_eq!(body.top_items[1], ladder_iid);
+        assert_eq!(
+            world.items.get(body.top_items[0]).map(|i| i.item_type),
+            Some(2019)
+        );
+    }
+
+    #[test]
+    fn create_liquid_splash_missing_tile_does_not_leak() {
+        let mut world = minimal_world();
+        register_splash_type(&mut world, 2019);
+        let pos = Position::new(50, 50, 7);
+        let items_before = world.items.len();
+        let decay_before = world.decay.live_count();
+        world.create_liquid_splash(pos, 2019, 2);
+        assert_eq!(world.items.len(), items_before);
+        assert_eq!(world.decay.live_count(), decay_before);
+        assert!(world.map.get_tile(pos).is_none());
     }
 
     #[test]

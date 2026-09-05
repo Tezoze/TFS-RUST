@@ -80,15 +80,16 @@ Callers catch `NOROOM` silently:
 - Death pool: `crmain.cc:218-226` (`~TCreature`)
 - Hit splash: `crmain.cc:766-774` (`TCreature::Damage` physical branch)
 
-## Observable consequence
+## Observable consequence (after Step 8)
 
-| Scenario | 772 decompile | Our current code | Result |
+| Scenario | 772 decompile | Rust | Result |
 |---|---|---|---|
-| Pool + ladder | OK (different layers) | Blocked (`NOROOM` equivalent) | **Opposite** |
-| Pool + corpse | `NOROOM` (same `BOTTOM` layer) | OK (corpse in `down_items`, pool in `top_items`) | **Opposite** |
+| Pool + ladder (pack 1386, OTB alwaysOnTop) | srv ladders 1948/1968 are **Bottom** (would NOROOM); pack ladders are TOP | Sorted `top_items` insert — blood lands | Blood-on-ladders (wire) |
+| Pool + corpse | **Places** — 341 `Corpse` types have **no** `Bottom` | Places (`create_liquid_splash` does not treat corpses as Bottom) | Same |
+| Pool + Bottom scenery (table/ramp/wall) | `NOROOM` (`BOTTOM && !LIQUIDPOOL`) | Combat/death abort via `is_create_pool_bottom_blocker`; Lua `Game.createItem` still places | Combat matches; Lua spill is generic Create |
 | Pool + old pool | Delete old, place new | Delete old, place new | Same |
 
-The ladder case is the visible one: 772 allows blood splashes on ladder tiles; we don't.
+The old table claiming “pool+corpse → NOROOM” and “ladders are TOP in objects.srv” was **wrong vs `objects.srv`**. Do **not** move splash to `down_items` (Option A, rejected below).
 
 ## Why we can't just match the decompile literally
 
@@ -134,9 +135,10 @@ the ladder instead.
   `Tile::addThing` (`tile.cpp:901`).
 
 The server's `top_items` vector order now matches the client's `.dat`-based order, so
-`get_item_stack_pos` returns the same index the client uses. Blood on ladders works;
-splashes and ladders coexist in `top_items` (decompile `CreatePool` behavior — different
-server-side layers, same wire layer).
+`get_item_stack_pos` returns the same index the client uses. Blood on pack ladders works;
+splashes stay in `top_items` (772 client `0x6A` inserts by `.dat` alwaysOnTop). Combat
+`CreatePool` NOROOM for Bottom non-pool scenery is `ItemType::is_create_pool_bottom_blocker`
+(OTB has no Bottom bit). TFS “no splash in ladders” guards are gone.
 
 ## Related
 

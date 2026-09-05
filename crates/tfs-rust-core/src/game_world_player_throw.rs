@@ -310,7 +310,7 @@ impl GameWorld {
 
         // P5 (C1): up/down elevation-sum split (`operate.cc:499-507`).
         // Up-floor checks **origin** elevation sum; down-floor checks **dest** elevation sum.
-        // NOT `tile_has_height_n` — that is a hasHeight count; this is `GetHeight` (`info.cc:689`).
+        // `GetHeight` (`info.cc:689`) — elevation sum, not a hasHeight count.
         if to.z == from.z - 1 {
             // Up a floor — origin must have enough elevation to jump up.
             let elev = self
@@ -1226,6 +1226,22 @@ mod push_phase_c_tests {
         let rv = world.player_push_creature(actor, mover, from, to);
         // Should NOT be NotEnoughRoom (elevation gate passed). May fail at ThrowPossible
         // or MovePossible (P-D), but the height gate itself passes.
+        assert_ne!(rv, Err(ReturnValue::NotEnoughRoom));
+    }
+
+    /// G1: three HEIGHT items with field elevation 0 each contribute 8 (`GetHeight` = 24).
+    #[test]
+    fn p5_three_default_elevation_height_items_pass_gate() {
+        let mut world = beat_driven_world();
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(100, 100, 6);
+        let (actor, mover) = setup_push_arena_pc(&mut world, from, to, Some(0));
+        place_height_item(&mut world, from);
+        place_height_item(&mut world, from);
+        place_height_item(&mut world, from);
+        ensure_walkable_tile(&mut world.map, to, 1);
+
+        let rv = world.player_push_creature(actor, mover, from, to);
         assert_ne!(rv, Err(ReturnValue::NotEnoughRoom));
     }
 

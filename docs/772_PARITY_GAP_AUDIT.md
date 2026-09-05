@@ -17,9 +17,9 @@ Likewise, several corpus subsystems are deliberately **not** ported as engines �
 | Player / skills / combat | `crplayer.cc`, `crskill.cc`, `crcombat.cc`, `crmain.cc` | ~85% | Strongest area. Remaining items are metadata and fidelity, not mechanics. |
 | Monster / NPC AI | `crnonpl.cc`, `cract.cc` | ~90% | Idle-stimulus engine, spawn, chase, casting, loot, NPC dialogue, home/LifeEnd despawn all live. |
 | Magic / spells | `magic.cc` | ~85% | Pre-cast rune ML / exhaust / PZ and spoken premium done. Remaining: heal-paralyze, AoE rings, berserk, mana fluid. |
-| Map | `map.cc`, `info.cc` | ~78% | Stacking, flags, throw LOS, decay cron done. Live sector refresh missing. |
+| Map | `map.cc`, `info.cc` | ~82% | Stacking, flags, throw LOS, decay cron, splash insert, elevation climb done. Live sector refresh missing. |
 | Houses | `houses.cc` | ~75% | Ownership, rent, lists, doors, eviction, **in-game sell via trade** done. Policy evictions and transfer missing. |
-| Move / use | `moveuse.cc`, `objects.cc` | ~70% | Typed handlers, doors, fields, tools done. Mail missing; script numerics drift. |
+| Move / use | `moveuse.cc`, `objects.cc` | ~72% | Typed handlers, doors, fields, tools, script numerics done. Mail missing. |
 | Chat / channels | `operate.cc`, `crplayer.cc` | ~88% | Say 7×5, yell 30×30, RecordTalk, trade-offer gate, PM cap, guild look/filter done. Lua channel hooks and a few packets still stubbed. |
 | Player operations | `operate.cc` | ~82% | Trade (1.1), party (1.2), NPC shop (1.3), and VIP (1.4) dispatched. |
 | Info / script | `info.cc`, `script.cc`, `config.cc` | ~55% | Mostly replaced by OTBM + `config.lua` + Lua by design. |
@@ -147,8 +147,8 @@ VIP, trade, party, and shop packets parse in `crates/tfs-rust-net/src/game_parse
 
 ### Map / houses
 
-- **Splash and pool items are on the wrong layer.** They belong on BOTTOM (`CreatePool` scans BOTTOM, `operate.cc:2585+`) but OTB `FLAG_ALWAYSONTOP` routes them into `top_items`, so they render above creatures. Already written up in `docs/772_SPLASH_LAYER_MISMATCH.md`; content-side guards currently paper over it.
-- **Elevation climb defects remain.** Four are enumerated in `docs/772_ELEVATION_WALK_PARITY.md` §4/§5 against `walk/walk_tile.rs`.
+- **Splash / pool layer — DONE (Step 8, September 2026).** OTB `FLAG_ALWAYSONTOP` still routes splashes into `top_items` (Option A / `down_items` rejected: 772 `0x6A` omits stackpos). Sorted insert keeps blood-on-ladders. Combat `CreatePool` NOROOM uses `is_create_pool_bottom_blocker` (OTB has no Bottom bit). Corpses are **not** Bottom in `objects.srv` and do not block. TFS ladder guards deleted. See [`772_SPLASH_LAYER_MISMATCH.md`](772_SPLASH_LAYER_MISMATCH.md).
+- **Elevation climb — DONE (Step 8, September 2026).** G1–G4 in [`772_ELEVATION_WALK_PARITY.md`](772_ELEVATION_WALK_PARITY.md) §4/§5: default elevation 8, climb only after flat `MovePossible` fails, `DestZ > 0` / `< 15`, walk `NotEnoughRoom` → `NotPossible`. Part A (7.4 step-up) is not 772. G5 (19 missing OTB `HAS_HEIGHT`) remains cosmetic.
 - **House policy evictions are absent:** `EvictFreeAccounts` (`houses.cc:1139+`), `EvictDeletedCharacters` (`:1173+`), `EvictExGuildLeaders` (`:1199+`).
 - **`TransferHouses` (`houses.cc:1029+`) and `StartAuctions` (`houses.cc:1334+`) are not ported.** Auction *settlement* is (`house/auction.rs:18-36`), on the assumption MyAAC writes the bid columns — worth confirming that schema matches the `FinishAuctions` payment check.
 - **Corpus `MayOpenDoor` parses access rules from the door's own text** (`houses.cc:562-619`). Rust uses DB `door_lists` (`house/mod.rs:210-224`), which is the TFS shape; confirm it covers every 772 door.
@@ -204,7 +204,7 @@ Recorded so future audits do not re-file them as gaps.
 
 ## Recommended next steps
 
-Ordered by gameplay impact per unit of effort. Steps 1–7 (trade, party, shop, VIP, rune/spell gates, chat, LifeEndRound + monsterhome, script numerics) are done. Step 8 splash/elevation is next.
+Ordered by gameplay impact per unit of effort. Steps 1–8 (trade, party, shop, VIP, rune/spell gates, chat, LifeEndRound + monsterhome, script numerics, splash/elevation) are done. Step 9 death metadata is next.
 
 ### ~~Step 1 — Player trade~~ **Done (audit 1.1, August 2026)**
 
@@ -240,9 +240,9 @@ Shipped in [`chat_talk.rs`](../crates/tfs-rust-core/src/chat_talk.rs): 7×5 say 
 
 Shipped the whole [Tier 3](#tier-3--script-probability-and-threshold-drift--done-step-7-september-2026) table: food `> 1200`, birdcage 0.1%, waterpipe 90/10, didgeridoo 10%, cornucopia 95% on OTB 3957 only, cuckoo time-only, teleport no PZ cancel. `change_gold` was already gated. Bongo/war drum/pipe 2099 stay behind `formulas.otherActions.extraInstruments`.
 
-### Step 8 — Splash layer and elevation
+### ~~Step 8 — Splash layer and elevation~~ **Done (September 2026)**
 
-Both have standing write-ups (`772_SPLASH_LAYER_MISMATCH.md`, `772_ELEVATION_WALK_PARITY.md` §4/§5). Fixing the splash layer also lets the content-side guards be deleted.
+Splash stays in sorted `top_items` (Option A rejected). Combat `CreatePool` NOROOM proxy for Bottom scenery; corpses do not block. Elevation G1–G4 shipped in [`walk/walk_tile.rs`](../crates/tfs-rust-core/src/walk/walk_tile.rs) `try_player_elevation_climb` + `ItemType::elevation()`. See [Map / houses](#map--houses).
 
 ### Step 9 — Death metadata and persistence
 
@@ -319,7 +319,9 @@ rtk cargo test -p tfs-rust-core --lib spell::tests
 rtk cargo test -p tfs-rust-core --lib chat_talk
 rtk cargo test -p tfs-rust-core --lib idle_stimulus
 rtk cargo test -p tfs-rust-core --lib monster_ai
-rtk cargo test -p tfs-rust-lua --lib actions::tests::step7_script_numerics_match_corpus
+rtk cargo test -p tfs-rust-core --lib walk::elevation_climb_tests
+rtk cargo test -p tfs-rust-content --lib elevation
+rtk cargo test -p tfs-rust-core --lib -- create_liquid_splash create_item_splash
 rtk cargo test -p tfs-rust-core --lib player::combat
 rtk cargo test -p tfs-rust-net --test protocol_compat
 ```

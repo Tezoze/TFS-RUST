@@ -1,3 +1,19 @@
+# Splash layer + elevation climb — audit Step 8 (2026-09-05)
+
+`docs/772_PARITY_GAP_AUDIT.md` Step 8. Corpus: `CreatePool` (`operate.cc:2596`), `GoExec` climb (`cract.cc:415-431`), `GetHeight` (`info.cc:689`). Write-ups: `docs/772_SPLASH_LAYER_MISMATCH.md`, restore `docs/772_ELEVATION_WALK_PARITY.md` (deleted in `f2123185`).
+
+**Splash — keep sorted `top_items` insert.** Option A (clear `FLAG_ALWAYSONTOP` → `down_items`) stays **rejected**: 772 `0x6A` omits stackpos and the client inserts by `.dat` order (live test). Blood-on-ladders already works. Remaining: `CreatePool` NOROOM when a non-`LIQUIDPOOL` BOTTOM object is present (corpse vs pool); delete any leftover TFS ladder guards; Cip map description must keep splash stackpos matching `0x6A`/`0x6C`.
+
+**Elevation — Part B only (G1–G4).** Part A (7.4 step-up limit) is **not** 772 — do not add `elevationStepLimit`. All 357 `HEIGHT` types in `objects.srv` have `Elevation = 8`.
+
+- [x] G1 — `ItemType::elevation()` returns `8` when `has_height()` and xml `elevation` is 0 (`items.xml` has no keys; OTB has no attr)
+- [x] G2 — climb only after same-floor `MovePossible` fails (`cract.cc:415`); hoist probe into `internal_move_creature_step`; player + cardinal only
+- [x] G3 — floor bounds `DestZ > 0` / `DestZ < 15` (drop TFS `z != 8` / `z != 7`)
+- [x] G4 — walk rejection `NotEnoughRoom` → `NotPossible` (`GoExec` throws `MOVENOTPOSSIBLE`); keep PZ / not-invited throws
+- [x] G5 skip — 19 missing OTB `HAS_HEIGHT` (cosmetic, Unmove)
+- [x] Splash: `CreatePool` NOROOM on non-pool BOTTOM scenery (not corpses); no Option A; no leftover ladder guards
+- [x] Tests (G1–G4 + splash NOROOM + 2-stack still walkable) + restore elevation doc + audit Step 8 done + lesson
+
 # Script numerics — audit Step 7 (2026-09-05)
 
 Tier 3 table in `docs/772_PARITY_GAP_AUDIT.md`. Data-pack Lua only; 1098 extras stay behind `formulas.otherActions`. Cite `moveuse.cc` / `moveuse.dat`.

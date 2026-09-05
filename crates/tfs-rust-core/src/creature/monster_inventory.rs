@@ -1,7 +1,8 @@
-//! 772 monster spawn loot, bag/equip routing, and equipment-derived combat stats.
+//! 772 monster spawn loot, bag/equip routing, equipment-derived combat stats, and death/hit pools.
 //!
 //! - `TMonster::TMonster` loot roll — `crnonpl.cc:2050-2103`.
 //! - `CheckCombatValues` / `GetWeapon` / `GetArmorStrength` — `crcombat.cc:128,36,286`.
+//! - `CreatePool` NOROOM / replace — `operate.cc:2596-2629`; callers `crmain.cc:216,771`.
 
 use tfs_rust_common::Position;
 use tfs_rust_common::enums::BloodType;
@@ -560,6 +561,11 @@ impl GameWorld {
     /// Create a decaying liquid splash/pool item on a tile (772 only).
     /// C++ `CreatePool(GetSpecialObject(BLOOD_SPLASH|BLOOD_POOL), liquid)` — `crmain.cc:216,771`.
     ///
+    /// `CreatePool` (`operate.cc:2596-2629`) throws `NOROOM` when a non-`LIQUIDPOOL`
+    /// `BOTTOM` object is on the map container; death/hit callers catch it silently
+    /// (`crmain.cc:218-226`, `:766-774`). Lua `Game.createItem` is generic `Create`,
+    /// not this path.
+    ///
     /// The splash renders its colour from the item's `count` byte (the tile wire path encodes
     /// `Item::client_count()`, and the codec runs it through 772 `getLiquidColor` / 1098 `fluidMap`),
     /// so the fluid subtype is stored in `count`. The `fluid_type` attribute is mirrored for
@@ -570,6 +576,14 @@ impl GameWorld {
         splash_item_id: u16,
         fluid_subtype: u16,
     ) {
+        if self.map.get_tile(pos).is_none() {
+            return;
+        }
+        // NOROOM catch: Bottom non-pool scenery (tables, ramps, walls). Ladders/TOP
+        // and corpses are not blockers — see `ItemType::is_create_pool_bottom_blocker`.
+        if self.tile_has_create_pool_bottom_blocker(pos) {
+            return;
+        }
         // Splash replace lives in `internal_add_item_to_tile` (772 `CreatePool`
         // deletes existing `LIQUIDPOOL` then Create; ladders/TOP are not a block).
         let mut item = Item::new(splash_item_id, fluid_subtype);
@@ -582,8 +596,28 @@ impl GameWorld {
             .internal_add_item_to_tile(pos, id, CylinderFlags::NO_LIMIT)
             .is_err()
         {
+            self.cancel_item_decay(id);
             self.items.remove(id);
         }
+    }
+
+    /// 772 `CreatePool` scan (`operate.cc:2611-2626`): any `BOTTOM && !LIQUIDPOOL`
+    /// on the map container. Ground is `BANK`; creatures are not items.
+    fn tile_has_create_pool_bottom_blocker(&self, pos: Position) -> bool {
+        let Some(tile) = self.map.get_tile(pos) else {
+            return false;
+        };
+        let body = tile.body();
+        body.top_items
+            .iter()
+            .chain(body.down_items.iter())
+            .copied()
+            .any(|iid| {
+                self.items
+                    .get(iid)
+                    .and_then(|it| self.items_db.items.get(&it.item_type))
+                    .is_some_and(|ty| ty.is_create_pool_bottom_blocker())
+            })
     }
 
     /// Emit the 772 physical-hit blood visual: the race-keyed hit effect plus a blood/slime
@@ -686,6 +720,34 @@ mod tests {
             client_to_server: HashMap::new(),
         });
         world
+    }
+
+    fn splash_item_type(server_id: u16) -> ItemType {
+        ItemType {
+            id: server_id,
+            server_id,
+            group: ItemType::GROUP_SPLASH,
+            flags: 1 << 13,
+            always_on_top_order: 2,
+            ..ItemType::default()
+        }
+    }
+
+    fn bottom_blocker_type(server_id: u16) -> ItemType {
+        ItemType {
+            id: server_id,
+            server_id,
+            flags: 1 << 0,
+            allow_pickupable: true,
+            ..ItemType::default()
+        }
+    }
+
+    fn splash_world() -> GameWorld {
+        let mut items = HashMap::new();
+        items.insert(ITEM_FULLSPLASH, splash_item_type(ITEM_FULLSPLASH));
+        items.insert(ITEM_SMALLSPLASH, splash_item_type(ITEM_SMALLSPLASH));
+        beat_world(items)
     }
 
     #[test]
@@ -1045,10 +1107,10 @@ mod tests {
         );
     }
 
-    /// Death pool replaces hit splatter — 772 `CreatePool` (`operate.cc:2585-2619`).
+    /// Death pool replaces hit splatter — 772 `CreatePool` (`operate.cc:2596-2629`).
     #[test]
     fn death_pool_replaces_hit_splatter_on_tile() {
-        let mut world = beat_world(HashMap::new());
+        let mut world = splash_world();
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, 100);
         let victim = insert_test_monster(&mut world, pos);
@@ -1088,5 +1150,37 @@ mod tests {
             !after_death.contains(&ITEM_SMALLSPLASH),
             "CreatePool must replace hit splatter with death pool"
         );
+    }
+
+    /// CreatePool NOROOM when a Bottom non-pool (table) occupies the tile.
+    #[test]
+    fn create_liquid_splash_aborts_on_bottom_non_pool() {
+        let mut items = HashMap::new();
+        items.insert(ITEM_SMALLSPLASH, splash_item_type(ITEM_SMALLSPLASH));
+        items.insert(1622u16, bottom_blocker_type(1622));
+        let mut world = beat_world(items);
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+        let table_id = world.items.insert(Item::new(1622, 1));
+        if let Some(tile) = world.map.get_tile_mut(pos) {
+            tile.add_item(table_id);
+        }
+        let items_before = world.items.len();
+        world.create_liquid_splash(pos, ITEM_SMALLSPLASH, 5);
+        assert_eq!(world.items.len(), items_before);
+        let body = world.map.get_tile(pos).unwrap().body();
+        assert_eq!(body.down_items.as_slice(), &[table_id]);
+        assert!(body.top_items.is_empty());
+    }
+
+    #[test]
+    fn create_liquid_splash_missing_tile_does_not_leak() {
+        let mut world = splash_world();
+        let pos = Position::new(100, 100, 7);
+        let items_before = world.items.len();
+        let decay_before = world.decay.live_count();
+        world.create_liquid_splash(pos, ITEM_SMALLSPLASH, 5);
+        assert_eq!(world.items.len(), items_before);
+        assert_eq!(world.decay.live_count(), decay_before);
     }
 }
