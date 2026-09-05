@@ -654,4 +654,23 @@ impl Codec1098 {
         m.write_u8(tfs_rust_common::protocol_opcodes::server::CLOSE_TRADE);
         m
     }
+
+    /// `ProtocolGame::sendVIP` — `src/protocolgame.cpp` ~3097.
+    #[allow(clippy::too_many_arguments)]
+    pub fn encode_vip_entry(
+        &self,
+        guid: u32,
+        name: &str,
+        description: &str,
+        icon: u32,
+        notify: bool,
+        status: u8,
+    ) -> NetworkMessage {
+        crate::outgoing_extra::send_vip_entry(guid, name, description, icon, notify, status)
+    }
+
+    /// `ProtocolGame::sendVIPStatus` — `src/protocolgame.cpp`.
+    pub fn encode_vip_status(&self, guid: u32, status: u8) -> NetworkMessage {
+        crate::outgoing_extra::send_vip_status(guid, status)
+    }
 }

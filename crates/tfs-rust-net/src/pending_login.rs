@@ -73,7 +73,8 @@ impl PendingLogin {
             | GameCommand::PlayerDisconnect { .. }
             | GameCommand::RegisterOutputSink { .. }
             | GameCommand::UnregisterOutputSink { .. }
-            | GameCommand::HouseNamesResolved { .. } => PendingLoginPacketAction::Dropped,
+            | GameCommand::HouseNamesResolved { .. }
+            | GameCommand::VipLookupFinished { .. } => PendingLoginPacketAction::Dropped,
         }
     }
 

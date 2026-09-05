@@ -319,6 +319,16 @@ pub mod server {
     pub const TRADE_OFFER_PARTNER: u8 = 0x7E;
     /// Close trade window. Distinct from client [`super::client::CLOSE_TRADE`] (`0x80`).
     pub const CLOSE_TRADE: u8 = 0x7F;
+    /// One VIP list line — `ProtocolGame::sendVIP`.
+    /// 772: `gameserver/src/protocolgame.cpp` (`guid` + name + online byte).
+    /// 1098: `src/protocolgame.cpp` (~3097) adds description / icon / notify / status.
+    pub const VIP_ENTRY: u8 = 0xD2;
+    /// VIP online status — 1098 `sendVIPStatus` (`guid` + status byte).
+    /// 772 login notify is `guid` only (`sendVIP` companion).
+    pub const VIP_STATUS: u8 = 0xD3;
+    /// 772 VIP logout — `gameserver/src/protocolgame.cpp` `sendVIPLogout` (`guid` only).
+    /// Not used on 1098 (status 0 goes out as [`VIP_STATUS`]).
+    pub const VIP_LOGOUT: u8 = 0xD4;
 
     /// Self-appear opcode (`ProtocolGame::sendAddCreature` self branch). Version-keyed:
     /// 772 = `0x0A` (`gameserver/src/protocolgame.cpp`), 1098 = `0x17` (repo-root `src/protocolgame.cpp`).

@@ -517,6 +517,7 @@ pub(crate) fn finalize_player_login(world: &mut GameWorld, cid: CreatureId) {
     if let Some(guid) = guid {
         after_player_online(world, guid);
     }
+    world.broadcast_vip_status(cid, true);
 }
 
 /// TFS `protocolgame.cpp` after `placeCreature` / `connect`:

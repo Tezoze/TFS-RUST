@@ -38,6 +38,16 @@ TFS shop-window pack surface (`0x79`–`0x7C`). 772 dialogue trading stays on `n
 - [x] Lua `openShopWindow` / `closeShopWindow` (`npc_shop.rs`)
 - [x] Unit tests in `shop.rs`
 
+## VIP runtime — audit §1.4 / step 3b (2026-09-05)
+
+TFS pack surface `Game::playerAddVip` / `playerRemoveVip` / `playerEditVip`. List already loads at login.
+
+- [x] `vip.rs` — add/remove/edit, `getMaxVIPEntries` (group / premium 100 / free 20, hard cap 200)
+- [x] `game_loop.rs` dispatch `0xDC`–`0xDE`; `VipLookupFinished` for offline name resolve
+- [x] `PlayerStore` INSERT/DELETE/UPDATE `account_viplist` (not on `savePlayer`)
+- [x] Login/logout `notifyStatusChange`; era-correct `0xD2` / `0xD3` (`0xD4` logout on 772)
+- [x] Unit tests in `vip.rs`; VIP codec goldens
+
 ## Phase 2 — EventCallback dispatch (ship first)
 - [x] Rust-side `has_event_callback` bitset + direct RegistryKey dispatch
 - [x] Sync from `EventCallbackData` at end of `load_scripts_interface`

@@ -21,7 +21,7 @@ Likewise, several corpus subsystems are deliberately **not** ported as engines �
 | Houses | `houses.cc` | ~75% | Ownership, rent, lists, doors, eviction, **in-game sell via trade** done. Policy evictions and transfer missing. |
 | Move / use | `moveuse.cc`, `objects.cc` | ~70% | Typed handlers, doors, fields, tools done. Mail missing; script numerics drift. |
 | Chat / channels | `operate.cc`, `crplayer.cc` | ~68% | Say/whisper/yell/private/channels live. Flood model and yell radius diverge. |
-| Player operations | `operate.cc` | ~78% | Trade (1.1), party (1.2), and NPC shop (1.3) dispatched. VIP still parse-only. |
+| Player operations | `operate.cc` | ~82% | Trade (1.1), party (1.2), NPC shop (1.3), and VIP (1.4) dispatched. |
 | Info / script | `info.cc`, `script.cc`, `config.cc` | ~55% | Mostly replaced by OTBM + `config.lua` + Lua by design. |
 
 Note that `communication.cc` turned out to contain no chat mechanics at all — it is socket, login, and waiting-list only (`communication.hh:24-64`). The 772 talk and channel behavior lives in `operate.cc` (`Talk`, `TChannel`, `OpenChannel`) and `crplayer.cc` (`RecordTalk`, `LeaveAllChannels`). Cite those instead.
@@ -32,7 +32,7 @@ Note that `communication.cc` turned out to contain no chat mechanics at all — 
 
 These are whole features where the client sends a request and nothing happens. They dominate the remaining work.
 
-VIP still shares the old failure shape: the packet parses correctly in `crates/tfs-rust-net/src/game_parse.rs`, produces a `GamePacket` variant, and then falls into the catch-all in `crates/tfs-rust-core/src/game_loop.rs` where it is traced and dropped. **§1.1 trade, §1.2 party, and §1.3 shop are complete** — see below.
+VIP, trade, party, and shop packets parse in `crates/tfs-rust-net/src/game_parse.rs`. **§1.1 trade, §1.2 party, §1.3 shop, and §1.4 VIP are complete** — see below.
 
 ### 1.1 Player-to-player trade — **DONE**
 
@@ -79,11 +79,19 @@ VIP still shares the old failure shape: the packet parses correctly in `crates/t
 
 **Tests:** `cargo test -p tfs-rust-core --lib shop`.
 
-### 1.4 VIP runtime
+### 1.4 VIP runtime — **DONE**
 
-**Rust:** the list loads from the DB at login (`login_out.rs:640`), but `VipAdd` / `VipRemove` / `VipEdit` have no handlers, so the list is a read-only snapshot that cannot be edited in-session.
+**Pack surface:** TFS `Game::playerAddVip` / `playerRemoveVip` / `playerEditVip` (`game.cpp`); `Player::addVIP` / `removeVIP` / `getMaxVIPEntries` / `notifyStatusChange` (`player.cpp`); `IOLoginData::{add,remove,edit}VIPEntry` (`iologindata.cpp`). List is per-account (`account_viplist`).
 
-**Needed:** the three handlers plus DB persist, honoring `max_vip_entries` from `groups.xml`.
+**Rust (September 2026):**
+
+- Focused module [`crates/tfs-rust-core/src/vip.rs`](../crates/tfs-rust-core/src/vip.rs) — mutate `Player.vip_list`, not a world registry.
+- Packets `0xDC`–`0xDE` dispatched in [`game_loop.rs`](../crates/tfs-rust-core/src/game_loop.rs); offline add via `GameCommand::VipLookupFinished`.
+- Wire: `ProtocolCodec::encode_vip_entry` / `encode_vip_status` — 772 `0xD2`/`0xD3`/`0xD4`; 1098 full `0xD2` + `0xD3` status byte. `VipEdit` stays 1098-only incoming.
+- Immediate SQL persist (not `savePlayer`); `getMaxVIPEntries` uses `groups.max_vip_entries` or premium 100 / free 20, hard cap 200.
+- Login/logout `notifyStatusChange` to watchers.
+
+**Tests:** `cargo test -p tfs-rust-core --lib vip`; protocol goldens `vip_entry_and_status_*`.
 
 ### 1.5 Mail
 
@@ -211,9 +219,9 @@ Shipped in `party.rs`: invite / revoke / join / pass leadership / leave / disban
 
 Shipped in `shop.rs`: four packet handlers, `shop_owner` / catalog, buy/sell money+capacity, `updateSaleShopList`, Lua `openShopWindow`. See [§1.3](#13-npc-shop-runtime--done).
 
-### Step 3b — VIP runtime
+### ~~Step 3b — VIP runtime~~ **Done (audit 1.4, September 2026)**
 
-Three handlers (`VipAdd` / `VipRemove` / `VipEdit`) and a DB persist, honoring `max_vip_entries` from `groups.xml`. List already loads at login.
+Shipped in `vip.rs`: add / remove / edit, `getMaxVIPEntries`, immediate `account_viplist` persist, login/logout status. See [§1.4](#14-vip-runtime--done).
 
 ### Step 4 — Rune and spell gates
 
@@ -305,6 +313,7 @@ Per-area suites worth running while working the steps above:
 rtk cargo test -p tfs-rust-core --lib trade
 rtk cargo test -p tfs-rust-core --lib party
 rtk cargo test -p tfs-rust-core --lib shop
+rtk cargo test -p tfs-rust-core --lib vip
 rtk cargo test -p tfs-rust-core --lib idle_stimulus
 rtk cargo test -p tfs-rust-core --lib monster_ai
 rtk cargo test -p tfs-rust-core --lib player::combat

@@ -1222,6 +1222,26 @@ fn handle_game_packet(
                 world.player_close_shop(cid, true);
             }
         }
+        GamePacket::VipAdd { name } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_add_vip(cid, name);
+            }
+        }
+        GamePacket::VipRemove { guid } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_remove_vip(cid, guid);
+            }
+        }
+        GamePacket::VipEdit {
+            guid,
+            description,
+            icon,
+            notify,
+        } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_edit_vip(cid, guid, description, icon, notify);
+            }
+        }
         GamePacket::PartyInvite { target_id } => {
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
                 world.player_party_invite(conn_id, cid, target_id);
@@ -1393,6 +1413,14 @@ fn dispatch_command(
             resolved,
         } => {
             world.apply_house_names_resolved(house_id, list_id, text, resolved);
+            ControlFlow::Continue(())
+        }
+        GameCommand::VipLookupFinished {
+            requester_guid,
+            target_guid,
+            target_name,
+        } => {
+            world.apply_vip_lookup_finished(requester_guid, target_guid, target_name);
             ControlFlow::Continue(())
         }
     }

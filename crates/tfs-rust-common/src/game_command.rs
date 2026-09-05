@@ -68,4 +68,11 @@ pub enum GameCommand {
         text: String,
         resolved: Vec<(String, u32)>,
     },
+    /// Offline VIP add — `IOLoginData::getGuidByNameEx` finished off the game thread.
+    VipLookupFinished {
+        requester_guid: u32,
+        /// `None` when no living character matches the typed name.
+        target_guid: Option<u32>,
+        target_name: String,
+    },
 }

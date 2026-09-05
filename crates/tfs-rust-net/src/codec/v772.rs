@@ -659,4 +659,35 @@ impl Codec772 {
         m.write_u8(server::CLOSE_TRADE);
         m
     }
+
+    /// `ProtocolGame::sendVIP` — `gameserver/src/protocolgame.cpp` (`guid` + name + online byte).
+    #[allow(clippy::too_many_arguments)]
+    pub fn encode_vip_entry(
+        &self,
+        guid: u32,
+        name: &str,
+        _description: &str,
+        _icon: u32,
+        _notify: bool,
+        status: u8,
+    ) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::VIP_ENTRY);
+        m.write_u32(guid);
+        m.write_string(name);
+        m.write_u8(status);
+        m
+    }
+
+    /// Online: `sendVIP` companion `0xD3` + guid. Logout: `sendVIPLogout` `0xD4` + guid.
+    pub fn encode_vip_status(&self, guid: u32, status: u8) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        if status == 0 {
+            m.write_u8(server::VIP_LOGOUT);
+        } else {
+            m.write_u8(server::VIP_STATUS);
+        }
+        m.write_u32(guid);
+        m
+    }
 }

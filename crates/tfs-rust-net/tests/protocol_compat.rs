@@ -651,6 +651,40 @@ fn open_private_channel_1098_layout() {
     assert_eq!(b, vec![0xAD, 3, 0, b'B', b'o', b'b']);
 }
 
+/// 10.98 `sendVIP` — `src/protocolgame.cpp` ~3097.
+#[test]
+fn vip_entry_and_status_1098() {
+    let entry = codec().encode_vip_entry(0x0102_0304, "A", "", 0, false, 1);
+    assert_eq!(
+        entry.as_bytes(),
+        &[
+            0xD2, 0x04, 0x03, 0x02, 0x01, 0x01, 0x00, b'A', 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x01
+        ]
+    );
+    let status = codec().encode_vip_status(0x0102_0304, 1);
+    assert_eq!(status.as_bytes(), &[0xD3, 0x04, 0x03, 0x02, 0x01, 0x01]);
+}
+
+/// 772 `sendVIP` / `sendVIPLogout` — `gameserver/src/protocolgame.cpp`.
+#[test]
+fn vip_entry_and_status_772() {
+    let c = Codec::from_version(ProtocolVersion::V772).expect("772 codec");
+    let entry = c.encode_vip_entry(0x0102_0304, "A", "ignored", 9, true, 1);
+    assert_eq!(
+        entry.as_bytes(),
+        &[0xD2, 0x04, 0x03, 0x02, 0x01, 0x01, 0x00, b'A', 0x01]
+    );
+    assert_eq!(
+        c.encode_vip_status(0x0102_0304, 1).as_bytes(),
+        &[0xD3, 0x04, 0x03, 0x02, 0x01]
+    );
+    assert_eq!(
+        c.encode_vip_status(0x0102_0304, 0).as_bytes(),
+        &[0xD4, 0x04, 0x03, 0x02, 0x01]
+    );
+}
+
 /// 7.72 golden bytes (Phase A5). Reference: `gameserver/src/` ONLY — `protocolgame.cpp`,
 /// `networkmessage.cpp`, `tools.cpp`. Every assertion cites the C++ field list it mirrors.
 mod v772 {

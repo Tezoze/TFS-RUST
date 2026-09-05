@@ -24,7 +24,7 @@ use tfs_rust_net::map_description::{
 use tfs_rust_net::outgoing::{send_extended_opcode, send_magic_effect, send_otcv8_features};
 use tfs_rust_net::outgoing_extra::{
     send_enter_world, send_fight_modes, send_icons, send_icons_classic, send_inventory_slot_empty,
-    send_otc_features_raw, send_pending_state_entered, send_unjustified_stats_stub, send_vip_entry,
+    send_otc_features_raw, send_pending_state_entered, send_unjustified_stats_stub,
     send_world_light,
 };
 
@@ -648,19 +648,16 @@ fn enqueue_initial_login_packets_classic(
     // VIP entries, then status icons (`0xA2` + `u8` in 772 — `sendIcons(uint16_t)` truncates to a byte).
     for e in &vip_list {
         let online = world.player_by_guid.contains_key(&e.player_id);
-        let status = if online { 1 } else { 0 };
-        world.enqueue_outgoing(
-            conn_id,
-            send_vip_entry(
-                e.player_id,
-                &e.name,
-                &e.description,
-                e.icon,
-                e.notify,
-                status,
-            )
-            .into_bytes(),
+        let status = u8::from(online);
+        let pkt = world.codec.encode_vip_entry(
+            e.player_id,
+            &e.name,
+            &e.description,
+            e.icon,
+            e.notify,
+            status,
         );
+        world.enqueue_encoded(conn_id, pkt);
     }
     world.enqueue_outgoing(conn_id, send_icons_classic(0).into_bytes());
     // Overwrite the zeroed icons with live condition icons (mana shield / swords / …).
@@ -811,19 +808,16 @@ fn enqueue_initial_login_packets_1098(
     );
     for e in &vip_list {
         let online = world.player_by_guid.contains_key(&e.player_id);
-        let status = if online { 1 } else { 0 };
-        world.enqueue_outgoing(
-            conn_id,
-            send_vip_entry(
-                e.player_id,
-                &e.name,
-                &e.description,
-                e.icon,
-                e.notify,
-                status,
-            )
-            .into_bytes(),
+        let status = u8::from(online);
+        let pkt = world.codec.encode_vip_entry(
+            e.player_id,
+            &e.name,
+            &e.description,
+            e.icon,
+            e.notify,
+            status,
         );
+        world.enqueue_encoded(conn_id, pkt);
     }
     world.enqueue_encoded(
         conn_id,

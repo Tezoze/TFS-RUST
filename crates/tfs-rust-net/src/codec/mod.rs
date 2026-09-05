@@ -243,6 +243,23 @@ pub trait ProtocolCodec {
     /// `ProtocolGame::sendCloseTrade` — `0x7F`.
     fn encode_close_trade(&self) -> NetworkMessage;
 
+    /// `ProtocolGame::sendVIP` — add/login list line.
+    /// 772: `0xD2` + guid + name + online `u8`. 1098: description / icon / notify / status.
+    #[allow(clippy::too_many_arguments)]
+    fn encode_vip_entry(
+        &self,
+        guid: u32,
+        name: &str,
+        description: &str,
+        icon: u32,
+        notify: bool,
+        status: u8,
+    ) -> NetworkMessage;
+
+    /// VIP online/offline notify.
+    /// 772: online `0xD3` + guid; logout `0xD4` + guid. 1098: `0xD3` + guid + status.
+    fn encode_vip_status(&self, guid: u32, status: u8) -> NetworkMessage;
+
     /// Era-correct wire value for the "cancel / failure" text-message channel used by
     /// `sendCancelMessage` (1098) / `SendResult` (772).
     ///
@@ -559,6 +576,22 @@ impl ProtocolCodec for Codec1098 {
         Codec1098::encode_close_trade(self)
     }
 
+    fn encode_vip_entry(
+        &self,
+        guid: u32,
+        name: &str,
+        description: &str,
+        icon: u32,
+        notify: bool,
+        status: u8,
+    ) -> NetworkMessage {
+        Codec1098::encode_vip_entry(self, guid, name, description, icon, notify, status)
+    }
+
+    fn encode_vip_status(&self, guid: u32, status: u8) -> NetworkMessage {
+        Codec1098::encode_vip_status(self, guid, status)
+    }
+
     fn failure_message_type(&self) -> u8 {
         21 // MESSAGE_STATUS_SMALL — `src/const.h:190`
     }
@@ -862,6 +895,22 @@ impl ProtocolCodec for Codec772 {
         Codec772::encode_close_trade(self)
     }
 
+    fn encode_vip_entry(
+        &self,
+        guid: u32,
+        name: &str,
+        description: &str,
+        icon: u32,
+        notify: bool,
+        status: u8,
+    ) -> NetworkMessage {
+        Codec772::encode_vip_entry(self, guid, name, description, icon, notify, status)
+    }
+
+    fn encode_vip_status(&self, guid: u32, status: u8) -> NetworkMessage {
+        Codec772::encode_vip_status(self, guid, status)
+    }
+
     fn failure_message_type(&self) -> u8 {
         23 // TALK_FAILURE_MESSAGE — `sending.cc:339`, `enums.hh:674`
     }
@@ -1057,6 +1106,17 @@ impl Codec {
         ) -> NetworkMessage;
 
         encode_close_trade() -> NetworkMessage;
+
+        encode_vip_entry(
+            guid: u32,
+            name: &str,
+            description: &str,
+            icon: u32,
+            notify: bool,
+            status: u8,
+        ) -> NetworkMessage;
+
+        encode_vip_status(guid: u32, status: u8) -> NetworkMessage;
 
         failure_message_type() -> u8;
 
@@ -1357,6 +1417,22 @@ impl ProtocolCodec for Codec {
 
     fn encode_close_trade(&self) -> NetworkMessage {
         Codec::encode_close_trade(self)
+    }
+
+    fn encode_vip_entry(
+        &self,
+        guid: u32,
+        name: &str,
+        description: &str,
+        icon: u32,
+        notify: bool,
+        status: u8,
+    ) -> NetworkMessage {
+        Codec::encode_vip_entry(self, guid, name, description, icon, notify, status)
+    }
+
+    fn encode_vip_status(&self, guid: u32, status: u8) -> NetworkMessage {
+        Codec::encode_vip_status(self, guid, status)
     }
 
     fn failure_message_type(&self) -> u8 {

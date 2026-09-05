@@ -525,4 +525,117 @@ impl<'a> PlayerStore<'a> {
             .map_err(|e| TfsRustError::Database(e.to_string()))?;
         Ok(())
     }
+
+    /// C++ `IOLoginData::getGuidByNameEx` (name + id only; special-VIP flag is unused).
+    pub async fn guid_and_name_by_name(&self, name: &str) -> Result<Option<(u32, String)>> {
+        let name = name.to_ascii_lowercase();
+        self.pool
+            .execute_with_retry(|| {
+                let pool = self.pool.inner().clone();
+                let name = name.clone();
+                async move {
+                    let row: Option<(i32, String)> = sqlx::query_as(
+                        "SELECT id, name FROM players WHERE LOWER(name) = ? AND deletion = 0 LIMIT 1",
+                    )
+                    .bind(&name)
+                    .fetch_optional(&pool)
+                    .await?;
+                    Ok(row.map(|(id, n)| (u32::try_from(id).unwrap_or(0), n)))
+                }
+            })
+            .await
+            .map_err(|e| TfsRustError::Database(e.to_string()))
+    }
+
+    /// C++ `IOLoginData::addVIPEntry`.
+    pub async fn add_vip_entry(
+        &self,
+        account_id: i32,
+        player_id: i32,
+        description: &str,
+        icon: u32,
+        notify: bool,
+    ) -> Result<()> {
+        let description = description.to_string();
+        let icon = i32::try_from(icon.min(255)).unwrap_or(0);
+        let notify = i8::from(notify);
+        self.pool
+            .execute_with_retry(|| {
+                let pool = self.pool.inner().clone();
+                let description = description.clone();
+                async move {
+                    sqlx::query(
+                        r#"INSERT INTO account_viplist
+                           (account_id, player_id, description, icon, notify)
+                           VALUES (?, ?, ?, ?, ?)"#,
+                    )
+                    .bind(account_id)
+                    .bind(player_id)
+                    .bind(&description)
+                    .bind(icon)
+                    .bind(notify)
+                    .execute(&pool)
+                    .await
+                }
+            })
+            .await
+            .map_err(|e| TfsRustError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    /// C++ `IOLoginData::removeVIPEntry`.
+    pub async fn remove_vip_entry(&self, account_id: i32, player_id: i32) -> Result<()> {
+        self.pool
+            .execute_with_retry(|| {
+                let pool = self.pool.inner().clone();
+                async move {
+                    sqlx::query(
+                        "DELETE FROM account_viplist WHERE account_id = ? AND player_id = ?",
+                    )
+                    .bind(account_id)
+                    .bind(player_id)
+                    .execute(&pool)
+                    .await
+                }
+            })
+            .await
+            .map_err(|e| TfsRustError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    /// C++ `IOLoginData::editVIPEntry`.
+    pub async fn edit_vip_entry(
+        &self,
+        account_id: i32,
+        player_id: i32,
+        description: &str,
+        icon: u32,
+        notify: bool,
+    ) -> Result<()> {
+        let description = description.to_string();
+        let icon = i32::try_from(icon.min(255)).unwrap_or(0);
+        let notify = i8::from(notify);
+        self.pool
+            .execute_with_retry(|| {
+                let pool = self.pool.inner().clone();
+                let description = description.clone();
+                async move {
+                    sqlx::query(
+                        r#"UPDATE account_viplist
+                           SET description = ?, icon = ?, notify = ?
+                           WHERE account_id = ? AND player_id = ?"#,
+                    )
+                    .bind(&description)
+                    .bind(icon)
+                    .bind(notify)
+                    .bind(account_id)
+                    .bind(player_id)
+                    .execute(&pool)
+                    .await
+                }
+            })
+            .await
+            .map_err(|e| TfsRustError::Database(e.to_string()))?;
+        Ok(())
+    }
 }

@@ -476,7 +476,7 @@ pub fn send_spell_group_cooldown(group: u8, time_ms: u32) -> NetworkMessage {
 
 pub fn send_vip_status(guid: u32, status: u8) -> NetworkMessage {
     let mut m = NetworkMessage::new();
-    m.write_u8(0xD3);
+    m.write_u8(tfs_rust_common::protocol_opcodes::server::VIP_STATUS);
     m.write_u32(guid);
     m.write_u8(status);
     m
@@ -639,7 +639,7 @@ pub fn send_vip_entry(
     status: u8,
 ) -> NetworkMessage {
     let mut m = NetworkMessage::new();
-    m.write_u8(0xD2);
+    m.write_u8(tfs_rust_common::protocol_opcodes::server::VIP_ENTRY);
     m.write_u32(guid);
     m.write_string(name);
     m.write_string(description);

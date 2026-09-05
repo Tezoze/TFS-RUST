@@ -928,4 +928,7 @@
 417. **NPC shop window is TFS pack surface, not 772 corpus** (`shop.rs`, `npc_shop.rs`): 772 vendors are dialogue `create`/`delete`/`createmoney` (`npc/host.rs`). Client shop opcodes `0x79`–`0x7C` and `openShopWindow` come from TFS `ShopModule`. Catalog lives on `Player.shop_items` + `shop_owner` (NPC wire id). Native buy checks inventory+bank money then weight capacity then `npc_give_to` then `removeTotalMoney`. Native sell is `removeItemOfType` then `player_create_money`. Lua buy/sell callbacks from `openShopWindow` skip the native path when present. Selling gold coins at 1 gp is a no-op on gold count (remove then pay the same coins). `updateSaleShopList` refreshes on currency or sell-priced catalog types, including nested containers.
     *(September 2026)*
 
+418. **VIP persist is immediate SQL, not `savePlayer`** (`vip.rs`, `PlayerStore::{add,remove,edit}_vip_entry`): TFS writes `account_viplist` in `IOLoginData::addVIPEntry` at add/remove/edit time; `PlayerSaveData` already documents that VIP is not in the character save. `groups.max_vip_entries == 0` (shipped player/tutor groups) means premium **100** / free **20**, not unlimited — then hard-cap 200. Offline add must leave the game thread (`VipLookupFinished`); 772 `sendVIP` is guid+name+online byte, logout is `0xD4`, while 1098 carries description/icon/notify on `0xD2` and status on `0xD3`. `VipEdit` (`0xDE`) is 1098-only incoming.
+    *(September 2026)*
+
 
