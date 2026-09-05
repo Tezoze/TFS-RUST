@@ -6,6 +6,7 @@ mod aid_move_events;
 mod bed;
 mod chase_debug;
 pub mod chat;
+mod chat_talk;
 mod clear_field;
 pub mod combat;
 pub mod condition;

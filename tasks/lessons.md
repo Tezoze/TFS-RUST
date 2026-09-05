@@ -964,4 +964,7 @@
 429. **Duplicate client ids: first OTB wins, later fills gaps** (`convert_itemid_to_clientid.py`): C++ `clientIdToServerIdMap.emplace` keeps the first server id; TFS still stores both `ItemType`s. A catalog keyed by client id can only keep one row. Last-write dropped 422’s walkable sandstone `Animation` (client 425) and 3058’s `Moveable` corpse (4240). First OTB flags/speed/light/toporder win; group 0 may upgrade (coffin/tree `Container`); XML `setdefault` fills missing keys (containersize) without replacing name/suffix. Editor disguise suffixes stay off the canonical row.
     *(September 2026)*
 
+430. **Chat flood is `RecordTalk`, not TFS `maxMessageBuffer`** (`chat_talk.rs`; `game_world_chat.rs`): 772 `TalkBufferFullTime` is a millisecond deadline (`+2500` per talk, mute when `> now+7500`), mute duration `n²×5` **rounds** (`MutingEndRound`). Pack Trade is **id 6**; corpus `CHANNEL_TRADE=5` is pack RL-Chat — gating 5 would rate-limit the wrong channel. `RecordMessage` is 20 addressee slots aging out after 600 rounds; the cancel includes the mute duration, not the audit's truncated sentence. SAY hear box is `|dx|≤7 && |dy|≤5` same Z (not `can_see` ~8×6); yell is 30×30 with multifloor only when **both** are on the surface (`z≤7`). `EditText` `TOOLONG` has no `SendResult` string — observable cancel is `NOROOM` `"There is not enough room."` (`receiving.cc`). `UseWithCreature` OOR is `OUTOFRANGE`, not a silent drop. Guild look is a third sentence (`You are <rank|a member> of the <guild> [(nick)]`).
+    *(September 2026)*
+
 

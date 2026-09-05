@@ -210,6 +210,21 @@ pub fn player_from_loaded(
                 .guild
                 .as_ref()
                 .and_then(|g| u32::try_from(g.guild_id).ok()),
+            guild_name: data
+                .guild
+                .as_ref()
+                .map(|g| g.guild_name.clone())
+                .unwrap_or_default(),
+            guild_rank: data
+                .guild
+                .as_ref()
+                .map(|g| g.rank_name.clone())
+                .unwrap_or_default(),
+            guild_nick: data
+                .guild
+                .as_ref()
+                .map(|g| g.nick.clone())
+                .unwrap_or_default(),
             party_leaving_round: 0,
             former_party_id: None,
         },
@@ -275,6 +290,7 @@ pub fn player_from_loaded(
         secure_mode: false,
         earliest_protection_zone_round: 0,
         client_icons: 0,
+        talk_guard: Default::default(),
         message_buffer_count: 0,
         message_buffer_ticks: 0,
         blessings: p.blessings,

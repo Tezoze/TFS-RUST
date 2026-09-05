@@ -83,6 +83,8 @@ pub struct GuildMembershipRow {
     pub guild_id: i32,
     pub rank_id: i32,
     pub nick: String,
+    pub guild_name: String,
+    pub rank_name: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -319,7 +321,12 @@ impl<'a> PlayerStore<'a> {
                 let pool = self.pool.inner().clone();
                 async move {
                     sqlx::query_as::<_, GuildMembershipRow>(
-                        "SELECT guild_id, rank_id, nick FROM guild_membership WHERE player_id = ?",
+                        "SELECT gm.guild_id, gm.rank_id, gm.nick, g.name AS guild_name, \
+                         COALESCE(gr.name, '') AS rank_name \
+                         FROM guild_membership gm \
+                         INNER JOIN guilds g ON g.id = gm.guild_id \
+                         LEFT JOIN guild_ranks gr ON gr.id = gm.rank_id \
+                         WHERE gm.player_id = ?",
                     )
                     .bind(player_id)
                     .fetch_optional(&pool)

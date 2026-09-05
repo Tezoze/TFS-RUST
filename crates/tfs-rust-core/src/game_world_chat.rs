@@ -8,8 +8,7 @@
 //! CH-1 lands only `player_say`'s `TALKTYPE_SAY` arm + the `playerSaySpell` stub;
 //! the other arms are `warn!`-logged stubs filled in by CH-2/CH-3/CH-4/CH-5.
 // C++ reference: `Game::playerSay` — `gameserver/src/game.cpp:3208-3281`;
-// `Game::playerSaySpell` — `game.cpp:3375-3398`; `Player::resetIdleTime` /
-// `isMuted` / `removeMessageBuffer` — `player.cpp:1314-1380`.
+// 772 `Talk` / `RecordTalk` / `RecordMessage` — `operate.cc`, `crplayer.cc`.
 
 use std::time::Instant;
 
@@ -17,6 +16,11 @@ use tfs_rust_common::ConnId;
 use tfs_rust_common::enums::ConditionType;
 use tfs_rust_common::enums::WorldType;
 
+use crate::chat::{CHANNEL_GUILD, CHANNEL_TRADE};
+use crate::chat_talk::{
+    addressed_too_many_text, check_for_muting, muted_now_text, muted_still_text, record_message,
+    record_talk, stamp_trade_channel, trade_channel_blocked,
+};
 use crate::combat::{apply_condition, set_dot_damage_origin};
 use crate::condition::{ActiveCondition, ConditionData};
 use crate::config::ConfigManager;
@@ -109,27 +113,15 @@ impl GameWorld {
             return;
         }
 
-        // C++ `uint32_t muteTime = player->isMuted();` — `game.cpp:3223-3227`.
-        let mute_seconds = self.player_is_muted(cid);
-        if mute_seconds > 0 {
-            if let Some(conn) = self.conn_for_creature(cid) {
-                use tfs_rust_net::outgoing_extra::send_text_message_simple;
-                self.enqueue_outgoing(
-                    conn,
-                    send_text_message_simple(
-                        self.codec.failure_message_type(),
-                        &format!("You are still muted for {} seconds.", mute_seconds),
-                    )
-                    .into_bytes(),
-                );
+        // 772 `CheckForMuting` only on muteable modes (`operate.cc:2220-2235`).
+        // Guild / private / party channels stay speakable while muted.
+        if self.speak_is_muteable(speak_class, channel_id) {
+            let mute_seconds = self.player_is_muted(cid);
+            if mute_seconds > 0 {
+                self.send_player_failure_text(cid, &muted_still_text(mute_seconds));
+                return;
             }
-            return;
         }
-
-        // C++ `player->removeMessageBuffer();` — `game.cpp:3233`.
-        // Called after mute check, before type switch. Increments buffer count and
-        // applies escalating mute when exceeding `maxMessageBuffer`.
-        self.player_remove_message_buffer(cid);
 
         // C++ `if (!text.empty() && text.front() == '/' && player->isAccessPlayer()) return;`
         // — `game.cpp:3229-3231`. GM `/`-prefix commands are handled by the talkaction
@@ -138,20 +130,13 @@ impl GameWorld {
             return;
         }
 
-        // C++ `player->removeMessageBuffer();` — `game.cpp:3233`, `player.cpp:1350-1380`.
-        // TODO(chat CH-5): increment `message_buffer_count`, apply `ConditionType::Muted`
-        // with `5 * muteCount²`s when it exceeds `MAX_MESSAGEBUFFER`. No-op until CH-5.
-
         // C++ `switch (type)` — `game.cpp:3235-3280`.
         match speak_class {
             TALKTYPE_SAY => {
-                // C++ `internalCreatureSay(player, TALKTYPE_SAY, text, false, nullptr, &pos);`
-                // — `game.cpp:3236-3238`. Reuses the existing viewport fan-out
-                // (`broadcast_creature_say_viewport`) which already mirrors
-                // `internalCreatureSay`'s normal-range spectator lookup + per-viewer
-                // `sendCreatureSay` + (CH-1) `on_creature_say`/`on_hear` event hooks.
+                if self.player_record_talk_and_maybe_mute(cid) {
+                    return;
+                }
                 self.broadcast_creature_say_viewport(cid, TALKTYPE_SAY, text);
-                // 772 `Talk` NPC stimulus after player SAY — `operate.cc:2451-2468`.
                 crate::npc::deliver_npc_say_stimuli(self, cid, text);
             }
             TALKTYPE_WHISPER => {
@@ -637,26 +622,72 @@ impl GameWorld {
         let speaker_guid = player.guid;
         let speaker_level = player.level;
         let speaker_name = player.base.name.clone();
+        let speaker_guild_name = player.social.guild_name.clone();
+        let speaker_guild_id = player.social.guild_id;
 
-        // Check if channel exists and player is a member
-        let Some(channel) = self.chat.get_channel(channel_id) else {
+        if self.chat.get_channel(channel_id).is_none() {
             return;
-        };
-
+        }
         if !self.chat.is_user_in_channel(channel_id, cid) {
             return;
         }
 
-        // TODO(chat CH-4): Run Lua `onSpeak` hook if present, may modify speak_class or reject
+        let channel_users: Vec<CreatureId> = if channel_id == CHANNEL_GUILD {
+            speaker_guild_id
+                .and_then(|gid| self.chat.guild_channels.get(&gid))
+                .or_else(|| self.chat.get_channel(channel_id))
+                .map(|ch| ch.users.iter().copied().collect())
+                .unwrap_or_default()
+        } else {
+            self.chat
+                .get_channel(channel_id)
+                .map(|ch| ch.users.iter().copied().collect())
+                .unwrap_or_default()
+        };
+
         let _ = speaker_guid;
 
-        // Collect recipient connections first so the `self.chat` borrow (from `channel`) is
-        // released before we touch `self.codec` / `alloc_statement_id` / the outgoing queue.
-        let recipients: Vec<ConnId> = channel
-            .users
-            .iter()
-            .filter_map(|m| self.creature_to_conn.get(m).copied())
-            .collect();
+        // Pack Trade id 6 — corpus `EarliestTradeChannelRound + 120` (`operate.cc:2263-2270`).
+        if channel_id == CHANNEL_TRADE {
+            let round_nr = self.round_nr;
+            let blocked = match self.creatures.get(cid) {
+                Some(CreatureKind::Player(p)) => trade_channel_blocked(&p.talk_guard, round_nr),
+                _ => false,
+            };
+            if blocked {
+                self.send_player_failure_text(cid, "You may only place one offer in two minutes.");
+                return;
+            }
+            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                stamp_trade_channel(&mut p.talk_guard, round_nr);
+            }
+        }
+
+        if self.speak_is_muteable(TALKTYPE_CHANNEL_Y, channel_id)
+            && self.player_record_talk_and_maybe_mute(cid)
+        {
+            return;
+        }
+
+        let mut recipients: Vec<ConnId> = Vec::new();
+        if channel_id == CHANNEL_GUILD {
+            for member in channel_users {
+                let same_guild = match self.creatures.get(member) {
+                    Some(CreatureKind::Player(p)) => {
+                        !speaker_guild_name.is_empty() && p.social.guild_name == speaker_guild_name
+                    }
+                    _ => false,
+                };
+                if same_guild && let Some(conn) = self.creature_to_conn.get(&member).copied() {
+                    recipients.push(conn);
+                }
+            }
+        } else {
+            recipients = channel_users
+                .iter()
+                .filter_map(|m| self.creature_to_conn.get(m).copied())
+                .collect();
+        }
 
         // Fan out to all channel members through the era-aware codec. `sendToChannel` differs by
         // era: 1098 writes `name + u16 level + type + …`, 772 omits the `level` field
@@ -687,9 +718,9 @@ impl GameWorld {
             return;
         }
 
-        // Premium-only gate — C++ `Player::isPremium` (`player.cpp`).
+        // Premium-only gate — 772 `NOPREMIUMACCOUNT` (`operate.cc:3543-3545`).
         if !self.player_is_premium(cid) {
-            // TODO(chat CH-4): Send "You need a premium account to create private channels." message
+            self.send_cancel_message(conn_id, ReturnValue::YouNeedPremiumAccount);
             return;
         }
 
@@ -717,92 +748,109 @@ impl GameWorld {
             .push(msg.into_bytes());
     }
 
-    /// TFS `PrivateChatChannel::invitePlayer` — `chat.cpp:29-52`.
-    ///
-    /// Invites a player to a private channel. Sends info text to both parties.
-    ///
-    /// C++ reference: `src/chat.cpp` `PrivateChatChannel::invitePlayer`.
+    /// 772 `OpenChannel` invite (`operate.cc:3654-3669`).
     pub fn player_channel_invite(&mut self, cid: CreatureId, target_name: &str) {
-        let Some(CreatureKind::Player(_player)) = self.creatures.get(cid) else {
+        let Some(CreatureKind::Player(owner)) = self.creatures.get(cid) else {
             return;
         };
+        let owner_name = owner.base.name.clone();
+        let owner_sex = owner.sex;
 
-        // Find a private channel owned by this player
-        let (channel_id, _private_channel) = match self
+        let Some(channel_id) = self
             .chat
             .private_channels
             .iter()
             .find(|(_, pc)| pc.owner == cid)
-        {
-            Some((id, pc)) => (*id, pc),
-            None => {
-                // TODO(chat CH-4): Send "You do not own a private channel." message
-                return;
-            }
-        };
-
-        // Resolve target player by name
-        let Some(target_id) = self.player_by_name.get(target_name) else {
-            // TODO(chat CH-4): Send "Player not found." message
+            .map(|(id, _)| *id)
+        else {
+            self.send_player_failure_text(cid, "You do not own a private channel.");
             return;
         };
 
-        let Some(CreatureKind::Player(target_player)) = self.creatures.get(*target_id) else {
+        let Some(target_id) = self.find_online_player_by_name(target_name) else {
+            self.send_player_failure_text(cid, "A player with this name is not online.");
             return;
         };
 
-        // Add to invited list
-        self.chat
-            .invite_to_private_channel(channel_id, target_player.guid);
+        let Some(CreatureKind::Player(target_player)) = self.creatures.get(target_id) else {
+            return;
+        };
+        let target_guid = target_player.guid;
+        let target_display = target_player.base.name.clone();
 
-        // TODO(chat CH-4): Send info text to both parties
+        let already = self
+            .chat
+            .private_channels
+            .get(&channel_id)
+            .is_some_and(|pc| pc.invited.contains(&target_guid));
+        if already {
+            self.send_player_status_message(
+                cid,
+                &format!("{target_display} has already been invited."),
+            );
+            return;
+        }
+
+        self.chat.invite_to_private_channel(channel_id, target_guid);
+        self.send_player_status_message(cid, &format!("{target_display} has been invited."));
+        let poss = if owner_sex == crate::creature::PlayerSex::Female {
+            "her"
+        } else {
+            "his"
+        };
+        self.send_player_status_message(
+            target_id,
+            &format!("{owner_name} invites you to {poss} private chat channel."),
+        );
     }
 
-    /// TFS `PrivateChatChannel::excludePlayer` — `chat.cpp:29-52`.
-    ///
-    /// Excludes a player from a private channel. Sends info text to both parties
-    /// and sends `send_close_private` to the excluded player.
-    ///
-    /// C++ reference: `src/chat.cpp` `PrivateChatChannel::excludePlayer`.
+    /// 772 `OpenChannel` exclude (`operate.cc:3743-3747`).
     pub fn player_channel_exclude(&mut self, cid: CreatureId, target_name: &str) {
-        let Some(CreatureKind::Player(_player)) = self.creatures.get(cid) else {
+        if !matches!(self.creatures.get(cid), Some(CreatureKind::Player(_))) {
             return;
-        };
+        }
 
-        // Find a private channel owned by this player
-        let (channel_id, _private_channel) = match self
+        let Some(channel_id) = self
             .chat
             .private_channels
             .iter()
             .find(|(_, pc)| pc.owner == cid)
-        {
-            Some((id, pc)) => (*id, pc),
-            None => {
-                // TODO(chat CH-4): Send "You do not own a private channel." message
-                return;
-            }
-        };
-
-        // Resolve target player by name
-        let Some(target_id) = self.player_by_name.get(target_name) else {
-            // TODO(chat CH-4): Send "Player not found." message
+            .map(|(id, _)| *id)
+        else {
+            self.send_player_failure_text(cid, "You do not own a private channel.");
             return;
         };
 
-        let Some(CreatureKind::Player(target_player)) = self.creatures.get(*target_id) else {
+        let Some(target_id) = self.find_online_player_by_name(target_name) else {
+            self.send_player_failure_text(cid, "A player with this name is not online.");
             return;
         };
 
-        // Remove from invited list
+        let Some(CreatureKind::Player(target_player)) = self.creatures.get(target_id) else {
+            return;
+        };
+        let target_guid = target_player.guid;
+        let target_display = target_player.base.name.clone();
+
+        let was_invited = self
+            .chat
+            .private_channels
+            .get(&channel_id)
+            .is_some_and(|pc| pc.invited.contains(&target_guid));
+        if !was_invited {
+            self.send_player_status_message(
+                cid,
+                &format!("{target_display} has not been invited."),
+            );
+            return;
+        }
+
         if self
             .chat
-            .exclude_from_private_channel(channel_id, target_player.guid)
+            .exclude_from_private_channel(channel_id, target_guid)
         {
-            // Remove from channel if they were in it
-            self.chat.remove_user_from_channel(channel_id, *target_id);
-
-            // Send close private to excluded player (use existing function)
-            if let Some(conn_id) = self.creature_to_conn.get(target_id) {
+            self.chat.remove_user_from_channel(channel_id, target_id);
+            if let Some(conn_id) = self.creature_to_conn.get(&target_id) {
                 let msg = outgoing_extra::send_close_private(channel_id);
                 self.pending_outgoing
                     .entry(*conn_id)
@@ -810,8 +858,7 @@ impl GameWorld {
                     .push(msg.into_bytes());
             }
         }
-
-        // TODO(chat CH-4): Send info text to both parties
+        self.send_player_status_message(cid, &format!("{target_display} has been excluded."));
     }
 
     /// TFS `Game::playerOpenPrivateChannel` — `game.cpp` (~3490).
@@ -857,6 +904,9 @@ impl GameWorld {
     /// is delegated to [`Self::broadcast_creature_whisper`].
     fn player_whisper(&mut self, cid: CreatureId, text: &str) {
         if text.is_empty() {
+            return;
+        }
+        if self.player_record_talk_and_maybe_mute(cid) {
             return;
         }
         self.broadcast_creature_whisper(cid, TALKTYPE_WHISPER, text);
@@ -905,6 +955,9 @@ impl GameWorld {
         if level < min_level {
             if self.chat_config.yell_allow_premium && is_premium {
                 // C++ premium bypass — `game.cpp:3433-3436`.
+                if self.player_record_talk_and_maybe_mute(cid) {
+                    return;
+                }
                 let upper = ascii_uppercase(text);
                 self.broadcast_creature_yell(cid, TALKTYPE_YELL, &upper);
                 return;
@@ -945,6 +998,9 @@ impl GameWorld {
 
         // C++ `internalCreatureSay(player, TALKTYPE_YELL, asUpperCaseString(text), false)`
         // — `game.cpp:3451`.
+        if self.player_record_talk_and_maybe_mute(cid) {
+            return;
+        }
         let upper = ascii_uppercase(text);
         self.broadcast_creature_yell(cid, TALKTYPE_YELL, &upper);
     }
@@ -979,13 +1035,33 @@ impl GameWorld {
             return;
         };
 
-        let (target_ghost_mode, speaker_name, speaker_level) =
+        let (target_ghost_mode, speaker_name, speaker_level, target_guid) =
             match (self.creatures.get(target_cid), self.creatures.get(cid)) {
-                (Some(CreatureKind::Player(target)), Some(CreatureKind::Player(speaker))) => {
-                    (target.ghost_mode, speaker.base.name.clone(), speaker.level)
-                }
+                (Some(CreatureKind::Player(target)), Some(CreatureKind::Player(speaker))) => (
+                    target.ghost_mode,
+                    speaker.base.name.clone(),
+                    speaker.level,
+                    target.guid,
+                ),
                 _ => return,
             };
+
+        if self.player_record_talk_and_maybe_mute(cid) {
+            return;
+        }
+        if !self.player_has_flag(cid, PLAYER_FLAG_CANNOT_BE_MUTED) {
+            let round_nr = self.round_nr;
+            let muting = match self.creatures.get_mut(cid) {
+                Some(CreatureKind::Player(p)) => {
+                    record_message(&mut p.talk_guard, target_guid, round_nr)
+                }
+                _ => 0,
+            };
+            if muting > 0 {
+                self.send_player_failure_text(cid, &addressed_too_many_text(muting));
+                return;
+            }
+        }
 
         // C++ `if (type == TALKTYPE_PRIVATE_RED_TO && (player->hasFlag(PlayerFlag_CanTalkRedPrivate) || player->getAccountType() >= ACCOUNT_TYPE_GAMEMASTER))`
         // — `game.cpp:3663-3667`. Downgrade to normal private unless sender has flag or is GM.
@@ -1099,87 +1175,48 @@ impl GameWorld {
         self.player_is_access_player(viewer_cid)
     }
 
-    /// C++ `Player::removeMessageBuffer` — `player.cpp:1357-1380`.
-    ///
-    /// Called at the top of every successful `player_say` dispatch. Increments the
-    /// message buffer count and applies escalating mute when exceeding `maxMessageBuffer`.
-    /// Mute duration follows the `5 * n²` formula where n is the escalation count.
-    fn player_remove_message_buffer(&mut self, cid: CreatureId) {
-        let (guid, has_cannot_be_muted) = match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => (
-                p.guid,
-                self.player_has_flag(cid, PLAYER_FLAG_CANNOT_BE_MUTED),
-            ),
-            _ => return,
-        };
-
-        // C++ `if (hasFlag(PlayerFlag_CannotBeMuted)) return;` — `player.cpp:1359-1361`.
-        if has_cannot_be_muted {
-            return;
-        }
-
-        let max_buffer = self.chat_config.max_message_buffer as i32;
-        if max_buffer == 0 {
-            return;
-        }
-
-        let (buffer_count, player_name) = match self.creatures.get_mut(cid) {
-            Some(CreatureKind::Player(p)) => {
-                p.message_buffer_count += 1;
-                (p.message_buffer_count, p.base.name.clone())
+    /// 772 `TalkMuteable` (`operate.cc:2220-2227`) — public pack channels plus
+    /// say/whisper/yell/PM. Guild and private channels are not talk-muteable.
+    fn speak_is_muteable(&self, speak_class: u8, channel_id: u16) -> bool {
+        match speak_class {
+            TALKTYPE_SAY | TALKTYPE_WHISPER | TALKTYPE_YELL | TALKTYPE_PRIVATE
+            | TALKTYPE_PRIVATE_RED => true,
+            TALKTYPE_CHANNEL_O | TALKTYPE_CHANNEL_Y | TALKTYPE_CHANNEL_R1 | TALKTYPE_CHANNEL_R2 => {
+                channel_id != CHANNEL_GUILD && self.chat.normal_channels.contains_key(&channel_id)
             }
-            _ => return,
-        };
-
-        // C++ `if (++MessageBufferCount > maxMessageBuffer)` — `player.cpp:1364-1378`.
-        if buffer_count > max_buffer {
-            let mute_count = self.mute_count_map.get(&guid).copied().unwrap_or(1);
-            let mute_time = 5 * mute_count * mute_count;
-            self.mute_count_map.insert(guid, mute_count + 1);
-
-            // C++ `Condition* condition = Condition::createCondition(CONDITIONID_DEFAULT, CONDITION_MUTED, muteTime * 1000, 0);`
-            // — `player.cpp:1374`. Add `ConditionType::Muted` with the calculated duration.
-            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-                use tfs_rust_common::enums::ConditionType;
-                p.base.active_conditions.push(ActiveCondition {
-                    id: 0,
-                    sub_id: 0,
-                    ctype: ConditionType::Muted,
-                    data: ConditionData::Generic {
-                        ticks: (mute_time * 1000) as i32,
-                    },
-                    timer_rounds_left: None,
-                    skill_count: 0,
-                    skill_max_count: 0,
-                    field_dot: false,
-                });
-            }
-
-            // C++ `sendTextMessage(MESSAGE_STATUS_SMALL, fmt::format("You are muted for {:d} seconds.", muteTime));`
-            // — `player.cpp:1377`.
-            if let Some(conn) = self.conn_for_creature(cid) {
-                use tfs_rust_net::outgoing_extra::send_text_message_simple;
-                self.enqueue_outgoing(
-                    conn,
-                    send_text_message_simple(
-                        self.codec.failure_message_type(),
-                        &format!("You are muted for {} seconds.", mute_time),
-                    )
-                    .into_bytes(),
-                );
-            }
-
-            tracing::warn!(player = %player_name, mute_time, "flood mute applied");
+            _ => false,
         }
     }
 
-    /// C++ `Player::isMuted` — `player.cpp:1335-1348`.
-    ///
-    /// Returns the remaining mute time in seconds, or 0 if not muted.
-    /// Checks all active `ConditionType::Muted` conditions and returns the maximum
-    /// remaining ticks (converted to seconds).
+    /// `TPlayer::RecordTalk` — returns true when this talk tripped mute (do not broadcast).
+    fn player_record_talk_and_maybe_mute(&mut self, cid: CreatureId) -> bool {
+        if self.player_has_flag(cid, PLAYER_FLAG_CANNOT_BE_MUTED) {
+            return false;
+        }
+        let server_ms = self.server_ms;
+        let round_nr = self.round_nr;
+        let muting = match self.creatures.get_mut(cid) {
+            Some(CreatureKind::Player(p)) => record_talk(&mut p.talk_guard, server_ms, round_nr),
+            _ => 0,
+        };
+        if muting > 0 {
+            self.send_player_failure_text(cid, &muted_now_text(muting));
+            true
+        } else {
+            false
+        }
+    }
+
+    fn send_player_failure_text(&mut self, cid: CreatureId, text: &str) {
+        if let Some(conn) = self.conn_for_creature(cid) {
+            let msg =
+                outgoing_extra::send_text_message_simple(self.codec.failure_message_type(), text);
+            self.enqueue_outgoing(conn, msg.into_bytes());
+        }
+    }
+
+    /// 772 `CheckForMuting` plus pack `CONDITION_MUTED` (Lua can still apply it).
     fn player_is_muted(&self, cid: CreatureId) -> u32 {
-        // C++ `if (hasFlag(PlayerFlag_CannotBeMuted)) return 0;` — `player.cpp:1337-1339`.
         if self.player_has_flag(cid, PLAYER_FLAG_CANNOT_BE_MUTED) {
             return 0;
         }
@@ -1188,7 +1225,7 @@ impl GameWorld {
             return 0;
         };
 
-        use tfs_rust_common::enums::ConditionType;
+        let from_round = check_for_muting(&p.talk_guard, self.round_nr);
         let mut max_ticks = 0i32;
         for cond in &p.base.active_conditions {
             if cond.ctype == ConditionType::Muted
@@ -1198,7 +1235,7 @@ impl GameWorld {
                 max_ticks = ticks;
             }
         }
-        (max_ticks / 1000) as u32
+        from_round.max((max_ticks / 1000) as u32)
     }
     // ---- LUA-3 / LUA-4: Lua mutation applier helpers ----
 
@@ -2369,6 +2406,103 @@ mod apply_spec_tests {
         assert!(
             bob_pkts.iter().any(|p| p.first() == Some(&0xAA)),
             "receiver must get sendPrivateMessage 0xAA: {bob_pkts:?}"
+        );
+    }
+
+    #[test]
+    fn trade_channel_two_minute_gate() {
+        use crate::chat::ChatChannel;
+        use crate::sim_harness::{
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
+            insert_spectator_player, test_player,
+        };
+        use tfs_rust_common::Position;
+
+        let mut world = beat_driven_test_world();
+        world.round_nr = 100;
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let cid = insert_spectator_player(&mut world, ConnId(1), test_player("Trader", pos));
+        let mut trade = ChatChannel::new(CHANNEL_TRADE, "Trade".into());
+        trade.public_channel = true;
+        world.chat.add_normal_channel(trade);
+        world.chat.add_user_to_channel(CHANNEL_TRADE, cid);
+
+        world.player_talk_to_channel(cid, TALKTYPE_CHANNEL_Y, CHANNEL_TRADE, "selling");
+        world.pending_outgoing.clear();
+        world.player_talk_to_channel(cid, TALKTYPE_CHANNEL_Y, CHANNEL_TRADE, "selling again");
+        let pkts = world.pending_outgoing.get(&ConnId(1)).expect("outgoing");
+        let hay = pkts
+            .iter()
+            .flat_map(|p| p.iter().copied())
+            .collect::<Vec<_>>();
+        let needle = b"You may only place one offer in two minutes.";
+        assert!(
+            hay.windows(needle.len()).any(|w| w == needle),
+            "second trade offer in the same round must cancel: {pkts:?}"
+        );
+    }
+
+    #[test]
+    fn private_channel_create_without_premium_cancels() {
+        use crate::sim_harness::{
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
+            insert_spectator_player, test_player,
+        };
+        use tfs_rust_common::Position;
+
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let cid = insert_spectator_player(&mut world, ConnId(1), test_player("Free", pos));
+        world.player_create_private_channel(ConnId(1), cid);
+        assert!(world.chat.private_channels.is_empty());
+        let pkts = world.pending_outgoing.get(&ConnId(1)).expect("outgoing");
+        let hay = pkts
+            .iter()
+            .flat_map(|p| p.iter().copied())
+            .collect::<Vec<_>>();
+        let needle = b"You need a premium account.";
+        assert!(
+            hay.windows(needle.len()).any(|w| w == needle),
+            "NOPREMIUMACCOUNT cancel: {pkts:?}"
+        );
+    }
+
+    #[test]
+    fn say_range_excludes_viewer_outside_7x5() {
+        use crate::sim_harness::{
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
+            insert_spectator_player, test_player,
+        };
+        use tfs_rust_common::Position;
+
+        let mut world = beat_driven_test_world();
+        let speaker_pos = Position::new(100, 100, 7);
+        let near_pos = Position::new(107, 105, 7);
+        let far_pos = Position::new(108, 105, 7);
+        ensure_walkable_tile(&mut world.map, speaker_pos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, near_pos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, far_pos, TEST_SYNTHETIC_GROUND_WP);
+        let speaker =
+            insert_spectator_player(&mut world, ConnId(1), test_player("Speaker", speaker_pos));
+        let _near = insert_spectator_player(&mut world, ConnId(2), test_player("Near", near_pos));
+        let _far = insert_spectator_player(&mut world, ConnId(3), test_player("Far", far_pos));
+
+        world.player_say(ConnId(1), speaker, TALKTYPE_SAY, 0, "", "hello");
+        assert!(
+            world
+                .pending_outgoing
+                .get(&ConnId(2))
+                .is_some_and(|p| !p.is_empty()),
+            "viewer at dx=7 dy=5 must hear SAY"
+        );
+        assert!(
+            world
+                .pending_outgoing
+                .get(&ConnId(3))
+                .is_none_or(|p| p.is_empty()),
+            "viewer at dx=8 must not hear SAY"
         );
     }
 }

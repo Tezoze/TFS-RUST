@@ -44,6 +44,8 @@ use crate::ids::CreatureId;
 pub const CHANNEL_GUILD: u16 = 0x00;
 pub const CHANNEL_PARTY: u16 = 0x01;
 pub const CHANNEL_RULE_REP: u16 = 0x02; // Excluded — RVR non-goal
+/// Pack `Channel(6, "Trade")` — corpus `CHANNEL_TRADE=5` is pack RL-Chat.
+pub const CHANNEL_TRADE: u16 = crate::chat_talk::CHANNEL_TRADE;
 pub const CHANNEL_PRIVATE: u16 = 0xFFFF; // Sentinel/base for dynamic private channels
 
 /// TFS `ChatChannel` — `chat.h:15-71`.

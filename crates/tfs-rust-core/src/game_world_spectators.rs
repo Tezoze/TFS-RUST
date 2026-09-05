@@ -323,17 +323,15 @@ impl GameWorld {
             Some(CreatureKind::Npc(n)) => (n.base.position, n.base.name.clone(), 0),
             _ => return,
         };
-        // `spectator_conns_via_grid` already filters by `can_see_position(viewer, pos)`,
-        // so every conn here can see the speaker's tile.
+        // 772 `Talk` SAY: TFindCreatures r=7 then `|dx|≤7 && |dy|≤5 && same Z`
+        // (`operate.cc:2357-2374`). Coarse box is 7×7; post-filter drops dy>5.
         let viewers: Vec<(ConnId, CreatureId)> = self
-            .spectator_conns_via_grid(pos)
+            .spectator_players_in_box(pos, 7, 7, false)
             .into_iter()
-            .filter_map(|conn| {
-                self.conn_to_creature
-                    .get(&conn)
-                    .copied()
-                    .map(|viewer| (conn, viewer))
+            .filter(|(_conn, _viewer, viewer_pos)| {
+                crate::chat_talk::talk_in_say_range(pos, *viewer_pos)
             })
+            .map(|(conn, viewer, _)| (conn, viewer))
             .collect();
         // C++ `internalCreatureSay` two-pass loop — "send to client" then "event method"
         // (`gameserver/src/game.cpp:3529-3544`). Pass 1: per-viewer `sendCreatureSay`.
@@ -376,22 +374,22 @@ impl GameWorld {
             Some(CreatureKind::Player(p)) => (p.base.position, p.base.name.clone(), p.level as u16),
             _ => return, // whisper is player-only
         };
-        // C++ `map.getSpectators(spectators, pos, false, false, maxClientViewportX,
-        // maxClientViewportX, maxClientViewportY, maxClientViewportY)` — same-floor,
-        // ±8 X / ±6 Y box. `spectator_players_in_box` collects without `canSee` filter,
-        // matching the C++ whisper path (no per-viewer `canSee` check).
-        let viewers = self.spectator_players_in_box(
-            pos,
-            MAX_CLIENT_VIEWPORT_X as u16,
-            MAX_CLIENT_VIEWPORT_Y as u16,
-            false,
-        );
+        // 772 `Talk` WHISPER: same 7×5 same-Z hear box as SAY, then `"pspsps"` outside
+        // Chebyshev 1 (`operate.cc:2376-2384`).
+        let viewers = self
+            .spectator_players_in_box(pos, 7, 7, false)
+            .into_iter()
+            .filter(|(_conn, _viewer, viewer_pos)| {
+                crate::chat_talk::talk_in_say_range(pos, *viewer_pos)
+            })
+            .collect::<Vec<_>>();
         // Pass 1: per-viewer `sendCreatureSay` with distance-based text selection.
         for (conn, _viewer, viewer_pos) in &viewers {
-            let within_one = pos.z == viewer_pos.z
-                && (pos.x as i32 - viewer_pos.x as i32).unsigned_abs() <= 1
-                && (pos.y as i32 - viewer_pos.y as i32).unsigned_abs() <= 1;
-            let viewer_text = if within_one { text } else { "pspsps" };
+            let viewer_text = if crate::chat_talk::talk_whisper_clear(pos, *viewer_pos) {
+                text
+            } else {
+                "pspsps"
+            };
             let sid = self.alloc_statement_id();
             let pkt = self.codec.encode_creature_say(
                 sid,
@@ -430,8 +428,15 @@ impl GameWorld {
             Some(CreatureKind::Player(p)) => (p.base.position, p.base.name.clone(), p.level as u16),
             _ => return,
         };
-        // C++ yell range: `(18, 18, 14, 14)` with `multifloor=true`.
-        let viewers = self.spectator_players_in_box(pos, 18, 14, true);
+        // 772 `Talk` YELL: TFindCreatures r=30 then `|dx|≤30 && |dy|≤30`; multifloor
+        // only when both creatures are on the surface (`operate.cc:2357-2392`).
+        let viewers = self
+            .spectator_players_in_box(pos, 30, 30, true)
+            .into_iter()
+            .filter(|(_conn, _viewer, viewer_pos)| {
+                crate::chat_talk::talk_in_yell_range(pos, *viewer_pos)
+            })
+            .collect::<Vec<_>>();
         // Pass 1: per-viewer `sendCreatureSay`. C++ ghost-mode check:
         // `if (!ghostMode || tmpPlayer->canSeeCreature(creature))` — for non-ghost
         // speakers (the common case) all viewers receive the packet.

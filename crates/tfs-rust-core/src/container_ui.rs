@@ -873,8 +873,14 @@ impl GameWorld {
         let Some(win) = self.write_windows.get(&cid).copied() else {
             return Ok(());
         };
-        if win.window_id != window_text_id || new_text.len() > usize::from(win.max_len) {
+        if win.window_id != window_text_id {
             return Ok(());
+        }
+        // 772 `EditText`: `TextLength >= MaxLength` → TOOLONG (`operate.cc:2654-2656`).
+        // `SendResult(TOOLONG)` has no string; the packet path cancels with NOROOM
+        // (`receiving.cc:664-669`) → `"There is not enough room."`.
+        if new_text.len() >= usize::from(win.max_len) {
+            return Err(ReturnValue::NotEnoughRoom);
         }
         let Some(item) = self.items.get(win.item_id) else {
             self.write_windows.remove(&cid);

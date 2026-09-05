@@ -104,6 +104,12 @@ pub struct PlayerEconomy {
 pub struct PlayerSocial {
     pub party_id: Option<u32>,
     pub guild_id: Option<u32>,
+    /// `guilds.name` at login — empty when not in a guild (`operate.cc` `Guild[0]`).
+    pub guild_name: String,
+    /// `guild_ranks.name` — empty ⇒ look clause uses `"a member"`.
+    pub guild_rank: String,
+    /// `guild_membership.nick` — 772 look `Title`.
+    pub guild_nick: String,
     /// 772 `PartyLeavingRound` — non-zero after leave; CheckFormer window +5 rounds.
     pub party_leaving_round: u32,
     /// Party id retained for CheckFormer after leave (`GetPartyLeader(true)`).
@@ -319,7 +325,9 @@ pub struct Player {
     pub logging_out: bool,
     /// 772 `TCreature::LogoutAllowed` — set by `LogoutPossible` success or `StartLogout(Force)`.
     pub logout_allowed: bool,
-    /// C++ `MessageBufferCount` — flood protection message count (`player.cpp:1064`).
+    /// 772 `RecordTalk` / `RecordMessage` / trade-channel gate (`crplayer.cc`).
+    pub talk_guard: crate::chat_talk::PlayerTalkGuard,
+    /// C++ `MessageBufferCount` — leftover TFS buffer (inert; RecordTalk is live).
     /// Incremented by `removeMessageBuffer` per say, decremented by `addMessageBuffer`
     /// every 1500ms. Triggers mute escalation when exceeding `maxMessageBuffer`.
     pub message_buffer_count: i32,

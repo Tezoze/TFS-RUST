@@ -1752,7 +1752,17 @@ impl GameWorld {
                             }
                         }
                     };
-                    format!("You see yourself. {role_clause}")
+                    let membership = crate::chat_talk::guild_membership_clause(
+                        true,
+                        "He",
+                        &p.social.guild_name,
+                        &p.social.guild_rank,
+                        &p.social.guild_nick,
+                    );
+                    match membership {
+                        Some(m) => format!("You see yourself. {role_clause} {m}."),
+                        None => format!("You see yourself. {role_clause}"),
+                    }
                 } else {
                     // C++ pronoun: `PLAYERSEX_FEMALE` ⇒ "She", else "He" (`player.cpp:112-116`).
                     let pronoun = if p.sex == crate::creature::PlayerSex::Female {
@@ -1760,9 +1770,8 @@ impl GameWorld {
                     } else {
                         "He"
                     };
-                    match access_group {
+                    let look = match access_group {
                         Some(group_name) => {
-                            // Access group: omit level (`player.cpp:107-109`).
                             format!("You see {}. {pronoun} is {group_name}.", p.base.name)
                         }
                         None => {
@@ -1783,6 +1792,17 @@ impl GameWorld {
                                 p.base.name, p.level
                             )
                         }
+                    };
+                    let membership = crate::chat_talk::guild_membership_clause(
+                        false,
+                        pronoun,
+                        &p.social.guild_name,
+                        &p.social.guild_rank,
+                        &p.social.guild_nick,
+                    );
+                    match membership {
+                        Some(m) => format!("{look} {m}."),
+                        None => look,
                     }
                 }
             }
@@ -1934,6 +1954,43 @@ mod look_tests {
         let target_cid = insert_player(&mut world, test_player("RookSample", pos));
         let msg = world.player_look_description(viewer_cid, target_cid);
         assert_eq!(msg, "You see RookSample (Level 8). He has no vocation.");
+    }
+
+    /// 772 `operate.cc:1900-1927` guild membership clause.
+    #[test]
+    fn other_player_look_includes_guild_rank_and_nick() {
+        let mut world = minimal_world();
+        world.vocations = sorcerer_vocation_db();
+        let pos = Position::new(100, 100, 7);
+        let viewer_cid = insert_player(&mut world, test_player("Viewer", pos));
+        let mut target = test_player("Guildie", pos);
+        target.vocation_id = 1;
+        target.level = 50;
+        target.social.guild_name = "Test Guild".into();
+        target.social.guild_rank = "Leader".into();
+        target.social.guild_nick = "the nick".into();
+        let target_cid = insert_player(&mut world, target);
+        let msg = world.player_look_description(viewer_cid, target_cid);
+        assert_eq!(
+            msg,
+            "You see Guildie (Level 50). He is a sorcerer. He is Leader of the Test Guild (the nick)."
+        );
+    }
+
+    #[test]
+    fn self_look_guild_member_without_rank() {
+        let mut world = minimal_world();
+        world.vocations = sorcerer_vocation_db();
+        let pos = Position::new(100, 100, 7);
+        let mut viewer = test_player("Guildie", pos);
+        viewer.vocation_id = 1;
+        viewer.social.guild_name = "Test Guild".into();
+        let viewer_cid = insert_player(&mut world, viewer);
+        let msg = world.player_look_description(viewer_cid, viewer_cid);
+        assert_eq!(
+            msg,
+            "You see yourself. You are a sorcerer. You are a member of the Test Guild."
+        );
     }
 
     /// Helper: build a minimal `CreatureBase` for monster/npc look tests.

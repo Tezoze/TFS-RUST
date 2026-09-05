@@ -1,3 +1,15 @@
+# Chat parity pass — audit Step 5 (2026-09-05)
+
+Corpus `Talk` / `RecordTalk` / `RecordMessage` (`operate.cc`, `crplayer.cc`). Pack surface stays TFS channels (`data/scripts/chatchannels/*.lua`). Flood decision: **port RecordTalk** (772 corpus for all `clientVersion`); do not keep TFS `5n²` / `maxMessageBuffer` as the live model.
+
+- [x] `chat_talk.rs` — 7×5 same-Z say box, 30×30 yell box (corpus `Talk`); thin call from `broadcast_creature_say_viewport` / `broadcast_creature_yell`
+- [x] Trade-channel 2 min gate — `EarliestTradeChannelRound + 120` on pack Trade id **6** (not corpus enum 5 = pack RL-Chat)
+- [x] PM spam cap — `RecordMessage` → `"You have addressed too many players."`
+- [x] Guild look clause + guild-name channel filter; persist rank/nick from `guild_membership`
+- [x] Cancel texts: private-channel premium (`YouNeedPremiumAccount`), invite/exclude info, `EditText` TOOLONG, `UseWithCreature` 7×5 range
+- [x] RecordTalk 2.5s sliding window + `MutingEndRound` (replace TFS message-buffer mute)
+- [x] Tests + audit Step 5 marked done; lesson captured
+
 # Unified item catalog (RON)
 
 **Status:** converter complete (2026-09-05). Engine cutover later — **unify on client id**, no dual-id alias.

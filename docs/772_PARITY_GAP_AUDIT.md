@@ -20,7 +20,7 @@ Likewise, several corpus subsystems are deliberately **not** ported as engines �
 | Map | `map.cc`, `info.cc` | ~78% | Stacking, flags, throw LOS, decay cron done. Live sector refresh missing. |
 | Houses | `houses.cc` | ~75% | Ownership, rent, lists, doors, eviction, **in-game sell via trade** done. Policy evictions and transfer missing. |
 | Move / use | `moveuse.cc`, `objects.cc` | ~70% | Typed handlers, doors, fields, tools done. Mail missing; script numerics drift. |
-| Chat / channels | `operate.cc`, `crplayer.cc` | ~68% | Say/whisper/yell/private/channels live. Flood model and yell radius diverge. |
+| Chat / channels | `operate.cc`, `crplayer.cc` | ~88% | Say 7×5, yell 30×30, RecordTalk, trade-offer gate, PM cap, guild look/filter done. Lua channel hooks and a few packets still stubbed. |
 | Player operations | `operate.cc` | ~82% | Trade (1.1), party (1.2), NPC shop (1.3), and VIP (1.4) dispatched. |
 | Info / script | `info.cc`, `script.cc`, `config.cc` | ~55% | Mostly replaced by OTBM + `config.lua` + Lua by design. |
 
@@ -121,15 +121,14 @@ VIP, trade, party, and shop packets parse in `crates/tfs-rust-net/src/game_parse
 
 ### Player operations and chat
 
-- **Yell radius is TFS, not corpus.** `Talk` searches r=30 and filters a 30×30 box (`operate.cc:2357-2397`); `broadcast_creature_yell` uses `spectator_players_in_box(18,14,true)` (`game_world_spectators.rs:428-429`).
-- **Say radius is not the asymmetric 7×5 box.** Corpus filters `DistanceX>7 || DistanceY>5` on the same Z (`operate.cc:2372-2374`); Rust uses generic `can_see` (~8×6).
-- **Flood mute uses a different algorithm.** `RecordTalk` is a 2.5-second sliding window with a round-based `MutingEndRound` (`crplayer.cc:1741-1755`); `player_remove_message_buffer` is the TFS count-based `5n²` seconds model (`game_world_chat.rs:1097-1162`).
-- **Trade-channel rate limit is missing entirely.** `EarliestTradeChannelRound + 120` gates channel 5 (`operate.cc:2263-2270`) — a two-minute limit between trade offers. No channel-5 gate exists in `game_world_chat.rs`.
-- **Private-message spam cap is missing.** `RecordMessage` (`operate.cc:2316-2322`) produces `"You have addressed too many players."`.
-- **Guild clause absent from player look.** `operate.cc:1900-1927` appends guild, rank, and title; `player_look_description` (`game_world_inventory.rs:1597`) omits it. Channel talk is likewise missing the guild-name filter (`operate.cc:2445-2448`).
-- **Several failures are silent where the corpus sends text.** Private-channel creation without premium returns quietly (`game_world_chat.rs:679-681`) instead of `NOPREMIUMACCOUNT` (`operate.cc:3543-3545`); channel invite/exclude info texts are TODO (`:746-747`, `:802`); `EditText` accepts over-long input instead of `TOOLONG` (`container_ui.rs:876-877` vs `operate.cc:2654-2656`); `UseWithCreature` out of the 7×5 range drops silently (`game_loop.rs:925-929`).
+- **Yell / say / whisper ranges — DONE (Step 5).** `Talk` post-filter `|dx|≤7 && |dy|≤5` same Z; yell `|dx|≤30 && |dy|≤30` with surface-only multifloor (`operate.cc:2357-2392`). Helpers in [`chat_talk.rs`](../crates/tfs-rust-core/src/chat_talk.rs). Whisper still garbles to `"pspsps"` outside Chebyshev 1.
+- **Flood mute — DONE (Step 5).** Live model is corpus `RecordTalk` (2.5 s `ServerMilliseconds` window, trip when `TalkBufferFullTime > now + 7500`, mute `n²×5` rounds). TFS `maxMessageBuffer` / `5n²` is no longer applied. Pack `CONDITION_MUTED` still extends `player_is_muted`.
+- **Trade-channel rate limit — DONE (Step 5).** `EarliestTradeChannelRound + 120` on pack Trade **id 6** (`trade.lua`), not corpus enum 5 (pack RL-Chat). Cancel: `"You may only place one offer in two minutes."`
+- **Private-message spam cap — DONE (Step 5).** `RecordMessage` 20 slots / 600-round age; `"You have addressed too many players. You are muted for N second(s)."`
+- **Guild look + channel filter — DONE (Step 5).** Look appends rank/`a member` + `of the <guild>` + optional nick. Guild-channel fan-out requires matching `guild_name` (`operate.cc:2445-2448`). Login JOINs `guilds` / `guild_ranks`.
+- **Cancel texts — DONE (Step 5).** Premium private-channel create → `YouNeedPremiumAccount`; invite/exclude corpus info strings; `EditText` `len >= max` → `NotEnoughRoom`; `UseWithCreature` OOR → `DestinationOutOfReach`.
 - **`LookInBattleList`, `JoinAggression`, and `CloseNpcChannel` are unhandled** — parsed, then dropped.
-- **Lua channel hooks are stubbed.** `canJoin` / `onJoin` / `onSpeak` from `data/scripts/chatchannels/*.lua` are not wired (`game_world_chat.rs:557-638`).
+- **Lua channel hooks are stubbed.** `canJoin` / `onJoin` / `onSpeak` from `data/scripts/chatchannels/*.lua` are not wired (`game_world_chat.rs`). Trade's 2-minute Lua `onSpeak` is replaced by the native gate above; advertising/level-1 still need the hooks.
 
 ### Monster / NPC AI
 
@@ -205,7 +204,7 @@ Recorded so future audits do not re-file them as gaps.
 
 ## Recommended next steps
 
-Ordered by gameplay impact per unit of effort. Steps 1–4 (trade, party, shop, VIP, rune/spell gates) are done; Step 5 chat is the next player-facing cluster.
+Ordered by gameplay impact per unit of effort. Steps 1–5 (trade, party, shop, VIP, rune/spell gates, chat) are done; Step 6 monster AI is the next cluster.
 
 ### ~~Step 1 — Player trade~~ **Done (audit 1.1, August 2026)**
 
@@ -227,9 +226,9 @@ Shipped in `vip.rs`: add / remove / edit, `getMaxVIPEntries`, immediate `account
 
 Shipped: `CheckRuneLevel` + `EarliestSpellTime` + aggressive PZ on `player_cast_rune`; `CheckAccount` premium on `player_say_spell`; stacked-tile aggressive/self preference via `prefer_rune_tile_target`. See [Magic / spells](#magic--spells).
 
-### Step 5 — Chat parity pass
+### ~~Step 5 — Chat parity pass~~ **Done (September 2026)**
 
-Yell radius to 30×30, explicit 7×5 say box, trade-channel two-minute gate, PM spam cap, guild clause in look and channel filter, and the missing cancel messages. Decide separately whether to port the `RecordTalk` sliding-window flood model or gate the TFS buffer behind `MechanicsProfile`.
+Shipped in [`chat_talk.rs`](../crates/tfs-rust-core/src/chat_talk.rs): 7×5 say / 30×30 yell, RecordTalk flood, pack Trade id 6 + 120-round gate, `RecordMessage` PM cap, guild look + guild-channel filter, cancel texts (premium private channel, invite/exclude, EditText NOROOM, UseWithCreature OOR). Flood decision: **port RecordTalk** (not TFS `maxMessageBuffer`). Lua `canJoin`/`onSpeak` still stubbed. See [Player operations and chat](#player-operations-and-chat).
 
 ### Step 6 — Monster AI edge paths
 
@@ -315,6 +314,7 @@ rtk cargo test -p tfs-rust-core --lib party
 rtk cargo test -p tfs-rust-core --lib shop
 rtk cargo test -p tfs-rust-core --lib vip
 rtk cargo test -p tfs-rust-core --lib spell::tests
+rtk cargo test -p tfs-rust-core --lib chat_talk
 rtk cargo test -p tfs-rust-core --lib idle_stimulus
 rtk cargo test -p tfs-rust-core --lib monster_ai
 rtk cargo test -p tfs-rust-core --lib player::combat

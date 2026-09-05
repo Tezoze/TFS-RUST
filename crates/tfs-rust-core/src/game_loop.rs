@@ -946,6 +946,8 @@ fn handle_game_packet(
                     || (player_pos.x as i32 - target_pos.x as i32).unsigned_abs() > 7
                     || (player_pos.y as i32 - target_pos.y as i32).unsigned_abs() > 5
                 {
+                    // 772 `CUseOnCreature` `OUTOFRANGE` (`receiving.cc:524-529`).
+                    world.send_cancel_message(conn_id, ReturnValue::DestinationOutOfReach);
                     return;
                 }
                 let obj1 = ActionObjectRef {
