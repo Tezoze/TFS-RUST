@@ -1617,6 +1617,52 @@ mod tests {
         assert_eq!(item.abilities.stats[STAT_MAGICPOINTS], 3);
     }
 
+    /// Corpus `DAMAGE_ENERGY/FIRE/POISON` — not TFS ice/holy/death (`items.cpp` ITEM_PARSE_ABSORBPERCENTMAGIC).
+    #[test]
+    fn absorbpercentmagic_is_energy_fire_earth_not_ice_holy_death() {
+        let mut item = ItemType::default();
+        apply_xml_attribute(&mut item, "absorbpercentmagic", "20", 1);
+        let ab = &item.abilities;
+        assert_eq!(
+            ab.absorb_percent[combat_absorb_index(CombatType::Energy)],
+            20
+        );
+        assert_eq!(ab.absorb_percent[combat_absorb_index(CombatType::Fire)], 20);
+        assert_eq!(
+            ab.absorb_percent[combat_absorb_index(CombatType::Earth)],
+            20
+        );
+        assert_eq!(
+            ab.absorb_percent[combat_absorb_index(CombatType::Physical)],
+            0
+        );
+        assert_eq!(ab.absorb_percent[combat_absorb_index(CombatType::Ice)], 0);
+        assert_eq!(ab.absorb_percent[combat_absorb_index(CombatType::Holy)], 0);
+        assert_eq!(ab.absorb_percent[combat_absorb_index(CombatType::Death)], 0);
+    }
+
+    #[test]
+    fn absorbpercentelements_omits_ice() {
+        let mut item = ItemType::default();
+        apply_xml_attribute(&mut item, "absorbpercentelements", "5", 1);
+        let ab = &item.abilities;
+        assert_eq!(
+            ab.absorb_percent[combat_absorb_index(CombatType::Energy)],
+            5
+        );
+        assert_eq!(ab.absorb_percent[combat_absorb_index(CombatType::Ice)], 0);
+    }
+
+    #[test]
+    fn absorbpercentice_explicit_xml_still_sets_slot() {
+        let mut item = ItemType::default();
+        apply_xml_attribute(&mut item, "absorbpercentice", "10", 1);
+        assert_eq!(
+            item.abilities.absorb_percent[combat_absorb_index(CombatType::Ice)],
+            10
+        );
+    }
+
     /// C++ duplicate keys: `absorbpercentearth` / `fieldabsorbpercentearth` → same as poison/earth index (`src/items.cpp`).
     #[test]
     fn absorb_earth_keys_alias_earth_combat_type_like_cpp() {

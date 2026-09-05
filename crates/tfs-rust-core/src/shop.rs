@@ -16,7 +16,7 @@ use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::item::Item;
-use crate::item_look::{item_get_description_cpp, look_distance_tfs};
+use crate::item_look::{classic_item_look, item_look_description, look_distance_tfs};
 use crate::login_out::creature_wire_id;
 use crate::player::inventory::money::{ITEM_CRYSTAL_COIN, ITEM_GOLD_COIN, ITEM_PLATINUM_COIN};
 use crate::player_money_lib::player_remove_total_money;
@@ -122,7 +122,7 @@ impl GameWorld {
             .get(player)
             .map(|k| k.position())
             .unwrap_or_default();
-        let desc = item_get_description_cpp(
+        let desc = item_look_description(
             &item,
             it,
             it.weight,
@@ -131,6 +131,7 @@ impl GameWorld {
             None,
             None,
             None,
+            classic_item_look(&self.codec),
         );
         let msg = format!("You see {desc}");
         self.enqueue_outgoing(
@@ -201,14 +202,9 @@ impl GameWorld {
             return;
         }
 
-        let invoked = self.events.on_npc_shop_sell(
-            npc,
-            player,
-            server_id,
-            sub_type,
-            amount,
-            ignore_equipped,
-        );
+        let invoked =
+            self.events
+                .on_npc_shop_sell(npc, player, server_id, sub_type, amount, ignore_equipped);
         if !invoked {
             let _ = self.native_shop_sell(player, server_id, sub_type, amount, ignore_equipped);
         }
@@ -254,12 +250,7 @@ impl GameWorld {
     }
 
     /// `Player::hasShopItemForSale` — catalog buy-price + fluid subtype gate.
-    pub fn has_shop_item_for_sale(
-        &self,
-        player: CreatureId,
-        item_id: u16,
-        sub_type: u8,
-    ) -> bool {
+    pub fn has_shop_item_for_sale(&self, player: CreatureId, item_id: u16, sub_type: u8) -> bool {
         self.has_shop_item_for_buy(player, item_id, sub_type)
     }
 
@@ -385,12 +376,7 @@ impl GameWorld {
         player_remove_total_money(self, player, total)
     }
 
-    fn player_can_carry_shop_purchase(
-        &self,
-        player: CreatureId,
-        item_id: u16,
-        amount: u8,
-    ) -> bool {
+    fn player_can_carry_shop_purchase(&self, player: CreatureId, item_id: u16, amount: u8) -> bool {
         let Some(it) = self.items_db.items.get(&item_id) else {
             return false;
         };
@@ -511,7 +497,11 @@ impl GameWorld {
     }
 
     /// Inventory/container change hook — `Player::updateSaleShopList`.
-    pub(crate) fn try_update_sale_shop_list(&mut self, player: CreatureId, item_id: crate::ids::ItemId) {
+    pub(crate) fn try_update_sale_shop_list(
+        &mut self,
+        player: CreatureId,
+        item_id: crate::ids::ItemId,
+    ) {
         let should_refresh = match self.creatures.get(player) {
             Some(CreatureKind::Player(p)) if p.shop_owner.is_some() => {
                 self.shop_inventory_change_affects_sale_list(player, item_id)
@@ -541,8 +531,7 @@ impl GameWorld {
         let Some(CreatureKind::Player(p)) = self.creatures.get(player) else {
             return false;
         };
-        if p
-            .shop_items
+        if p.shop_items
             .iter()
             .any(|entry| entry.sell_price != 0 && entry.item_id == item_type)
         {
@@ -623,23 +612,37 @@ mod tests {
     fn open_and_close_shop_clears_state() {
         let (mut world, player, npc) = shop_fixture();
         world.player_open_shop(player, npc, vec![gold_shop_item()]);
-        assert!(world.creatures.get(player).and_then(|k| match k {
-            CreatureKind::Player(p) => p.shop_owner,
-            _ => None,
-        }).is_some());
+        assert!(
+            world
+                .creatures
+                .get(player)
+                .and_then(|k| match k {
+                    CreatureKind::Player(p) => p.shop_owner,
+                    _ => None,
+                })
+                .is_some()
+        );
         world.player_close_shop(player, false);
-        assert!(world.creatures.get(player).and_then(|k| match k {
-            CreatureKind::Player(p) => p.shop_owner,
-            _ => None,
-        }).is_none());
-        assert!(world
-            .creatures
-            .get(player)
-            .and_then(|k| match k {
-                CreatureKind::Player(p) => Some(p.shop_items.is_empty()),
-                _ => None,
-            })
-            .unwrap());
+        assert!(
+            world
+                .creatures
+                .get(player)
+                .and_then(|k| match k {
+                    CreatureKind::Player(p) => p.shop_owner,
+                    _ => None,
+                })
+                .is_none()
+        );
+        assert!(
+            world
+                .creatures
+                .get(player)
+                .and_then(|k| match k {
+                    CreatureKind::Player(p) => Some(p.shop_items.is_empty()),
+                    _ => None,
+                })
+                .unwrap()
+        );
     }
 
     #[test]
@@ -648,7 +651,10 @@ mod tests {
         world.player_open_shop(player, npc, vec![gold_shop_item()]);
         let client_id = world.items_db.client_id_for_server(ITEM_GOLD_COIN);
         world.player_purchase_item(player, client_id, 0, 5, false, false);
-        assert_eq!(world.player_get_item_type_count(player, ITEM_GOLD_COIN, -1), 0);
+        assert_eq!(
+            world.player_get_item_type_count(player, ITEM_GOLD_COIN, -1),
+            0
+        );
     }
 
     fn bag_shop_item() -> ActiveShopItem {
@@ -664,9 +670,7 @@ mod tests {
     #[test]
     fn buy_with_money_adds_items() {
         let (mut world, player, npc) = shop_fixture();
-        world
-            .player_create_money(player, 10)
-            .expect("seed money");
+        world.player_create_money(player, 10).expect("seed money");
         let money_before = world.player_count_money(player);
         world.player_open_shop(player, npc, vec![bag_shop_item()]);
         let client_id = world.items_db.client_id_for_server(1987);
@@ -687,7 +691,10 @@ mod tests {
             .expect("seed stack");
         world.player_open_shop(player, npc, vec![gold_shop_item()]);
         assert!(world.player_remove_item_of_type(player, ITEM_GOLD_COIN, 3, -1, false));
-        assert_eq!(world.player_get_item_type_count(player, ITEM_GOLD_COIN, -1), 5);
+        assert_eq!(
+            world.player_get_item_type_count(player, ITEM_GOLD_COIN, -1),
+            5
+        );
     }
 
     fn bag_sell_item() -> ActiveShopItem {
@@ -739,13 +746,19 @@ mod tests {
         let gold_client = world.items_db.client_id_for_server(ITEM_GOLD_COIN);
         let before = world.build_sale_counts(player, &shop_items);
         assert_eq!(
-            before.iter().find(|(id, _)| *id == gold_client).map(|(_, c)| *c),
+            before
+                .iter()
+                .find(|(id, _)| *id == gold_client)
+                .map(|(_, c)| *c),
             Some(4)
         );
         world.player_remove_item_of_type(player, ITEM_GOLD_COIN, 2, -1, false);
         let after = world.build_sale_counts(player, &shop_items);
         assert_eq!(
-            after.iter().find(|(id, _)| *id == gold_client).map(|(_, c)| *c),
+            after
+                .iter()
+                .find(|(id, _)| *id == gold_client)
+                .map(|(_, c)| *c),
             Some(2)
         );
         world.player_update_sale_shop_list(player);

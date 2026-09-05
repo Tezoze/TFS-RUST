@@ -1,5 +1,9 @@
 //! C++ `struct Abilities` and items.xml `abilities.*` fields — `src/items.h` (lines 160–192),
 //! parsed in `Items::parseItemNode` (`src/items.cpp` ~860–1158, ~1304–1338).
+//!
+//! Pack surface: TFS ability keys (`absorbpercentmagic`, …).
+//! Corpus: 772 `DAMAGE_PHYSICAL/POISON/FIRE/ENERGY` (`enums.hh`). `absorbpercentmagic`
+//! expands energy/fire/earth only — not TFS ice/holy/death (`ITEM_PARSE_ABSORBPERCENTMAGIC`).
 
 use tfs_rust_common::enums::{CombatType, Skill};
 
@@ -32,6 +36,19 @@ pub const SPECIAL_MANALEECHAMOUNT: usize = 5;
 /// C++ `COMBAT_COUNT` = 12; index matches `combatTypeToIndex` in `src/tools.cpp` and
 /// [CombatType] discriminant 0..=11 in [tfs_rust_common::enums::CombatType].
 pub const COMBAT_ABSORB_COUNT: usize = 12;
+
+/// 772 magic/elemental absorb (`DAMAGE_ENERGY` / `FIRE` / `POISON`→earth).
+/// TFS 1.4.2 `ITEM_PARSE_ABSORBPERCENTMAGIC` also writes ice/holy/death; `ABSORBPERCENTELEMENTS`
+/// writes ice. TVP 772 `items.cpp` already drops those. Corpus wins for all `clientVersion`.
+const CLASSIC_MAGIC_ABSORB: [CombatType; 3] =
+    [CombatType::Energy, CombatType::Fire, CombatType::Earth];
+
+fn add_absorb_percent(a: &mut ItemAbilities, types: &[CombatType], d: i16) {
+    for &ct in types {
+        let i = combat_absorb_index(ct);
+        a.absorb_percent[i] = a.absorb_percent[i].wrapping_add(d);
+    }
+}
 
 /// `tools.cpp` `combatTypeToIndex(CombatType_t)` for non-`COMBAT_NONE` values.
 #[inline]
@@ -278,32 +295,9 @@ pub fn apply_ability_attribute(a: &mut ItemAbilities, k: &str, value: &str) -> b
                 }
             }
         }
-        "absorbpercentelements" => {
+        "absorbpercentelements" | "absorbpercentmagic" => {
             if let Ok(d) = value.parse::<i16>() {
-                for ct in [
-                    CombatType::Energy,
-                    CombatType::Fire,
-                    CombatType::Earth,
-                    CombatType::Ice,
-                ] {
-                    let i = combat_absorb_index(ct);
-                    a.absorb_percent[i] = a.absorb_percent[i].wrapping_add(d);
-                }
-            }
-        }
-        "absorbpercentmagic" => {
-            if let Ok(d) = value.parse::<i16>() {
-                for ct in [
-                    CombatType::Energy,
-                    CombatType::Fire,
-                    CombatType::Earth,
-                    CombatType::Ice,
-                    CombatType::Holy,
-                    CombatType::Death,
-                ] {
-                    let i = combat_absorb_index(ct);
-                    a.absorb_percent[i] = a.absorb_percent[i].wrapping_add(d);
-                }
+                add_absorb_percent(a, &CLASSIC_MAGIC_ABSORB, d);
             }
         }
         "absorbpercentenergy" => {

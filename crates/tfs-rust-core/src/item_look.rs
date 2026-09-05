@@ -1,5 +1,8 @@
-//! Client item look text — C++ `Item::getDescription` (`src/item.cpp` ~939–1574).
-//! Used for `playerLookAt` before Lua `EventCallback::onLook` wraps `"You see " ..` (`default_onLook.lua`).
+//! Client item look text.
+//!
+//! Pack surface: TFS `Item::getDescription` (`src/item.cpp` ~939–1574).
+//! 772 observable: name, Arm/Atk/Def/Range, charges, weight — no `showattributes`
+//! (speed / skills / magic level) and no absorb-% list (`ice`/`holy`/`death` are later-era).
 
 use tfs_rust_common::Position;
 use tfs_rust_common::enums::Skill;
@@ -185,7 +188,7 @@ fn eff_armor(item: &Item, it: &ItemType) -> i32 {
 }
 
 /// Ranged weapon with ammunition type — `item.cpp` ~1006–1027.
-fn weapon_suffix_distance_ammo(item: &Item, it: &ItemType) -> Option<String> {
+fn weapon_suffix_distance_ammo(item: &Item, it: &ItemType, classic_look: bool) -> Option<String> {
     let range = eff_shoot_range(item, it).max(0);
     let attack = eff_attack(item, it);
     let hit = eff_hit_chance(item, it);
@@ -194,7 +197,7 @@ fn weapon_suffix_distance_ammo(item: &Item, it: &ItemType) -> Option<String> {
         use std::fmt::Write;
         let _ = write!(inner, ", Atk{:+}", attack);
     }
-    if hit != 0 {
+    if !classic_look && hit != 0 {
         use std::fmt::Write;
         let _ = write!(inner, ", Hit%{:+}", hit);
     }
@@ -202,11 +205,19 @@ fn weapon_suffix_distance_ammo(item: &Item, it: &ItemType) -> Option<String> {
 }
 
 /// Melee / distance-without-ammo / wand (non-ammo) — `item.cpp` ~1028–1074 (no `abilities` block).
-fn weapon_suffix_non_ammo(item: &Item, it: &ItemType) -> Option<String> {
+fn weapon_suffix_non_ammo(item: &Item, it: &ItemType, classic_look: bool) -> Option<String> {
     let attack = eff_attack(item, it);
     let defense = eff_defense(item, it);
-    let extra = eff_extra_defense(item, it);
-    let atk_spd = eff_attack_speed(item, it);
+    let extra = if classic_look {
+        0
+    } else {
+        eff_extra_defense(item, it)
+    };
+    let atk_spd = if classic_look {
+        0
+    } else {
+        eff_attack_speed(item, it)
+    };
 
     let mut parts: Vec<String> = Vec::new();
     if attack != 0 {
@@ -230,7 +241,7 @@ fn weapon_suffix_non_ammo(item: &Item, it: &ItemType) -> Option<String> {
     }
 }
 
-fn weapon_suffix(item: &Item, it: &ItemType) -> Option<String> {
+fn weapon_suffix(item: &Item, it: &ItemType, classic_look: bool) -> Option<String> {
     if it.weapon_type == WEAPON_NONE {
         return None;
     }
@@ -238,9 +249,9 @@ fn weapon_suffix(item: &Item, it: &ItemType) -> Option<String> {
         return None;
     }
     if it.weapon_type == WEAPON_DISTANCE && it.ammo_type != 0 {
-        weapon_suffix_distance_ammo(item, it)
+        weapon_suffix_distance_ammo(item, it, classic_look)
     } else {
-        weapon_suffix_non_ammo(item, it)
+        weapon_suffix_non_ammo(item, it, classic_look)
     }
 }
 
@@ -263,58 +274,61 @@ fn combat_absorb_display_name(i: usize) -> &'static str {
     }
 }
 
-/// Non-weapon suffix: `Arm`, `showAttributes` stats/skills/speed, then protection absorbs — `item.cpp` ~1075+.
-fn stats_and_abilities_suffix(item: &Item, it: &ItemType) -> Option<String> {
+/// Non-weapon suffix: `Arm`, then (TFS only) `showAttributes` + absorb %.
+/// 772 look keeps Arm; speed / skills / protection % are later-era dump.
+fn stats_and_abilities_suffix(item: &Item, it: &ItemType, classic_look: bool) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
     let armor = eff_armor(item, it);
     if armor != 0 {
         parts.push(format!("Arm:{}", armor));
     }
 
-    let ab = &it.abilities;
-    if it.show_attributes {
-        let ml = ab.stats[STAT_MAGICPOINTS];
-        if ml != 0 {
-            parts.push(format!("magic level {:+}", ml));
-        }
-        let hp = ab.stats[STAT_MAXHITPOINTS];
-        if hp != 0 {
-            parts.push(format!("hit points {:+}", hp));
-        }
-        let mana = ab.stats[STAT_MAXMANAPOINTS];
-        if mana != 0 {
-            parts.push(format!("mana {:+}", mana));
-        }
+    if !classic_look {
+        let ab = &it.abilities;
+        if it.show_attributes {
+            let ml = ab.stats[STAT_MAGICPOINTS];
+            if ml != 0 {
+                parts.push(format!("magic level {:+}", ml));
+            }
+            let hp = ab.stats[STAT_MAXHITPOINTS];
+            if hp != 0 {
+                parts.push(format!("hit points {:+}", hp));
+            }
+            let mana = ab.stats[STAT_MAXMANAPOINTS];
+            if mana != 0 {
+                parts.push(format!("mana {:+}", mana));
+            }
 
-        let skill_parts: [(Skill, &str); 7] = [
-            (Skill::Sword, "sword fighting"),
-            (Skill::Club, "club fighting"),
-            (Skill::Axe, "axe fighting"),
-            (Skill::Distance, "distance fighting"),
-            (Skill::Shield, "shielding"),
-            (Skill::Fist, "fist fighting"),
-            (Skill::Fishing, "fishing"),
-        ];
-        for (sk, label) in skill_parts {
-            let v = ab.skills[sk as usize];
-            if v != 0 {
-                parts.push(format!("{} {:+}", label, v));
+            let skill_parts: [(Skill, &str); 7] = [
+                (Skill::Sword, "sword fighting"),
+                (Skill::Club, "club fighting"),
+                (Skill::Axe, "axe fighting"),
+                (Skill::Distance, "distance fighting"),
+                (Skill::Shield, "shielding"),
+                (Skill::Fist, "fist fighting"),
+                (Skill::Fishing, "fishing"),
+            ];
+            for (sk, label) in skill_parts {
+                let v = ab.skills[sk as usize];
+                if v != 0 {
+                    parts.push(format!("{} {:+}", label, v));
+                }
+            }
+
+            if ab.speed != 0 {
+                parts.push(format!("speed {:+}", ab.speed));
             }
         }
 
-        if ab.speed != 0 {
-            parts.push(format!("speed {:+}", ab.speed));
-        }
-    }
-
-    for i in 0..COMBAT_ABSORB_COUNT {
-        let pct = ab.absorb_percent[i];
-        if pct != 0 {
-            parts.push(format!(
-                "protection {} {:+}%",
-                combat_absorb_display_name(i),
-                pct
-            ));
+        for i in 0..COMBAT_ABSORB_COUNT {
+            let pct = ab.absorb_percent[i];
+            if pct != 0 {
+                parts.push(format!(
+                    "protection {} {:+}%",
+                    combat_absorb_display_name(i),
+                    pct
+                ));
+            }
         }
     }
 
@@ -541,6 +555,7 @@ fn rune_description_suffix(it: &ItemType, item: &Item, vocations: &[String]) -> 
 ///
 /// `fluid_type_name`: `items[subType].name` for fluid containers / splashes (`None` →
 /// `"unknown"` when filled). Non-fluid items ignore this.
+/// TFS 1.4.2 look text (1098 / unit tests).
 pub fn item_get_description_cpp(
     item: &Item,
     it: &ItemType,
@@ -551,16 +566,41 @@ pub fn item_get_description_cpp(
     rune_vocations: Option<&[String]>,
     fluid_type_name: Option<&str>,
 ) -> String {
+    item_look_description(
+        item,
+        it,
+        total_weight_hundredths,
+        look_distance,
+        hydrated_container_capacity,
+        show_duration_ms,
+        rune_vocations,
+        fluid_type_name,
+        false,
+    )
+}
+
+/// Full look string. `classic_look` is 772: Arm/Atk/Def/Range only — no speed, skills, or absorb %.
+pub fn item_look_description(
+    item: &Item,
+    it: &ItemType,
+    total_weight_hundredths: u32,
+    look_distance: i32,
+    hydrated_container_capacity: Option<u32>,
+    show_duration_ms: Option<i32>,
+    rune_vocations: Option<&[String]>,
+    fluid_type_name: Option<&str>,
+    classic_look: bool,
+) -> String {
     let mut s = item_get_name_description_cpp(item, it, true);
 
     let mut allow_dist_read_emitted = false;
     if let Some(rune_sfx) = rune_description_suffix(it, item, rune_vocations.unwrap_or(&[])) {
         s.push_str(&rune_sfx);
     } else if it.weapon_type != WEAPON_NONE {
-        if let Some(w) = weapon_suffix(item, it) {
+        if let Some(w) = weapon_suffix(item, it, classic_look) {
             s.push_str(&w);
         }
-    } else if let Some(st) = stats_and_abilities_suffix(item, it) {
+    } else if let Some(st) = stats_and_abilities_suffix(item, it, classic_look) {
         s.push_str(&st);
     } else if let Some(vol) = container_volume_suffix(item, it, hydrated_container_capacity) {
         s.push_str(&vol);
@@ -655,6 +695,11 @@ pub fn item_get_description_cpp(
     }
 
     s
+}
+
+/// 772 look omits TFS `showattributes` / absorb-% dumps (`ice`/`holy`/`death`).
+pub fn classic_item_look(codec: &tfs_rust_net::Codec) -> bool {
+    matches!(codec, tfs_rust_net::Codec::V772(_))
 }
 
 /// Format remaining seconds for showduration look text (`item.cpp` ~1466–1494).
@@ -1031,5 +1076,100 @@ It can only be wielded properly by players of level 120 or higher."
             s.contains("You recognize Alice. He was killed by Bob."),
             "killed-by: {s}"
         );
+    }
+
+    /// 772 look: name + weight only. TFS `showattributes` speed dump is 1098-era.
+    #[test]
+    fn classic_look_omits_boots_of_haste_speed() {
+        let mut it = ItemType {
+            id: 2195,
+            name: "boots of haste".into(),
+            flags: FLAG_PICKUPABLE,
+            weight: 750,
+            show_attributes: true,
+            ..Default::default()
+        };
+        it.abilities.speed = 20;
+        let item = Item::new_single(it.id);
+
+        let tfs = item_get_description_cpp(&item, &it, 750, 1, None, None, None, None);
+        assert_eq!(tfs, "boots of haste (speed +20).\nIt weighs 7.50 oz.");
+
+        let classic = item_look_description(&item, &it, 750, 1, None, None, None, None, true);
+        assert_eq!(classic, "boots of haste.\nIt weighs 7.50 oz.");
+        assert!(!classic.contains("speed"), "classic: {classic}");
+    }
+
+    /// 772 look: name + charges + weight. Absorb dump includes later-era ice/holy/death.
+    #[test]
+    fn classic_look_omits_might_ring_protection_list() {
+        let mut it = ItemType {
+            id: 2164,
+            name: "might ring".into(),
+            article: "a".into(),
+            flags: FLAG_PICKUPABLE,
+            weight: 100,
+            show_charges: true,
+            show_attributes: true,
+            ..Default::default()
+        };
+        // Physical + leftover ice/holy/death slots (TFS magic expander used to fill these).
+        it.abilities.absorb_percent[0] = 20;
+        for i in [1, 2, 3, 9, 10, 11] {
+            it.abilities.absorb_percent[i] = 20;
+        }
+        let mut item = Item::new_single(it.id);
+        item.set_charges(20);
+
+        let tfs = item_get_description_cpp(&item, &it, 100, 1, None, None, None, None);
+        assert!(tfs.contains("protection physical +20%"), "tfs: {tfs}");
+        assert!(tfs.contains("protection ice +20%"), "tfs: {tfs}");
+        assert!(tfs.contains("protection holy +20%"), "tfs: {tfs}");
+        assert!(tfs.contains("protection death +20%"), "tfs: {tfs}");
+
+        let classic = item_look_description(&item, &it, 100, 1, None, None, None, None, true);
+        assert_eq!(
+            classic,
+            "a might ring that has 20 charges left.\nIt weighs 1.00 oz."
+        );
+        assert!(!classic.contains("protection"), "classic: {classic}");
+    }
+
+    /// 772 still shows Arm / Atk / Def (corpus look), not only name.
+    #[test]
+    fn classic_look_keeps_armor_and_weapon_stats() {
+        let plate = ItemType {
+            name: "plate armor".into(),
+            article: "a".into(),
+            flags: FLAG_PICKUPABLE,
+            weight: 12000,
+            armor: 10,
+            show_attributes: true,
+            ..Default::default()
+        };
+        let plate_item = Item::new_single(plate.id);
+        let plate_look =
+            item_look_description(&plate_item, &plate, 12000, 1, None, None, None, None, true);
+        assert_eq!(plate_look, "a plate armor (Arm:10).\nIt weighs 120.00 oz.");
+
+        let sword = ItemType {
+            name: "sword".into(),
+            article: "a".into(),
+            flags: FLAG_PICKUPABLE,
+            weight: 3500,
+            weapon_type: 1, // WEAPON_SWORD
+            attack: 14,
+            defense: 12,
+            extra_defense: 1,
+            hit_chance: 10,
+            attack_speed: 2000,
+            ..Default::default()
+        };
+        let sword_item = Item::new_single(sword.id);
+        let sword_look =
+            item_look_description(&sword_item, &sword, 3500, 1, None, None, None, None, true);
+        assert_eq!(sword_look, "a sword (Atk:14, Def:12).\nIt weighs 35.00 oz.");
+        assert!(!sword_look.contains("Hit%"), "classic: {sword_look}");
+        assert!(!sword_look.contains("Atk Spd"), "classic: {sword_look}");
     }
 }

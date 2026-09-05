@@ -20,8 +20,8 @@ use crate::ids::{CreatureId, ItemId};
 use crate::inventory::{InventorySlot, slot_type_for_item_type};
 use crate::item::Item;
 use crate::item_look::{
-    format_gm_item_look_suffix, item_get_description_cpp, item_get_name_description_cpp,
-    look_distance_tfs,
+    classic_item_look, format_gm_item_look_suffix, item_get_name_description_cpp,
+    item_look_description, look_distance_tfs,
 };
 use crate::player_inventory_notifications::NotificationParent;
 use crate::player_inventory_util::{InventoryItemRef, ItemCylinder};
@@ -1483,7 +1483,7 @@ impl GameWorld {
                     let fluid_name = self.fluid_look_type_name(&ephemeral, it);
                     format!(
                         "You see {}",
-                        item_get_description_cpp(
+                        item_look_description(
                             &ephemeral,
                             it,
                             it.weight,
@@ -1492,6 +1492,7 @@ impl GameWorld {
                             None,
                             rune_vocs,
                             fluid_name.as_deref(),
+                            classic_item_look(&self.codec),
                         )
                     )
                 } else {
@@ -1522,7 +1523,7 @@ impl GameWorld {
                 if let Some(it) = self.items_db.items.get(&item.item_type) {
                     let fluid_name = self.fluid_look_type_name(item, it);
                     let is_door = it.is_door();
-                    let mut desc = item_get_description_cpp(
+                    let mut desc = item_look_description(
                         item,
                         it,
                         w,
@@ -1531,6 +1532,7 @@ impl GameWorld {
                         show_duration_ms,
                         rune_vocs.as_deref(),
                         fluid_name.as_deref(),
+                        classic_item_look(&self.codec),
                     );
                     // 772 `operate.cc` NAMEDOOR — map tiles only (not inventory).
                     if pos.x != 0xFFFF && (is_door || door_id != 0) {
@@ -1611,7 +1613,7 @@ impl GameWorld {
             .get_rune(item.item_type)
             .map(|r| r.vocations.as_slice());
         let fluid_name = self.fluid_look_type_name(item, it);
-        Some(item_get_description_cpp(
+        Some(item_look_description(
             item,
             it,
             weight,
@@ -1620,6 +1622,7 @@ impl GameWorld {
             show_duration_ms,
             rune_vocs,
             fluid_name.as_deref(),
+            classic_item_look(&self.codec),
         ))
     }
 
@@ -1652,9 +1655,12 @@ impl GameWorld {
         };
         let count = item.count.max(1);
         let weight = it.weight.saturating_mul(u32::from(count));
-        let rune_vocs = self.spells.get_rune(item_type).map(|r| r.vocations.as_slice());
+        let rune_vocs = self
+            .spells
+            .get_rune(item_type)
+            .map(|r| r.vocations.as_slice());
         let fluid_name = self.fluid_look_type_name(&item, it);
-        item_get_description_cpp(
+        item_look_description(
             &item,
             it,
             weight,
@@ -1667,6 +1673,7 @@ impl GameWorld {
             None,
             rune_vocs,
             fluid_name.as_deref(),
+            classic_item_look(&self.codec),
         )
     }
 
