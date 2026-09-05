@@ -7,15 +7,15 @@ use std::cell::RefCell;
 
 use crate::context::{CURRENT_CTX, CreatureData, CreatureRef, ItemRef, LuaContext};
 use crate::lua_mutation::{
-    ConjureRequest, call_add_damage_condition, call_lua_add_condition,
-    call_lua_add_health, call_lua_add_item, call_lua_add_item_full, call_lua_add_mana,
-    call_lua_add_mana_spent, call_lua_add_skill_tries, call_lua_conjure_item,
-    call_lua_creature_remove, call_lua_feed, call_lua_get_depot_chest, call_lua_get_depot_locker,
-    call_lua_get_inbox, call_lua_player_say, call_lua_remove_condition, call_lua_remove_item,
-    call_remove_summon, call_lua_send_cancel_message, call_lua_send_outfit_window,
-    call_lua_set_direction, call_lua_set_ghost_mode, call_lua_set_in_fight, call_lua_set_outfit,
-    call_lua_set_sex, call_lua_set_vocation, call_set_item_outfit, call_set_monster_outfit,
-    call_lua_show_text_dialog, call_player_register_creature_event,
+    ConjureRequest, call_add_damage_condition, call_lua_add_condition, call_lua_add_health,
+    call_lua_add_item, call_lua_add_item_full, call_lua_add_mana, call_lua_add_mana_spent,
+    call_lua_add_skill_tries, call_lua_conjure_item, call_lua_creature_remove, call_lua_feed,
+    call_lua_get_depot_chest, call_lua_get_depot_locker, call_lua_get_inbox, call_lua_player_say,
+    call_lua_remove_condition, call_lua_remove_item, call_lua_send_cancel_message,
+    call_lua_send_outfit_window, call_lua_set_direction, call_lua_set_ghost_mode,
+    call_lua_set_in_fight, call_lua_set_outfit, call_lua_set_sex, call_lua_set_vocation,
+    call_lua_show_text_dialog, call_player_register_creature_event, call_remove_summon,
+    call_set_item_outfit, call_set_monster_outfit,
 };
 use crate::userdata::container::ContainerRef;
 use crate::userdata::group::GroupRef;
@@ -747,7 +747,8 @@ impl UserData for CreatureRef {
 
         // `player:getDepotItems(depotId)` — `data/lib/core/player.lua`.
         methods.add_method("getDepotItems", |_, this, depot_id: u32| {
-            let locker = call_lua_get_depot_locker(this.0, depot_id).map_err(mlua::Error::runtime)?;
+            let locker =
+                call_lua_get_depot_locker(this.0, depot_id).map_err(mlua::Error::runtime)?;
             match locker {
                 Some(iid) => with_ctx(|ctx| {
                     Ok(ctx
@@ -1180,33 +1181,30 @@ impl UserData for CreatureRef {
         );
 
         // `creature:getPathTo(pos[, minTargetDist[, maxTargetDist[, ...]]])`.
-        methods.add_method(
-            "getPathTo",
-            |lua, this, args: mlua::Variadic<Value>| {
-                let pos = args
-                    .first()
-                    .ok_or_else(|| mlua::Error::runtime("getPathTo: position required"))?;
-                let (x, y, z) = parse_position_value(pos.clone())?;
-                let min_dist = args.get(1).and_then(value_as_i32).unwrap_or(0);
-                let max_dist = args.get(2).and_then(value_as_i32).unwrap_or(1);
-                let max_search = args.get(6).and_then(value_as_i32).unwrap_or(0);
-                let dirs = with_ctx(|ctx| {
-                    Ok(ctx.get_creature_path_to_directions(
-                        this.0, x, y, z, min_dist, max_dist, max_search,
-                    ))
-                })?;
-                match dirs {
-                    Some(steps) => {
-                        let t = lua.create_table_with_capacity(steps.len(), 0)?;
-                        for (i, d) in steps.into_iter().enumerate() {
-                            t.set(i + 1, d)?;
-                        }
-                        Ok(Value::Table(t))
+        methods.add_method("getPathTo", |lua, this, args: mlua::Variadic<Value>| {
+            let pos = args
+                .first()
+                .ok_or_else(|| mlua::Error::runtime("getPathTo: position required"))?;
+            let (x, y, z) = parse_position_value(pos.clone())?;
+            let min_dist = args.get(1).and_then(value_as_i32).unwrap_or(0);
+            let max_dist = args.get(2).and_then(value_as_i32).unwrap_or(1);
+            let max_search = args.get(6).and_then(value_as_i32).unwrap_or(0);
+            let dirs = with_ctx(|ctx| {
+                Ok(ctx.get_creature_path_to_directions(
+                    this.0, x, y, z, min_dist, max_dist, max_search,
+                ))
+            })?;
+            match dirs {
+                Some(steps) => {
+                    let t = lua.create_table_with_capacity(steps.len(), 0)?;
+                    for (i, d) in steps.into_iter().enumerate() {
+                        t.set(i + 1, d)?;
                     }
-                    None => Ok(Value::Boolean(false)),
+                    Ok(Value::Table(t))
                 }
-            },
-        );
+                None => Ok(Value::Boolean(false)),
+            }
+        });
 
         // `monster:getType()` → MonsterType(name).
         methods.add_method("getType", |lua, this, ()| {

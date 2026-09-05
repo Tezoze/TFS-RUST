@@ -312,9 +312,7 @@ mod tests {
             "has_event_callback must not consult Lua EventCallbackData"
         );
 
-        runtime
-            .sync_event_callbacks_from_lua()
-            .expect("sync");
+        runtime.sync_event_callbacks_from_lua().expect("sync");
         assert!(runtime.has_event_callback(EVENT_CALLBACK_ONSPAWN));
     }
 }

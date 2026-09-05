@@ -1,10 +1,3 @@
-// Unified item catalog for every clientVersion. `id` is the client id.
-// Replaces runtime items.otb + items.xml. OTB: group, flags (itemflags_t),
-// speed (ITEM_ATTR_SPEED), light_*, ware_id, always_on_top_order.
-// XML: parseItemNode + abilities as typed fields; magic fields use Field(kind, …).
-// `flags` are OTB bits only; XML overlays are separate (block_solid, force_use, …).
-// `bonus_speed` is items.xml equipment speed. Unknown keys in `extra`.
-// Source OTB 2.7.2-8.0 major=2 minor=7 build=2.
 ItemCatalog(
 	items: [
 		Item(

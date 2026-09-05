@@ -3,17 +3,16 @@
 //! This crate provides the Lua VM, script loading, and userdata bindings
 //! for game scripts. It maintains TFS compatibility while using idiomatic Rust.
 
-mod aid_move_compile;
-mod spell_combat_compile;
 pub mod actions;
+mod aid_move_compile;
 pub mod chat_channels;
 mod class_registry;
 pub mod combat_enums;
 pub mod combat_scripts;
 pub mod constants;
 pub mod context;
-mod data_lib_native;
 mod creature_events;
+mod data_lib_native;
 mod event_callback;
 mod global_events;
 mod instruction_budget;
@@ -31,6 +30,7 @@ mod player_move_item;
 mod player_report_bug;
 pub mod runtime;
 mod scripts_interface;
+mod spell_combat_compile;
 mod stdlib_allowlist;
 pub mod talkactions;
 pub mod timer_events;
@@ -38,25 +38,21 @@ pub mod tool_use;
 pub mod userdata;
 
 // Re-export commonly used types
-pub use aid_move_compile::{
-    compile_aid_move_handlers, AidMoveEffectSpec, AidMoveGate, AidMoveRelocSpec,
-    CompiledAidMoveEntry, EffectPosition, RelocFrom, RelocTo,
-};
-pub use spell_combat_compile::{
-    compile_native_spell_combats, CompiledNativeSpellCombat, CompiledSpellDamage,
-};
-pub use userdata::combat::{oriented_area_offsets, AreaCombat};
 pub use actions::{
     ActionDef, assert_required_data_globals, inject_door_tables_from_global, inject_era_formulas,
     load_action_scripts, load_data_lib,
 };
-pub use data_lib_native::register_data_lib_native;
+pub use aid_move_compile::{
+    AidMoveEffectSpec, AidMoveGate, AidMoveRelocSpec, CompiledAidMoveEntry, EffectPosition,
+    RelocFrom, RelocTo, compile_aid_move_handlers,
+};
 pub use chat_channels::{ChatChannelDef, load_chat_channel_scripts};
 pub use constants::register_constants;
 pub use context::{
     CreatureData, CreatureId, ItemData, ItemId, ItemRef, LuaContext, with_lua_context,
 };
 pub use creature_events::{CreatureEventKind, is_blocked_creature_event_name};
+pub use data_lib_native::register_data_lib_native;
 pub use event_callback::{
     EVENT_CALLBACK_ONITEMMOVED, EVENT_CALLBACK_ONMOVEITEM, EVENT_CALLBACK_ONREPORTBUG,
     EVENT_CALLBACK_ONSPAWN,
@@ -94,11 +90,15 @@ pub use runtime::{
     PendingChatChannel, PendingMoveEvent, PendingTalkAction, RegisterLuaFunctions,
 };
 pub use scripts_interface::load_scripts_interface;
+pub use spell_combat_compile::{
+    CompiledNativeSpellCombat, CompiledSpellDamage, compile_native_spell_combats,
+};
 pub use talkactions::{TalkActionDef, load_all_talkaction_scripts, load_talkaction_scripts};
 pub use timer_events::{
     TimerEventDesc, TimerEvents, TimerScheduler, execute_timer_event,
     register_add_event_stop_event, set_timer_scheduler,
 };
+pub use userdata::combat::{AreaCombat, oriented_area_offsets};
 pub use userdata::{
     ConditionBuilder, ContainerRef, NpcRef, VocationRef, register_condition_metatable,
     register_container_metatable, register_creature_metatable, register_item_metatable,

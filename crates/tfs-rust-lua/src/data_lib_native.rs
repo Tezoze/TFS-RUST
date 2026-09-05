@@ -84,7 +84,9 @@ pub fn register_data_lib_native(lua: &Lua) -> Result<(), mlua::Error> {
 
     game.set(
         "getStorageValue",
-        lua.create_function(|_, key: u32| Ok(current_ctx(|ctx| ctx.get_global_storage(key)).flatten()))?,
+        lua.create_function(|_, key: u32| {
+            Ok(current_ctx(|ctx| ctx.get_global_storage(key)).flatten())
+        })?,
     )?;
 
     game.set(
@@ -134,37 +136,39 @@ pub fn register_data_lib_native(lua: &Lua) -> Result<(), mlua::Error> {
     let player = lua.globals().get::<mlua::Table>("Player")?;
     player.set(
         "getClosestFreePosition",
-        lua.create_function(|lua, (self_val, position, extended): (Value, Value, Value)| {
-            let creature_id = match self_val {
-                Value::UserData(ud) => ud.borrow::<crate::context::CreatureRef>()?.0,
-                _ => {
-                    return Err(mlua::Error::runtime(
-                        "Player.getClosestFreePosition: expected creature",
-                    ));
-                }
-            };
-            let (x, y, z) = parse_position(position)?;
-            let max_radius = match extended {
-                Value::Boolean(true) => 2,
-                Value::Nil => 1,
-                v => v
-                    .as_integer()
-                    .map(|n| n as i32)
-                    .or_else(|| v.as_number().map(|n| n as i32))
-                    .unwrap_or(1)
-                    .max(0),
-            };
-            let (ox, oy, oz) = current_ctx(|ctx| {
-                ctx.get_creature_closest_free_position(creature_id, x, y, z, max_radius, false)
-            })
-            .ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
-            let ud = lua.create_userdata(crate::userdata::position::PositionRef {
-                x: ox,
-                y: oy,
-                z: oz,
-            })?;
-            Ok(Value::UserData(ud))
-        })?,
+        lua.create_function(
+            |lua, (self_val, position, extended): (Value, Value, Value)| {
+                let creature_id = match self_val {
+                    Value::UserData(ud) => ud.borrow::<crate::context::CreatureRef>()?.0,
+                    _ => {
+                        return Err(mlua::Error::runtime(
+                            "Player.getClosestFreePosition: expected creature",
+                        ));
+                    }
+                };
+                let (x, y, z) = parse_position(position)?;
+                let max_radius = match extended {
+                    Value::Boolean(true) => 2,
+                    Value::Nil => 1,
+                    v => v
+                        .as_integer()
+                        .map(|n| n as i32)
+                        .or_else(|| v.as_number().map(|n| n as i32))
+                        .unwrap_or(1)
+                        .max(0),
+                };
+                let (ox, oy, oz) = current_ctx(|ctx| {
+                    ctx.get_creature_closest_free_position(creature_id, x, y, z, max_radius, false)
+                })
+                .ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?;
+                let ud = lua.create_userdata(crate::userdata::position::PositionRef {
+                    x: ox,
+                    y: oy,
+                    z: oz,
+                })?;
+                Ok(Value::UserData(ud))
+            },
+        )?,
     )?;
 
     Ok(())
@@ -188,12 +192,12 @@ fn reverse_direction(direction: u8) -> u8 {
 /// TFS `Game.getSkillType` — `data/lib/core/game.lua`.
 fn skill_type_for_weapon(weapon_type: u8) -> u8 {
     match weapon_type {
-        2 => 1,  // WEAPON_CLUB -> SKILL_CLUB
-        1 => 2,  // WEAPON_SWORD -> SKILL_SWORD
-        3 => 3,  // WEAPON_AXE -> SKILL_AXE
-        5 => 4,  // WEAPON_DISTANCE -> SKILL_DISTANCE
-        4 => 5,  // WEAPON_SHIELD -> SKILL_SHIELD
-        _ => 0,  // SKILL_FIST
+        2 => 1, // WEAPON_CLUB -> SKILL_CLUB
+        1 => 2, // WEAPON_SWORD -> SKILL_SWORD
+        3 => 3, // WEAPON_AXE -> SKILL_AXE
+        5 => 4, // WEAPON_DISTANCE -> SKILL_DISTANCE
+        4 => 5, // WEAPON_SHIELD -> SKILL_SHIELD
+        _ => 0, // SKILL_FIST
     }
 }
 

@@ -1,5 +1,3 @@
-// Area SQM from houseareas.dat. `houses` maps house name → Area from houses.dat
-// (XML `name` = houses.dat `Name`). Size is houses XML `size`; rent = sqm * size.
 HousePrices(
 	areas: [
 		HouseArea(id: 100, name: "Wilderness around Thais", sqm: 45),

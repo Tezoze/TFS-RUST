@@ -468,9 +468,7 @@ mod tests {
 
         let config_keys: mlua::Table = globals.get("configKeys").expect("configKeys");
         assert_eq!(
-            config_keys
-                .get::<i32>("SERVER_NAME")
-                .expect("SERVER_NAME"),
+            config_keys.get::<i32>("SERVER_NAME").expect("SERVER_NAME"),
             0
         );
         assert_eq!(

@@ -900,14 +900,7 @@ pub trait ScriptContext {
         max_radius: i32,
         must_be_reachable: bool,
     ) -> (u16, u16, u8) {
-        let _ = (
-            creature_id,
-            x,
-            y,
-            z,
-            max_radius,
-            must_be_reachable,
-        );
+        let _ = (creature_id, x, y, z, max_radius, must_be_reachable);
         (0, 0, 0)
     }
 

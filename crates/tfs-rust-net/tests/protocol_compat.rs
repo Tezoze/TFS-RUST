@@ -633,7 +633,9 @@ fn house_window_0x97_layout() {
     assert_eq!(&b[2..6], &[0x04, 0x03, 0x02, 0x01]);
     assert_eq!(&b[6..8], &[5, 0]);
     assert_eq!(&b[8..], b"alice");
-    let via = codec().encode_house_window(0x0102_0304, "alice").into_bytes();
+    let via = codec()
+        .encode_house_window(0x0102_0304, "alice")
+        .into_bytes();
     assert_eq!(via, b);
 }
 

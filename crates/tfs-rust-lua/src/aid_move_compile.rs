@@ -50,17 +50,32 @@ pub enum RelocFrom {
 /// Destination position for `doRelocate`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RelocTo {
-    Absolute { x: u16, y: u16, z: u8 },
+    Absolute {
+        x: u16,
+        y: u16,
+        z: u8,
+    },
     /// `{x = item:getPosition().x +/- N, y = Y, z = Z}` (or `tileitem` variant).
-    ItemXOffset { dx: i16, y: u16, z: u8 },
+    ItemXOffset {
+        dx: i16,
+        y: u16,
+        z: u8,
+    },
     /// `{x = item:getPosition().x +/- N, y = item:getPosition().y +/- M, z = Z}`.
-    ItemRelative { dx: i16, dy: i16, z: u8 },
+    ItemRelative {
+        dx: i16,
+        dy: i16,
+        z: u8,
+    },
 }
 
 /// One or two `doRelocate` arms (vocation portals use if/else).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AidMoveRelocSpec {
-    Single { from: RelocFrom, to: RelocTo },
+    Single {
+        from: RelocFrom,
+        to: RelocTo,
+    },
     VocationBranch {
         from: RelocFrom,
         then_to: RelocTo,
@@ -168,9 +183,7 @@ fn has_skip_complexity(block: &str) -> bool {
         return true;
     }
     // StepOut-only: has onStepOut but neither onStepIn nor onAddItem.
-    block.contains("onStepOut")
-        && !block.contains("onStepIn")
-        && !block.contains("onAddItem")
+    block.contains("onStepOut") && !block.contains("onStepIn") && !block.contains("onAddItem")
 }
 
 fn parse_aid(block: &str) -> Option<u16> {
@@ -404,9 +417,7 @@ fn parse_table_field_u8(table: &str, field: char) -> Option<u8> {
 }
 
 fn parse_lua_number_prefix(s: &str) -> Option<u16> {
-    let end = s
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(s.len());
+    let end = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
     if end == 0 {
         return None;
     }
@@ -430,11 +441,7 @@ fn parse_item_relative_dest(raw: &str) -> Option<RelocTo> {
         return Some(RelocTo::ItemRelative { dx, dy, z });
     }
     if let Some(y) = parse_lua_number_prefix(y_expr.trim()) {
-        return Some(RelocTo::ItemXOffset {
-            dx,
-            y,
-            z,
-        });
+        return Some(RelocTo::ItemXOffset { dx, y, z });
     }
     None
 }
@@ -443,7 +450,9 @@ fn extract_table_expr(table: &str, field: char) -> Option<String> {
     let needle = format!("{field} = ");
     let idx = table.find(&needle)? + needle.len();
     let tail = table[idx..].trim_start();
-    let end = tail.find(',').unwrap_or_else(|| tail.find('}').unwrap_or(tail.len()));
+    let end = tail
+        .find(',')
+        .unwrap_or_else(|| tail.find('}').unwrap_or(tail.len()));
     Some(tail[..end].trim().to_string())
 }
 
@@ -458,8 +467,15 @@ fn parse_item_axis_expr(expr: &str) -> Option<(i16, bool)> {
     }
     if let Some(idx) = expr.find(".x") {
         let after_x = &expr[idx + 2..];
-        if let Some(rest) = after_x.strip_prefix('+').or_else(|| after_x.strip_prefix('-')) {
-            let sign = if after_x.starts_with('-') { -1i16 } else { 1i16 };
+        if let Some(rest) = after_x
+            .strip_prefix('+')
+            .or_else(|| after_x.strip_prefix('-'))
+        {
+            let sign = if after_x.starts_with('-') {
+                -1i16
+            } else {
+                1i16
+            };
             let num: i16 = rest
                 .trim()
                 .chars()
@@ -617,10 +633,7 @@ moveevent:register()
             .find(|e| e.kind == MoveEventKind::StepIn)
             .expect("step in");
         assert_eq!(step_in.aid, 3051);
-        assert_eq!(
-            step_in.gate,
-            AidMoveGate::PlayerLevelBelow { level: 2 }
-        );
+        assert_eq!(step_in.gate, AidMoveGate::PlayerLevelBelow { level: 2 });
         assert_eq!(
             step_in.reloc,
             AidMoveRelocSpec::Single {
@@ -666,11 +679,7 @@ moveevent:register()
             step_in.reloc,
             AidMoveRelocSpec::Single {
                 from: RelocFrom::ItemPosition,
-                to: RelocTo::ItemRelative {
-                    dx: 3,
-                    dy: 0,
-                    z: 7
-                }
+                to: RelocTo::ItemRelative { dx: 3, dy: 0, z: 7 }
             }
         );
         let effect = step_in.effect.as_ref().expect("effect");
@@ -736,11 +745,15 @@ moveevent:register()
         let data_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data");
         let entries = compile_aid_move_handlers(&data_dir);
         assert!(
-            entries.iter().any(|e| e.aid == 3051 && e.kind == MoveEventKind::StepIn),
+            entries
+                .iter()
+                .any(|e| e.aid == 3051 && e.kind == MoveEventKind::StepIn),
             "level_2_bridge step in"
         );
         assert!(
-            entries.iter().any(|e| e.aid == 3052 && e.kind == MoveEventKind::StepIn),
+            entries
+                .iter()
+                .any(|e| e.aid == 3052 && e.kind == MoveEventKind::StepIn),
             "premium_bridge step in"
         );
     }

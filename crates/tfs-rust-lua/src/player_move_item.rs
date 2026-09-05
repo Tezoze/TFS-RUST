@@ -113,10 +113,7 @@ impl LuaRuntime {
     }
 }
 
-fn push_move_cylinder(
-    lua: &mlua::Lua,
-    cyl: MoveItemCylinder,
-) -> Result<mlua::Value, LuaError> {
+fn push_move_cylinder(lua: &mlua::Lua, cyl: MoveItemCylinder) -> Result<mlua::Value, LuaError> {
     match cyl {
         MoveItemCylinder::Tile { x, y, z } => {
             let ud = lua.create_userdata(TileRef { x, y, z })?;

@@ -162,7 +162,10 @@ fn parse_matrix_table(table: &str) -> Option<Vec<Vec<u8>>> {
     (!rows.is_empty()).then_some(rows)
 }
 
-fn parse_spell_file(content: &str, areas: &HashMap<String, AreaCombat>) -> Vec<CompiledNativeSpellCombat> {
+fn parse_spell_file(
+    content: &str,
+    areas: &HashMap<String, AreaCombat>,
+) -> Vec<CompiledNativeSpellCombat> {
     split_handler_blocks(content)
         .into_iter()
         .filter_map(|(kind, block)| parse_handler_block(content, kind, &block, areas))
@@ -229,8 +232,8 @@ fn parse_handler_block(
         HandlerKind::Rune => parse_rune_key(block)?,
     };
 
-    let need_direction = matches!(kind, HandlerKind::Instant)
-        && block.contains("spell:needDirection(true)");
+    let need_direction =
+        matches!(kind, HandlerKind::Instant) && block.contains("spell:needDirection(true)");
 
     let mut compiled = ParsedCombatBlock {
         combat_type: 0,
@@ -305,7 +308,8 @@ fn extract_execute_combat_var(cast_body: &str) -> Option<String> {
     let var_end = tail.find(marker)?;
     let var_part = tail[..var_end].trim();
     let var = var_part.strip_prefix("return")?.trim();
-    (!var.is_empty() && var.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')).then(|| var.to_string())
+    (!var.is_empty() && var.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+        .then(|| var.to_string())
 }
 
 fn normalize_lua_stmt(s: &str) -> String {
@@ -333,7 +337,9 @@ fn has_target_callback(content: &str, var: &str) -> bool {
 }
 
 fn combat_var_line(content: &str, var: &str, suffix: &str) -> bool {
-    content.lines().any(|line| line.trim().starts_with(&format!("{var}:{suffix}")))
+    content
+        .lines()
+        .any(|line| line.trim().starts_with(&format!("{var}:{suffix}")))
 }
 
 fn parse_combat_setup(
@@ -528,10 +534,7 @@ fn parse_condition_decl(line: &str) -> Option<(String, ConditionApplySpec)> {
     let args_inner = extract_balanced_paren_content(&after_local[cond_open..])?;
     let args = split_top_level_csv(args_inner);
     let ctype = resolve_lua_i32(args.first()?)?;
-    let cond_id = args
-        .get(1)
-        .and_then(|a| resolve_lua_i32(a))
-        .unwrap_or(-1);
+    let cond_id = args.get(1).and_then(|a| resolve_lua_i32(a)).unwrap_or(-1);
     Some((
         var,
         ConditionApplySpec {
@@ -621,7 +624,9 @@ fn split_top_level_csv(s: &str) -> Vec<&str> {
 fn extract_method_call_arg(line: &str, method: &str) -> Option<String> {
     let needle = format!(":{method}(");
     let open = line.find(&needle)? + needle.len() - 1;
-    extract_balanced_paren_content(&line[open..]).map(str::trim).map(str::to_string)
+    extract_balanced_paren_content(&line[open..])
+        .map(str::trim)
+        .map(str::to_string)
 }
 
 fn extract_function_body(content: &str, name: &str) -> Option<String> {

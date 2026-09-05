@@ -1189,7 +1189,11 @@ pub fn call_set_monster_outfit(
     Ok(take_mutation_bool_result().unwrap_or(false))
 }
 
-pub fn call_set_item_outfit(creature_id: u64, item_type: u16, ticks_ms: i32) -> Result<bool, String> {
+pub fn call_set_item_outfit(
+    creature_id: u64,
+    item_type: u16,
+    ticks_ms: i32,
+) -> Result<bool, String> {
     apply_mutation(LuaMutation::SetItemOutfit {
         creature_id,
         item_type,
@@ -1592,7 +1596,11 @@ pub fn call_house_save(house_id: u32) -> Result<(), String> {
 }
 
 /// `house:startTrade` native P2P trade start.
-pub fn call_house_start_trade(house_id: u32, player_id: u64, partner_id: u64) -> Result<i32, String> {
+pub fn call_house_start_trade(
+    house_id: u32,
+    player_id: u64,
+    partner_id: u64,
+) -> Result<i32, String> {
     apply_mutation(LuaMutation::HouseStartTrade {
         house_id,
         player_id,
@@ -1643,12 +1651,7 @@ pub fn call_lua_conjure_item(request: ConjureRequest) -> Result<bool, String> {
 
 /// `Game.removeItemInPosition` — `data/lib/core/game.lua`.
 pub fn call_game_map_remove_item(x: u16, y: u16, z: u8, item_type: u16) -> Result<bool, String> {
-    apply_mutation(LuaMutation::GameMapRemoveItem {
-        x,
-        y,
-        z,
-        item_type,
-    })?;
+    apply_mutation(LuaMutation::GameMapRemoveItem { x, y, z, item_type })?;
     Ok(take_mutation_bool_result().unwrap_or(false))
 }
 

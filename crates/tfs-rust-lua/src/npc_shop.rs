@@ -45,7 +45,10 @@ impl LuaRuntime {
         let Some(key) = callbacks.get(&player_u64).and_then(|c| c.buy.as_ref()) else {
             return Ok(());
         };
-        let function: Function = self.lua.registry_value(key).map_err(crate::runtime::LuaError::Init)?;
+        let function: Function = self
+            .lua
+            .registry_value(key)
+            .map_err(crate::runtime::LuaError::Init)?;
         drop(callbacks);
         let player_ud = self
             .lua
@@ -78,7 +81,10 @@ impl LuaRuntime {
         let Some(key) = callbacks.get(&player_u64).and_then(|c| c.sell.as_ref()) else {
             return Ok(());
         };
-        let function: Function = self.lua.registry_value(key).map_err(crate::runtime::LuaError::Init)?;
+        let function: Function = self
+            .lua
+            .registry_value(key)
+            .map_err(crate::runtime::LuaError::Init)?;
         drop(callbacks);
         let player_ud = self
             .lua

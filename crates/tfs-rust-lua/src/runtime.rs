@@ -24,8 +24,8 @@ pub const DEFAULT_LUA_MEMORY_LIMIT_BYTES: usize = 512 * 1024 * 1024;
 pub use crate::instruction_budget::DEFAULT_LUA_INSTRUCTION_BUDGET;
 
 use crate::constants::register_constants;
-use crate::event_callback::EventCallbackRegistry;
 use crate::context::{CreatureRef, ItemRef};
+use crate::event_callback::EventCallbackRegistry;
 use crate::npc_dialogue::register_npc_dialogue;
 use crate::npc_type::register_npc_type;
 use crate::timer_events::{TimerEvents, execute_timer_event, register_add_event_stop_event};
@@ -84,7 +84,8 @@ pub struct LuaRuntime {
     /// Content defs store the id; RegistryKeys stay here (!Send, game thread).
     pub(crate) npc_callbacks: HashMap<tfs_rust_content::npcs::NpcCallbackId, RegistryKey>,
     /// Per-player shop window callbacks — TFS `purchaseCallback` / `saleCallback` (`player.h`).
-    pub(crate) shop_callbacks: std::rc::Rc<std::cell::RefCell<HashMap<u64, crate::npc_shop::ShopWindowCallbacks>>>,
+    pub(crate) shop_callbacks:
+        std::rc::Rc<std::cell::RefCell<HashMap<u64, crate::npc_shop::ShopWindowCallbacks>>>,
     /// Per-invocation instruction budget (pillar 4). Synced to the game-thread
     /// local used by [`crate::instruction_budget::with_lua_instruction_budget`].
     instruction_budget: Cell<u32>,
