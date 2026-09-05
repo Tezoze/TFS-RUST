@@ -1,3 +1,12 @@
+# Monster AI edge paths — audit Step 6 (2026-09-05)
+
+Corpus `TMonster::IdleStimulus` (`crnonpl.cc:2345`). **Exclude** `DistanceFighting` race flag — keep inferring the dist branch from `target_distance > 1 && ThrowPossible`.
+
+- [x] `LifeEndRound` at IdleStimulus entry (`crnonpl.cc:2352`) — `StartLogout(true,true)` via `remove_creature`; drop raid-tick poll in `raid_waves.rs`
+- [x] Monsterhome idle despawn (`crnonpl.cc:2408`) — non-summon + `home_radius > 0` + `!MonsterhomeInRange` (axis box `|dx|<=R && |dy|<=R`, `|dz|<=2`); no ATTACKING exemption
+- [x] Helper `monsterhome_in_range` (`crnonpl.cc:1515`); `home_radius <= 0` ≡ `Home == 0` → in range
+- [x] Tests in `idle_stimulus_tests.rs`; audit Step 6 marked done (DistanceFighting still open)
+
 # Chat parity pass — audit Step 5 (2026-09-05)
 
 Corpus `Talk` / `RecordTalk` / `RecordMessage` (`operate.cc`, `crplayer.cc`). Pack surface stays TFS channels (`data/scripts/chatchannels/*.lua`). Flood decision: **port RecordTalk** (772 corpus for all `clientVersion`); do not keep TFS `5n²` / `maxMessageBuffer` as the live model.

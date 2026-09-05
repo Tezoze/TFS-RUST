@@ -15,7 +15,7 @@ Likewise, several corpus subsystems are deliberately **not** ported as engines �
 | System | Corpus files | Estimate | State |
 |---|---|---|---|
 | Player / skills / combat | `crplayer.cc`, `crskill.cc`, `crcombat.cc`, `crmain.cc` | ~85% | Strongest area. Remaining items are metadata and fidelity, not mechanics. |
-| Monster / NPC AI | `crnonpl.cc`, `cract.cc` | ~85–90% | Idle-stimulus engine, spawn, chase, casting, loot, NPC dialogue all live. |
+| Monster / NPC AI | `crnonpl.cc`, `cract.cc` | ~90% | Idle-stimulus engine, spawn, chase, casting, loot, NPC dialogue, home/LifeEnd despawn all live. |
 | Magic / spells | `magic.cc` | ~85% | Pre-cast rune ML / exhaust / PZ and spoken premium done. Remaining: heal-paralyze, AoE rings, berserk, mana fluid. |
 | Map | `map.cc`, `info.cc` | ~78% | Stacking, flags, throw LOS, decay cron done. Live sector refresh missing. |
 | Houses | `houses.cc` | ~75% | Ownership, rent, lists, doors, eviction, **in-game sell via trade** done. Policy evictions and transfer missing. |
@@ -132,8 +132,8 @@ VIP, trade, party, and shop packets parse in `crates/tfs-rust-net/src/game_parse
 
 ### Monster / NPC AI
 
-- **Monsters outside their monsterhome never despawn.** `IdleStimulus` calls `MonsterhomeInRange` and triggers `StartLogout` when false (`crnonpl.cc:2408-2414`). Rust only blocks movement via `monster_move_possible_planning` (`monster_ai.rs:1855-1858`), so a monster that gets stuck off-home stays forever.
-- **`LifeEndRound` is checked in the wrong place.** The corpus tests it at the top of `IdleStimulus` (`crnonpl.cc:2352-2356`). The field exists (`creature/monster.rs:300`) but is only polled by the raid tick (`raid_waves.rs:310-321`).
+- **Monsters outside their monsterhome — DONE (Step 6).** `IdleStimulus` calls `monsterhome_in_range` and `remove_creature` when false (`crnonpl.cc:2408-2414`). `home_radius <= 0` ≡ `Home == 0` (in range); `|dz|<=2` hardcoded. No ATTACKING exemption. MovePossible still skips the leash while chasing.
+- **`LifeEndRound` — DONE (Step 6).** Drained at the top of `IdleStimulus` (`crnonpl.cc:2352-2356`) via `remove_creature`. Raid tick only *sets* the field at spawn.
 - **No explicit `DistanceFighting` race flag.** The corpus reads it from `RaceData` (`crmain.cc:1253`, `:1498`) and branches at `crnonpl.cc:2837-2868`. Rust infers the distance branch from `target_distance > 1 && ThrowPossible` (`monster_ai.rs:217-226`). This currently produces correct results for the shipped pack, but it is a data-shape mismatch waiting to bite.
 - **Four NPC behaviour actions are unimplemented:** `Bless` (7 call sites), `Town` (9), `String` assignment (595), `Promote` (4) — see `tasks/npc-corpus-inventory.md:85-88`.
 - **NPC `Summon()` does not bind a master.** `npc/host.rs:134-144` creates a detached monster.
@@ -204,7 +204,7 @@ Recorded so future audits do not re-file them as gaps.
 
 ## Recommended next steps
 
-Ordered by gameplay impact per unit of effort. Steps 1–5 (trade, party, shop, VIP, rune/spell gates, chat) are done; Step 6 monster AI is the next cluster.
+Ordered by gameplay impact per unit of effort. Steps 1–5 (trade, party, shop, VIP, rune/spell gates, chat) are done. Step 6 LifeEndRound + monsterhome despawn are done (`DistanceFighting` deferred). Step 7 script numerics is next.
 
 ### ~~Step 1 — Player trade~~ **Done (audit 1.1, August 2026)**
 
@@ -230,9 +230,11 @@ Shipped: `CheckRuneLevel` + `EarliestSpellTime` + aggressive PZ on `player_cast_
 
 Shipped in [`chat_talk.rs`](../crates/tfs-rust-core/src/chat_talk.rs): 7×5 say / 30×30 yell, RecordTalk flood, pack Trade id 6 + 120-round gate, `RecordMessage` PM cap, guild look + guild-channel filter, cancel texts (premium private channel, invite/exclude, EditText NOROOM, UseWithCreature OOR). Flood decision: **port RecordTalk** (not TFS `maxMessageBuffer`). Lua `canJoin`/`onSpeak` still stubbed. See [Player operations and chat](#player-operations-and-chat).
 
-### Step 6 — Monster AI edge paths
+### ~~Step 6 — Monster AI edge paths~~ **Partial (September 2026)**
 
-Monsterhome idle despawn, `LifeEndRound` at the idle entry point, and an explicit `DistanceFighting` flag on `MonsterType`.
+**Done:** monsterhome idle despawn (`monsterhome_in_range` + `IdleStimulus`) and `LifeEndRound` at the idle entry point (`crnonpl.cc:2352`, `:2407`). Raid tick no longer polls expiry. See [Monster / NPC AI](#monster--npc-ai).
+
+**Remaining (deferred):** explicit `DistanceFighting` flag on `MonsterType` / `RaceData`. Idle still infers the distance branch from `target_distance > 1 && ThrowPossible`.
 
 ### Step 7 — Script numerics
 

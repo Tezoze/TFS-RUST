@@ -101,6 +101,19 @@ fn is_in_spawn_range_chebyshev_and_z() {
     ));
 }
 
+/// 772 `MonsterhomeInRange` — `crnonpl.cc:1515`. Axis box `|dx|<=R && |dy|<=R && |dz|<=2`.
+#[test]
+fn monsterhome_in_range_axis_box_and_z() {
+    let home = Position::new(100, 100, 7);
+    let r = 5;
+    assert!(monsterhome_in_range(Position::new(105, 105, 9), home, r));
+    assert!(!monsterhome_in_range(Position::new(106, 100, 7), home, r));
+    assert!(!monsterhome_in_range(Position::new(100, 106, 7), home, r));
+    assert!(!monsterhome_in_range(Position::new(100, 100, 10), home, r));
+    assert!(monsterhome_in_range(Position::new(200, 200, 15), home, 0));
+    assert!(monsterhome_in_range(Position::new(200, 200, 15), home, -1));
+}
+
 /// Finding 17/17b — an ATTACKING monster follows its target beyond the home radius (leash
 /// skipped), while a roaming (Idle) monster is bounded by its per-home `home_radius`.
 #[test]

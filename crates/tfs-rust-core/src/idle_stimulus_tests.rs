@@ -7628,3 +7628,185 @@ fn test_772_aggressive_destination_skips_pz_tiles() {
         "non-PZ Destination center must still receive field"
     );
 }
+
+// --- Step 6: LifeEndRound + MonsterhomeInRange IdleStimulus despawn (`crnonpl.cc:2352`, `:2407`) ---
+
+fn relocate_monster(world: &mut GameWorld, cid: CreatureId, to: Position) {
+    let from = world.creatures.get(cid).map(|k| k.position());
+    if let Some(from) = from {
+        world.map.unregister_creature_at(from, cid);
+    }
+    if let Some(k) = world.creatures.get_mut(cid) {
+        k.base_mut().position = to;
+    }
+    world.map.register_creature_at(to, cid);
+}
+
+/// `LifeEndRound != 0 && LifeEndRound <= RoundNr` → `remove_creature` (`crnonpl.cc:2352-2356`).
+#[test]
+fn idle_despawns_when_life_end_round_due() {
+    let mut world = beat_driven_test_world();
+    let pos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+    let monster = insert_monster(&mut world, "Rat", pos, 200);
+    world.round_nr = 10;
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.life_end_round = Some(world.round_nr);
+        m.idle_stimulus_last_ms = None;
+    }
+    world.monster_idle_stimulus(monster);
+    assert!(
+        !world.creatures.contains_key(monster),
+        "LifeEndRound == RoundNr must despawn"
+    );
+}
+
+/// Future `LifeEndRound` is not yet due.
+#[test]
+fn idle_keeps_monster_when_life_end_round_in_future() {
+    let mut world = beat_driven_test_world();
+    let pos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+    let monster = insert_monster(&mut world, "Rat", pos, 200);
+    world.round_nr = 10;
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.life_end_round = Some(world.round_nr + 10);
+        m.idle_stimulus_last_ms = None;
+    }
+    world.monster_idle_stimulus(monster);
+    assert!(
+        world.creatures.contains_key(monster),
+        "LifeEndRound in the future must not despawn"
+    );
+}
+
+/// `None` ≡ C++ `LifeEndRound == 0` — no timed despawn.
+#[test]
+fn idle_keeps_monster_when_life_end_round_unset() {
+    let mut world = beat_driven_test_world();
+    let pos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+    let monster = insert_monster(&mut world, "Rat", pos, 200);
+    world.round_nr = 10;
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.life_end_round = None;
+        m.idle_stimulus_last_ms = None;
+    }
+    world.monster_idle_stimulus(monster);
+    assert!(
+        world.creatures.contains_key(monster),
+        "unset LifeEndRound must not despawn"
+    );
+}
+
+/// Corpus `ProcessMonsterRaids` only sets `LifeEndRound`; IdleStimulus drains it.
+#[test]
+fn raid_tick_does_not_despawn_due_life_end_idle_does() {
+    let mut world = beat_driven_test_world();
+    let pos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+    let monster = insert_monster(&mut world, "Rat", pos, 200);
+    world.round_nr = 10;
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.life_end_round = Some(world.round_nr);
+        m.idle_stimulus_last_ms = None;
+    }
+    world.process_monster_raids();
+    assert!(
+        world.creatures.contains_key(monster),
+        "raid tick must not drain LifeEndRound"
+    );
+    world.monster_idle_stimulus(monster);
+    assert!(
+        !world.creatures.contains_key(monster),
+        "IdleStimulus must drain LifeEndRound after raid tick"
+    );
+}
+
+/// Kite-out-of-home: no ATTACKING exemption (`crnonpl.cc:2407-2415`).
+#[test]
+fn idle_despawns_attacking_monster_outside_monsterhome() {
+    let mut world = beat_driven_test_world();
+    let home = Position::new(100, 100, 7);
+    let far = Position::new(110, 100, 7); // chebyshev 10 > home_radius 3
+    ensure_walkable_tile(&mut world.map, home, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, far, TEST_SYNTHETIC_GROUND_WP);
+    let monster = insert_monster(&mut world, "Rat", home, 200);
+    relocate_monster(&mut world, monster, far);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.home_radius = 3;
+        m.state = MonsterState::Attacking;
+        m.is_idle = false;
+        m.idle_stimulus_last_ms = None;
+    }
+    world.monster_idle_stimulus(monster);
+    assert!(
+        !world.creatures.contains_key(monster),
+        "IdleStimulus must despawn even while Attacking when outside monsterhome"
+    );
+}
+
+/// Inside the home box — stays.
+#[test]
+fn idle_keeps_monster_inside_monsterhome() {
+    let mut world = beat_driven_test_world();
+    let home = Position::new(100, 100, 7);
+    let near = Position::new(102, 100, 7); // chebyshev 2 <= home_radius 3
+    ensure_walkable_tile(&mut world.map, home, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, near, TEST_SYNTHETIC_GROUND_WP);
+    let monster = insert_monster(&mut world, "Rat", home, 200);
+    relocate_monster(&mut world, monster, near);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.home_radius = 3;
+        m.idle_stimulus_last_ms = None;
+    }
+    world.monster_idle_stimulus(monster);
+    assert!(
+        world.creatures.contains_key(monster),
+        "monster inside home_radius must stay"
+    );
+}
+
+/// `home_radius <= 0` ≡ `Home == 0` → always in range (synthetic/Lua/raid/test).
+#[test]
+fn idle_keeps_monster_with_unset_home_radius_even_if_far() {
+    let mut world = beat_driven_test_world();
+    let home = Position::new(100, 100, 7);
+    let far = Position::new(200, 100, 7);
+    ensure_walkable_tile(&mut world.map, home, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, far, TEST_SYNTHETIC_GROUND_WP);
+    let monster = insert_monster(&mut world, "Rat", home, 200);
+    relocate_monster(&mut world, monster, far);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.home_radius = 0;
+        m.idle_stimulus_last_ms = None;
+    }
+    world.monster_idle_stimulus(monster);
+    assert!(
+        world.creatures.contains_key(monster),
+        "Home==0 must not despawn via monsterhome"
+    );
+}
+
+/// Summons skip the home check (`Master != 0` else-arm, `crnonpl.cc:2359`).
+#[test]
+fn idle_summon_skips_monsterhome_despawn() {
+    let mut world = beat_driven_test_world();
+    let home = Position::new(100, 100, 7);
+    let far = Position::new(110, 100, 7); // chebyshev 10 > home_radius 3, < 30 master range
+    ensure_walkable_tile(&mut world.map, home, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, far, TEST_SYNTHETIC_GROUND_WP);
+    let player = insert_player(&mut world, test_player("Hero", home));
+    world.map.register_creature_at(home, player);
+    let summon = insert_summon(&mut world, "Summon", home, player);
+    relocate_monster(&mut world, summon, far);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(summon) {
+        m.home_radius = 3;
+        m.idle_stimulus_last_ms = None;
+    }
+    world.monster_idle_stimulus(summon);
+    assert!(
+        world.creatures.contains_key(summon),
+        "summon off-home with master in range must not despawn via monsterhome"
+    );
+}

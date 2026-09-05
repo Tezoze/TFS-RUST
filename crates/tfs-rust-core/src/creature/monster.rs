@@ -295,8 +295,8 @@ pub struct Monster {
     /// at the same slot would share a wire-id without this, making the client show the
     /// stale dragon sprite with no name/HP bar).
     pub wire_id: u32,
-    /// 772 `LifeEndRound` — raid wave despawn (`crmain.cc` ProcessMonsterRaids).
-    /// `None` = no timed despawn (normal spawn / Lua createMonster).
+    /// 772 `LifeEndRound` — timed despawn drained by `IdleStimulus` (`crnonpl.cc:2352`).
+    /// Set at raid spawn (`crmain.cc` ProcessMonsterRaids). `None` ≡ 0 (no timed despawn).
     pub life_end_round: Option<u32>,
 }
 

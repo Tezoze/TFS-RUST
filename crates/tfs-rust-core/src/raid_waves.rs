@@ -12,7 +12,6 @@ use tfs_rust_net::outgoing_extra::send_text_message_simple;
 
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
-use crate::ids::CreatureId;
 use crate::return_value::ReturnValue;
 
 /// TFS `MESSAGE_EVENT_ADVANCE` / 772 event announce (`const.h`).
@@ -239,10 +238,9 @@ impl GameWorld {
     }
 
     /// C++ `ProcessMonsterRaids` — drain due waves after ProcessMonsterhomes (`main.cc:355`).
+    /// Corpus only *sets* `LifeEndRound` at spawn; `IdleStimulus` drains it (`crnonpl.cc:2352`).
     pub fn process_monster_raids(&mut self) {
-        let round_nr = self.round_nr;
-        self.despawn_expired_raid_monsters(round_nr);
-        let due = self.raids.drain_due(round_nr);
+        let due = self.raids.drain_due(self.round_nr);
         for wave in due {
             if let Some(ref text) = wave.message
                 && !text.is_empty()
@@ -304,20 +302,6 @@ impl GameWorld {
             x,
             y,
             z: wave.center.z,
-        }
-    }
-
-    fn despawn_expired_raid_monsters(&mut self, round_nr: u32) {
-        let mut expired: Vec<CreatureId> = Vec::new();
-        for (cid, kind) in self.creatures.iter() {
-            if let CreatureKind::Monster(m) = kind
-                && m.life_end_round.is_some_and(|end| end <= round_nr)
-            {
-                expired.push(cid);
-            }
-        }
-        for cid in expired {
-            self.remove_creature(cid);
         }
     }
 }

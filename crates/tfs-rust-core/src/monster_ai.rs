@@ -4,6 +4,7 @@
 //! - `Monster::searchTarget` — `monster.cpp` (~517).
 //! - `Creature::goToFollowCreature` — `creature.cpp` (~1011).
 //! - `Monster::walkToSpawn` — `monster.cpp` (~1087).
+//! - `MonsterhomeInRange` — `crnonpl.cc:1515` (IdleStimulus home despawn, not TFS `deSpawnRadius`).
 //! - `Monster::updateLookDirection` — `monster.cpp` (~1967).
 //! - `Monster::doAttacking` — `monster.cpp` (~806).
 //!
@@ -146,6 +147,19 @@ pub fn is_in_spawn_range(
     }
     let z_dist = (pos.z as i32 - master_pos.z as i32).unsigned_abs() as i32;
     z_dist <= despawn_z_range
+}
+
+/// 772 `MonsterhomeInRange` — `crnonpl.cc:1515`.
+/// `home_radius <= 0` ≡ `Home == 0` → always in range.
+pub fn monsterhome_in_range(pos: Position, home: Position, home_radius: i32) -> bool {
+    if home_radius <= 0 {
+        return true;
+    }
+    let dz = (pos.z as i32 - home.z as i32).unsigned_abs() as i32;
+    if dz > 2 {
+        return false;
+    }
+    distance_x(pos, home) <= home_radius && distance_y(pos, home) <= home_radius
 }
 
 /// TFS `Position::areInRange` for walk-back — `position.h` ~38, `monster.cpp` ~510.

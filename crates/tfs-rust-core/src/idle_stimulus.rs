@@ -1,7 +1,7 @@
 //! 772 drain-triggered idle AI — `IdleStimulus` on ToDo queue drain.
 //!
 //! - `TCreature::IdleStimulus` — virtual dispatch after `Execute` drains the action list.
-//! - `TMonster::IdleStimulus` — `crnonpl.cc:2386`.
+//! - `TMonster::IdleStimulus` — `crnonpl.cc:2345`.
 //!
 //! Phase 3: monsters run on this engine for **both** eras (1098 monster AI deleted).
 //! Phase 6: the `beat_driven_loop` flag is collapsed — both eras run on this engine.
@@ -38,6 +38,7 @@ use crate::monster_ai::{
     MonsterCombatCloseChaseEnqueue, MonsterEnqueueAttackResult, MonsterIdleChaseRepathOutcome,
     chebyshev, compute_look_toward_target, manhattan, monster_idle_chase_step_budget,
     monster_master_follow_wait_before_go, monster_master_follow_wait_only_band,
+    monsterhome_in_range,
 };
 use crate::player_flags::{PLAYER_FLAG_IGNORED_BY_MONSTERS, flags_for_group, has_player_flag};
 use crate::return_value::ReturnValue;
@@ -1047,6 +1048,28 @@ impl GameWorld {
             roll -= i32::from(threshold);
         }
         3
+    }
+
+    /// 772 `LifeEndRound` expired — `crnonpl.cc:2352-2356`.
+    /// `None` ≡ C++ `LifeEndRound == 0` (no timed despawn).
+    fn monster_idle_life_end_expired(&self, cid: CreatureId) -> bool {
+        let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
+            return false;
+        };
+        m.life_end_round
+            .is_some_and(|end| end != 0 && end <= self.round_nr)
+    }
+
+    /// 772 `!MonsterhomeInRange` for wild monsters — `crnonpl.cc:2407-2415`.
+    /// Summons skip this (`Master != 0` else-arm). `home_radius <= 0` ≡ `Home == 0` → in range.
+    fn monster_idle_outside_monsterhome(&self, cid: CreatureId) -> bool {
+        let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
+            return false;
+        };
+        if m.base.is_summon() {
+            return false;
+        }
+        !monsterhome_in_range(m.base.position, m.spawn_position, m.home_radius)
     }
 
     /// C++ target validity + `LoseTarget` — `crnonpl.cc:2368-2384`.
@@ -2310,6 +2333,22 @@ impl GameWorld {
             // C++ logs `combat_state` each idle pass; harness compare is per-tick bucketed.
             m.last_combat_trace = None;
         }
+
+        // C++ after LockToDo/LoggingOut + ChasePathLogIdleStimulus (`crnonpl.cc:2345`):
+        // LifeEndRound → Master summon block → else MonsterhomeInRange → sleeping.
+        // Before `wants_lua_think` so scripted monsters still expire.
+        if self.monster_idle_life_end_expired(cid) {
+            self.remove_creature(cid);
+            return;
+        }
+        if self.monster_idle_summon_lifecycle(cid) {
+            return;
+        }
+        if self.monster_idle_outside_monsterhome(cid) {
+            self.remove_creature(cid);
+            return;
+        }
+
         if self
             .creatures
             .get(cid)
@@ -2318,13 +2357,12 @@ impl GameWorld {
             return;
         }
 
-        let (is_idle, is_summon, has_opponents, follow, fleeing, pos, sleeping) = {
+        let (is_idle, has_opponents, follow, fleeing, pos, sleeping) = {
             let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
                 return;
             };
             (
                 m.is_idle,
-                m.base.is_summon(),
                 !m.opponent_ids.is_empty(),
                 m.base.follow_target,
                 m.is_fleeing(),
@@ -2332,13 +2370,6 @@ impl GameWorld {
                 m.state == MonsterState::Sleeping,
             )
         };
-
-        // C++ summon despawn / re-bind block — runs at the very top of `IdleStimulus`
-        // (`crnonpl.cc:2359–2405`), BEFORE the sleeping/idle checks. A sleeping summon still
-        // gets despawned if its master is gone / too far / on a different floor.
-        if is_summon && self.monster_idle_summon_lifecycle(cid) {
-            return;
-        }
 
         if sleeping {
             if is_idle {

@@ -26,8 +26,8 @@ impl GameWorld {
     /// C++ `ProcessSkills` — tick timer-skills for every creature (`crmain.cc:1130-1139`).
     ///
     /// Skip wild monsters / NPCs with an empty condition list: TFS timer-skills are conditions,
-    /// so an empty list ≡ empty TimerList. Raid `LifeEndRound` is drained from Other
-    /// (`raid_waves.rs`), not ProcessSkills. Do not invent monster `SKILL_FED` regen.
+    /// so an empty list ≡ empty TimerList. Raid `LifeEndRound` is drained by IdleStimulus
+    /// (`idle_stimulus.rs`), not ProcessSkills. Do not invent monster `SKILL_FED` regen.
     pub(crate) fn process_skills(&mut self) {
         self.scratch_creature_ids.clear();
         self.scratch_creature_ids.extend(
