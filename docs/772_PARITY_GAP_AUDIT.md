@@ -168,22 +168,22 @@ This system is in the best shape; what remains is mostly bookkeeping.
 
 ---
 
-## Tier 3 — Script probability and threshold drift
+## Tier 3 — Script probability and threshold drift — **DONE (Step 7, September 2026)**
 
-Small, low-risk, and independently verifiable. Each is a data-pack edit.
+Small, low-risk, independently verifiable data-pack edits. Shipped:
 
-| Item | Corpus | Current | File |
+| Item | Corpus | Now | File |
 |---|---|---|---|
-| Food cap boundary | `(cur+add) > Max` (`moveuse.cc:1842`) | `>= 1200` — rejects exactly 1200 | `food.lua:53` |
-| Birdcage empty chance | nested roll = 0.1% | `random(100)==1` = 1% | `birdcage.lua:4` |
-| Waterpipe puff target | 90% item / 10% player | 33% / 67% | `waterpipe.lua:4-7` |
-| Didgeridoo success | 10% | 20% | `music.lua:27` |
-| Cornucopia grape keep | 95% | 80% | `music.lua:21`, `:29` |
-| Change gold | absent on 772 | still registers | `change_gold.lua` |
-| Cuckoo clock | use announces time only | also toggles | `decayto.lua:3-4` |
-| Teleport PZ cancel | not in corpus | cancels in PZ | `teleport.lua:18-21` |
+| Food cap boundary | `(cur+add) > Max` (`moveuse.cc:1842`) | `> 1200` — exact 1200 allowed | `food.lua` |
+| Birdcage empty chance | nested `Random(1)` ∧ `Random(10)` = 0.1% | same; empty → 2094 else effect 22 | `birdcage.lua` |
+| Waterpipe puff target | 90% item / 10% player | same; OTB **2093**; 2099 behind `extraInstruments` | `waterpipe.lua` |
+| Didgeridoo success | 10% sound else poff | `chance = 10` | `music.lua` |
+| Cornucopia grape keep | 95% keep+10 grapes; else 9 + Change→grapes | OTB **3957** only (`TypeID 3103`); OTB 2369 is a horn | `music.lua` |
+| Change gold | absent on 772 | still gated (`changeGold = false`); does not register | `change_gold.lua` |
+| Cuckoo clock | use announces time only | dropped from `decayto.lua`; `watch.lua` still has 1873–1877/1881 | `decayto.lua` |
+| Teleport PZ cancel | not in corpus | PZ-lock cancel removed | `teleport.lua` |
 
-These are already listed in `tasks/other-actions-plan.md` step 5; this audit confirms them against the corpus.
+`Random(n)` is `math.random(1,100) <= n` (`moveuse.cc:349-350`). Tests: `step7_script_numerics_match_corpus`. Also listed in `tasks/other-actions-plan.md` step 5 (`create_bread` / `used_lamp` remain there, not this table).
 
 ---
 
@@ -204,7 +204,7 @@ Recorded so future audits do not re-file them as gaps.
 
 ## Recommended next steps
 
-Ordered by gameplay impact per unit of effort. Steps 1–5 (trade, party, shop, VIP, rune/spell gates, chat) are done. Step 6 LifeEndRound + monsterhome despawn are done (`DistanceFighting` deferred). Step 7 script numerics is next.
+Ordered by gameplay impact per unit of effort. Steps 1–7 (trade, party, shop, VIP, rune/spell gates, chat, LifeEndRound + monsterhome, script numerics) are done. Step 8 splash/elevation is next.
 
 ### ~~Step 1 — Player trade~~ **Done (audit 1.1, August 2026)**
 
@@ -236,9 +236,9 @@ Shipped in [`chat_talk.rs`](../crates/tfs-rust-core/src/chat_talk.rs): 7×5 say 
 
 **Remaining (deferred):** explicit `DistanceFighting` flag on `MonsterType` / `RaceData`. Idle still infers the distance branch from `target_distance > 1 && ThrowPossible`.
 
-### Step 7 — Script numerics
+### ~~Step 7 — Script numerics~~ **Done (September 2026)**
 
-The whole Tier 3 table in one pass. Independently testable, no engine risk.
+Shipped the whole [Tier 3](#tier-3--script-probability-and-threshold-drift--done-step-7-september-2026) table: food `> 1200`, birdcage 0.1%, waterpipe 90/10, didgeridoo 10%, cornucopia 95% on OTB 3957 only, cuckoo time-only, teleport no PZ cancel. `change_gold` was already gated. Bongo/war drum/pipe 2099 stay behind `formulas.otherActions.extraInstruments`.
 
 ### Step 8 — Splash layer and elevation
 
@@ -319,6 +319,7 @@ rtk cargo test -p tfs-rust-core --lib spell::tests
 rtk cargo test -p tfs-rust-core --lib chat_talk
 rtk cargo test -p tfs-rust-core --lib idle_stimulus
 rtk cargo test -p tfs-rust-core --lib monster_ai
+rtk cargo test -p tfs-rust-lua --lib actions::tests::step7_script_numerics_match_corpus
 rtk cargo test -p tfs-rust-core --lib player::combat
 rtk cargo test -p tfs-rust-net --test protocol_compat
 ```

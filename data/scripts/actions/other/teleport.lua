@@ -15,11 +15,7 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 		fromPosition.z = fromPosition.z + 1
 	end
 
-	if player:isPzLocked() and Tile(fromPosition):hasFlag(TILESTATE_PROTECTIONZONE) then
-		player:sendCancelMessage(RETURNVALUE_PLAYERISPZLOCKED)
-		return true
-	end
-
+	-- 772 `MoveRel` (`moveuse.dat` Teleporters / `moveuse.cc:1333-1341`) has no PZ-lock cancel.
 	player:teleportTo(fromPosition, false)
 	return true
 end

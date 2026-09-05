@@ -540,6 +540,12 @@ mod tests {
             !other.get::<bool>("changeGold").expect("changeGold"),
             "772 has no coin-exchange on use"
         );
+        assert!(
+            !other
+                .get::<bool>("extraInstruments")
+                .expect("extraInstruments"),
+            "772 has no bongo/war drum/pipe-2099 UseEvent"
+        );
         let success: mlua::Function = formulas
             .get("fishingSuccess")
             .expect("formulas.fishingSuccess");
@@ -559,6 +565,12 @@ mod tests {
         assert!(
             other.get::<bool>("changeGold").expect("changeGold"),
             "1098 TFS change_gold is enabled"
+        );
+        assert!(
+            other
+                .get::<bool>("extraInstruments")
+                .expect("extraInstruments"),
+            "1098 TFS extras: bongo / war drum / pipe 2099"
         );
     }
 
@@ -943,6 +955,127 @@ mod tests {
                 "1098 change_gold must register {expected}, got {ids:?}"
             );
         }
+    }
+
+    /// Audit Step 7 / Tier 3: script numerics match `moveuse.cc` / `moveuse.dat`.
+    #[test]
+    fn step7_script_numerics_match_corpus() {
+        let data_root = workspace_data_root();
+        let other = data_root.join("scripts/actions/other");
+        if !other.exists() {
+            eprintln!("other actions dir not found — skipping");
+            return;
+        }
+
+        let food = std::fs::read_to_string(other.join("food.lua")).expect("food.lua");
+        assert!(
+            food.contains(") > 1200"),
+            "UseFood Cur+Add > Max (moveuse.cc:1842), got food.lua gate"
+        );
+        assert!(!food.contains(">= 1200"), "exact cap 1200 must be allowed");
+
+        let birdcage = std::fs::read_to_string(other.join("birdcage.lua")).expect("birdcage.lua");
+        assert!(
+            birdcage.contains("<= 1") && birdcage.contains("<= 10"),
+            "Fun 2976 nested Random(1) and Random(10)"
+        );
+        assert!(
+            !birdcage.contains("math.random(100) == 1"),
+            "TFS 1% empty must not remain"
+        );
+
+        let waterpipe =
+            std::fs::read_to_string(other.join("waterpipe.lua")).expect("waterpipe.lua");
+        assert!(
+            waterpipe.contains("<= 90"),
+            "Fun 2974 Random(90) puff on item"
+        );
+        assert!(
+            !waterpipe.contains("math.random(3)"),
+            "TFS 33/67 must not remain"
+        );
+
+        let music = std::fs::read_to_string(other.join("music.lua")).expect("music.lua");
+        assert!(
+            music.contains("chance = 10"),
+            "didgeridoo Fun 2965 Random(10)"
+        );
+        assert!(
+            !music.contains("chance = 20"),
+            "TFS didgeridoo 20% must not remain"
+        );
+        assert!(
+            music.contains("chance = 95"),
+            "cornucopia Fun 3103 Random(95)"
+        );
+        assert!(
+            music.contains("failItemCount = 9") && music.contains("transformOnFail = 2681"),
+            "cornucopia fail: 9 grapes + Change→2681"
+        );
+        assert!(
+            !music.contains("itemCount = 10, chance = 80"),
+            "TFS 80% cornucopia keep must not remain"
+        );
+
+        let decayto = std::fs::read_to_string(other.join("decayto.lua")).expect("decayto.lua");
+        assert!(
+            !decayto.contains("[1873]") && !decayto.contains("[1875]"),
+            "cuckoo use is time (watch.lua), not onUse toggle"
+        );
+
+        let teleport = std::fs::read_to_string(other.join("teleport.lua")).expect("teleport.lua");
+        assert!(
+            !teleport.contains("isPzLocked"),
+            "MoveRel has no PZ-lock cancel"
+        );
+
+        let load_ids = |version: u16, file: &str| -> Vec<u16> {
+            let mut runtime = LuaRuntime::new().expect("runtime");
+            inject_era_formulas(&runtime, &data_root, version).expect("formulas");
+            runtime
+                .load_action_script(&other.join(file).display().to_string())
+                .unwrap_or_else(|e| panic!("{file} {version} load: {e}"));
+            runtime
+                .drain_pending_actions()
+                .into_iter()
+                .flat_map(|p| p.item_ids)
+                .collect()
+        };
+
+        let pipe_772 = load_ids(772, "waterpipe.lua");
+        assert!(pipe_772.contains(&2093), "772 waterpipe 2093: {pipe_772:?}");
+        assert!(
+            !pipe_772.contains(&2099),
+            "772 must not register TFS pipe 2099: {pipe_772:?}"
+        );
+        let pipe_1098 = load_ids(1098, "waterpipe.lua");
+        assert!(
+            pipe_1098.contains(&2093) && pipe_1098.contains(&2099),
+            "1098 extraInstruments registers 2099: {pipe_1098:?}"
+        );
+
+        let music_772 = load_ids(772, "music.lua");
+        assert!(music_772.contains(&3952), "didgeridoo 3952: {music_772:?}");
+        assert!(music_772.contains(&3957), "cornucopia 3957: {music_772:?}");
+        assert!(
+            music_772.contains(&2369),
+            "immovable horn 2369 (not grapes): {music_772:?}"
+        );
+        assert!(
+            !music_772.contains(&3951) && !music_772.contains(&3953),
+            "772 must not register bongo/war drum: {music_772:?}"
+        );
+        let music_1098 = load_ids(1098, "music.lua");
+        assert!(
+            music_1098.contains(&3951) && music_1098.contains(&3953),
+            "1098 extraInstruments registers bongo/war drum: {music_1098:?}"
+        );
+
+        let decay_ids = load_ids(772, "decayto.lua");
+        assert!(
+            !decay_ids.contains(&1873) && !decay_ids.contains(&1876),
+            "decayto must not register cuckoo: {decay_ids:?}"
+        );
     }
 
     /// E3: 772 `UseWeapon` (`moveuse.cc`) is `random(1,3)==1` then `Change` in place,

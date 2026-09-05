@@ -1,6 +1,6 @@
+-- Cuckoo 1873–1876 are InformationType=2 + Expire (`objects.srv`); use announces
+-- time via watch.lua. Do not toggle them here.
 local decayItems = {
-	[1873] = 1874, [1874] = 1873, -- cuckoo clock
-	[1875] = 1876, [1876] = 1875, -- cuckoo clock
 	[2041] = 2042, [2042] = 2041, -- candelabrum
 	[2044] = 2045, [2045] = 2044, -- lamp
 	[2047] = 2048, [2048] = 2047, -- candlestick

@@ -1,3 +1,16 @@
+# Script numerics — audit Step 7 (2026-09-05)
+
+Tier 3 table in `docs/772_PARITY_GAP_AUDIT.md`. Data-pack Lua only; 1098 extras stay behind `formulas.otherActions`. Cite `moveuse.cc` / `moveuse.dat`.
+
+- [x] `food.lua` — `(cur+add) > 1200` (`moveuse.cc:1842`); exact 1200 allowed
+- [x] `birdcage.lua` — empty iff `random(100)<=1 and random(100)<=10` (0.1%); else effect 22
+- [x] `waterpipe.lua` — `random(100)<=90` poff on item else player; id 2093; 2099 behind `extraInstruments`
+- [x] `music.lua` — didgeridoo chance 10; cornucopia **3957 only** 95% keep+10 grapes else 9+`transform(2681)`; 2369 is horn; bongo/war drum behind `extraInstruments`
+- [x] `change_gold.lua` — already gated; 772 does not register coins
+- [x] `decayto.lua` — drop cuckoo 1873–1876 (use = time via `watch.lua`)
+- [x] `teleport.lua` — drop PZ-lock cancel
+- [x] Tests + audit Step 7 marked done; lesson captured
+
 # Monster AI edge paths — audit Step 6 (2026-09-05)
 
 Corpus `TMonster::IdleStimulus` (`crnonpl.cc:2345`). **Exclude** `DistanceFighting` race flag — keep inferring the dist branch from `target_distance > 1 && ThrowPossible`.

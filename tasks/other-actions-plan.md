@@ -15,7 +15,7 @@ Do **not** port `moveuse.dat` as an engine. Pattern: `food.lua` (772 numbers + c
 2. ~~**E2** zero-thing target + `isHotkey`~~ — **done**. Stops no-target crashes.
 3. ~~**E3** `ItemType:getDestroyId` / `getFluidSource` + **`destroyItem` 1/3 `transform`**.~~ — **done**.
 4. ~~**E4** `addHealth`~~ ~~**E5** `say`~~ ~~**E8** drunk stack + rewrite `fluids.lua`~~.
-5. **Script pass** — food `>`, birdcage, waterpipe, music, create_bread, used_lamp, teleport, change_gold gate, `formulas.otherActions`.
+5. ~~**Script pass** — food `>`, birdcage, waterpipe, music, teleport, change_gold gate, `formulas.otherActions`.~~ **done (audit Step 7, 2026-09-05).** Remaining in this folder: `create_bread`, `used_lamp`.
 6. ~~**E6** `showTextDialog` + learned-spell list + **rewrite `spellbook.lua`** (`GetSpellbook`).~~ **done.** ~~**E7** `getHouse` + `construction_kits.lua`.~~ **done.**
 7. ~~**E9** `getFormattedWorldTime` — `watch.lua`.~~ **done.**
 8. **After this folder** — remaining actions APIs **R3–R5** (map chests + mintwallin `createTile`). E3 already covers tool `destroyItem`. R1–R5 shipped. Then G10 `decay(id)`, G12.
@@ -49,7 +49,7 @@ Cite `moveuse.cc` / `moveuse.dat` / `objects.srv` in a one-line header like `foo
 | `food.lua` | Keep nutrition×12 and `"You are full."` (`FEDUP`). Change `>= 1200` to **`> 1200`** (`Cur + Add > Max`, `moveuse.cc:1842`). Exact cap 1200 is allowed. |
 | `birdcage.lua` | Empty iff `random(100)<=1 and random(100)<=10`. Else effect 22. (`moveuse.dat` Fun 2976) |
 | `waterpipe.lua` | `random(100)<=90` poff on **item**, else **player**. Id **2093 only**. (`2974`) |
-| `music.lua` | Didgeridoo chance **10** (else poff). Cornucopia **3957 and 2369**: 95% keep + 10 grapes; else 9 grapes + `transform(2681)`. Drop bongo `3951` / war drum `3953` unless `extraInstruments`. Piano 50 / plain green stay. |
+| `music.lua` | Didgeridoo chance **10** (else poff). Cornucopia **3957 only** (TypeID 3103): 95% keep + 10 grapes; else 9 grapes + `transform(2681)`. **OTB 2369 is a horn**, not cornucopia. Drop bongo `3951` / war drum `3953` unless `extraInstruments`. Piano 50 / plain green stay. |
 | `fluids.lua` | Rewrite to `UseLiquidContainer`: fill (`LIQUIDSOURCE`) → pour (empty dest container) → drink **iff dest is self** → else spill `2016`. Drink: beer/wine `addCondition(drunk)`; slime `Damage(200, POISON_PERIODIC)` = cycle 200 / count 3 / max 3; mana **50–150**; life **25–75**; lemonade `"Mmmh."`; milk/default `"Gulp."`; urine `"Urgh!"`; none no-op. No magic-blue, no exhaust. |
 | `change_gold.lua` | Early `return` before `Action()` if `not formulas.otherActions.changeGold`. 772: `false`. |
 | `create_bread.lua` | Millstone **wheat only** (`2694`), `transform` in place (`Change` 3605→3603). Flour+water → `transform` dough in place. Dough+oven → `Delete` dough, `Create` bread on oven. |
@@ -74,7 +74,7 @@ Cite `moveuse.cc` / `moveuse.dat` / `objects.srv` in a one-line header like `foo
 
 ## Status
 
-Load probe 2026-08-15 (post-E1): **20/20 load**. 772 column is decompile match, not “script runs.” `change_gold` still **registers** coins until step 5.
+Load probe 2026-08-15 (post-E1): **20/20 load**. Audit Step 7 (2026-09-05) shipped the Tier 3 numerics. `create_bread` / `used_lamp` still open.
 
 | File | Loads | 772 | Ship |
 |---|---|---|---|
@@ -83,21 +83,21 @@ Load probe 2026-08-15 (post-E1): **20/20 load**. 772 column is decompile match, 
 | `trap.lua` | ✅ | ✅ | leave |
 | `doors.lua` | ✅ | ⚠️ | leave (doors plan) |
 | `transforms.lua` | ✅ | ⚠️ | leave (`CHANGEUSE` stand-in) |
-| `food.lua` | ✅ | ❌ `>=` vs `>` | step 5 |
-| `teleport.lua` | ✅ | ⚠️ | drop PZ cancel |
+| `food.lua` | ✅ | ✅ `> 1200` | Step 7 |
+| `teleport.lua` | ✅ | ✅ no PZ cancel | Step 7 |
 | `pumpkinhead.lua` | ✅ | ⚠️ | E2 only |
-| `decayto.lua` | ✅ | ⚠️ | drop cuckoo |
+| `decayto.lua` | ✅ | ✅ no cuckoo toggle | Step 7 |
 | `watch.lua` | ✅ | ✅ | E9 + cuckoo; drop 3900 |
-| `waterpipe.lua` | ✅ | ❌ 33/67 vs 90/10 | step 5 |
-| `birdcage.lua` | ✅ | ❌ 1% vs 0.1% | step 5 |
-| `music.lua` | ✅ | ❌ didgeridoo/cornucopia/extras | step 5 |
-| `create_bread.lua` | ✅ | ⚠️ | E2 + step 5 |
-| `used_lamp.lua` | ✅ | ⚠️ | E2 + step 5 |
+| `waterpipe.lua` | ✅ | ✅ 90/10, 2093 | Step 7 |
+| `birdcage.lua` | ✅ | ✅ 0.1% nested | Step 7 |
+| `music.lua` | ✅ | ✅ didgeridoo 10 / cornucopia 3957 / extras gated | Step 7 |
+| `create_bread.lua` | ✅ | ⚠️ | still open |
+| `used_lamp.lua` | ✅ | ⚠️ | still open (`decay()` leftover) |
 | `construction_kits.lua` | ✅ | ✅ | E7 |
 | `destroy.lua` | ✅ | ⚠️ helper 1/3 | E3 shipped; script pass unchanged |
 | `spellbook.lua` | ✅ | ✅ | E6 |
 | `fluids.lua` | ✅ | ✅ | E8 |
-| `change_gold.lua` | ✅ | ❌ still registers | step 5: do not register on 772 |
+| `change_gold.lua` | ✅ | ✅ gated | Step 7 |
 
 ---
 
@@ -121,6 +121,7 @@ Load probe 2026-08-15 (post-E1): **20/20 load**. 772 column is decompile match, 
 
 ## Tests
 
+- `step7_script_numerics_match_corpus` — food `> 1200`; birdcage nested 0.1%; waterpipe 90/10 + 2093 vs 2099; didgeridoo 10; cornucopia 95/9+transform; 772 does not register 3951/3953/2099; decayto drops cuckoo; teleport has no `isPzLocked`.
 - `other_scripts_load_and_register` — 20 files load; 772 does **not** register gold coins; ids 2095 / 2175 / 486 registered; 2217 **not** on spellbook; 3900 **not** on watch; 1877/1881 **are**.
 - E1 ✅: `FLUID_WATER==1`, `TALKTYPE_SAY==1`, `CONST_ME_SOUND_YELLOW==22`, `ITEM_GOLD_COIN==2148` (`e1_other_action_constants_unblock_fluids_and_change_gold_load` + `lua_defs` snapshot).
 - Zero-thing: `target.uid==0 and target.itemid==0`; `isHotkey` boolean. ✅ `e2_no_target_is_zero_thing_table_and_is_hotkey_boolean`

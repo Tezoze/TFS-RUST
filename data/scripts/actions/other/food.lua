@@ -50,7 +50,7 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 
 	-- 772 `moveuse.cc:1841-1843`: `if (CurFoodTime + ObjFoodTime) > MaxFoodTime -> FEDUP`.
 	-- `food_remaining` is `SKILL_FED` `Cycle` (`crskill.cc:220`), `MaxFoodTime` = 1200.
-	if player:getFood() + (food * 12) >= 1200 then
+	if player:getFood() + (food * 12) > 1200 then
 		player:sendTextMessage(MESSAGE_STATUS_SMALL, "You are full.")
 	else
 		player:feed(food * 12)
