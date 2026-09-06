@@ -114,6 +114,7 @@ fn scan_min_terrain_waypoints_ignores_blocked_tiles() {
         towns: HashMap::new(),
         waypoints: HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_snapshots: HashMap::new(),
     };
     let origin = Position::new(2, 2, 7);
     for x in 0..5u16 {
@@ -158,6 +159,7 @@ fn uniform_walkable_map(width: u16, ground: u16) -> Map {
         towns: HashMap::new(),
         waypoints: HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_snapshots: HashMap::new(),
     };
     for x in 0..width {
         ensure_walkable_tile(&mut map, Position::new(x, 0, 7), ground);
@@ -235,6 +237,7 @@ fn reverse_with_allow_diagonal_still_uses_reverse_expansion() {
         towns: HashMap::new(),
         waypoints: HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_snapshots: HashMap::new(),
     };
     for x in 0..15u16 {
         for y in 0..15u16 {
@@ -294,6 +297,7 @@ fn reverse_falls_back_to_forward_around_obstacle() {
         towns: HashMap::new(),
         waypoints: HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_snapshots: HashMap::new(),
     };
     for x in 0..7u16 {
         for y in 9..=11u16 {
@@ -379,6 +383,7 @@ fn reverse_prefers_fast_tile_on_asymmetric_terrain() {
         towns: HashMap::new(),
         waypoints: HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_snapshots: HashMap::new(),
     };
     for y in 0..3u16 {
         for x in 0..5u16 {
@@ -453,6 +458,7 @@ fn forward_pathfinder_obeys_allow_diagonal() {
         towns: HashMap::new(),
         waypoints: HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_snapshots: HashMap::new(),
     };
     for x in 0..7u16 {
         for y in 0..7u16 {
@@ -535,6 +541,7 @@ fn reverse_noway_without_fallback() {
         towns: HashMap::new(),
         waypoints: HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_snapshots: HashMap::new(),
     };
     for x in 0..7u16 {
         for y in 9..=11u16 {
@@ -910,6 +917,7 @@ fn cyclops_quad_uniform_map_excluding(
         towns: HashMap::new(),
         waypoints: HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_snapshots: HashMap::new(),
     };
     let pad = REVERSE_PATH_VIEW_RADIUS as u16 + 2;
     let min_x = start.x.min(target.x).saturating_sub(pad);

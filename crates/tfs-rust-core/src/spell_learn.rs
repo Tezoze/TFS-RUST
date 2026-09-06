@@ -134,7 +134,7 @@ fn names_equiv(a: &str, b: &str) -> bool {
     })
 }
 
-fn spell_nr_for_name(name: &str) -> Option<i32> {
+pub fn spell_nr_for_name(name: &str) -> Option<i32> {
     SPELL_NR_NAMES
         .iter()
         .find(|(_, n)| names_equiv(n, name))

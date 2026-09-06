@@ -147,6 +147,7 @@ fn eval_ctx<'a>(
         world_pvp_enforced: false,
         world_non_pvp: false,
         tuning: NpcTuning::classic_772(),
+        session_string: String::new(),
     }
 }
 
@@ -1303,6 +1304,7 @@ fn custom_predicate_host_selects_rule() {
         world_pvp_enforced: false,
         world_non_pvp: false,
         tuning: NpcTuning::classic_772(),
+        session_string: String::new(),
     };
     let _ = money;
     assert!(
@@ -1448,6 +1450,7 @@ fn custom_action_host_records_mutate() {
         world_pvp_enforced: false,
         world_non_pvp: false,
         tuning: NpcTuning::classic_772(),
+        session_string: String::new(),
     };
     let mut host = StubHost { called: false };
     let mut trace = DialogueTrace::default();
@@ -1478,6 +1481,144 @@ fn custom_action_host_records_mutate() {
         e,
         DialogueEvent::Mutate {
             op: MutateOp::CustomAction,
+            ..
+        }
+    )));
+}
+
+#[test]
+fn teach_spell_resolves_session_string() {
+    use super::actions::NpcActionHost;
+    use super::expr::spell_id;
+    use super::react::{ReactMeta, apply_dialogue_plan};
+    use tfs_rust_content::npcs::NpcCallbackId;
+
+    struct TeachHost {
+        taught: i32,
+    }
+    impl NpcActionHost for TeachHost {
+        fn create_item(&mut self, _: CreatureId, _: i32, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn delete_item(&mut self, _: CreatureId, _: i32, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn create_money(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn delete_money(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_hp(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_poison(&mut self, _: CreatureId, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_burning(&mut self, _: CreatureId, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn effect_me(&mut self, _: CreatureId, _: u16) -> Result<(), String> {
+            Ok(())
+        }
+        fn effect_opp(&mut self, _: CreatureId, _: u16) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_quest_value(&mut self, _: CreatureId, _: u32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_profession(&mut self, _: CreatureId, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn teach_spell(&mut self, _: CreatureId, spell: i32) -> Result<(), String> {
+            self.taught = spell;
+            Ok(())
+        }
+        fn summon(&mut self, _: CreatureId, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn teleport(&mut self, _: CreatureId, _: i32, _: i32, _: i32) -> Result<(), String> {
+            Ok(())
+        }
+        fn set_start_position(
+            &mut self,
+            _: CreatureId,
+            _: CreatureId,
+            _: Option<(i32, i32, i32)>,
+        ) -> Result<(i32, i32, i32), String> {
+            Ok((0, 0, 0))
+        }
+        fn invoke_custom_action(
+            &mut self,
+            _: CreatureId,
+            _: CreatureId,
+            _: NpcCallbackId,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    let inv = |_id: i32| 0i32;
+    let quest = |_id: u32| -1i32;
+    let spell_k = |_id: i32| 0i32;
+    let spell_l = |_id: i32| 0i32;
+    let mut rng = |lo: i32, hi: i32| lo;
+    let mut ctx = eval_ctx(&inv, &quest, &spell_k, &spell_l, &mut rng);
+    ctx.session_string = "find person".into();
+    assert_eq!(
+        spell_id(&DialogueExpr::SessionString, &mut ctx),
+        20,
+        "Find Person SpellNr"
+    );
+
+    let sp = span();
+    let program = DialogueProgram {
+        policy: DialoguePolicy::QueuedSingleFocus,
+        rules: vec![DialogueRule {
+            predicates: vec![DialoguePredicate::Situation {
+                kind: DialogueSituation::Default,
+                span: sp.clone(),
+            }],
+            actions: vec![
+                DialogueAction::SetString {
+                    text: "find person".into(),
+                    span: sp.clone(),
+                },
+                DialogueAction::TeachSpell {
+                    spell: DialogueExpr::SessionString,
+                    span: sp.clone(),
+                },
+            ],
+            span: sp,
+        }],
+    };
+    let mut host = TeachHost { taught: 0 };
+    let mut trace = DialogueTrace::default();
+    let dummy = CreatureId::from(slotmap::KeyData::from_ffi(1));
+    let meta = ReactMeta {
+        npc_id: dummy,
+        npc_name: "X",
+    };
+    apply_dialogue_plan(
+        &program,
+        super::match_rule::RuleMatch {
+            rule_index: 0,
+            captures: Default::default(),
+        },
+        DialogueSituationKind::Default,
+        dummy,
+        "",
+        &mut ctx,
+        NpcTuning::classic_772(),
+        &mut host,
+        &meta,
+        &mut trace,
+    );
+    assert_eq!(host.taught, 20);
+    assert!(trace.events.iter().any(|e| matches!(
+        e,
+        DialogueEvent::Mutate {
+            op: MutateOp::TeachSpell { spell: 20 },
             ..
         }
     )));
@@ -1961,6 +2102,7 @@ fn format_time_pm() {
         world_pvp_enforced: false,
         world_non_pvp: false,
         tuning: NpcTuning::classic_772(),
+        session_string: String::new(),
     };
     assert_eq!(format_npc_response("It is %T.", &ctx), "It is 1:00 pm.");
 }

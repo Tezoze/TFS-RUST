@@ -15,6 +15,10 @@ impl GameWorld {
     /// After an item is on a tile — trash consume or teleport dest (`Tile::addThing` specials).
     pub(crate) fn apply_tile_item_specials(&mut self, pos: Position, item_id: ItemId) {
         let flags = self.map.get_tile(pos).map(|t| t.body().flags).unwrap_or(0);
+        if flags & tilestate::MAILBOX != 0 {
+            self.apply_mailbox_send(pos, item_id);
+            return;
+        }
         if flags & tilestate::TRASHHOLDER != 0 {
             self.apply_trashholder_consume(pos, item_id);
             return;

@@ -15,11 +15,11 @@ Likewise, several corpus subsystems are deliberately **not** ported as engines �
 | System | Corpus files | Estimate | State |
 |---|---|---|---|
 | Player / skills / combat | `crplayer.cc`, `crskill.cc`, `crcombat.cc`, `crmain.cc` | ~90% | Strongest area. Remaining items are snapback and kill-stat cosmetics, not core combat. |
-| Monster / NPC AI | `crnonpl.cc`, `cract.cc` | ~90% | Idle-stimulus engine, spawn, chase, casting, loot, NPC dialogue, home/LifeEnd despawn all live. |
+| Monster / NPC AI | `crnonpl.cc`, `cract.cc` | ~92% | Idle-stimulus engine, spawn, chase, casting, loot, NPC dialogue (incl. pack `Bless`/`Town`/`String`/`Promote`), home/LifeEnd despawn all live. |
 | Magic / spells | `magic.cc` | ~85% | Pre-cast rune ML / exhaust / PZ and spoken premium done. Remaining: heal-paralyze, AoE rings, berserk, mana fluid. |
-| Map | `map.cc`, `info.cc` | ~82% | Stacking, flags, throw LOS, decay cron, splash insert, elevation climb done. Live sector refresh missing. |
-| Houses | `houses.cc` | ~75% | Ownership, rent, lists, doors, eviction, **in-game sell via trade** done. Policy evictions and transfer missing. |
-| Move / use | `moveuse.cc`, `objects.cc` | ~72% | Typed handlers, doors, fields, tools, script numerics done. Mail missing. |
+| Map | `map.cc`, `info.cc` | ~90% | Stacking, flags, throw LOS, decay cron, splash insert, elevation climb, live OTBM refresh snapshots done. |
+| Houses | `houses.cc` | ~88% | Ownership, rent, lists, doors, eviction, **in-game sell via trade**, policy evictions (free/deleted/ex-guild) done. `TransferHouses` table and `StartAuctions` stay AAC. |
+| Move / use | `moveuse.cc`, `objects.cc` | ~88% | Typed handlers, doors, fields, tools, script numerics, mail, MOVEMENTEVENT dress/trap/candelabrum, UNLAY shuffle, ceremonial-mask announcer done. |
 | Chat / channels | `operate.cc`, `crplayer.cc` | ~88% | Say 7×5, yell 30×30, RecordTalk, trade-offer gate, PM cap, guild look/filter done. Lua channel hooks and a few packets still stubbed. |
 | Player operations | `operate.cc` | ~82% | Trade (1.1), party (1.2), NPC shop (1.3), and VIP (1.4) dispatched. |
 | Info / script | `info.cc`, `script.cc`, `config.cc` | ~55% | Mostly replaced by OTBM + `config.lua` + Lua by design. |
@@ -93,17 +93,23 @@ VIP, trade, party, and shop packets parse in `crates/tfs-rust-net/src/game_parse
 
 **Tests:** `cargo test -p tfs-rust-core --lib vip`; protocol goldens `vip_entry_and_status_*`.
 
-### 1.5 Mail
+### 1.5 Mail — **DONE (Step 10, September 2026)**
 
-**Corpus:** `SendMail` / `SendMails` (`moveuse.cc:712-919`) — parses addressee and town from the letter text, delivers to the recipient's depot when online, queues when offline, and stamps the letter on send.
+**Corpus:** `SendMail` / `SendMails` (`moveuse.cc:712-919`) — parses addressee and town from the letter text, delivers to the recipient's **town depot** when online, queues when offline, and stamps the letter on send. Trigger is Collision after an item lands on a mailbox (dat TypeID 3501/3508), not Use.
 
-**Rust:** no equivalent found in `crates/`. Mailboxes exist in the map content and currently do nothing.
+**Rust:** focused module [`crates/tfs-rust-core/src/mail.rs`](../crates/tfs-rust-core/src/mail.rs). Hooked from [`tile_specials.rs`](../crates/tfs-rust-core/src/tile_specials.rs) `MAILBOX`. Mailable: unstamped letter **2597** / parcel **2595** (+ label **2599**). Stamp → 2598 / 2596. Address: line 1 name (≤29 bytes), line 2 town; unknown / empty → silent fail (item stays). Online + that town's depot already open: move into chest, notify `"New mail has arrived."`; else stamp + `pending_depot_dumps`. Never 1098 inbox `14404`. Offline lookup via `GameCommand::MailLookupFinished`.
 
-### 1.6 Live sector refresh
+**Tests:** `cargo test -p tfs-rust-core --lib mail`.
 
-**Corpus:** `SectorRefreshable` / `RefreshSector` / `RefreshMap` / `RefreshCylinders` / `ApplyPatch` / `ApplyPatches` and `ProcessCronSystem` (`operate.hh:158-165`). `RefreshSector` (`map.cc:1307-1350`) tests the sector's `MapFlags & 0x01` (`map.cc:1320`), strips non-creature objects, and reloads from a patch stream.
+### 1.6 Live sector refresh — **DONE (Step 10, September 2026)**
 
-**Rust:** the refresh flag is read from OTBM at load but never acted on at runtime; `Game.refreshMap` returns 0 and logs (lesson 411). The decay cron half of `ProcessCronSystem` **is** implemented (`game_world_tick.rs:91-99` + `decay_apply.rs`); only the sector-reload half is missing.
+**Corpus:** `RefreshCylinders` / `RefreshMap` (`operate.hh:158-165`, `map.cc:1307-1350`, `operate.cc:2964`). `ProcessCronSystem` is **decay only**. World is OTBM, not ORIGMAP `.sec` patches, so restore is a **snapshot** of non-creature items on `OTBM_TILEFLAG_REFRESH` tiles (`1<<5` at load → runtime `TILESTATE_REFRESH = 1<<27`). Skip house tiles; leave creatures.
+
+**Minute cron is `RefreshCylinders`**, not full `RefreshMap`: one ORIGMAP 32×32 XY column per minute (`RefreshedCylinders` default 1), all Z, skip if a player in the 31-radius box `CanSeeFloor` that Z. Full restore is Lua `Game.refreshMap()` / reboot only (`main.cc:383` vs `:428`). Calling `refresh_map()` every minute on forgotten.otbm (~673k tiles) freezes the game thread.
+
+**Rust:** [`crates/tfs-rust-core/src/sector_refresh.rs`](../crates/tfs-rust-core/src/sector_refresh.rs). Do **not** use TVP `TILESTATE_REFRESH = 1<<11` (collides with this port's `TELEPORT`). `data/world/forgotten.otbm` `1<<5` now matches ORIGMAP `Refresh` (694,625 tiles — token-based `.sec` parse, lesson 438; patched with [`scripts/patch_otbm_refresh_from_origmap.py`](../scripts/patch_otbm_refresh_from_origmap.py) rather than a RON overlay).
+
+**Tests:** `cargo test -p tfs-rust-core --lib sector_refresh`.
 
 ---
 
@@ -135,22 +141,22 @@ VIP, trade, party, and shop packets parse in `crates/tfs-rust-net/src/game_parse
 - **Monsters outside their monsterhome — DONE (Step 6).** `IdleStimulus` calls `monsterhome_in_range` and `remove_creature` when false (`crnonpl.cc:2408-2414`). `home_radius <= 0` ≡ `Home == 0` (in range); `|dz|<=2` hardcoded. No ATTACKING exemption. MovePossible still skips the leash while chasing.
 - **`LifeEndRound` — DONE (Step 6).** Drained at the top of `IdleStimulus` (`crnonpl.cc:2352-2356`) via `remove_creature`. Raid tick only *sets* the field at spawn.
 - **No explicit `DistanceFighting` race flag.** The corpus reads it from `RaceData` (`crmain.cc:1253`, `:1498`) and branches at `crnonpl.cc:2837-2868`. Rust infers the distance branch from `target_distance > 1 && ThrowPossible` (`monster_ai.rs:217-226`). This currently produces correct results for the shipped pack, but it is a data-shape mismatch waiting to bite.
-- **Four NPC behaviour actions are unimplemented:** `Bless` (7 call sites), `Town` (9), `String` assignment (595), `Promote` (4) — see `tasks/npc-corpus-inventory.md:85-88`.
+- **Four NPC behaviour actions — DONE (Step 10).** Pack-surface `Bless` / `Town` / `String` / `Promote` (TVP/OT `npcbehavior.cpp`, **not** in 772 `crnonpl.cc`). Import lowers them; runtime: blessing bit `n-1`, `setTown` (no teleport), one session string register for `TeachSpell(String)` / `SpellKnown(String)`, vocation `promoted_id` (else +4) + storage **30018**.
 - **NPC `Summon()` does not bind a master.** `npc/host.rs:134-144` creates a detached monster.
 
 ### Move / use
 
-- **`MOVEMENTEVENT` on item cylinder transfer has no hook.** `moveuse.cc:2263-2287` fires when a flagged item moves between containers; the corpus uses it for quest items in chests. No equivalent in the item-move path.
-- **`UseChangeObject` UNLAY shuffle is not replicated.** When a transform target is `UNLAY`, the corpus relocates stack objects to an adjacent passable tile (`moveuse.cc:2184-2204`) — distinct from `ClearField`, which *is* ported (`clear_field.rs:30+`). Currently only doors get the treatment (`doors.rs:164`).
-- **`UseAnnouncer` cases 1 and 3 are missing** — full in-world date string (`moveuse.cc:1891-1898`) and the blessings list from quest values 101–105 (`:1909-1944`). Case 2 (time) and case 4 (spellbook) are done.
+- **`MOVEMENTEVENT` — DONE (Step 10).** Corpus `moveuse.cc:2263-2287` is **object-flag + `moveuse.dat`**, not TFS tile `MoveEvent`. Shipped: dress-toggle rings, lit candelabrum 2042→2041, armed trap 2579→2578 + poff. No OTB bit — hardcoded OTB ids in [`movement_event.rs`](../crates/tfs-rust-core/src/movement_event.rs). Fires after tile add and after `internal_move_item` (rings on equip). Not “quest items in chests.”
+- **`UseChangeObject` UNLAY shuffle — DONE (Step 10).** E/S/W/N, `BANK && !UNPASS`, no JumpPossible, on transform-to-UNLAY that is **not** also UNPASS (`clear_field.rs` `unlay_shuffle`). Distinct from ClearField. Hooked from `lua_script_item_transform` only (not generic `change_item_type` / decay). 772 Unlay-gain ChangeUse also Unpass so ClearField usually wins.
+- **`UseAnnouncer` case 3 — DONE (Step 10).** Ceremonial mask OTB **2501**, quests 101–105; none → `"No blessings received."` (`data/scripts/actions/other/ceremonial_mask.lua`). **Case 1 (date) skipped** — no InformationType=1 items in 772 `objects.srv`. Cases 2 and 4 stay.
 - **Level/quest door denial text is hardcoded.** The corpus reads the item's info string via `GetInfo(Door)` (`moveuse.cc:2075`, `:2111`); `doors.rs:196`, `:218` use fixed strings, which loses map-specific messages.
 
 ### Map / houses
 
 - **Splash / pool layer — DONE (Step 8, September 2026).** OTB `FLAG_ALWAYSONTOP` still routes splashes into `top_items` (Option A / `down_items` rejected: 772 `0x6A` omits stackpos). Sorted insert keeps blood-on-ladders. Combat `CreatePool` NOROOM uses `is_create_pool_bottom_blocker` (OTB has no Bottom bit). Corpses are **not** Bottom in `objects.srv` and do not block. TFS ladder guards deleted. See [`772_SPLASH_LAYER_MISMATCH.md`](772_SPLASH_LAYER_MISMATCH.md).
 - **Elevation climb — DONE (Step 8, September 2026).** G1–G4 in [`772_ELEVATION_WALK_PARITY.md`](772_ELEVATION_WALK_PARITY.md) §4/§5: default elevation 8, climb only after flat `MovePossible` fails, `DestZ > 0` / `< 15`, walk `NotEnoughRoom` → `NotPossible`. Part A (7.4 step-up) is not 772. G5 (19 missing OTB `HAS_HEIGHT`) remains cosmetic.
-- **House policy evictions are absent:** `EvictFreeAccounts` (`houses.cc:1139+`), `EvictDeletedCharacters` (`:1173+`), `EvictExGuildLeaders` (`:1199+`).
-- **`TransferHouses` (`houses.cc:1029+`) and `StartAuctions` (`houses.cc:1334+`) are not ported.** Auction *settlement* is (`house/auction.rs:18-36`), on the assumption MyAAC writes the bid columns — worth confirming that schema matches the `FinishAuctions` payment check.
+- **House policy evictions — DONE (Step 10).** `EvictFreeAccounts` / `EvictDeletedCharacters` / `EvictExGuildLeaders` in [`house/policy.rs`](../crates/tfs-rust-core/src/house/policy.rs), spawned from the minute job (DB via `HousePolicyScanFinished`). Instant, no letter. Free = `accounts.premium_ends_at < now` (`0` = free). Deleted = `players.deletion != 0` or missing. Ex-guild = guild hall owner ≠ `guilds.ownerid`.
+- **`TransferHouses` and `StartAuctions` stay AAC.** No TFS `HouseTransfers` table; in-game sell is `!sellhouse` / trade (already live). Auction *settlement* is native (`house/auction.rs`); MyAAC writes bid columns.
 - **Corpus `MayOpenDoor` parses access rules from the door's own text** (`houses.cc:562-619`). Rust uses DB `door_lists` (`house/mod.rs:210-224`), which is the TFS shape; confirm it covers every 772 door.
 - **`IsPremiumArea` (`map.cc:2430-2453`) has no equivalent** — undetermined whether the shard needs it.
 
@@ -194,6 +200,9 @@ Recorded so future audits do not re-file them as gaps.
 - **`moveuse.dat` rule engine is not ported.** `HandleEvent` / `CheckCondition` (26 condition types) / `ExecuteAction` (38 action types) (`moveuse.cc:86-350`, `:946-1531`) are replaced by TFS `Action()` / `MoveEvent()` Lua plus native handlers, per `tasks/movements-plan.md:148`. **The conversion has been done, and systematically** — see [Coverage of the converted dat rules](#coverage-of-the-converted-dat-rules) below. Coordinate-pinned rules became action-id-keyed `MoveEvent` scripts, with the coordinate living in the OTBM as an action id.
 - **`playerSpeed = "balanced"`** in `data/formulas/772.lua:49` is a deliberate shard-tuning choice, not a parity bug. The corpus formula is linear `2*Go + 80` (`crskill.cc:667`), available as `playerSpeed = "772"` if strict parity is ever wanted.
 - **`script.cc` binary script I/O** is replaced by OTBM + Lua.
+- **Live sector refresh uses OTBM snapshots**, not corpus ORIGMAP `.sec` patch streams (`RefreshSector` / `ApplyPatch`). Flag bit at runtime is `1<<27` (OTBM `1<<5` at load). The replica OTBM flag set is aligned with ORIGMAP `Refresh` (see Step 1.6). Minute job is **`RefreshCylinders`** (one 32×32 XY / minute); `RefreshMap` is Lua/reboot only.
+- **`TransferHouses` / `StartAuctions` stay AAC.** No `HouseTransfers` table; MyAAC writes auction bid columns. In-game house sell is `!sellhouse` / trade.
+- **`UseAnnouncer` case 1 (date)** has no shipped 772 items (`InformationType=1`).
 - **Rule violation reporting** (corpus channel 3, `operate.cc:3222+`) is an explicit non-goal.
 - **Critical hits and stamina do not exist in the 772 corpus.** The stamina DB field is persisted for TFS compatibility but has no gameplay effect.
 - **Party channel** exists in Rust (`chat.rs:108`) but not in the corpus public-channel enum (`operate.hh:26-36`) — treat as a gated TFS extra.
@@ -204,7 +213,7 @@ Recorded so future audits do not re-file them as gaps.
 
 ## Recommended next steps
 
-Ordered by gameplay impact per unit of effort. Steps 1–9 (trade, party, shop, VIP, rune/spell gates, chat, LifeEndRound + monsterhome, script numerics, splash/elevation, death metadata) are done. Step 10 mail / sector refresh is next.
+Ordered by gameplay impact per unit of effort. Steps 1–10 (trade, party, shop, VIP, rune/spell gates, chat, LifeEndRound + monsterhome, script numerics, splash/elevation, death metadata, longer tail) are done. Step 11 is a fidelity spot-check of converted dat rules.
 
 ### ~~Step 1 — Player trade~~ **Done (audit 1.1, August 2026)**
 
@@ -248,9 +257,9 @@ Splash stays in sorted `top_items` (Option A rejected). Combat `CreatePool` NORO
 
 Shipped in [`death_record.rs`](../crates/tfs-rust-core/src/death_record.rs) / [`kill_statistics.rs`](../crates/tfs-rust-core/src/kill_statistics.rs): native `player_deaths` INSERT (corpus remarks, TFS columns), kill-stat RAM + minute-55/shutdown flush, soul timer columns, `item_counts_as_armor_at_slot`. `TSkillLevel::Decrease` abort stays on `remove_experience` only. See [Player / combat](#player--combat).
 
-### Step 10 — Longer tail
+### ~~Step 10 — Longer tail~~ **Done (September 2026)**
 
-Mail (`SendMail`), live sector refresh, house policy evictions and transfer, `MOVEMENTEVENT` hook, `UseAnnouncer` cases 1 and 3, UNLAY shuffle, and NPC `Bless` / `Town` / `String` / `Promote`.
+Shipped: mail (`mail.rs`, town depot not inbox), OTBM refresh snapshots (`sector_refresh.rs`, `TILESTATE_REFRESH=1<<27`), house policy evictions (`house/policy.rs`; TransferHouses/StartAuctions stay AAC), MOVEMENTEVENT rings/candelabrum/trap, UNLAY shuffle on UseChangeObject, ceremonial-mask announcer case 3, NPC pack `Bless`/`Town`/`String`/`Promote`. UseAnnouncer case 1 skipped (no shipped items). See [§1.5](#15-mail--done-step-10-september-2026), [§1.6](#16-live-sector-refresh--done-step-10-september-2026), [Move / use](#move--use), [Map / houses](#map--houses), [Monster / NPC AI](#monster--npc-ai).
 
 ### Step 11 — Spot-check fidelity of the converted dat rules
 
@@ -279,7 +288,7 @@ Script (`data/scripts/movements/map/rookgaard/premium_bridge.lua:3-8`) reproduce
 
 - **Coordinate-pinned (647 of 828 Collision rules, 561 distinct coordinates)** — converted to aid scripts as above.
 - **Type-keyed (181 rules)** — handled natively. Trap Damage (35 rules) via `trap.lua` + `magic_field.rs`; Liquid Deletions (70) and Teleporters Relative (71) via `tile_specials.rs`; Dustbins (1) likewise. These sections contain no coordinates at all, which is why the crosswalk reports none for them.
-- **Genuinely uncovered:** `Collision/Mailboxes` (2 rules), which needs `SendMail` — already tracked as Tier 1 item 1.5.
+- **Genuinely uncovered:** none remaining in Collision/Mailboxes — `SendMail` is [§1.5](#15-mail--done-step-10-september-2026).
 
 ### Residual risk
 
@@ -326,5 +335,11 @@ rtk cargo test -p tfs-rust-core --lib death_record
 rtk cargo test -p tfs-rust-core --lib kill_statistics
 rtk cargo test -p tfs-rust-core --lib inventory::tests
 rtk cargo test -p tfs-rust-core --lib player::combat
+rtk cargo test -p tfs-rust-core --lib mail
+rtk cargo test -p tfs-rust-core --lib sector_refresh
+rtk cargo test -p tfs-rust-core --lib house
+rtk cargo test -p tfs-rust-content --lib npc_import
+rtk cargo test -p tfs-rust-lua --lib npc_dialogue
+rtk cargo test -p tfs-rust-core --lib npc::tests::teach_spell_resolves_session_string
 rtk cargo test -p tfs-rust-net --test protocol_compat
 ```

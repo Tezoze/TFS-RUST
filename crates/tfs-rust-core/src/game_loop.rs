@@ -1453,6 +1453,18 @@ fn dispatch_command(
             world.apply_vip_lookup_finished(requester_guid, target_guid, target_name);
             ControlFlow::Continue(())
         }
+        GameCommand::MailLookupFinished {
+            item_id,
+            town_id,
+            guid,
+        } => {
+            world.apply_mail_lookup_finished(item_id, town_id, guid);
+            ControlFlow::Continue(())
+        }
+        GameCommand::HousePolicyScanFinished { evict } => {
+            world.apply_house_policy_scan(evict);
+            ControlFlow::Continue(())
+        }
     }
 }
 

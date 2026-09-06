@@ -55,6 +55,7 @@ fn map_find_item_position_finds_down_item() {
         towns: std::collections::HashMap::new(),
         waypoints: std::collections::HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_snapshots: std::collections::HashMap::new(),
     };
     m.insert_tile(pos, tfs_rust_core::tile::Tile::Normal(body));
     assert_eq!(m.find_item_position(iid), Some(pos));

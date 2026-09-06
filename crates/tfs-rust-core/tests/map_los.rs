@@ -25,6 +25,7 @@ fn map_with_wall() -> Map {
         towns: std::collections::HashMap::new(),
         waypoints: std::collections::HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_snapshots: std::collections::HashMap::new(),
     };
     map.insert_tile(Position::new(0, 0, 7), body_at(0, 0, 0));
     map.insert_tile(Position::new(1, 0, 7), body_at(1, 0, 0));
@@ -87,6 +88,7 @@ fn sight_not_blocked_by_missing_tile() {
         towns: std::collections::HashMap::new(),
         waypoints: std::collections::HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_snapshots: std::collections::HashMap::new(),
     };
     map.insert_tile(Position::new(0, 0, 7), body_at(0, 0, 0));
     map.insert_tile(Position::new(1, 0, 7), body_at(1, 0, 0));
@@ -109,6 +111,7 @@ fn los_symmetric_when_clear() {
         towns: std::collections::HashMap::new(),
         waypoints: std::collections::HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_snapshots: std::collections::HashMap::new(),
     };
     for x in 0..4u16 {
         for y in 0..4u16 {
@@ -150,6 +153,7 @@ fn flat_map(w: u16, h: u16) -> Map {
         towns: std::collections::HashMap::new(),
         waypoints: std::collections::HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_snapshots: std::collections::HashMap::new(),
     };
     for x in 0..w {
         for y in 0..h {

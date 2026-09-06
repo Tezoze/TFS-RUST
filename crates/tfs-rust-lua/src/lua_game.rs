@@ -161,8 +161,7 @@ pub fn register_admin_globals(lua: &Lua) -> Result<(), mlua::Error> {
     globals.set(
         "refreshMap",
         lua.create_function(|_, ()| {
-            tracing::info!("refreshMap: full remap is out of scope; returning 0");
-            Ok(0u32)
+            crate::lua_mutation::call_refresh_map().map_err(mlua::Error::runtime)
         })?,
     )?;
     globals.set(

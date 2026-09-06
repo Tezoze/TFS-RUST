@@ -30,6 +30,7 @@ pub struct DialoguePlan {
     pub amount: Option<i32>,
     pub item_type: Option<i32>,
     pub data: Option<i32>,
+    pub session_string: Option<String>,
     pub start_todo: bool,
     pub final_talk_delay_ms: u32,
 }
@@ -331,7 +332,7 @@ pub fn apply_dialogue_plan(
                     }
                 }
                 DialogueAction::TeachSpell { spell, .. } => {
-                    let spell_v = super::expr::eval_expr(spell, ctx);
+                    let spell_v = super::expr::spell_id(spell, ctx);
                     match host.teach_spell(player, spell_v) {
                         Ok(()) => {
                             trace.push(DialogueEvent::Mutate {
@@ -341,6 +342,43 @@ pub fn apply_dialogue_plan(
                         }
                         Err(e) => log_action_failure(&fail_ctx, &e),
                     }
+                }
+                DialogueAction::Bless { index, .. } => {
+                    let index_v = super::expr::eval_expr(index, ctx);
+                    match host.add_blessing(player, index_v) {
+                        Ok(()) => {
+                            trace.push(DialogueEvent::Mutate {
+                                player,
+                                op: MutateOp::Bless { index: index_v },
+                            });
+                        }
+                        Err(e) => log_action_failure(&fail_ctx, &e),
+                    }
+                }
+                DialogueAction::Town { town_id, .. } => {
+                    let town_v = super::expr::eval_expr(town_id, ctx);
+                    match host.set_town(player, town_v) {
+                        Ok(()) => {
+                            trace.push(DialogueEvent::Mutate {
+                                player,
+                                op: MutateOp::Town { town_id: town_v },
+                            });
+                        }
+                        Err(e) => log_action_failure(&fail_ctx, &e),
+                    }
+                }
+                DialogueAction::Promote { .. } => match host.promote(player) {
+                    Ok(()) => {
+                        trace.push(DialogueEvent::Mutate {
+                            player,
+                            op: MutateOp::Promote,
+                        });
+                    }
+                    Err(e) => log_action_failure(&fail_ctx, &e),
+                },
+                DialogueAction::SetString { text, .. } => {
+                    plan.session_string = Some(text.clone());
+                    ctx.session_string = text.clone();
                 }
                 DialogueAction::Summon { monster, .. } => match host.summon(meta.npc_id, monster) {
                     Ok(()) => {

@@ -424,7 +424,7 @@ fn register_tile_states(globals: &mlua::Table) -> Result<(), mlua::Error> {
     globals.set("TILESTATE_NOLOGOUT", 512i32)?; // 1<<9
     globals.set("TILESTATE_PVPZONE", 1024i32)?; // 1<<10
     // Absent in current tile.h; keep defined so look/compat scripts don't nil.
-    globals.set("TILESTATE_REFRESH", 0i32)?;
+    globals.set("TILESTATE_REFRESH", 134217728i32)?; // 1<<27
     globals.set("TILESTATE_TELEPORT", 2048i32)?; // 1<<11
     globals.set("TILESTATE_MAGICFIELD", 4096i32)?; // 1<<12
     globals.set("TILESTATE_MAILBOX", 8192i32)?; // 1<<13

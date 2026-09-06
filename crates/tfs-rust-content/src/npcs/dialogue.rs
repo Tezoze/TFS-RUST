@@ -106,6 +106,8 @@ pub enum DialogueExpr {
     SpellLevel {
         spell: Box<DialogueExpr>,
     },
+    /// Session string register (TVP `string`) — `TeachSpell(String)` / `SpellKnown(String)`.
+    SessionString,
     Binary {
         op: ExprOp,
         lhs: Box<DialogueExpr>,
@@ -224,9 +226,24 @@ pub enum DialogueAction {
         vocation: DialogueExpr,
         span: SourceSpan,
     },
-    /// `TeachSpell(spell)` — spell may be literal or session `Type`.
+    /// `TeachSpell(spell)` — spell may be literal, session `Type`, or session string.
     TeachSpell {
         spell: DialogueExpr,
+        span: SourceSpan,
+    },
+    Bless {
+        index: DialogueExpr,
+        span: SourceSpan,
+    },
+    Town {
+        town_id: DialogueExpr,
+        span: SourceSpan,
+    },
+    Promote {
+        span: SourceSpan,
+    },
+    SetString {
+        text: String,
         span: SourceSpan,
     },
     Summon {

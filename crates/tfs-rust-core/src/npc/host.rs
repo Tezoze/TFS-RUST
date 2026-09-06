@@ -138,6 +138,43 @@ impl NpcActionHost for GameWorld {
         Ok(())
     }
 
+    fn add_blessing(&mut self, player: CreatureId, index: i32) -> Result<(), String> {
+        let bit = index.saturating_sub(1);
+        if !(0..=5).contains(&bit) {
+            return Ok(());
+        }
+        let Some(CreatureKind::Player(p)) = self.creatures.get_mut(player) else {
+            return Err("add_blessing: player not found".into());
+        };
+        p.blessings |= 1i8.wrapping_shl(bit as u32);
+        if let Some(ref mut persist) = p.persist {
+            persist.player_row.blessings = p.blessings;
+        }
+        Ok(())
+    }
+
+    fn set_town(&mut self, player: CreatureId, town_id: i32) -> Result<(), String> {
+        if town_id < 0 {
+            return Ok(());
+        }
+        let ffi = player.data().as_ffi();
+        self.lua_script_player_set_town(ffi, town_id as u32)
+    }
+
+    fn promote(&mut self, player: CreatureId) -> Result<(), String> {
+        const STORAGE_PROMOTION: u32 = 30018;
+        let current = match self.creatures.get(player) {
+            Some(CreatureKind::Player(p)) => p.vocation_id,
+            _ => return Err("promote: player not found".into()),
+        };
+        let next = self
+            .vocations
+            .promoted_id(current)
+            .unwrap_or(current.saturating_add(4));
+        self.set_profession(player, next)?;
+        self.player_set_storage(player, STORAGE_PROMOTION, 1)
+    }
+
     fn summon(&mut self, npc: CreatureId, monster: &str) -> Result<(), String> {
         let pos = self
             .creatures

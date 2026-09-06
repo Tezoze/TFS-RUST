@@ -77,6 +77,13 @@ pub enum MutateOp {
     },
     /// NPC-7 custom Lua action completed.
     CustomAction,
+    Bless {
+        index: i32,
+    },
+    Town {
+        town_id: i32,
+    },
+    Promote,
 }
 
 /// Observable dialogue/state event (NPC-0 fixture `expected[]` kinds).

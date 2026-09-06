@@ -9,6 +9,7 @@ mod depot_cash;
 mod look;
 mod ownership;
 mod persist;
+mod policy;
 mod registry;
 mod rent;
 mod serialize;

@@ -677,6 +677,7 @@ impl GameWorld {
         crate::lua_scope::fire_item_move_events(self, item_id, pos, true);
         self.start_decay(item_id);
         self.apply_tile_item_specials(pos, item_id);
+        self.fire_movement_event(item_id);
         Ok(item_id)
     }
 

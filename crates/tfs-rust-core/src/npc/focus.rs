@@ -748,7 +748,7 @@ impl GameWorld {
             };
         let money = self.player_count_money(player).min(i32::MAX as u64) as i32;
 
-        let (topic, price, amount, item_type, data) =
+        let (topic, price, amount, item_type, data, session_string) =
             self.npc_session_vars(npc_id, player, &program);
         let (world_pvp_enforced, world_non_pvp) = self.npc_world_pvp_flags();
 
@@ -843,6 +843,7 @@ impl GameWorld {
             world_pvp_enforced,
             world_non_pvp,
             tuning,
+            session_string,
         };
 
         let Some(matched) = match_dialogue_rule_with_custom(
@@ -878,14 +879,21 @@ impl GameWorld {
         npc_id: CreatureId,
         player: CreatureId,
         program: &DialogueProgram,
-    ) -> (i32, i32, i32, i32, i32) {
+    ) -> (i32, i32, i32, i32, i32, String) {
         let Some(CreatureKind::Npc(n)) = self.creatures.get(npc_id) else {
-            return (0, 0, 0, 0, 0);
+            return (0, 0, 0, 0, 0, String::new());
         };
         if program.policy == DialoguePolicy::PerPlayer
             && let Some(s) = n.runtime.player_sessions.get(&player)
         {
-            return (s.topic, s.price, s.amount, s.item_type, s.data);
+            return (
+                s.topic,
+                s.price,
+                s.amount,
+                s.item_type,
+                s.data,
+                s.session_string.clone(),
+            );
         }
         (
             n.runtime.topic,
@@ -893,6 +901,7 @@ impl GameWorld {
             n.runtime.amount,
             n.runtime.item_type,
             n.runtime.data,
+            n.runtime.session_string.clone(),
         )
     }
 
@@ -931,6 +940,9 @@ impl GameWorld {
                 if let Some(v) = plan.data {
                     s.data = v;
                 }
+                if let Some(ref v) = plan.session_string {
+                    s.session_string = v.clone();
+                }
             } else {
                 if let Some(v) = plan.topic {
                     npc.runtime.topic = v;
@@ -946,6 +958,9 @@ impl GameWorld {
                 }
                 if let Some(v) = plan.data {
                     npc.runtime.data = v;
+                }
+                if let Some(ref v) = plan.session_string {
+                    npc.runtime.session_string = v.clone();
                 }
             }
 

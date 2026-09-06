@@ -215,6 +215,8 @@ pub struct GameWorld {
     pub(crate) round_nr: u32,
     /// `NextMinute` — first minute jobs at round 30 (`main.cc` Other, `time.cc` GetRoundForNextMinute).
     pub(crate) next_minute_round: u32,
+    /// `RefreshCylinders` raster (`operate.cc:2964`) — one ORIGMAP 32×32 XY per minute.
+    pub(crate) refresh_cylinder_state: crate::sector_refresh::RefreshCylinderState,
     /// `CONNECTION_LOGIN` sockets not yet mapped to a creature (`connections.cc:42–44`).
     pub(crate) login_pending_conns: HashSet<ConnId>,
     /// RoundNr AttackWaveQueue — `crmain.cc` ProcessMonsterRaids.
@@ -484,6 +486,7 @@ impl GameWorld {
             parity_rng: crate::sim_glibc_rand::GlibcRngState::default(),
             round_nr: 0,
             next_minute_round: 30,
+            refresh_cylinder_state: crate::sector_refresh::RefreshCylinderState::default(),
             login_pending_conns: HashSet::new(),
             raids: crate::raid_waves::RaidScheduler::default(),
             last_ambiente_brightness: -1,

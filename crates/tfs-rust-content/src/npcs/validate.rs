@@ -1,9 +1,7 @@
 //! Validate pending NPC definitions into an immutable [`NpcDatabase`].
 //!
 //! Checks: duplicate names, empty names, impossible expressions, missing custom
-//! callback references, unknown item ids (when [`ItemDatabase`] is provided),
-//! and unsupported legacy constructs surfaced as explicit action/predicate errors
-//! at parse time (bless/town/string/promote rejected in the Lua bridge).
+//! callback references, unknown item ids (when [`ItemDatabase`] is provided).
 
 use std::collections::{HashMap, HashSet};
 
@@ -239,6 +237,12 @@ fn validate_action(
         DialogueAction::Profession { vocation, .. } => {
             validate_expr(file, &format!("{loc}.vocation"), vocation, items)?;
         }
+        DialogueAction::Bless { index, .. } => {
+            validate_expr(file, &format!("{loc}.index"), index, items)?;
+        }
+        DialogueAction::Town { town_id, .. } => {
+            validate_expr(file, &format!("{loc}.town_id"), town_id, items)?;
+        }
         DialogueAction::Summon { monster, .. } => {
             if monster.trim().is_empty() {
                 return Err(NpcValidateError::content(
@@ -264,7 +268,9 @@ fn validate_action(
         | DialogueAction::EffectMe { .. }
         | DialogueAction::EffectOpp { .. }
         | DialogueAction::Teleport { .. }
-        | DialogueAction::RepeatPrevious { .. } => {}
+        | DialogueAction::RepeatPrevious { .. }
+        | DialogueAction::Promote { .. }
+        | DialogueAction::SetString { .. } => {}
     }
     Ok(())
 }
@@ -315,6 +321,7 @@ fn validate_expr(
         }
         DialogueExpr::Lit(_)
         | DialogueExpr::Session(_)
+        | DialogueExpr::SessionString
         | DialogueExpr::Capture { .. }
         | DialogueExpr::Hp
         | DialogueExpr::Burning

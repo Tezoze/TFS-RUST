@@ -33,6 +33,7 @@ fn flat_map(w: u16, h: u16) -> Map {
         towns: std::collections::HashMap::new(),
         waypoints: std::collections::HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_snapshots: std::collections::HashMap::new(),
     };
     for x in 0..w {
         for y in 0..h {

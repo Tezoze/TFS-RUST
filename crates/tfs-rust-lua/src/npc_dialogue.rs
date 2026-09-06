@@ -151,9 +151,6 @@ fn parse_rule(table: &Table, file: &str) -> Result<DialogueRule, mlua::Error> {
 }
 
 fn parse_predicate(table: &Table, span: &SourceSpan) -> Result<DialoguePredicate, mlua::Error> {
-    // Reject unsupported legacy tokens if someone passes them as keys.
-    reject_unsupported_keys(table, &["bless", "town", "string", "promote"])?;
-
     if let Ok(Value::String(s)) = table.get::<Value>("situation") {
         let kind = parse_situation(&s.to_str().map_err(mlua::Error::external)?)?;
         return Ok(DialoguePredicate::Situation {
@@ -221,8 +218,6 @@ fn parse_predicate(table: &Table, span: &SourceSpan) -> Result<DialoguePredicate
 }
 
 fn parse_action(table: &Table, span: &SourceSpan) -> Result<DialogueAction, mlua::Error> {
-    reject_unsupported_keys(table, &["bless", "town", "string", "promote"])?;
-
     if let Ok(Value::String(s)) = table.get::<Value>("say") {
         return Ok(DialogueAction::Say {
             text: s.to_str().map_err(mlua::Error::external)?.to_string(),
@@ -375,6 +370,29 @@ fn parse_action(table: &Table, span: &SourceSpan) -> Result<DialogueAction, mlua
             span: span.clone(),
         });
     }
+    if let Some(v) = get_non_nil(table, "bless")? {
+        return Ok(DialogueAction::Bless {
+            index: parse_expr(&v)?,
+            span: span.clone(),
+        });
+    }
+    if let Some(v) = get_non_nil(table, "town")? {
+        return Ok(DialogueAction::Town {
+            town_id: parse_expr(&v)?,
+            span: span.clone(),
+        });
+    }
+    if let Ok(Value::Boolean(true)) = table.get::<Value>("promote") {
+        return Ok(DialogueAction::Promote {
+            span: span.clone(),
+        });
+    }
+    if let Ok(Value::String(s)) = table.get::<Value>("setString") {
+        return Ok(DialogueAction::SetString {
+            text: s.to_str().map_err(mlua::Error::external)?.to_string(),
+            span: span.clone(),
+        });
+    }
     if let Ok(name) = table.get::<String>("summon") {
         return Ok(DialogueAction::Summon {
             monster: name,
@@ -414,14 +432,6 @@ fn parse_expr(value: &Value) -> Result<DialogueExpr, mlua::Error> {
             parse_expr_ident(&name)
         }
         Value::Table(t) => {
-            // Unsupported constructs
-            for bad in ["bless", "town", "string", "promote"] {
-                if t.contains_key(bad)? {
-                    return Err(runtime(format!(
-                        "unsupported dialogue construct {bad:?} (not accepted in NpcDialogue)"
-                    )));
-                }
-            }
             if let Ok(Value::Integer(n)) = t.get::<Value>("lit") {
                 return Ok(DialogueExpr::Lit(n as i32));
             }
@@ -478,6 +488,9 @@ fn parse_expr(value: &Value) -> Result<DialogueExpr, mlua::Error> {
                     spell: Box::new(parse_expr(&spell_v)?),
                 });
             }
+            if let Ok(Value::Boolean(true)) = t.get::<Value>("sessionString") {
+                return Ok(DialogueExpr::SessionString);
+            }
             if let Ok(Value::Table(r)) = t.get::<Value>("random") {
                 let lo: i32 = r.get(1)?;
                 let hi: i32 = r.get(2)?;
@@ -509,15 +522,13 @@ fn parse_expr_ident(name: &str) -> Result<DialogueExpr, mlua::Error> {
         "amount" => Ok(DialogueExpr::Session(SessionVar::Amount)),
         "type" => Ok(DialogueExpr::Session(SessionVar::Type)),
         "data" => Ok(DialogueExpr::Session(SessionVar::Data)),
+        "string" => Ok(DialogueExpr::SessionString),
         "hp" => Ok(DialogueExpr::Hp),
         "burning" => Ok(DialogueExpr::Burning),
         "poison" => Ok(DialogueExpr::Poison),
         "countmoney" => Ok(DialogueExpr::CountMoney),
         "level" => Ok(DialogueExpr::Level),
         "magiclevel" => Ok(DialogueExpr::MagicLevel),
-        "bless" | "town" | "string" | "promote" => {
-            Err(runtime(format!("unsupported dialogue construct {name:?}")))
-        }
         _ => Err(runtime(format!("unknown expression identifier {name:?}"))),
     }
 }
@@ -568,9 +579,6 @@ fn parse_session_var(s: &str) -> Result<SessionVar, mlua::Error> {
         "amount" => Ok(SessionVar::Amount),
         "type" => Ok(SessionVar::Type),
         "data" => Ok(SessionVar::Data),
-        "string" => Err(runtime(
-            "unsupported session var \"string\" (not accepted)".into(),
-        )),
         other => Err(runtime(format!("unknown session var {other:?}"))),
     }
 }
@@ -628,17 +636,6 @@ fn get_non_nil(table: &Table, key: &str) -> Result<Option<Value>, mlua::Error> {
         Value::Nil => Ok(None),
         v => Ok(Some(v)),
     }
-}
-
-fn reject_unsupported_keys(table: &Table, keys: &[&str]) -> Result<(), mlua::Error> {
-    for key in keys {
-        if table.contains_key(*key)? {
-            return Err(runtime(format!(
-                "unsupported dialogue construct {key:?} (not accepted in NpcDialogue)"
-            )));
-        }
-    }
-    Ok(())
 }
 
 fn runtime(msg: String) -> mlua::Error {
@@ -734,27 +731,44 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unsupported_bless() {
+    fn parses_bless_town_promote_string() {
         let lua = setup();
-        let err = lua
+        let prog: mlua::AnyUserData = lua
             .load(
                 r#"
                 return NpcDialogue({
                     rules = {
                         {
                             when = { { situation = "address" } },
-                            actions = { { bless = true } }
+                            actions = {
+                                { setString = "find person" },
+                                { bless = 1 },
+                                { town = 2 },
+                                { promote = true }
+                            }
                         }
                     }
                 })
                 "#,
             )
-            .exec();
-        assert!(err.is_err());
-        let msg = format!("{}", err.unwrap_err());
-        assert!(
-            msg.contains("bless") || msg.contains("unrecognized"),
-            "{msg}"
-        );
+            .eval()
+            .expect("parse pack actions");
+        let p = prog.borrow::<NpcDialogueProgram>().unwrap();
+        assert!(matches!(
+            &p.0.rules[0].actions[0],
+            DialogueAction::SetString { text, .. } if text == "find person"
+        ));
+        assert!(matches!(
+            &p.0.rules[0].actions[1],
+            DialogueAction::Bless { .. }
+        ));
+        assert!(matches!(
+            &p.0.rules[0].actions[2],
+            DialogueAction::Town { .. }
+        ));
+        assert!(matches!(
+            &p.0.rules[0].actions[3],
+            DialogueAction::Promote { .. }
+        ));
     }
 }

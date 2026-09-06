@@ -804,6 +804,11 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             set_mutation_bool_result(ok);
             Ok(())
         }
+        LuaMutation::RefreshMap => {
+            let n = unsafe { &mut *world }.refresh_map();
+            set_mutation_i32_result(n as i32);
+            Ok(())
+        }
     }
 }
 

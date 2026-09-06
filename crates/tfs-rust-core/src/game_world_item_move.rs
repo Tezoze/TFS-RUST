@@ -1015,6 +1015,7 @@ impl GameWorld {
             );
         }
         self.notify_trades(dest_id);
+        self.fire_movement_event(dest_id);
         Ok(dest_id)
     }
 }

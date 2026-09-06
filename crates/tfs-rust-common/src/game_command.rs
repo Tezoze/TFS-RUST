@@ -75,4 +75,18 @@ pub enum GameCommand {
         target_guid: Option<u32>,
         target_name: String,
     },
+    /// Offline `GetCharacterID` for mailbox `SendMail` (`moveuse.cc:764-770`).
+    MailLookupFinished {
+        /// SlotMap ffi of the letter/parcel still on the mailbox (or already gone).
+        item_id: u64,
+        town_id: u32,
+        /// `None` when no living character matches the addressee.
+        guid: Option<u32>,
+    },
+    /// House policy eviction candidates from async SQL (`EvictFreeAccounts` /
+    /// `EvictDeletedCharacters` / `EvictExGuildLeaders`).
+    HousePolicyScanFinished {
+        /// `(house_id, owner_guid)` rows still owned by that guid at query time.
+        evict: Vec<(u32, u32)>,
+    },
 }

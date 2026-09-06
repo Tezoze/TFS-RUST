@@ -12,8 +12,6 @@ use crate::npcs::{
     PendingNpcDefinition, SessionVar, SourceSpan,
 };
 
-const UNSUPPORTED: &[&str] = &["string", "bless", "town", "promote"];
-
 /// Lower a parsed legacy NPC file into a pending definition.
 ///
 /// Pass `items = Some(...)` when the source uses CipSoft TypeIDs (e.g.
@@ -163,6 +161,7 @@ fn lower_action(a: RawAction, items: Option<&ItemDatabase>) -> ImportResult<Dial
             "idle" => Ok(DialogueAction::Idle { span }),
             "queue" => Ok(DialogueAction::Queue { span }),
             "nop" => Ok(DialogueAction::Nop { span }),
+            "promote" => Ok(DialogueAction::Promote { span }),
             "startposition" => Ok(DialogueAction::StartPosition { pos: None, span }),
             // Bare money ops: 772 DeleteMoney uses Price; CreateMoney uses Amount.
             "deletemoney" => Ok(DialogueAction::DeleteMoney {
@@ -173,21 +172,23 @@ fn lower_action(a: RawAction, items: Option<&ItemDatabase>) -> ImportResult<Dial
                 amount: DialogueExpr::Session(SessionVar::Amount),
                 span,
             }),
-            other if UNSUPPORTED.contains(&other) => Err(ImportError::spanned(
-                span,
-                format!("unsupported action {other:?}"),
-            )),
             other => Err(ImportError::spanned(
                 span,
                 format!("unknown action identifier {other:?}"),
             )),
         },
         RawAction::Assign { name, value, span } => {
-            if UNSUPPORTED.contains(&name.as_str()) {
-                return Err(ImportError::spanned(
-                    span,
-                    format!("unsupported assignment {name:?}"),
-                ));
+            if name == "string" {
+                return match value {
+                    RawExpr::Text(s, _) => Ok(DialogueAction::SetString {
+                        text: s.to_ascii_lowercase(),
+                        span,
+                    }),
+                    other => Err(ImportError::spanned(
+                        span_of_expr(&other),
+                        "String expects a quoted string",
+                    )),
+                };
             }
             let expr = lower_expr(value, items)?;
             match name.as_str() {
@@ -235,12 +236,6 @@ fn lower_call(
     span: SourceSpan,
     items: Option<&ItemDatabase>,
 ) -> ImportResult<DialogueAction> {
-    if UNSUPPORTED.contains(&name) {
-        return Err(ImportError::spanned(
-            span,
-            format!("unsupported action {name:?}"),
-        ));
-    }
     match name {
         "burning" => {
             let (cycles, param) = two_args(name, args, &span)?;
@@ -406,6 +401,24 @@ fn lower_call(
                 span,
             })
         }
+        "bless" => {
+            if args.len() != 1 {
+                return Err(ImportError::spanned(span, "Bless expects 1 arg"));
+            }
+            Ok(DialogueAction::Bless {
+                index: lower_expr(args.into_iter().next().unwrap(), items)?,
+                span,
+            })
+        }
+        "town" => {
+            if args.len() != 1 {
+                return Err(ImportError::spanned(span, "Town expects 1 arg"));
+            }
+            Ok(DialogueAction::Town {
+                town_id: lower_expr(args.into_iter().next().unwrap(), items)?,
+                span,
+            })
+        }
         other => Err(ImportError::spanned(
             span,
             format!("unknown action call {other:?}"),
@@ -423,28 +436,19 @@ fn lower_expr(e: RawExpr, items: Option<&ItemDatabase>) -> ImportResult<Dialogue
             "amount" => Ok(DialogueExpr::Session(SessionVar::Amount)),
             "type" => Ok(DialogueExpr::Session(SessionVar::Type)),
             "data" => Ok(DialogueExpr::Session(SessionVar::Data)),
+            "string" => Ok(DialogueExpr::SessionString),
             "hp" => Ok(DialogueExpr::Hp),
             "burning" => Ok(DialogueExpr::Burning),
             "poison" => Ok(DialogueExpr::Poison),
             "countmoney" => Ok(DialogueExpr::CountMoney),
             "level" => Ok(DialogueExpr::Level),
             "magiclevel" => Ok(DialogueExpr::MagicLevel),
-            other if UNSUPPORTED.contains(&other) => Err(ImportError::spanned(
-                span,
-                format!("unsupported expression {other:?}"),
-            )),
             other => Err(ImportError::spanned(
                 span,
                 format!("unknown expression identifier {other:?}"),
             )),
         },
         RawExpr::Call { name, args, span } => {
-            if UNSUPPORTED.contains(&name.as_str()) {
-                return Err(ImportError::spanned(
-                    span,
-                    format!("unsupported expression {name:?}"),
-                ));
-            }
             match name.as_str() {
                 "count" => {
                     if args.len() != 1 {
@@ -538,6 +542,10 @@ fn lower_expr(e: RawExpr, items: Option<&ItemDatabase>) -> ImportResult<Dialogue
             lhs: Box::new(lower_expr(*lhs, items)?),
             rhs: Box::new(lower_expr(*rhs, items)?),
         }),
+        RawExpr::Text(_, span) => Err(ImportError::spanned(
+            span,
+            "string literal is not valid in a numeric expression",
+        )),
     }
 }
 
@@ -641,7 +649,8 @@ fn span_of_expr(e: &RawExpr) -> SourceSpan {
         | RawExpr::Ident(_, s)
         | RawExpr::Capture(_, s)
         | RawExpr::Call { span: s, .. }
-        | RawExpr::Binary { span: s, .. } => s.clone(),
+        | RawExpr::Binary { span: s, .. }
+        | RawExpr::Text(_, s) => s.clone(),
     }
 }
 

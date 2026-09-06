@@ -46,6 +46,31 @@ impl GameWorld {
         self.move_all_objects_from_tile(pos, dest, exclude_item, exclude_creature);
     }
 
+    /// `UseChangeObject` UNLAY arm (`moveuse.cc:2184-2204`) — E/S/W/N, `BANK && !UNPASS`,
+    /// no `JumpPossible`. Exclude the transforming item. Call from use-transform only.
+    pub(crate) fn unlay_shuffle(&mut self, exclude_item: ItemId) {
+        let Some(pos) = self.script_item_position(exclude_item) else {
+            return;
+        };
+        let Some(dest) = self.unlay_shuffle_find_dest(pos) else {
+            return;
+        };
+        if dest == pos {
+            return;
+        }
+        self.move_all_objects_from_tile(pos, dest, exclude_item, None);
+    }
+
+    fn unlay_shuffle_find_dest(&self, origin: Position) -> Option<Position> {
+        for dir in CLEAR_FIELD_DIRS {
+            let dest = origin.offset(dir);
+            if self.tile_is_bank_and_passable_for_clear(dest) {
+                return Some(dest);
+            }
+        }
+        None
+    }
+
     /// First `BANK && !UNPASS`, else `JumpPossible` — same E/S/W/N order as decompile.
     fn clear_field_find_dest(&self, origin: Position) -> Option<Position> {
         for dir in CLEAR_FIELD_DIRS {

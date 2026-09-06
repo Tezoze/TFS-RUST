@@ -978,6 +978,16 @@ impl GameWorld {
             }
         }
         if old_type != new_type {
+            let becoming_unlay = self.items_db.items.get(&old_type).is_some_and(|t| !t.is_unlay())
+                && self.items_db.items.get(&new_type).is_some_and(|t| t.is_unlay())
+                && self
+                    .items_db
+                    .items
+                    .get(&new_type)
+                    .is_some_and(|t| !t.block_solid());
+            if becoming_unlay {
+                self.unlay_shuffle(item_id);
+            }
             self.change_item_type(item_id, new_type);
         } else if let Some(parent) = self.resolve_item_parent_cylinder(item_id) {
             match parent {

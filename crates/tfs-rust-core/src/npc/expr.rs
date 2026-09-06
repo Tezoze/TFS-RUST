@@ -34,6 +34,8 @@ pub struct EvalContext<'a> {
     pub world_pvp_enforced: bool,
     pub world_non_pvp: bool,
     pub tuning: NpcTuning,
+    /// TVP session string register (`String="…"` / `TeachSpell(String)`).
+    pub session_string: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +51,7 @@ pub fn eval_expr(expr: &DialogueExpr, ctx: &mut EvalContext<'_>) -> i32 {
     match expr {
         DialogueExpr::Lit(n) => *n,
         DialogueExpr::Session(v) => session_value(*v, ctx),
+        DialogueExpr::SessionString => 0,
         DialogueExpr::Capture { slot } => {
             let idx = (*slot as usize).saturating_sub(1);
             ctx.captures.get(idx).copied().unwrap_or(-1)
@@ -66,11 +69,11 @@ pub fn eval_expr(expr: &DialogueExpr, ctx: &mut EvalContext<'_>) -> i32 {
         DialogueExpr::QuestValue { storage_id } => (ctx.quest_value)(*storage_id),
         DialogueExpr::Random { lo, hi } => (ctx.rng)(*lo, *hi),
         DialogueExpr::SpellKnown { spell } => {
-            let id = eval_expr(spell, ctx);
+            let id = spell_id(spell, ctx);
             (ctx.spell_known)(id)
         }
         DialogueExpr::SpellLevel { spell } => {
-            let id = eval_expr(spell, ctx);
+            let id = spell_id(spell, ctx);
             (ctx.spell_level)(id)
         }
         DialogueExpr::Binary { op, lhs, rhs } => {
@@ -78,6 +81,16 @@ pub fn eval_expr(expr: &DialogueExpr, ctx: &mut EvalContext<'_>) -> i32 {
             let r = eval_expr(rhs, ctx);
             apply_op(*op, l, r)
         }
+    }
+}
+
+/// SpellNr from a literal, session `Type`, or session string (`TeachSpell(String)`).
+pub fn spell_id(expr: &DialogueExpr, ctx: &mut EvalContext<'_>) -> i32 {
+    match expr {
+        DialogueExpr::SessionString => {
+            crate::spell_learn::spell_nr_for_name(&ctx.session_string).unwrap_or(0)
+        }
+        other => eval_expr(other, ctx),
     }
 }
 

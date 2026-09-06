@@ -74,7 +74,9 @@ impl PendingLogin {
             | GameCommand::RegisterOutputSink { .. }
             | GameCommand::UnregisterOutputSink { .. }
             | GameCommand::HouseNamesResolved { .. }
-            | GameCommand::VipLookupFinished { .. } => PendingLoginPacketAction::Dropped,
+            | GameCommand::VipLookupFinished { .. }
+            | GameCommand::MailLookupFinished { .. }
+            | GameCommand::HousePolicyScanFinished { .. } => PendingLoginPacketAction::Dropped,
         }
     }
 

@@ -243,59 +243,56 @@ mod tests {
     }
 
     #[test]
-    fn rejects_string_assignment() {
+    fn lowers_string_bless_town_promote() {
         let src = r#"
-Name = "Bad"
+Name = "Pack"
 Behaviour = {
 "spell" -> String="Find Person", Topic=1
+"hi" -> Bless(1), Town(2), Promote
 }
 "#;
         let root = std::env::temp_dir();
-        let err = parse_npc_source(&root, &root.join("bad.npc"), src)
+        let pending = parse_npc_source(&root, &root.join("pack.npc"), src)
             .and_then(|f| lower_npc(f, None))
-            .expect_err("string should fail");
-        let msg = err.to_string().to_ascii_lowercase();
-        assert!(msg.contains("string"), "{msg}");
-    }
-
-    #[test]
-    fn rejects_bless_town_promote() {
-        let root = std::env::temp_dir();
-        for (label, src) in [
-            (
-                "bless",
-                r#"
-Name = "Bad"
-Behaviour = {
-"hi" -> Bless(1)
-}
-"#,
-            ),
-            (
-                "town",
-                r#"
-Name = "Bad"
-Behaviour = {
-"hi" -> Town(1)
-}
-"#,
-            ),
-            (
-                "promote",
-                r#"
-Name = "Bad"
-Behaviour = {
-"hi" -> Promote
-}
-"#,
-            ),
-        ] {
-            let err = parse_npc_source(&root, &root.join("bad.npc"), src)
-                .and_then(|f| lower_npc(f, None))
-                .expect_err(&format!("{label} should fail"));
-            let msg = err.to_string().to_ascii_lowercase();
-            assert!(msg.contains(label), "expected {label} in error, got {msg}");
-        }
+            .expect("pack actions should lower");
+        let dialogue = pending.dialogue.expect("dialogue");
+        assert!(
+            dialogue.rules.iter().any(|r| r
+                .actions
+                .iter()
+                .any(|a| matches!(a, crate::npcs::DialogueAction::SetString { text, .. } if text == "find person"))),
+            "String assignment"
+        );
+        assert!(
+            dialogue
+                .rules
+                .iter()
+                .any(|r| r
+                    .actions
+                    .iter()
+                    .any(|a| matches!(a, crate::npcs::DialogueAction::Bless { .. }))),
+            "Bless"
+        );
+        assert!(
+            dialogue
+                .rules
+                .iter()
+                .any(|r| r
+                    .actions
+                    .iter()
+                    .any(|a| matches!(a, crate::npcs::DialogueAction::Town { .. }))),
+            "Town"
+        );
+        assert!(
+            dialogue
+                .rules
+                .iter()
+                .any(|r| r
+                    .actions
+                    .iter()
+                    .any(|a| matches!(a, crate::npcs::DialogueAction::Promote { .. }))),
+            "Promote"
+        );
     }
 
     #[test]

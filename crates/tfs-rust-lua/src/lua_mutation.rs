@@ -555,6 +555,8 @@ pub enum LuaMutation {
         to_y: u16,
         to_z: u8,
     },
+    /// `refreshMap()` — TFS `luaRefreshMap` / `Map::refreshMap`.
+    RefreshMap,
 }
 
 /// Quest chest reward row — `functions.lua` `chest.item` / `chest.content[]`.
@@ -1714,6 +1716,12 @@ pub fn call_tile_relocate_to(
         to_z,
     })?;
     Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// `refreshMap()` — restore OTBM refresh tiles; returns tile count.
+pub fn call_refresh_map() -> Result<u32, String> {
+    apply_mutation(LuaMutation::RefreshMap)?;
+    Ok(take_mutation_i32_result().unwrap_or(0) as u32)
 }
 
 /// `Game.setStorageValue` — ephemeral quest globals.

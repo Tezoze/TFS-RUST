@@ -426,4 +426,37 @@ impl<'a> HouseStore<'a> {
         .map_err(|e| TfsRustError::Database(e.to_string()))?;
         Ok(())
     }
+
+    /// Free-account + deleted-character house owners (`EvictFreeAccounts` /
+    /// `EvictDeletedCharacters`). Rows are `(house_id, owner_guid)`.
+    pub async fn policy_eviction_rows(&self) -> Result<Vec<(u32, u32)>> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as u32)
+            .unwrap_or(0);
+        let rows: Vec<(i32, i32)> = sqlx::query_as(
+            "SELECT h.id, h.owner FROM houses h \
+             LEFT JOIN players p ON p.id = h.owner \
+             LEFT JOIN accounts a ON a.id = p.account_id \
+             WHERE h.owner != 0 AND (p.id IS NULL OR p.deletion != 0 \
+               OR a.premium_ends_at < ?)",
+        )
+        .bind(now)
+        .fetch_all(self.pool.inner())
+        .await
+        .map_err(|e| TfsRustError::Database(e.to_string()))?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, owner)| (as_u32(id), as_u32(owner)))
+            .collect())
+    }
+
+    /// `guilds.ownerid` — 772 `Guilds.LeaderID` for `EvictExGuildLeaders`.
+    pub async fn guild_leader_guids(&self) -> Result<Vec<u32>> {
+        let rows: Vec<(i32,)> = sqlx::query_as("SELECT ownerid FROM guilds")
+            .fetch_all(self.pool.inner())
+            .await
+            .map_err(|e| TfsRustError::Database(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| as_u32(r.0)).collect())
+    }
 }

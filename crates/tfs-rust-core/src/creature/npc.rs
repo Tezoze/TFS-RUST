@@ -29,13 +29,14 @@ pub struct QueuedNpcAddress {
 }
 
 /// Per-player session vars when [`DialoguePolicy::PerPlayer`] is active.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NpcPlayerSession {
     pub topic: i32,
     pub price: i32,
     pub amount: i32,
     pub item_type: i32,
     pub data: i32,
+    pub session_string: String,
     pub last_talk_round: u32,
     pub active: bool,
 }
@@ -50,6 +51,7 @@ pub struct NpcRuntimeState {
     pub amount: i32,
     pub item_type: i32,
     pub data: i32,
+    pub session_string: String,
     pub last_talk_round: u32,
     pub home_position: Position,
     pub radius: u16,
@@ -72,6 +74,7 @@ impl NpcRuntimeState {
             amount: 0,
             item_type: 0,
             data: 0,
+            session_string: String::new(),
             last_talk_round: 0,
             home_position: home,
             radius,

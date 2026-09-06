@@ -443,6 +443,7 @@ pub fn minimal_world() -> GameWorld {
         towns: HashMap::new(),
         waypoints: HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_snapshots: HashMap::new(),
     };
     map.towns.insert(
         1,
@@ -598,6 +599,7 @@ pub fn beat_driven_world_with_synthetic_ground_data(
         towns: HashMap::new(),
         waypoints: HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_snapshots: HashMap::new(),
     };
     map.towns.insert(
         1,

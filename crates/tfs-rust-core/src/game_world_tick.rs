@@ -55,6 +55,9 @@ impl GameWorld {
         let period = self.house_rent_period_from_config();
         let grace = self.house_grace_secs_from_config();
         self.process_houses_online(now, period, grace);
+        self.spawn_house_policy_scan();
+        // Corpus minute arm is `RefreshCylinders`, not `RefreshMap` (`main.cc:383` vs `:428`).
+        let _ = self.refresh_cylinders();
         // `WriteKillStatistics` at wall-clock minute 55 (`main.cc:393-394`).
         if chrono::Local::now().minute() == 55 {
             self.spawn_kill_statistics_flush();

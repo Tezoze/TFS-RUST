@@ -35,6 +35,21 @@ pub trait NpcActionHost {
     fn set_quest_value(&mut self, player: CreatureId, id: u32, value: i32) -> Result<(), String>;
     fn set_profession(&mut self, player: CreatureId, vocation: i32) -> Result<(), String>;
     fn teach_spell(&mut self, player: CreatureId, spell: i32) -> Result<(), String>;
+    /// TVP `Bless(n)` — set blessing bit `n-1` (1-based).
+    fn add_blessing(&mut self, player: CreatureId, index: i32) -> Result<(), String> {
+        let _ = (player, index);
+        Ok(())
+    }
+    /// TVP `Town(n)` — `setTown` by numeric id, no teleport.
+    fn set_town(&mut self, player: CreatureId, town_id: i32) -> Result<(), String> {
+        let _ = (player, town_id);
+        Ok(())
+    }
+    /// TVP `Promote` — promoted vocation + storage 30018.
+    fn promote(&mut self, player: CreatureId) -> Result<(), String> {
+        let _ = player;
+        Ok(())
+    }
     fn summon(&mut self, npc: CreatureId, monster: &str) -> Result<(), String>;
     fn teleport(&mut self, player: CreatureId, x: i32, y: i32, z: i32) -> Result<(), String>;
     /// `pos = None` → use NPC home coordinates (772 bare `StartPosition`).

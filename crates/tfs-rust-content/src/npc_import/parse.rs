@@ -714,6 +714,11 @@ impl<'a> Parser<'a> {
                     Ok(RawExpr::Ident(name.to_ascii_lowercase(), span))
                 }
             }
+            TokenKind::String(s) => {
+                let s = s.clone();
+                self.bump();
+                Ok(RawExpr::Text(s, span))
+            }
             TokenKind::LParen => {
                 self.bump();
                 let e = self.parse_expr()?;

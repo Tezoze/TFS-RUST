@@ -49,6 +49,10 @@ pub mod flags {
     /// CipSoft 772 `HOOKSOUTH` — wall hook facing south (`is_hangable && is_vertical`).
     pub const HOOKSOUTH: u32 = 1 << 26;
 
+    /// OTBM `TILEFLAG_REFRESH` (`iomap.h` `1<<5`) — restore snapshot. Placed at
+    /// `1<<27` so it does not collide with `TELEPORT` (`1<<11`); lesson 278.
+    pub const REFRESH: u32 = 1 << 27;
+
     // ── Composite masks ──
     pub const FLOORCHANGE: u32 = FLOORCHANGE_DOWN
         | FLOORCHANGE_NORTH

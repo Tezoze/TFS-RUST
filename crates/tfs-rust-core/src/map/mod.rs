@@ -30,6 +30,8 @@ pub struct Map {
     /// OTBM `HOUSETILE` membership collected at build (TFS `House::addTile` during parse).
     /// Drained by [`crate::house::ownership`] `house_scan_map` — not a full-grid walk.
     pub house_tiles: Vec<(u32, Position, Vec<ItemId>)>,
+    /// Load-time clones for `TILESTATE_REFRESH` tiles (not houses).
+    pub refresh_snapshots: HashMap<Position, crate::sector_refresh::TileRefreshSnap>,
 }
 
 impl Map {
@@ -44,6 +46,7 @@ impl Map {
     ) -> Self {
         let mut grid = SparseGrid::new();
         let mut house_tiles = Vec::new();
+        let mut refresh_snapshots = HashMap::new();
         for (pos, td) in data.tiles {
             let tile = tile_from_data(pos, td, items_db, items);
             if let Tile::House(h) = &tile {
@@ -55,6 +58,11 @@ impl Map {
                     .chain(body.top_items.iter().copied())
                     .collect();
                 house_tiles.push((h.house_id, pos, item_ids));
+            } else if tile.body().flags & flags::REFRESH != 0 {
+                refresh_snapshots.insert(
+                    pos,
+                    crate::sector_refresh::TileRefreshSnap::from_tile(tile.body(), items),
+                );
             }
             grid.insert_tile(pos.x, pos.y, pos.z, tile);
         }
@@ -65,6 +73,7 @@ impl Map {
             towns: data.towns,
             waypoints: data.waypoints,
             house_tiles,
+            refresh_snapshots,
         }
     }
 
@@ -262,6 +271,7 @@ fn convert_otbm_flags(otbm_flags: u32) -> (u32, tfs_rust_common::ZoneType) {
     const OTBM_TILEFLAG_NOPVPZONE: u32 = 1 << 2;
     const OTBM_TILEFLAG_NOLOGOUT: u32 = 1 << 3;
     const OTBM_TILEFLAG_PVPZONE: u32 = 1 << 4;
+    const OTBM_TILEFLAG_REFRESH: u32 = 1 << 5;
 
     let mut tileflags = 0u32;
     let mut zone = tfs_rust_common::ZoneType::Normal;
@@ -279,6 +289,9 @@ fn convert_otbm_flags(otbm_flags: u32) -> (u32, tfs_rust_common::ZoneType) {
 
     if otbm_flags & OTBM_TILEFLAG_NOLOGOUT != 0 {
         tileflags |= flags::NOLOGOUT;
+    }
+    if otbm_flags & OTBM_TILEFLAG_REFRESH != 0 {
+        tileflags |= flags::REFRESH;
     }
 
     (tileflags, zone)

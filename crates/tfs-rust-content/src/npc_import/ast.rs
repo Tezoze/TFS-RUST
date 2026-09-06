@@ -91,6 +91,8 @@ pub enum RawExpr {
         rhs: Box<RawExpr>,
         span: SourceSpan,
     },
+    /// Quoted string (`String="Find Person"`).
+    Text(String, SourceSpan),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

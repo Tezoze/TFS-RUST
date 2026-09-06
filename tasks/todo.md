@@ -1,3 +1,37 @@
+# Sector refresh cadence, decay, residency — audit Step 11 (2026-09-06)
+
+Plan: `docs/772_SECTOR_REFRESH_DECAY_PLAN.md`. Corpus: `RefreshCylinders` (`operate.cc:2964`, shipped `map.dat` `RefreshedCylinders = 8`, full-grid raster), `RefreshSector` creature post-pass (`operate.cc:2832-2892`), `RefreshMap` gate (`operate.cc:2895`), `LoadObjects` → `CronExpire(-1)` / `RemainingExpireTime` (`map.cc:860-907`), `DestroyObject` → `CronStop` (`map.cc:1876`). Decisions: eager `SparseGrid` stays (no proximity load, no `.sec` stream, no swap); snapshot restore is a raw `LoadObjects`-shaped place, not the move pipeline.
+
+**Architecture:** `sector_refresh.rs` (sector-keyed snapshots, iterator raster, `place_snapshot`, creature post-pass); new `map_decay_init.rs` for boot decay; `destroy_item_tree` shared. Thin `GameWorld` delegates only.
+
+- [ ] Profile literal `refreshedCylinders = 8` (`772.lua` / `MechanicsProfile`)
+- [ ] `RefreshSnapshots` keyed by `SectorKey`; `SectorRaster` iterator over full OTBM sector bounds; 8 grid columns / minute
+- [ ] `place_snapshot` — recursive destroy via shared `destroy_item_tree`, direct `TileBody` write, one tile update, `start_decay` per item; strip decay state in `RefreshItemSnap::from_item`
+- [ ] Creature post-pass — ±16 box via `chunk.creatures`; `UNPASS` → free field r=1; NPC → start, monster → remove, player → warn
+- [ ] `refresh_map()` gated by `sector_refreshable` per sector
+- [ ] Boot decay pass `map_decay_init.rs` after snapshots are built
+- [ ] `RemainingExpireTime` → `ATTR_DURATION` (patch script + `otbm.rs` + snapshot `remaining_ms`)
+- [ ] Verify OTBM refresh-tile content vs ORIGMAP `Content=` (one-off script); patch or accept per category
+- [ ] Tests (§4.8) + audit §1.6 update + lesson (`RefreshedCylinders` fallback vs shipped 8; full-grid raster)
+- [ ] Decide: live-map persistence (§5) — user call, not started
+
+# Longer tail — audit Step 10 (2026-09-06)
+
+`docs/772_PARITY_GAP_AUDIT.md` Step 10. Corpus: `SendMail`/`SendMails` (`moveuse.cc:712-919`), `RefreshSector`/`ProcessCronSystem` (`map.cc:1307`, `operate.hh:158-165`), `EvictFreeAccounts`/`EvictDeletedCharacters`/`EvictExGuildLeaders`/`TransferHouses` (`houses.cc:1029+`), `MOVEMENTEVENT` (`moveuse.cc:2263-2287`), `UseAnnouncer` cases 1/3 (`moveuse.cc:1891-1944`), `UseChangeObject` UNLAY shuffle (`moveuse.cc:2184-2204`), NPC `Bless`/`Town`/`String`/`Promote` (`.npc` behaviour; not in 772 `crnonpl.cc` action tables — pack-surface). Pack: TFS mailbox/inbox vs 772 depot; `refreshMap()`; house policy; MoveEvent add/remove; `InformationType`.
+
+**Architecture:** focused modules, thin `GameWorld` delegates only. No new hub methods clusters.
+
+- [x] C++ analysis — SendMail parse/stamp/depot vs offline queue; RefreshSector MapFlags vs OTBM `TILEFLAG_REFRESH`; house Evict*/TransferHouses SQL; MOVEMENTEVENT trigger; UseAnnouncer 1/3 items+strings; UNLAY adjacent scan; NPC Bless/Town/String/Promote semantics
+- [x] Mail — `mail.rs`: letter/parcel+label parse (name line 1, town line 2), stamp 2597→2598 / 2595→2596, deliver town depot (online) or `pending_depot_dumps` (offline). Hook `tile_specials` `MAILBOX`. Fail leaves item on tile. No 1098 inbox.
+- [x] Live sector refresh — `sector_refresh.rs`: OTBM `1<<5` snapshots. **Minute cron is `RefreshCylinders`** (one ORIGMAP 32×32 XY / minute, skip `CanSeeFloor` players) — not full `refresh_map()` (that froze the live map: 673k tiles/min). Lua `Game.refreshMap()` still full restore.
+- [x] Align `forgotten.otbm` `TILEFLAG_REFRESH` with ORIGMAP `.sec` `Refresh` (`scripts/patch_otbm_refresh_from_origmap.py`): insert 2,778 missing tiles (2,750 empty holes + 28 with Content). **Corrected 2026-09-06:** the first run's line-based parser missed 21,064 Refresh fields and wrongly cleared 20,861 correct bits; token-based re-run restored them. Result **694,625 / 694,625** (lesson 438).
+- [x] House policy — `house/policy.rs`: `EvictFreeAccounts`, `EvictDeletedCharacters`, `EvictExGuildLeaders`. `TransferHouses` skipped (no table; `!sellhouse`/trade). Call from minute job. DB via VIP-style spawn. `StartAuctions` stays MyAAC.
+- [x] `MOVEMENTEVENT` — fire on cylinder transfer: dress-toggle rings, candelabrum 2042→2041, armed trap 2579→2578+poff. No OTB bit; hardcoded ids. Not quest-chest items.
+- [x] `UseAnnouncer` 3 (blessings 101–105) — `ceremonial_mask.lua` OTB 2501. Case 1 skipped (no InformationType=1 items). Case 2/4 stay.
+- [x] UNLAY shuffle — on transform-to-UNLAY (not UNPASS), relocate stack mates E/S/W/N bank+passable (not `ClearField`).
+- [x] NPC `Bless` / `Town` / `String` / `Promote` — `DialogueAction` + import lower + `react`/`host` + Lua emit. Drop `UNSUPPORTED` reject. `String` is session string.
+- [x] Tests + audit Step 10 marked done + lesson
+
 # Death metadata and persistence — audit Step 9 (2026-09-05)
 
 `docs/772_PARITY_GAP_AUDIT.md` Step 9. Corpus: `RecordDeath` / `AddKillStatistics` (`crmain.cc:830-860`), `Murderer` (`crplayer.cc:1546`), `GetArmorStrength` flags (`crcombat.cc:295-297`), `TSkillSoulpoints` Cycle/Count/MaxCount (`crskill.cc` / `crcombat.cc:938-955`), `TSkillLevel::Decrease` abort (`crskill.cc:300-303`), `WriteKillStatistics` (`main.cc:394`). Pack surface: TFS `player_deaths` / `kill_statistics` / `/deathlist`; death row stays native (lessons 369/409). Corpse "killed by" last-hit name is already live.

@@ -273,6 +273,16 @@ fn emit_action(out: &mut String, act: &DialogueAction, indent: usize) {
         DialogueAction::TeachSpell { spell, .. } => {
             out.push_str(&format!("{pad}{{ teachSpell = {} }},\n", emit_expr(spell)));
         }
+        DialogueAction::Bless { index, .. } => {
+            out.push_str(&format!("{pad}{{ bless = {} }},\n", emit_expr(index)));
+        }
+        DialogueAction::Town { town_id, .. } => {
+            out.push_str(&format!("{pad}{{ town = {} }},\n", emit_expr(town_id)));
+        }
+        DialogueAction::Promote { .. } => out.push_str(&format!("{pad}{{ promote = true }},\n")),
+        DialogueAction::SetString { text, .. } => {
+            out.push_str(&format!("{pad}{{ setString = {} }},\n", lua_string(text)));
+        }
         DialogueAction::Summon { monster, .. } => {
             out.push_str(&format!("{pad}{{ summon = {} }},\n", lua_string(monster)));
         }
@@ -303,6 +313,7 @@ fn emit_expr(expr: &DialogueExpr) -> String {
         DialogueExpr::Random { lo, hi } => format!("{{ random = {{ {lo}, {hi} }} }}"),
         DialogueExpr::SpellKnown { spell } => format!("{{ spellKnown = {} }}", emit_expr(spell)),
         DialogueExpr::SpellLevel { spell } => format!("{{ spellLevel = {} }}", emit_expr(spell)),
+        DialogueExpr::SessionString => "{ sessionString = true }".into(),
         DialogueExpr::Binary { op, lhs, rhs } => format!(
             "{{ binary = {{ op = {}, lhs = {}, rhs = {} }} }}",
             lua_string(op_str(*op)),
