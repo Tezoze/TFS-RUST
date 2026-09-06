@@ -9,7 +9,7 @@ use std::io::{self, Read};
 use tfs_rust_common::Position;
 use tfs_rust_common::enums::Direction;
 use tfs_rust_common::enums::ZoneType;
-use tfs_rust_core::formulas::{PathCostModel, PathSearchModel};
+use tfs_rust_core::formulas::PathCostModel;
 use tfs_rust_core::map::{Map, SparseGrid};
 use tfs_rust_core::pathfinding::{
     CHASE_PATH_MAX_STEPS, FindPathParams, effective_terrain_waypoints, get_path_matching,
@@ -207,8 +207,6 @@ fn run() -> Result<(), String> {
         target,
         &fpp,
         PathCostModel::TerrainWeighted,
-        PathSearchModel::Reverse,
-        false,
         scenario.visible,
         |pos| map.is_walkable(pos),
         |_pos| 0u32,

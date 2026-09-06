@@ -67,8 +67,9 @@ EOF
 
 register_tree "$ROOT/reference/cipsoft-772/tibia-game-master" ref-772-mechanics
 register_tree "$ROOT/reference/classic-772/tibia-game-master" ref-772-mechanics-classic
-register_tree "$ROOT/reference/tvp-772/gameserver" ref-772-wire
+# 772 wire is the same decompile tree (`communication.cc` / `connections.cc`), not TVP.
+register_tree "$ROOT/reference/cipsoft-772/tibia-game-master" ref-772-wire
 
 echo
-echo "Done. Agents: use cross_repo_search_tool for 772 C++ discovery (ref-772-mechanics, ref-772-wire)."
+echo "Done. Agents: use cross_repo_search_tool for 772 C++ discovery (ref-772-mechanics)."
 echo "Shell text search fallback: scripts/ref_grep.sh PATTERN"

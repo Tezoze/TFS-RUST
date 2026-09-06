@@ -868,13 +868,8 @@ fn test_772_allow_diagonal_true_stays_reverse_path_stack() {
         profile.path_cost,
         profile.path_search
     ));
-    assert!(!profile.path_forward_fallback);
 
     let mut world = beat_driven_test_world();
-    assert_eq!(
-        world.mechanics.profile.path_forward_fallback,
-        profile.path_forward_fallback
-    );
 
     let mpos = Position::new(100, 100, 7);
     let ppos = Position::new(105, 105, 7);

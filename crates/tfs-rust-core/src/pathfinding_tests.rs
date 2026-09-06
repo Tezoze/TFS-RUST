@@ -40,19 +40,6 @@ fn reverse_path_neighbor_order_matches_expand_loop() {
 }
 
 #[test]
-fn neighbor_index_matches_cpp_direction_enum() {
-    let current = Position::new(10, 10, 7);
-    let parent = Position::new(9, 10, 7);
-    let (list, n) = neighbor_offsets(Some(parent), current, true);
-    assert_eq!(n, 5);
-    assert_eq!(list[0], (0, 1));
-
-    let parent = Position::new(10, 9, 7);
-    let (list, _) = neighbor_offsets(Some(parent), current, true);
-    assert_eq!(list[0], (-1, 0));
-}
-
-#[test]
 fn walk_to_adjacent_params_use_chebyshev_one() {
     let fpp = FindPathParams::walk_to_adjacent();
     assert_eq!(fpp.min_target_dist, 0);
@@ -190,8 +177,6 @@ fn reverse_search_finds_path_to_origin() {
         target,
         &fpp,
         PathCostModel::TerrainWeighted,
-        PathSearchModel::Reverse,
-        true,
         REVERSE_PATH_VIEW_RADIUS,
         can_walk,
         no_extra,
@@ -222,7 +207,7 @@ fn uses_reverse_terrain_path_matches_772_profile() {
     ));
 
     let p1098 = MechanicsProfile::for_version(ProtocolVersion::V1098);
-    assert!(!super::uses_reverse_terrain_path(
+    assert!(super::uses_reverse_terrain_path(
         p1098.path_cost,
         p1098.path_search
     ));
@@ -264,8 +249,6 @@ fn reverse_with_allow_diagonal_still_uses_reverse_expansion() {
         target,
         &fpp,
         PathCostModel::TerrainWeighted,
-        PathSearchModel::Reverse,
-        false,
         REVERSE_PATH_VIEW_RADIUS,
         can_walk,
         no_extra,
@@ -339,8 +322,6 @@ fn reverse_falls_back_to_forward_around_obstacle() {
         target,
         &fpp,
         PathCostModel::TerrainWeighted,
-        PathSearchModel::Reverse,
-        true,
         REVERSE_PATH_VIEW_RADIUS,
         can_walk,
         no_extra,
@@ -407,29 +388,12 @@ fn reverse_prefers_fast_tile_on_asymmetric_terrain() {
         if pos.y == 1 { 50 } else { 200 }
     };
 
-    let forward = get_path_matching(
-        &map,
-        start,
-        target,
-        &fpp,
-        PathCostModel::TerrainWeighted,
-        PathSearchModel::Forward,
-        true,
-        REVERSE_PATH_VIEW_RADIUS,
-        can_walk,
-        no_extra,
-        ground,
-        None,
-    )
-    .expect("forward");
     let reverse = get_path_matching(
         &map,
         start,
         target,
         &fpp,
         PathCostModel::TerrainWeighted,
-        PathSearchModel::Reverse,
-        true,
         REVERSE_PATH_VIEW_RADIUS,
         can_walk,
         no_extra,
@@ -438,19 +402,11 @@ fn reverse_prefers_fast_tile_on_asymmetric_terrain() {
     )
     .expect("reverse");
 
-    assert!(!forward.is_empty());
     assert!(!reverse.is_empty());
-    // Forward stays on the fast row; reverse (dest→origin) weights leaving tiles differently.
-    assert!(
-        forward
-            .iter()
-            .all(|d| matches!(d, Direction::East | Direction::West)),
-        "forward should stay cardinal on the fast row: {forward:?}"
-    );
 }
 
 #[test]
-fn forward_pathfinder_obeys_allow_diagonal() {
+fn reverse_obeys_allow_diagonal_false() {
     let mut map = Map {
         width: 7,
         height: 7,
@@ -508,9 +464,7 @@ fn forward_pathfinder_obeys_allow_diagonal() {
         start,
         target,
         &fpp,
-        PathCostModel::Fixed,
-        PathSearchModel::Forward,
-        true,
+        PathCostModel::TerrainWeighted,
         REVERSE_PATH_VIEW_RADIUS,
         can_walk,
         no_extra,
@@ -581,45 +535,20 @@ fn reverse_noway_without_fallback() {
     let no_extra = |_pos: Position| 0u32;
     let ground = |_pos: Position| 100u32;
 
-    // With fallback disabled, it must fail because the destination is cut off for reverse search.
-    let path_no_fallback = get_path_matching(
+    // Cut-off destination: reverse TShortway returns no path (no forward fallback).
+    let path = get_path_matching(
         &map,
         start,
         target,
         &fpp,
         PathCostModel::TerrainWeighted,
-        PathSearchModel::Reverse,
-        false, // no forward fallback
         REVERSE_PATH_VIEW_RADIUS,
         can_walk,
         no_extra,
         ground,
         None,
     );
-    assert!(
-        path_no_fallback.is_none(),
-        "Must return None without forward fallback (CipSoft NOWAY)"
-    );
-
-    // With fallback enabled, it must succeed because forward search can reach (3, 10) which is distance 2 from target.
-    let path_with_fallback = get_path_matching(
-        &map,
-        start,
-        target,
-        &fpp,
-        PathCostModel::TerrainWeighted,
-        PathSearchModel::Reverse,
-        true, // forward fallback enabled
-        REVERSE_PATH_VIEW_RADIUS,
-        can_walk,
-        no_extra,
-        ground,
-        None,
-    );
-    assert!(
-        path_with_fallback.is_some(),
-        "Must return Some with forward fallback"
-    );
+    assert!(path.is_none(), "Must return None when reverse search is cut off");
 }
 
 #[test]
@@ -709,8 +638,6 @@ fn cyclops_quad_east_and_south_shortway_on_uniform_terrain() {
             target,
             &fpp,
             PathCostModel::TerrainWeighted,
-            PathSearchModel::Reverse,
-            true,
             REVERSE_PATH_VIEW_RADIUS,
             can_walk,
             |_| 0u32,
@@ -782,8 +709,6 @@ fn get_path_matching_blocked_far_n_matches_path_compare_pipeline() {
         target,
         &fpp,
         PathCostModel::TerrainWeighted,
-        PathSearchModel::Reverse,
-        false,
         REVERSE_PATH_VIEW_RADIUS,
         |pos| map.is_walkable(pos),
         |_| 0u32,

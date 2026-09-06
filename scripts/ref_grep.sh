@@ -40,8 +40,7 @@ fi
 DIRS=()
 for d in \
   "$ROOT/reference/cipsoft-772/tibia-game-master/src" \
-  "$ROOT/reference/classic-772/tibia-game-master/src" \
-  "$ROOT/reference/tvp-772/gameserver/src"; do
+  "$ROOT/reference/classic-772/tibia-game-master/src"; do
   [[ -d "$d" ]] && DIRS+=("$d")
 done
 

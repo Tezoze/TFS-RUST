@@ -1,8 +1,7 @@
 //! Era-tunable game-mechanics profile (`MechanicsProfile`) + Lua formula engine.
 //!
-//! Parallel to the wire `ProtocolCaps`: one struct selected by `clientVersion` carrying every
-//! mechanic that diverges between eras (beat quantization, path cost, attack cadence, armor model,
-//! fight-mode modifiers, target metric, distance keeping, damage/exp/skill/condition/spell formulas).
+//! Parallel to the wire `ProtocolCaps`: one struct selected by `clientVersion`. Shared 772 corpus
+//! for pathing, spawn, and weakest-target (not formula knobs). Later-era extras are gated.
 //! No `if version` checks scatter through `tfs-rust-core` — the game thread reads this profile.
 //!
 //! **Two tiers** (design `docs/PROTOCOL_VERSIONING.md` §12.11, §12.13):
@@ -22,9 +21,9 @@
 //! - Spell mult `2*level + 3*magicLevel`, flag clamps — `magic.cc:784` `ComputeDamage`.
 //! - Level exp `(((L-6)*L+17)*L-12)/6 * Delta` — `crskill.cc:352` `TSkillLevel::GetExpForLevel`.
 //!
-//! **C++ reference (structure — TFS 1.4.2 / 10.98 defaults):** repo-root `src/creature.cpp`
-//! (`getStepDuration`), `map.cpp` (`getPathMatching` fixed 10/25), `weapons.cpp`, `condition.cpp`,
-//! `vocation.cpp`.
+//! **C++ reference (structure — TFS pack / 1098 gated extras):** repo-root `src/creature.cpp`
+//! (`getStepDuration`), `weapons.cpp`, `condition.cpp`, `vocation.cpp`. Pathing is decompile
+//! `TShortway`, not TFS `getPathMatching`.
 
 use std::path::Path;
 
@@ -40,12 +39,10 @@ pub enum PathCostModel {
     TerrainWeighted,
 }
 
-/// A* expansion direction (`pathfinding.rs`).
+/// A* expansion direction — always 772 reverse `TShortway`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PathSearchModel {
-    /// TFS 1.4.2 — forward search origin → destination (`map.cpp` `getPathMatching`).
-    Forward,
-    /// 772 — reverse search destination → origin (`cract.cc:7` `TShortway`).
+    /// Reverse search destination → origin (`cract.cc:7` `TShortway`).
     Reverse,
 }
 
@@ -364,9 +361,9 @@ pub struct MechanicsProfile {
     pub step_speed: StepSpeedModel,
     /// Player speed scaling model loaded once from formulas.
     pub player_speed_model: PlayerSpeedModel,
-    /// A* edge-cost model.
+    /// A* edge-cost model — corpus-locked terrain waypoints (`TShortway`).
     pub path_cost: PathCostModel,
-    /// A* expansion direction — forward (TFS) vs reverse (772 `TShortway`).
+    /// A* expansion direction — corpus-locked reverse dest→origin (`TShortway`).
     pub path_search: PathSearchModel,
     /// Flat attack interval in ms; `0` = use vocation/weapon `getAttackSpeed`.
     pub attack_speed_ms: u32,
@@ -376,7 +373,7 @@ pub struct MechanicsProfile {
     pub armor: ArmorReduction,
     /// Fight-mode attack/defense multipliers.
     pub fight_modes: FightModes,
-    /// Monster weakest-target metric.
+    /// Monster weakest-target metric — corpus-locked current HP.
     pub weakest_target_metric: WeakestTargetMetric,
     /// Monster distance-keeping range.
     pub distance_keep: DistanceKeep,
@@ -388,11 +385,11 @@ pub struct MechanicsProfile {
     pub armor_random: ArmorRandomTuning,
     /// DoT condition constants.
     pub conditions: ConditionTicks,
-    /// Spawn-near-player policy.
+    /// Spawn-near-player policy — corpus-locked radius shrink.
     pub spawn_near_player: SpawnNearPlayer,
-    /// Startup / respawn tile search algorithm.
+    /// Startup / respawn tile search — corpus-locked SearchSpawnField BFS.
     pub spawn_placement: SpawnPlacement,
-    /// Respawn timer model — audit Finding 18 (`crnonpl.cc:1296`).
+    /// Respawn timer model — corpus-locked `StartMonsterhomeTimer` (`crnonpl.cc:1296`).
     pub respawn_model: RespawnModel,
     /// Exp attribution window in combat rounds (772 `GetMostDangerousAttacker` filter = 60).
     pub exp_attribution_rounds: u32,
@@ -408,12 +405,8 @@ pub struct MechanicsProfile {
     pub level_exp: LevelExpModel,
     /// 772 level-exp `Delta` multiplier (TFS uses the same polynomial with `Delta = 100`).
     pub level_exp_delta: i64,
-    /// When true, repath on follow-target move even if `has_follow_path` is false (CipSoft).
-    /// TFS 1098 requires an active follow path before repathing (`creature.cpp:619`).
+    /// Corpus-locked: chase replan is 772 idle drain / `CreatureMoveStimulus`, not TFS `hasFollowPath`.
     pub follow_repath_without_path: bool,
-    /// When true, pathfinder falls back to forward search if reverse search fails.
-    /// Default is false on 772, true on 1098.
-    pub path_forward_fallback: bool,
     /// K2 — generic corpse decay offset in ms (772 30 000, 1098 600).
     pub corpse_decay_offset_ms: u64,
     /// K3 — underground viewers can see surface within ±2 floors (772 true, 1098 false).
@@ -557,9 +550,20 @@ impl MechanicsProfile {
         }
     }
 
+    /// Path, chase replan, current-HP targeting, and spawn — 772 corpus, not formula knobs.
+    fn pin_corpus_path_spawn_target(&mut self) {
+        self.path_cost = PathCostModel::TerrainWeighted;
+        self.path_search = PathSearchModel::Reverse;
+        self.follow_repath_without_path = true;
+        self.weakest_target_metric = WeakestTargetMetric::CurrentHp;
+        self.spawn_near_player = SpawnNearPlayer::RadiusShrink;
+        self.spawn_placement = SpawnPlacement::Classic772Bfs;
+        self.respawn_model = RespawnModel::Monsterhome772;
+    }
+
     /// Built-in defaults per era — fallback when `data/formulas/<v>.lua` is absent.
     pub fn for_version(version: ProtocolVersion) -> Self {
-        match version.raw() {
+        let mut p = match version.raw() {
             772 => Self {
                 beat_ms: 50,
                 // 772 `.tibia` config sets Beat=50 (config.cc:187 overrides default 200);
@@ -610,7 +614,6 @@ impl MechanicsProfile {
                 level_exp: LevelExpModel::DeltaPoly,
                 level_exp_delta: 100,
                 follow_repath_without_path: true,
-                path_forward_fallback: false,
                 corpse_decay_offset_ms: 30_000,
                 underground_sees_surface: true,
                 damage_text_format: DamageTextFormat::AttackerAttribution,
@@ -636,8 +639,8 @@ impl MechanicsProfile {
                 step_beat_ms: 50,
                 step_speed: StepSpeedModel::TfsLog,
                 player_speed_model: PlayerSpeedModel::Retail1098,
-                path_cost: PathCostModel::Fixed,
-                path_search: PathSearchModel::Forward,
+                path_cost: PathCostModel::TerrainWeighted,
+                path_search: PathSearchModel::Reverse,
                 attack_speed_ms: 0,
                 defense_gate_ms: 2000,
                 armor: ArmorReduction::Full,
@@ -647,7 +650,7 @@ impl MechanicsProfile {
                     offensive_def: 0.80,
                     defensive_def: 1.20,
                 },
-                weakest_target_metric: WeakestTargetMetric::MaxHp,
+                weakest_target_metric: WeakestTargetMetric::CurrentHp,
                 distance_keep: DistanceKeep::PerType,
                 damage_formula: DamageFormula::Modern,
                 damage_probe: DamageProbeTuning {
@@ -664,9 +667,9 @@ impl MechanicsProfile {
                     energy: TickSpec { dmg: 25, ticks: 10 },
                     poison_start: 50,
                 },
-                spawn_near_player: SpawnNearPlayer::Block,
-                spawn_placement: SpawnPlacement::TfsShuffle,
-                respawn_model: RespawnModel::Fixed,
+                spawn_near_player: SpawnNearPlayer::RadiusShrink,
+                spawn_placement: SpawnPlacement::Classic772Bfs,
+                respawn_model: RespawnModel::Monsterhome772,
                 exp_attribution_rounds: 60,
                 combat_list_slots: 20,
                 pvp_exp_cap_num: 11,
@@ -677,8 +680,7 @@ impl MechanicsProfile {
                 },
                 level_exp: LevelExpModel::Tfs,
                 level_exp_delta: 100,
-                follow_repath_without_path: false,
-                path_forward_fallback: true,
+                follow_repath_without_path: true,
                 corpse_decay_offset_ms: 600,
                 underground_sees_surface: false,
                 damage_text_format: DamageTextFormat::SimpleLoss,
@@ -701,7 +703,9 @@ impl MechanicsProfile {
                 destroyable_stone: DestroyableStoneTuning::tvp_pick(),
             },
             other => unreachable!("unsupported protocol version {other}"),
-        }
+        };
+        p.pin_corpus_path_spawn_target();
+        p
     }
 }
 
@@ -959,16 +963,6 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         "full" => ArmorReduction::Full,
         _ => p.armor,
     };
-    p.path_cost = match str_or(&formulas, "pathCost", "").as_str() {
-        "terrain" | "terrainWeighted" => PathCostModel::TerrainWeighted,
-        "fixed" => PathCostModel::Fixed,
-        _ => p.path_cost,
-    };
-    p.path_search = match str_or(&formulas, "pathSearch", "").as_str() {
-        "reverse" | "cipsoft" | "shortway" => PathSearchModel::Reverse,
-        "forward" | "tfs" => PathSearchModel::Forward,
-        _ => p.path_search,
-    };
     p.step_speed = match str_or(&formulas, "stepSpeedModel", "").as_str() {
         "linearGo" | "linear_go" => StepSpeedModel::LinearGo,
         "cipsoft" | "cip" => StepSpeedModel::LinearGo, // deprecated shard alias
@@ -980,26 +974,6 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         "retail" | "1098" => PlayerSpeedModel::Retail1098,
         "balanced" => PlayerSpeedModel::BalancedLog,
         _ => p.player_speed_model,
-    };
-    p.weakest_target_metric = match str_or(&formulas, "weakestTargetMetric", "").as_str() {
-        "current" | "currentHp" => WeakestTargetMetric::CurrentHp,
-        "max" | "maxHp" => WeakestTargetMetric::MaxHp,
-        _ => p.weakest_target_metric,
-    };
-    p.spawn_near_player = match str_or(&formulas, "spawnNearPlayer", "").as_str() {
-        "shrink" | "radiusShrink" => SpawnNearPlayer::RadiusShrink,
-        "block" => SpawnNearPlayer::Block,
-        _ => p.spawn_near_player,
-    };
-    p.spawn_placement = match str_or(&formulas, "spawnPlacement", "").as_str() {
-        "classic772" | "bfs" | "searchSpawnField" => SpawnPlacement::Classic772Bfs,
-        "tfs" | "shuffle" => SpawnPlacement::TfsShuffle,
-        _ => p.spawn_placement,
-    };
-    p.respawn_model = match str_or(&formulas, "respawnModel", "").as_str() {
-        "monsterhome772" | "monsterhome" | "772" => RespawnModel::Monsterhome772,
-        "fixed" | "tfs" | "1098" => RespawnModel::Fixed,
-        _ => p.respawn_model,
     };
     p.damage_formula = match str_or(&formulas, "damageFormula", "").as_str() {
         "classic" | "probe" => DamageFormula::ClassicProbe,
@@ -1013,12 +987,6 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         _ => p.level_exp,
     };
     p.level_exp_delta = num_or(lua, &formulas, "levelExpDelta", p.level_exp_delta).max(1);
-    p.follow_repath_without_path = bool_or(
-        &formulas,
-        "followRepathWithoutPath",
-        p.follow_repath_without_path,
-    );
-    p.path_forward_fallback = bool_or(&formulas, "pathForwardFallback", p.path_forward_fallback);
     p.corpse_decay_offset_ms = num_or(
         lua,
         &formulas,
@@ -1281,6 +1249,7 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         ) as i32;
     }
 
+    p.pin_corpus_path_spawn_target();
     p
 }
 
@@ -1292,19 +1261,18 @@ mod tests {
     fn defaults_1098_match_today_constants() {
         let p = MechanicsProfile::for_version(ProtocolVersion::V1098);
         assert_eq!(p.beat_ms, 50);
-        assert_eq!(p.path_cost, PathCostModel::Fixed);
-        assert_eq!(p.path_search, PathSearchModel::Forward);
+        assert_eq!(p.path_cost, PathCostModel::TerrainWeighted);
+        assert_eq!(p.path_search, PathSearchModel::Reverse);
         assert_eq!(p.attack_speed_ms, 0);
         assert_eq!(p.armor, ArmorReduction::Full);
-        assert_eq!(p.weakest_target_metric, WeakestTargetMetric::MaxHp);
+        assert_eq!(p.weakest_target_metric, WeakestTargetMetric::CurrentHp);
         assert_eq!(p.distance_keep, DistanceKeep::PerType);
-        assert_eq!(p.spawn_near_player, SpawnNearPlayer::Block);
-        assert_eq!(p.spawn_placement, SpawnPlacement::TfsShuffle);
-        assert_eq!(p.respawn_model, RespawnModel::Fixed);
+        assert_eq!(p.spawn_near_player, SpawnNearPlayer::RadiusShrink);
+        assert_eq!(p.spawn_placement, SpawnPlacement::Classic772Bfs);
+        assert_eq!(p.respawn_model, RespawnModel::Monsterhome772);
         assert_eq!(p.level_exp, LevelExpModel::Tfs);
         assert_eq!(p.step_speed, StepSpeedModel::TfsLog);
-        assert!(!p.follow_repath_without_path);
-        assert!(p.path_forward_fallback);
+        assert!(p.follow_repath_without_path);
         assert_eq!(p.corpse_decay_offset_ms, 600);
         assert!(!p.underground_sees_surface);
         assert_eq!(p.damage_text_format, DamageTextFormat::SimpleLoss);
@@ -1340,7 +1308,6 @@ mod tests {
         assert_eq!(p.fishing, FishingTuning::classic_772());
         assert_eq!(p.destroyable_stone, DestroyableStoneTuning::tvp_pick());
         assert!(p.follow_repath_without_path);
-        assert!(!p.path_forward_fallback);
         assert_eq!(p.corpse_decay_offset_ms, 30_000);
         assert!(p.underground_sees_surface);
         assert_eq!(p.damage_text_format, DamageTextFormat::AttackerAttribution);
@@ -1373,9 +1340,38 @@ mod tests {
         let p = parse_profile(&lua, MechanicsProfile::for_version(ProtocolVersion::V1098));
         assert_eq!(p.beat_ms, 100);
         assert_eq!(p.armor, ArmorReduction::Randomized);
-        // Untouched fields keep their 1098 default.
-        assert_eq!(p.path_cost, PathCostModel::Fixed);
+        // Untouched fields keep their 1098 default; corpus path/spawn/target stay locked.
+        assert_eq!(p.path_cost, PathCostModel::TerrainWeighted);
         assert_eq!(p.distance_keep, DistanceKeep::PerType);
+    }
+
+    #[test]
+    fn lua_cannot_override_corpus_path_spawn_target() {
+        let lua = Lua::new();
+        lua.load(
+            r#"
+            formulas = {
+              pathCost = "fixed",
+              pathSearch = "forward",
+              weakestTargetMetric = "maxHp",
+              spawnNearPlayer = "block",
+              spawnPlacement = "shuffle",
+              respawnModel = "fixed",
+              pathForwardFallback = true,
+              followRepathWithoutPath = false,
+            }
+            "#,
+        )
+        .exec()
+        .unwrap();
+        let p = parse_profile(&lua, MechanicsProfile::for_version(ProtocolVersion::V1098));
+        assert_eq!(p.path_cost, PathCostModel::TerrainWeighted);
+        assert_eq!(p.path_search, PathSearchModel::Reverse);
+        assert_eq!(p.weakest_target_metric, WeakestTargetMetric::CurrentHp);
+        assert_eq!(p.spawn_near_player, SpawnNearPlayer::RadiusShrink);
+        assert_eq!(p.spawn_placement, SpawnPlacement::Classic772Bfs);
+        assert_eq!(p.respawn_model, RespawnModel::Monsterhome772);
+        assert!(p.follow_repath_without_path);
     }
 
     #[test]

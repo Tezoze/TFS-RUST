@@ -2603,8 +2603,6 @@ impl GameWorld {
             target,
             &fpp,
             self.mechanics.profile.path_cost,
-            self.mechanics.profile.path_search,
-            self.mechanics.profile.path_forward_fallback,
             PLAYER_PATH_VIEW_RADIUS,
             |pos| {
                 let Some(tile) = ctx.world.map.get_tile(pos) else {

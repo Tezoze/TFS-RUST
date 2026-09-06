@@ -1,9 +1,8 @@
-//! A* pathfinding — TFS `Map::getPathMatching` / 772 `TShortway` (`cract.cc:7`).
+//! A* pathfinding — 772 `TShortway` reverse dest→origin (`cract.cc:7`).
 //!
-//! - Forward: `map.cpp` `getPathMatching`, Dijkstra-style (g-only open key).
-//! - Reverse: 772 `TShortway::Expand` — dest → origin, leave-tile waypoints,
-//!   fixed 8-neighbor expansion (no TFS `dirNeighbors` bias), Manhattan heuristic with
-//!   `MinWaypoints`, branch-and-bound pruning.
+//! Reverse: `TShortway::Expand` — leave-tile waypoints, fixed 8-neighbor expansion
+//! (no TFS `dirNeighbors` bias), Manhattan heuristic with `MinWaypoints`, branch-and-bound pruning.
+//! There is no forward A* and no forward fallback.
 
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -19,8 +18,6 @@ pub const MAP_NORMAL_WALK_COST: u32 = 10;
 const MAP_DIAGONAL_WALK_COST: u32 = 25;
 /// TFS `AStarNodes::getTileWalkCost` — occupied tile penalty (`map.cpp` ~929–931).
 pub const CREATURE_ON_TILE_PATH_COST: u32 = MAP_NORMAL_WALK_COST * 3;
-/// TFS closed-node cap when `maxSearchDist == 0` (`map.cpp` ~680).
-const MAX_CLOSED_NODES: usize = 100;
 /// 772 monster path viewport half-extent — `VisibleX`/`VisibleY` = 10 (`cract.cc:1093` `TShortway`).
 pub const REVERSE_PATH_VIEW_RADIUS: i32 = 10;
 /// 772 player path viewport half-extent — `VisibleX`/`VisibleY` = 7 for `Type == PLAYER`
@@ -84,21 +81,18 @@ where
 
 /// TFS `FindPathParams` (`creature.h`).
 ///
-/// **`allow_diagonal` does not select the pathfinding era.** Search direction and edge costs
-/// come from [`MechanicsProfile::path_search`] / [`MechanicsProfile::path_cost`] passed to
-/// [`get_path_matching`]. On 772 reverse search, `allow_diagonal` only filters
-/// [`REVERSE_PATH_NEIGHBOR_OFFSETS`]; TFS 1098 [`neighbor_offsets`] / `dirNeighbors` run only when
-/// `path_search == Forward` (or explicit forward fallback after reverse failure).
+/// **`allow_diagonal` does not select a second pathfinder.** Search is always 772 reverse
+/// `TShortway`; `allow_diagonal` only filters [`REVERSE_PATH_NEIGHBOR_OFFSETS`].
 #[derive(Clone, Copy, Debug)]
 pub struct FindPathParams {
     pub min_target_dist: i32,
     pub max_target_dist: i32,
     pub clear_sight: bool,
-    /// Include diagonal neighbors in expansion. Does **not** switch to TFS forward A* or 10/25 costs.
+    /// Include diagonal neighbors in reverse expansion. Does **not** switch to TFS forward A*.
     pub allow_diagonal: bool,
     /// C++ `FindPathParams::fullPathSearch` — symmetric vs directional search box.
     pub full_path_search: bool,
-    /// `0` = unlimited (still capped by [`MAX_CLOSED_NODES`] like C++).
+    /// `0` = unlimited (still capped by the 772 viewport tile budget).
     pub max_search_dist: u32,
 }
 
@@ -157,10 +151,9 @@ struct AStarNode {
     g: u32,
 }
 
-/// 772 `TShortway` profile — reverse dest→origin with terrain waypoint costs (diagonal ×3).
+/// 772 `TShortway` — reverse dest→origin with terrain waypoint costs (diagonal ×3).
 ///
-/// When true, `FindPathParams::allow_diagonal` only toggles the 8-neighbor 772 expansion;
-/// it never selects TFS forward `dirNeighbors` or fixed 10/25 edge costs.
+/// When true, `FindPathParams::allow_diagonal` only toggles the 8-neighbor 772 expansion.
 #[inline]
 pub fn uses_reverse_terrain_path(cost_model: PathCostModel, search: PathSearchModel) -> bool {
     matches!(
@@ -172,12 +165,10 @@ pub fn uses_reverse_terrain_path(cost_model: PathCostModel, search: PathSearchMo
 /// 772 `TShortway::FillMap` initial `MinWaypoints` before viewport scan (`cract.cc:81`).
 const FILLMAP_MIN_WAYPOINTS_SEED: u32 = 1000;
 
-/// TFS `Map::getPathMatching` / 772 `TShortway` — creature-aware via callbacks.
+/// 772 `TShortway` — creature-aware via callbacks.
 ///
-/// `search` selects expansion direction (1098 forward / 772 reverse). Edge costs come from
-/// `cost_model` (B2): fixed 10/25 for TFS, terrain waypoints + diagonal ×3 for CipSoft.
-/// `view_radius` is the 772 `TShortway` viewport half-extent — 7 for players, 10 for monsters
-/// (`cract.cc:1093-1094`). Ignored by 1098 forward search.
+/// Edge costs come from `cost_model` (terrain waypoints + diagonal ×3). `view_radius` is the
+/// `TShortway` viewport half-extent — 7 for players, 10 for monsters (`cract.cc:1093-1094`).
 #[allow(clippy::too_many_arguments)]
 pub fn get_path_matching<C, T, G>(
     map: &Map,
@@ -185,8 +176,6 @@ pub fn get_path_matching<C, T, G>(
     target: Position,
     fpp: &FindPathParams,
     cost_model: PathCostModel,
-    search: PathSearchModel,
-    forward_fallback: bool,
     view_radius: i32,
     can_walk_to: C,
     tile_walk_cost: T,
@@ -208,8 +197,6 @@ where
         target,
         fpp,
         cost_model,
-        search,
-        forward_fallback,
         view_radius,
         can_walk_to,
         tile_walk_cost,
@@ -225,7 +212,7 @@ where
 /// Like [`get_path_matching`] but supplies 772 `TShortway::FillMap` terrain weights (`cract.cc:89-103`).
 ///
 /// `view_radius` is the 772 `TShortway` viewport half-extent — 7 for players, 10 for monsters
-/// (`cract.cc:1093-1094`). Ignored by 1098 forward search.
+/// (`cract.cc:1093-1094`).
 #[allow(clippy::too_many_arguments)]
 pub fn get_path_matching_with_fill<C, T, G, F>(
     map: &Map,
@@ -233,8 +220,6 @@ pub fn get_path_matching_with_fill<C, T, G, F>(
     target: Position,
     fpp: &FindPathParams,
     cost_model: PathCostModel,
-    search: PathSearchModel,
-    forward_fallback: bool,
     view_radius: i32,
     can_walk_to: C,
     tile_walk_cost: T,
@@ -250,182 +235,19 @@ where
 {
     let mut local_scratch = TShortwayScratch::new();
     let scratch = scratch.unwrap_or(&mut local_scratch);
-    match search {
-        PathSearchModel::Forward => path_matching_forward(
-            map,
-            start,
-            target,
-            fpp,
-            cost_model,
-            can_walk_to,
-            tile_walk_cost,
-            ground_cost,
-        ),
-        PathSearchModel::Reverse => {
-            let reverse = path_matching_reverse(
-                map,
-                start,
-                target,
-                fpp,
-                cost_model,
-                view_radius,
-                &can_walk_to,
-                &tile_walk_cost,
-                &ground_cost,
-                &fill_waypoints,
-                scratch,
-            );
-            if let Some(ref dirs) = reverse {
-                if !dirs.is_empty() {
-                    return reverse;
-                }
-                if matches!(
-                    evaluate_path_goal(map, start, start, target, fpp, 0),
-                    PathGoalMatch::Exact | PathGoalMatch::Partial { .. }
-                ) {
-                    return reverse;
-                }
-            }
-            if !forward_fallback {
-                return None;
-            }
-            // Forward fallback uses TFS `dirNeighbors` expansion — not 772 `TShortway`.
-            // Default 772 profile sets `path_forward_fallback = false` (NOWAY). Only reached when
-            // explicitly enabled (e.g. 1098 overlay); `allow_diagonal` on the FPP is unrelated.
-            path_matching_forward(
-                map,
-                start,
-                target,
-                fpp,
-                cost_model,
-                can_walk_to,
-                tile_walk_cost,
-                ground_cost,
-            )
-        }
-    }
-}
-
-/// TFS forward A* — origin (`start`) → goal band around `target` (`map.cpp` ~654).
-#[allow(clippy::too_many_arguments)]
-fn path_matching_forward<C, T, G>(
-    map: &Map,
-    start: Position,
-    target: Position,
-    fpp: &FindPathParams,
-    cost_model: PathCostModel,
-    can_walk_to: C,
-    tile_walk_cost: T,
-    ground_cost: G,
-) -> Option<Vec<Direction>>
-where
-    C: Fn(Position) -> bool,
-    T: Fn(Position) -> u32,
-    G: Fn(Position) -> u32,
-{
-    if start.z != target.z {
-        return None;
-    }
-
-    if matches!(
-        evaluate_path_goal(map, start, start, target, fpp, 0),
-        PathGoalMatch::Exact | PathGoalMatch::Partial { .. }
-    ) {
-        return Some(Vec::new());
-    }
-
-    let mut nodes: HashMap<Position, AStarNode> = HashMap::new();
-    let mut open: BinaryHeap<OpenNode> = BinaryHeap::new();
-    let mut closed: HashSet<Position> = HashSet::new();
-    let mut best_match_dist = 0i32;
-    let mut found_end: Option<Position> = None;
-
-    nodes.insert(start, AStarNode { parent: None, g: 0 });
-    open.push(OpenNode {
-        f: 0,
-        g: 0,
-        pos: start,
-    });
-
-    while fpp.max_search_dist != 0 || closed.len() < MAX_CLOSED_NODES {
-        let Some(OpenNode { pos: current, .. }) = open.pop() else {
-            break;
-        };
-        if !closed.insert(current) {
-            continue;
-        }
-
-        match evaluate_path_goal(map, start, current, target, fpp, best_match_dist) {
-            PathGoalMatch::None => {}
-            PathGoalMatch::Exact => {
-                found_end = Some(current);
-                best_match_dist = 0;
-            }
-            PathGoalMatch::Partial { dist } => {
-                found_end = Some(current);
-                best_match_dist = dist;
-            }
-        }
-
-        if found_end.is_some() && best_match_dist == 0 {
-            break;
-        }
-
-        let base_g = nodes.get(&current).map(|n| n.g).unwrap_or(u32::MAX);
-        if base_g == u32::MAX {
-            continue;
-        }
-
-        let parent = nodes.get(&current).and_then(|n| n.parent);
-        let (neighbor_list, dir_count) = neighbor_offsets(parent, current, fpp.allow_diagonal);
-
-        for &(ox, oy) in &neighbor_list[..dir_count] {
-            let Some(next) = offset_position(current, ox, oy) else {
-                continue;
-            };
-
-            if fpp.max_search_dist != 0 {
-                let sdx = (start.x as i32 - next.x as i32).unsigned_abs();
-                let sdy = (start.y as i32 - next.y as i32).unsigned_abs();
-                if sdx > fpp.max_search_dist || sdy > fpp.max_search_dist {
-                    continue;
-                }
-            }
-
-            if closed.contains(&next) {
-                continue;
-            }
-
-            let is_diagonal = ox != 0 && oy != 0;
-            if !nodes.contains_key(&next) && !can_walk_to(next) {
-                continue;
-            }
-
-            let step_cost = path_step_cost(cost_model, is_diagonal, || ground_cost(current));
-            let new_g = base_g
-                .saturating_add(step_cost)
-                .saturating_add(tile_walk_cost(next));
-
-            let prev_g = nodes.get(&next).map(|n| n.g).unwrap_or(u32::MAX);
-            if new_g < prev_g {
-                nodes.insert(
-                    next,
-                    AStarNode {
-                        parent: Some(current),
-                        g: new_g,
-                    },
-                );
-                open.push(OpenNode {
-                    f: new_g,
-                    g: new_g,
-                    pos: next,
-                });
-            }
-        }
-    }
-
-    let end_pos = found_end?;
-    Some(reconstruct_forward_dirs(&nodes, end_pos))
+    path_matching_reverse(
+        map,
+        start,
+        target,
+        fpp,
+        cost_model,
+        view_radius,
+        can_walk_to,
+        tile_walk_cost,
+        ground_cost,
+        fill_waypoints,
+        scratch,
+    )
 }
 
 /// One cell in the 772 `TShortway` viewport grid (`cract.cc` `TShortwayPoint`).
@@ -1234,72 +1056,6 @@ const REVERSE_PATH_NEIGHBOR_OFFSETS: [(i32, i32); 8] = [
     (1, 0),
     (1, 1),
 ];
-
-/// TFS `dirNeighbors` / `allNeighbors` (`map.cpp` ~663–675).
-fn neighbor_offsets(
-    parent: Option<Position>,
-    current: Position,
-    allow_diagonal: bool,
-) -> (&'static [(i32, i32)], usize) {
-    const ALL_NEIGHBORS: [(i32, i32); 8] = [
-        (-1, 0),
-        (0, 1),
-        (1, 0),
-        (0, -1),
-        (-1, -1),
-        (1, -1),
-        (1, 1),
-        (-1, 1),
-    ];
-    const DIR_NEIGHBORS: [[(i32, i32); 5]; 8] = [
-        [(-1, 0), (0, 1), (1, 0), (1, 1), (-1, 1)],
-        [(-1, 0), (0, 1), (0, -1), (-1, -1), (-1, 1)],
-        [(-1, 0), (1, 0), (0, -1), (-1, -1), (1, -1)],
-        [(0, 1), (1, 0), (0, -1), (1, -1), (1, 1)],
-        [(1, 0), (0, -1), (-1, -1), (1, -1), (1, 1)],
-        [(-1, 0), (0, -1), (-1, -1), (1, -1), (-1, 1)],
-        [(0, 1), (1, 0), (1, -1), (1, 1), (-1, 1)],
-        [(-1, 0), (0, 1), (-1, -1), (1, 1), (-1, 1)],
-    ];
-
-    let Some(prev) = parent else {
-        let len = if allow_diagonal {
-            ALL_NEIGHBORS.len()
-        } else {
-            4
-        };
-        return (&ALL_NEIGHBORS, len);
-    };
-
-    let dx = prev.x as i32 - current.x as i32;
-    let dy = prev.y as i32 - current.y as i32;
-    let idx = if dy == 0 {
-        if dx == -1 { 3 } else { 1 }
-    } else if !allow_diagonal || dx == 0 {
-        if dy == -1 { 0 } else { 2 }
-    } else if dy == -1 {
-        if dx == -1 { 6 } else { 7 }
-    } else if dx == -1 {
-        4
-    } else {
-        5
-    };
-    let dir_count = if allow_diagonal { 5 } else { 3 };
-    (&DIR_NEIGHBORS[idx], dir_count)
-}
-
-/// Forward walk-queue: last element is the first step (`creature.cpp` `listWalkDir`).
-fn reconstruct_forward_dirs(nodes: &HashMap<Position, AStarNode>, end: Position) -> Vec<Direction> {
-    let mut dir_list = Vec::new();
-    let mut prev = end;
-    let mut cur = nodes.get(&end).and_then(|n| n.parent);
-    while let Some(pos) = cur {
-        dir_list.push(walk_queue_direction(pos, prev));
-        prev = pos;
-        cur = nodes.get(&pos).and_then(|n| n.parent);
-    }
-    dir_list
-}
 
 /// Drop trailing steps that overshoot the frozen-path goal band (`creature.cpp` ~1688).
 fn trim_path_to_goal_band(

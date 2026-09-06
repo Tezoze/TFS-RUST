@@ -31,12 +31,12 @@ fn shipped_1098_formulas_match_era_defaults() {
     let m = load_mechanics(&dir, ProtocolVersion::V1098);
     let p = &m.profile;
     let defaults = MechanicsProfile::for_version(ProtocolVersion::V1098);
-    // Shipped 1098.lua still overlays a few 772 spawn/corpse keys (pre-existing);
-    // combat/path/step defaults and Gap 6 tool knobs must match `for_version(1098)`.
+    // Shipped 1098.lua gates later-era extras; path/spawn/target stay the 772 corpus.
     assert_eq!(p.beat_ms, 50);
     assert_eq!(p.armor, ArmorReduction::Full);
-    assert_eq!(p.path_cost, PathCostModel::Fixed);
-    assert_eq!(p.weakest_target_metric, WeakestTargetMetric::MaxHp);
+    assert_eq!(p.path_cost, PathCostModel::TerrainWeighted);
+    assert_eq!(p.path_search, PathSearchModel::Reverse);
+    assert_eq!(p.weakest_target_metric, WeakestTargetMetric::CurrentHp);
     assert_eq!(p.distance_keep, DistanceKeep::PerType);
     assert_eq!(p.attack_speed_ms, 0);
     assert_eq!(p.step_speed, StepSpeedModel::TfsLog);

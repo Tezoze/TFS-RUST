@@ -3,6 +3,10 @@
 -- Tier-1 constants (loaded once into MechanicsProfile). Any key omitted falls back to the built-in
 -- MechanicsProfile::for_version(772) default. Edit a value to retune the shard without recompiling
 -- (docs/PROTOCOL_VERSIONING.md §12.13).
+--
+-- Not formula keys (native corpus, every clientVersion): terrain path cost, reverse TShortway
+-- (no forward A* / no forward fallback), idle chase replan (no TFS hasFollowPath gate),
+-- weakest-target current HP, spawn radius-shrink, SearchSpawnField placement, monsterhome timer.
 
 
 formulas = {
@@ -10,10 +14,7 @@ formulas = {
   stepBeatMs = 50,                -- TVP gameserver quantizer (wire reference); beat loop uses beatMs
   defenseGateMs = 2000,
   armor = "randomized",         -- (Armor/2) + rand%(Armor/2)
-  pathCost = "terrain",         -- terrain-speed-weighted waypoints, diagonal 3x
-  pathSearch = "reverse",     -- reverse TShortway dest→origin; 1098 uses "forward"
   distanceKeep = "perType",     -- keep band from each monster's XML targetDistance
-  weakestTargetMetric = "currentHp",
   damageFormula = "classic",    -- ProbeValue
   damageTuning = {
     skillMult = 5,
@@ -26,13 +27,8 @@ formulas = {
   },
   -- skillTuning (shared Delta/minLevel/magicSkillBase) lives in
   -- MechanicsProfile::for_version. Per-voc multipliers: data/defs/vocations.lua.
-  spawnNearPlayer = "shrink",   -- radius shrink near players, still spawn
-  spawnPlacement = "classic772", -- SearchSpawnField BFS (monster.db homes)
-  respawnModel = "monsterhome772", -- StartMonsterhomeTimer: random(regen/2,regen) + crowd scaling
   expAttributionRounds = 60,
   combatListSlots = 20,
-  followRepathWithoutPath = true,  -- target-move repath without hasFollowPath gate (not idle drain)
-  pathForwardFallback = false,     -- NOWAY when reverse search fails
   corpseDecayOffsetMs = 30000,     -- generic corpse decay +30s (crmain.cc decay scheduler)
   classicEquipmentSlots = true,      -- 772 hand slots accept any pickupable item
   conjureFromHandsOnly = true,       -- rune/staff conjure only from equipped hands (not backpack)

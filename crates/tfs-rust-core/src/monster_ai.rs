@@ -1441,8 +1441,6 @@ impl GameWorld {
             "772 monster chase requires reverse TShortway + terrain costs (check MechanicsProfile / formulas lua)"
         );
         let path_cost = self.mechanics.profile.path_cost;
-        let path_search = self.mechanics.profile.path_search;
-        let path_forward_fallback = self.mechanics.profile.path_forward_fallback;
         let path_t0 = std::time::Instant::now();
         let path = {
             let world = &*self;
@@ -1466,8 +1464,6 @@ impl GameWorld {
                 target,
                 fpp,
                 path_cost,
-                path_search,
-                path_forward_fallback,
                 REVERSE_PATH_VIEW_RADIUS,
                 fill_walkable,
                 |pos| {

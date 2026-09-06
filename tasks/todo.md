@@ -1,3 +1,24 @@
+# Game loop audit vs decompile — audit Step 12 (2026-09-06)
+
+Deliverable: `docs/772_GAME_LOOP_AUDIT.md` (gaps + bugs + fix plan). Corpus anchor: `AdvanceGame` / `LaunchGame` (`main.cc:318-501`), `ProcessCreatures` / `ProcessSkills` / `MoveCreatures` (`crmain.cc:1075+`), `ProcessCronSystem` (`operate.cc:2763`), `RefreshCylinders` (`operate.cc:2966`), `ProcessMonsterhomes` (`crnonpl.cc:1409`), `ProcessMonsterRaids`, `ProcessConnections` / `ProcessCommunicationControl` (`operate.cc:3193`, `communication.cc`), `NetLoadCheck`, `SendAll`, `ReceiveData`, `GetRoundForNextMinute` (`time.cc`). Rust: `game_loop.rs`, `game_world_tick.rs`, `subsystem_counters.rs`, `run_server.rs`, `creature_todo.rs`, `creature_think.rs`, `sector_refresh.rs`, `spawn_lifecycle.rs`, `raid_waves.rs`, `player/ping.rs`.
+
+- [x] Slice A — `AdvanceGame` scheduler: counters/thresholds, RoundNr, Other-arm order, minute jobs, reboot schedule, lag guard, beat coalescing, `SendAll` placement
+- [x] Slice B — per-creature second arms: `ProcessCreatures`, `ProcessSkills`, `MoveCreatures` / ToDo drain
+- [x] Slice C — world cron: `ProcessCronSystem` decay, `RefreshCylinders`/`RefreshSector`, monster homes, raids
+- [x] Slice D — connection/communication arms: `ProcessConnections`, `ProcessCommunicationControl`, `NetLoadCheck`/`EmergencyPing`, ambiente, `ReceiveData`/`SendAll`
+- [x] Integrate → `docs/772_GAME_LOOP_AUDIT.md` — 7 High, 12 Medium, 22 Low; fix plan Phases 1–3
+- [x] Lessons 439–442 (`SKILL_FED` Act, `NetLoadCheck` semantics, `Logout(0,false)` on drop, serial monsterhome timer)
+
+Fix work (not started — separate steps, one module each; see audit §3):
+- [ ] Phase 1.1 `item_regen.rs` — H1/M3 ring regen on Creatures arm; remove `food_level = 12`
+- [ ] Phase 1.2 `process_skills.rs` — H2 fed regen stats send; M2 food drains in PZ
+- [ ] Phase 1.3 `PlayerDisconnect { stop_fight }` — H5
+- [ ] Phase 1.4 `connections.rs` dead-conn arm — H6
+- [ ] Phase 1.5 `net_load.rs` — H7 (+ L4 summary, `lag_detected` in logout rules)
+- [ ] Phase 1.6 `spawn.rs` zone timer — H3/M5
+- [ ] Phase 1.7 `mail_delivery.rs` — H4
+- [ ] Phase 2 (M1, M4–M9, M11) and Phase 3 (Low table) per audit §3; M10 house cadence needs a user decision
+
 # Sector refresh cadence, decay, residency — audit Step 11 (2026-09-06)
 
 Plan: `docs/772_SECTOR_REFRESH_DECAY_PLAN.md`. Corpus: `RefreshCylinders` (`operate.cc:2964`, shipped `map.dat` `RefreshedCylinders = 8`, full-grid raster), `RefreshSector` creature post-pass (`operate.cc:2832-2892`), `RefreshMap` gate (`operate.cc:2895`), `LoadObjects` → `CronExpire(-1)` / `RemainingExpireTime` (`map.cc:860-907`), `DestroyObject` → `CronStop` (`map.cc:1876`). Decisions: eager `SparseGrid` stays (no proximity load, no `.sec` stream, no swap); snapshot restore is a raw `LoadObjects`-shaped place, not the move pipeline.
