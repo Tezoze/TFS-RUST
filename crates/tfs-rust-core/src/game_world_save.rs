@@ -186,9 +186,8 @@ impl GameWorld {
             Some(conditions_blob)
         };
 
-        // 772 `SKILL_FED` persistence — `crplayer.cc:2496` save Cycle, `crplayer.cc:2486` save Act.
+        // 772 `SKILL_FED` Cycle only — Act/DAct is equipped-item DAct, not persisted.
         row.food_remaining = player.food_remaining as i32;
-        row.food_level = player.food_level;
         // 772 `TSkillSoulpoints` Cycle/Count/MaxCount — `crskill.cc` Save, not CONDITION_SOUL.
         row.soul_cycle = player.soul_cycle;
         row.soul_count = player.soul_count;

@@ -62,26 +62,11 @@ impl GameWorld {
         if chrono::Local::now().minute() == 55 {
             self.spawn_kill_statistics_flush();
         }
+        if chrono::Local::now().minute() == 0 {
+            let (recv, send) = self.net_load.summary();
+            tracing::info!(target: "netload", recv, send, "network load");
+        }
         self.next_minute_round = Self::get_round_for_next_minute(self.round_nr);
-    }
-
-    /// `NetLoadCheck` / `EmergencyPing` (`main.cc:375–377`) — under lag, rewind command
-    /// stamps 100 rounds and ping so idle timeouts still progress.
-    fn net_load_check(&mut self) {
-        if !self.lag {
-            return;
-        }
-        let online: Vec<(tfs_rust_common::ConnId, crate::ids::CreatureId)> = self
-            .conn_to_creature
-            .iter()
-            .map(|(&conn, &cid)| (conn, cid))
-            .collect();
-        for (conn_id, cid) in online {
-            if let Some(crate::creature::CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-                p.last_command_round = p.last_command_round.saturating_sub(100);
-            }
-            self.enqueue_periodic_ping(conn_id, cid);
-        }
     }
 
     /// 772 `AdvanceGame` beat step — staggered subsystems + logical clock + ToDoQueue drain.

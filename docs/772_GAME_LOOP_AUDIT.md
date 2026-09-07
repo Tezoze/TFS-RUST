@@ -68,43 +68,43 @@ IDs keep the sub-agent slice letter (A scheduler, B per-creature arms, C world c
 
 ### 2.1 High — observable gameplay / persistence / disconnect differences
 
-**H1 (B3) — Eating arms an invented permanent item regen (`food_level = 12`).**
+**H1 (B3) — Eating arms an invented permanent item regen (`food_level = 12`). DONE.**
 - Corpus: `ProcessCreatures` item regen uses `RegenInterval = Skills[SKILL_FED]->Get()` = `Act(≥Min) + MDAct + DAct` (`crmain.cc:1087`, `crskill.cc:19-23`). `SetTimer(SKILL_FED, secs, 0, 0, -1)` on eating (`moveuse.cc:1846`) writes only `Cycle/Count/MaxCount` (`crskill.cc:195-204`) — **never `Act`**. `Act = 0` for humans (`human.mon:36`). `DAct` comes only from equipped `SkillNumber=14` items via `NotifyChangeInventory` (`cract.cc:1639-1660`): life ring `SkillModification=3` (`objects.srv:14082`), ring of healing `1` (`:14137`). So: no ring → no item regen; life ring → +1 HP / +4 mana every 3 rounds; ring of healing → every round.
 - Rust: `game_world_inventory.rs:716-732` `lua_script_player_feed` sets `p.food_level = 12` when `<= 0`; `creature_think.rs:61-79` grants +1 HP / +4 mana every 12 rounds forever; persisted (`game_world_save.rs:191`). Rings use TFS `ConditionType::Regeneration` on the Skills arm instead (`equip_abilities.rs:321-341`, `process_skills.rs:59-110`) — see M3.
 - Impact: every player who ever ate gets +5 HP / +20 mana per minute for life, on top of vocation regen. Tests in `creature_think_tests.rs:166-413` encode the wrong model.
 - Fix: new `item_regen.rs` — `fed_regen_interval(player) = Σ SkillNumber-14 modifications of equipped items` (map `objects.srv` SkillNumber/SkillModification → `items.xml` `healthTicks`/`manaTicks` or add an OTB/XML attribute); `process_creatures` calls it. Remove `food_level` write from `feed`; drop the `Regeneration` condition path for life ring / ring of healing (M3). Keep `food_level` column only if needed for migration; otherwise remove. Rewrite `creature_think_tests` F2 cases around ring equip/unequip.
 
-**H2 (B4, B13) — Fed (vocation) regen never sends stats or announces health.**
+**H2 (B4, B13) — Fed (vocation) regen never sends stats or announces health. DONE.**
 - Corpus: `Skills[SKILL_HITPOINTS]->Change(1)` → `TSkillHitpoints::Set` → `SendPlayerData` + `AnnounceChangedCreature(HEALTH_CHANGED)` (`crskill.cc:679-696`); mana → `SendPlayerData` (`:701-711`).
 - Rust: `process_skills.rs:515-556` `process_player_fed_regen` mutates `health`/`mana` and returns — no `send_player_stats`, no spectator announce. (Item regen in `creature_think.rs:74-80` sends stats but no spectator announce.)
 - Impact: client HP/mana bars go stale until any other stats packet; spectators never see regen.
 - Fix: return `gained: bool` from fed regen; call `send_player_stats` + the existing health-changed broadcast (same helper `process_equipment_regeneration` uses at `:107-109`). Add the spectator announce to the item-regen path too.
 
-**H3 (C1) — Monsterhome refill is serial in the corpus, parallel per slot in Rust.**
+**H3 (C1) — Monsterhome refill is serial in the corpus, parallel per slot in Rust. DONE.**
 - Corpus: one `Timer` per home; on expiry **one** `CreateMonster`, then `if ActMonsters < MaxMonsters → StartMonsterhomeTimer` (`crnonpl.cc:1485-1487`). `NotifyMonsterhomeOfDeath` arms the timer only `if Timer == 0` (`:1510-1512`). A wiped home of N refills in ≈N regen cycles.
 - Rust: one `respawn_at` per slot (`spawn.rs:34, 177-185`); `on_creature_removed_for_spawn` arms every slot independently (`spawn_lifecycle.rs:1496-1520`). `spawns.xml` zones with N identical entries refill all N within one cycle.
 - Impact: respawn throughput after mass kills is N× the corpus.
 - Fix: `spawn.rs` — per-zone (or per zone+race group, matching one `monsterhome.dat` line) `home_timer: Option<u32>`; arm on death only if unset; `poll_spawn_respawns` spawns ≤1 monster per zone per expiry, re-arms with `compute_respawn_delay_ms`. Slots keep occupancy only. Needs a decision on how a mixed-race `spawns.xml` zone maps to corpus monsterhomes (one home per race in the zone is the closest reading).
 
-**H4 (C4) — Offline mail parked until the daily save; not applied on login; likely overwritten.**
+**H4 (C4) — Offline mail parked until the daily save; not applied on login; likely overwritten. DONE.**
 - Corpus: offline `SendMail` → `DelayedMail` + `LoadCharacterOrder` (`moveuse.cc:825-844`); next Other arm `ProcessReaderThreadReplies` → `SendMails(Slot)` splices into `PlayerData->Depot` and marks dirty (`reader.cc:225-235`, `moveuse.cc:869-919`). Latency: a few rounds; persisted with the slot.
 - Rust: `mail.rs:211-232` `deliver_mail_offline` → `houses.pending_depot_dumps`; sole consumer is `house/persist.rs:287-326` on `FlushStay`/shutdown/SIGINT. No login drain (grep `pending_depot_dumps` → `house/*`, `mail.rs` only). At `game_loop.rs:165-168` the dump is written **before** `flush_online_players_to_db`, so a recipient who logged in meanwhile has their in-memory depot saved over the dumped rows.
 - Impact: recipient logging in before the save sees no mail; items lost on crash; probable silent loss on save ordering.
 - Fix: `mail_delivery.rs` — on offline delivery spawn the DB depot append immediately (mirrors the reader thread), ack via `GameCommand`; on login apply any pending dump for that guid into the live depot before it is first opened; make the save-path ordering explicit (online players first, then dumps for offline guids only).
 
-**H5 (D1) — TCP drop / lane shed logs out with `StopFight = true` (corpus `false`).**
+**H5 (D1) — TCP drop / lane shed logs out with `StopFight = true` (corpus `false`). DONE.**
 - Corpus: `TConnection::Process` `!ConnectionIsOk || LastCommand >= 90 → Logout(0, false)` (`connections.cc:37-38`) → `StartLogout(false, false)` → `Combat.StopAttack(60)` — the body keeps attacking up to 60 rounds.
 - Rust: `tfs-rust-net/src/server.rs:392` emits `PlayerDisconnect{display_effect:false}` on reader-loop end; `game_loop.rs:1420-1432` hard-codes `stop_fight = true` (comment: "CQuitGame / intentional"); `creature_start_logout_stop_fight(cid, true)` → `combat_stop_attack(cid, 0)`.
 - Impact: a crashed/dropped client stops attacking instantly; kill credit / `EarliestLogoutRound` outcomes differ.
 - Fix: add `stop_fight: bool` (or `reason: DisconnectReason`) to `GameCommand::PlayerDisconnect` (`tfs-rust-common/src/game_command.rs:52`); net-side drop/shed → `false`; `CL_CMD_LOGOUT` handler (`game_loop.rs:1057-1087`) → `true`.
 
-**H6 (D2, D12) — `CONNECTION_DEAD` sessions escape `ProcessConnections` and ambiente.**
+**H6 (D2, D12) — `CONNECTION_DEAD` sessions escape `ProcessConnections` and ambiente. DONE.**
 - Corpus: `InGame() = GAME || DEAD` (`connections.hh:181-184`); dead-but-connected clients still get ping 30/60, `Logout(0,false)` at `LastCommand >= 90`, idle kick, and `SendAmbiente` (`connections.cc:22`, `main.cc:368`).
 - Rust: death inserts `dead_connections` and then `unregister_conn_mapping` (`game_world_lifecycle.rs:571-617`, comment claims idle timeout applies). `process_connections` (`connections.rs:69-73`) and `tick_ambient_light` (`:133`) iterate only `conn_to_creature`; `dead_connections` is never visited.
 - Impact: a dead client that never presses OK holds the slot/TCP forever; no keepalive.
 - Fix: `connections.rs` — second arm over `dead_connections` with a small `DeadConnState { last_command_round }` map (stamped from `handle_game_packet` for `Ping`/`Logout`); push `(conn,false)` at ≥90, ping at 30/60; include dead conns in ambiente recipients.
 
-**H7 (A4, D3, B11) — `NetLoadCheck` is a different algorithm with a mass-kick hazard; `LagDetected()` missing.**
+**H7 (A4, D3, B11) — `NetLoadCheck` is a different algorithm with a mass-kick hazard; `LagDetected()` missing. DONE.**
 - Corpus: every `RoundNr % 10 == 0` (`main.cc:375`): `DeltaRecvPerPlayer` over a 360-entry `LoadHistory`; lag iff `RoundNr >= 3600 && PlayersOnline >= 50 && DeltaRecvPerPlayer < Avg/2` (`communication.cc:164-197`). Then `LagEnd = RoundNr + 30` (`LagDetected() = RoundNr <= LagEnd`, `:141-143`, consumed by `StartLogout`/`LogoutPossible` `crmain.cc:406, 419`), free-account admission delay (`:207-218`), and `EmergencyPing` per live conn: `if LastCommand < 80 → TimeStamp = RoundNr - 100; SendPing` (`connections.cc:66-79`).
 - Rust: `game_world_tick.rs:70-85` gates on `self.lag` — the **beat-stall** flag (`Delay >= 1000`), unrelated to recv rate; no player floor, no warm-up, no `LagEnd`; rewinds `last_command_round -= 100` relatively for every online player (no `< 80` guard) then pings. `player_logout_possible` / `creature_begin_logout` (`game_world_lifecycle.rs:152-179, 255-263`) have no lag clause.
 - Impact: because `run_other_subsystems` runs before the lag flag is updated, the beat after any ≥1 s stall that also fires Other on a `round % 10 == 0` rewinds every player to `LastCommand ≥ 100`; anyone whose ping reply is not processed before the next Other arm is logged out (`StopFight=false`). Rare combination, but it fires exactly when the server is already struggling. `LagDetected` lag-logout exemption is absent.
@@ -117,12 +117,12 @@ IDs keep the sub-agent slice letter (A scheduler, B per-creature arms, C world c
 - Rust: `idle_stimulus.rs:548-550` → `apply_creature_death` synchronously (`game_world_lifecycle.rs:447-612`); `idle_stimulus.rs:1141-1148` `remove_creature` immediately, with a summons cascade (`game_world_lifecycle.rs:92-100`) the corpus does per-summon via `IdleStimulus`.
 - Fix: `creature_death_defer.rs` — `mark_dead(cid)` sets `is_dead + logging_out`, announces health 0; `process_creatures` finalizes; guard `Execute`/`Damage`/`IdleStimulus` on `is_dead`. Drop the summons cascade in favour of the per-summon idle check. This is a behavior change on the death/loot ordering; do it after H1-H7.
 
-**M2 (B5) — Food is not consumed inside a protection zone.**
+**M2 (B5) — Food is not consumed inside a protection zone. DONE.**
 - Corpus: `TSkill::Process` always `Cycle -= 1` before `Event`; `TSkillFed::Event` skips only the regen in PZ (`crskill.cc:186-188, 816-818`).
 - Rust: `process_skills.rs:521-531` returns on PZ before writing `food_remaining - 1`.
 - Fix: decrement first, gate only the HP/mana grant.
 
-**M3 (B6) — Life ring / ring of healing regen on the wrong arm, not PZ-gated, phase differs.**
+**M3 (B6) — Life ring / ring of healing regen on the wrong arm, not PZ-gated, phase differs. DONE.**
 - Corpus: item regen is `ProcessCreatures` (1750 counter), `RoundNr % N == 0`, `!IsDead && !PZ` (`crmain.cc:1087-1095`).
 - Rust: `process_skills.rs:59-110` on the Skills arm (1250), ms accumulator, explicitly not PZ-gated (`:64`). Amounts match.
 - Fix: folded into H1's `item_regen.rs`.
@@ -132,7 +132,7 @@ IDs keep the sub-agent slice letter (A scheduler, B per-creature arms, C world c
 - Rust: `game_world_chat.rs:1624-1628` `rounds = ceil(ms/1000)`; `process_skills.rs:215-237` lives exactly `rounds` ticks; constant light radius. Pack values: haste 30000, strong haste 30000, paralyze 10000, magic shield 200000, invisibility 200000, light 370000 / 695000 / 1990000.
 - Fix: `skill_timer.rs` — generic 772 timer `{cycle, count, max_count}` with `Event` hook (the fire/energy/poison mapper at `game_world_chat.rs:1667-1713` already does this shape); the Lua `addCondition` mapper sets the triple from `772.lua` literals; light `Event` decrements radius and re-announces. Strong haste 30 → 22 s and light 370 → 504 s are user-visible; document before landing.
 
-**M5 (C2) — Stall / suppressed respawn re-arms with fixed `spawntime`, not `random(Max/2, Max)` with player scaling.**
+**M5 (C2) — Stall / suppressed respawn re-arms with fixed `spawntime`, not `random(Max/2, Max)` with player scaling. DONE.**
 - Corpus: `StartMonsterhomeTimer` is used on both death and failed/suppressed attempts (`crnonpl.cc:1296-1323, 1485-1487`).
 - Rust: `spawn.rs:202-206` `stall_respawn` → `now + spawntime`; only the death path uses `compute_respawn_delay_ms`.
 - Fix: pass `compute_respawn_delay_ms` at both `stall_respawn` call sites (`spawn_lifecycle.rs:232, 386`); merges with H3's zone timer.
@@ -178,7 +178,7 @@ IDs keep the sub-agent slice letter (A scheduler, B per-creature arms, C world c
 | L1 (A2, B14) | Lag error logged every lagging beat, not once per episode | `main.cc:449-452` `!Lag && RoundNr > 10` | `game_world_tick.rs:133-143` no `!lag` gate | `let entering = !self.lag;` gate |
 | L2 (A3) | `Delay > Beat` "lag" log absent (replaced by `wall_ms >= 100` debug) | `main.cc:440-442` | `game_world_tick.rs:162-180` | `tracing::debug!(target:"lag")` when `delay_ms > beat_ms` |
 | L3 (A7) | Idle kicks applied **after** MoveCreatures (corpus: inline in `ProcessConnections`, before); extra `npc_tick_conversation_timeouts` + `lua_gc_step` on Other | `main.cc:350-373`, `connections.cc:35-38` | `game_world_tick.rs:18-36`, `game_loop.rs:1587-1597` | apply `pending_idle_kick` before `drain_todo_queue` (split `advance_beat` pre/post) or accept |
-| L4 (A10, D11) | `NetLoadSummary` hourly byte log missing | `communication.cc:155-162`, `main.cc:390` | not found | part of `net_load.rs` (H7), minute==0 |
+| L4 (A10, D11) | `NetLoadSummary` hourly byte log missing | `communication.cc:155-162`, `main.cc:390` | not found | **DONE** `net_load.rs` (H7), minute==0 |
 | L5 (A7, D10) | `ProcessCommunicationControl` (statement/listener 1800 s pruning) missing | `operate.cc:3193-3220` | only `alloc_statement_id` | `statements.rs` only if GM report context is in scope |
 | L6 (A8) | `CreatePlayerList(true)` every 5 min missing (online record / `Log("load")`) | `main.cc:384-386`, `crplayer.cc:1942-1970` | `players_online` table only | `player_list.rs`: `players_record` upsert + info log |
 | L7 (A9) | `SavePlayerDataOrder` every 15 min — corpus saves only **offline** dirty slots; Rust saves at logout | `writer.cc:410`, `crplayer.cc:2919-2942` | logout save | none (match by outcome) |
@@ -186,7 +186,7 @@ IDs keep the sub-agent slice letter (A scheduler, B per-creature arms, C world c
 | L9 (A13) | Pending logins dropped in `Closed` (corpus keeps them, rejects via `LoginAllowed`) | `connections.cc:42-44` | `connections.rs:62-67` | kick only when `Shutdown` |
 | L10 (B8) | Drunk `Count` decremented before `<= 0` check (period `Duration` vs `Duration+1`) | `crskill.cc:176-193`, `magic.cc:285` | `condition.rs:261-271` | check-then-decrement |
 | L11 (B9) | Fire/energy timer removed on the last Event tick (corpus one tick later; icon clears 1 s early) | `crskill.cc:177, 186-188` | `process_skills.rs:172-175` | drop `ticks_left <= 1` early removal |
-| L12 (B10) | Skill order: DoTs before Fed (corpus TimerList insertion order, Fed first) | `crskill.cc:1192-1203` | `process_skills.rs:45-53` | run fed/item regen first, or M4's ordered list |
+| L12 (B10) | Skill order: DoTs before Fed (corpus TimerList insertion order, Fed first) | `crskill.cc:1192-1203` | `process_skills.rs:45-53` | **DONE** fed before DoT (1.2) |
 | L13 (B12) | Vocation 0 mana regen 1 (corpus 2) | `crskill.cc:880-882` | `vocations.xml:3` `gainmanaamount="1"` | data fix or `772.lua` table |
 | L14 (C7) | Sector refresh applied synchronously, no async re-check | `operate.cc:2824-2830, 2985` | `sector_refresh.rs:162-203` | already decided in Step 11 plan §0 |
 | L15 (C8) | `RefreshCylinders` raster: corpus X fastest over the full grid; Rust Y fastest over snapshot XYs | `operate.cc:2968-2980` | `sector_refresh.rs:38-62` | fold into Step 11 G1/G2 |
@@ -195,7 +195,7 @@ IDs keep the sub-agent slice letter (A scheduler, B per-creature arms, C world c
 | L18 (D5) | Idle 900/960 are config-driven via `kickIdlePlayerAfterMinutes` (match at default) | `connections.cc:29, 35` | `config.rs:431-443` | document as gated knob |
 | L19 (D7) | `Turn` handler peeks the next same-conn packet off `game_rx`, bypassing one-per-conn and ctrl-lane order | `receiving.cc:1796-1812` | `game_loop.rs:795-833` | route through `defer_extra_same_conn_game` or use deferred-turn flush |
 | L20 (D8) | `CONNECTION_LOGOUT` delayed disconnect not modelled; per-conn flush outside `SendAll` on disconnect | `connections.cc:44-50, 274-296` | `game_loop.rs:667-723` | optional `logout_at_round` map |
-| L21 (D9) | Dead-conn allow-list drops `CL_CMD_ERROR_FILE_ENTRY` (`DebugAssert`), adds `PingBack` | `receiving.cc:17-21` | `game_loop.rs:733-749` | add `DebugAssert` |
+| L21 (D9) | Dead-conn allow-list drops `CL_CMD_ERROR_FILE_ENTRY` (`DebugAssert`), adds `PingBack` | `receiving.cc:17-21` | `game_loop.rs:733-749` | **DONE** add `DebugAssert` (1.4) |
 | L22 | Vendor name in comment `subsystem_counters.rs:31` ("CipSoft ~1000 ms period") | naming rule | — | reword to "772 ~1000 ms period" |
 
 ### 2.4 Out of scope (infra with no Rust counterpart expected)
@@ -471,13 +471,17 @@ Phase gates:
 
 Sim-harness scenarios to add (`sim_harness.rs`), one per phase-1 step: (a) 1 s stall → 20 beats → 0 kicks at 10 players; (b) ring equip/unequip regen trace; (c) 3-slot home wipe → respawn rounds ≈ N cycles; (d) offline mail → login depot before any save tick; (e) socket drop → target held 60 rounds; (f) dead client silent → kicked round 90.
 
+Phase 1 coverage (unit tests, not extra `sim_harness.rs` scenarios): (a) `net_load.rs` beat-stall does not trigger net load; (b) `creature_think_tests.rs` life ring / unequip; (c) `spawn.rs` `wiped_three_slot_home_refills_one_per_cycle`; (d) `mail.rs` `login_before_ack_sees_mail`; (e) `game_loop_disconnect_tests.rs` `socket_drop_keeps_attack_for_60_rounds`; (f) `connections.rs` kick at round 90.
+
 `docs/GAME_LOOP_OBS_BASELINES.md`: re-baseline beat wall-time after 1.6 and 2.1 (fewer immediate removals, serial spawns).
 
 ---
 
-## 4. Lessons recorded (`tasks/lessons.md` 439-442)
+## 4. Lessons recorded (`tasks/lessons.md` 439-446)
 
-1. `SKILL_FED` `Act` is never written by eating — item regen cadence comes from `SkillNumber=14` `DAct` (life ring 3, ring of healing 1). `player:feed` must not set a regen interval; TFS `Regeneration` conditions for rings are a second, wrong model.
+1. `SKILL_FED` `Act` is never written by eating — item regen cadence comes from `SkillNumber=14` `DAct` (life ring 3, ring of healing 1). `player:feed` must not set a regen interval; TFS `Regeneration` conditions for rings are a second, wrong model. Soft boots 2640 are cadence-only (interval 6); grants stay profile +1/+4 (lesson 444).
 2. `NetLoadCheck` is a **recv-bandwidth** heuristic with a 50-player floor and 1-hour warm-up, not a beat-stall detector; `EmergencyPing` rewinds only when `LastCommand < 80` and sets an absolute stamp.
 3. Corpus `Logout(0, false)` for socket drops — a dropped client keeps fighting 60 rounds; only `CL_CMD_LOGOUT` and idle kick stop the fight.
 4. A monsterhome has **one** timer; refills are serial. Per-slot timers are a TFS-shape leak.
+5. Offline mail is an immediate depot append + login splice (`mail_delivery.rs`); `pending_depot_dumps` is house eviction / welcome letters only (lesson 445).
+6. Fed `Cycle` always decrements, including in PZ; only the HP/mana grant is skipped (lesson 446).

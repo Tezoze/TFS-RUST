@@ -143,6 +143,7 @@ impl GameWorld {
         for (slot, iid) in slots {
             self.apply_equip_item_abilities(cid, iid, slot);
         }
+        self.recompute_item_regen_interval(cid);
     }
 
     pub(crate) fn ensure_container_registered(

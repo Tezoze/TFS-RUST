@@ -318,34 +318,6 @@ impl GameWorld {
             }
         }
 
-        if abilities.regeneration {
-            if sign > 0 {
-                if let Some(kind) = self.creatures.get_mut(cid) {
-                    add_condition_merge(
-                        &mut kind.base_mut().active_conditions,
-                        ActiveCondition::new(
-                            slot as u32,
-                            slot as u32,
-                            ConditionType::Regeneration,
-                            ConditionData::Regeneration {
-                                health_gain: abilities.health_gain as i32,
-                                health_ticks_ms: abilities.health_ticks,
-                                mana_gain: abilities.mana_gain as i32,
-                                mana_ticks_ms: abilities.mana_ticks,
-                                health_elapsed_ms: 0,
-                                mana_elapsed_ms: 0,
-                            },
-                            None,
-                        ),
-                    );
-                }
-            } else if let Some(kind) = self.creatures.get_mut(cid) {
-                kind.base_mut()
-                    .active_conditions
-                    .retain(|c| !(c.ctype == ConditionType::Regeneration && c.id == slot as u32));
-            }
-        }
-
         let mut need_skills = false;
         let mut need_stats = false;
 
@@ -391,6 +363,17 @@ impl GameWorld {
         }
         if need_icons {
             self.send_player_icons(cid);
+        }
+        // Slot still holds the item during de-equip — increment DAct rather than rescan.
+        if abilities.regeneration {
+            let dact = abilities.health_ticks / 1000;
+            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+                if sign > 0 {
+                    p.item_regen_interval = p.item_regen_interval.saturating_add(dact);
+                } else {
+                    p.item_regen_interval = p.item_regen_interval.saturating_sub(dact);
+                }
+            }
         }
     }
 
@@ -657,7 +640,7 @@ mod tests {
     }
 
     #[test]
-    fn life_ring_adds_regeneration_condition() {
+    fn life_ring_sets_item_regen_interval_not_regeneration_condition() {
         let mut world = minimal_world();
         let cid = insert_player(
             &mut world,
@@ -671,25 +654,24 @@ mod tests {
         abl.mana_gain = 4;
         abl.mana_ticks = 3000;
         let iid = equip_with_abilities(&mut world, cid, slot, 2205, abl);
-        let has_regen = match world.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => p
-                .base
+        let p = match world.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p,
+            _ => panic!(),
+        };
+        assert_eq!(p.item_regen_interval, 3, "life ring DAct = healthticks/1000");
+        assert!(
+            !p.base
                 .active_conditions
                 .iter()
                 .any(|c| c.ctype == ConditionType::Regeneration),
-            _ => false,
-        };
-        assert!(has_regen);
+            "pack items must not arm ConditionType::Regeneration"
+        );
         world.remove_equip_item_abilities(cid, iid, slot);
-        let has_regen = match world.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => p
-                .base
-                .active_conditions
-                .iter()
-                .any(|c| c.ctype == ConditionType::Regeneration),
-            _ => true,
+        let p = match world.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p,
+            _ => panic!(),
         };
-        assert!(!has_regen);
+        assert_eq!(p.item_regen_interval, 0);
     }
 
     #[test]

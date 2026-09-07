@@ -144,6 +144,8 @@ pub struct GameWorld {
     /// Survives `remove_creature` so OK→`CL_CMD_LOGOUT` still finalizes the TCP session
     /// after the body is gone. Cleared on disconnect.
     pub dead_connections: HashSet<ConnId>,
+    /// Keepalive / kick stamps for [`Self::dead_connections`] (`connections.cc:21-38`).
+    pub(crate) dead_conn_state: HashMap<ConnId, crate::connections::DeadConnState>,
     /// Game-thread only — see [`DeferredTurnBroadcast`].
     pub deferred_turn_broadcast: HashMap<CreatureId, DeferredTurnBroadcast>,
     /// StepOut/StepIn deferred until after move packets — see [`PendingCreatureStepEvent`].
@@ -229,6 +231,8 @@ pub struct GameWorld {
     pub(crate) world_light_override: Option<(u8, u8)>,
     /// True when last beat advance skipped `MoveCreatures` due to lag (`main.cc:449`).
     pub(crate) lag: bool,
+    /// Corpus recv-bandwidth lag (`communication.cc:141-229`) — not beat-stall.
+    pub(crate) net_load: crate::net_load::NetLoad,
     /// Idle-kick / dead-connection disconnects queued from `process_connections`.
     /// `(ConnId, stop_fight)` — idle kick uses `stop_fight=true`, command-timeout uses `false`
     /// (`connections.cc:35-38`).
@@ -253,7 +257,9 @@ pub struct GameWorld {
     pub(crate) scratch_spectator_gen: u32,
     /// OBS-1: aggregated window histograms / counters (Phase 0).
     pub(crate) obs: crate::obs::GameObs,
-    /// TFS `Game.getStorageValue` / `setStorageValue` — `game.lua` `globalStorageTable`.
+    /// Offline mailbox items waiting for DB ack / login splice (`mail_delivery.rs`).
+    pub(crate) mail_outbox: HashMap<u32, crate::mail_delivery::MailOutbox>,
+    pub(crate) mail_deferred_login: HashMap<u32, crate::mail_delivery::DeferredLogin>,
     /// Ephemeral quest globals; reset on restart (772 pack parity).
     pub global_storage: HashMap<u32, i32>,
     /// TFS `ScriptEnvironment::localMap` — per-script-execution UID → ItemId mapping
@@ -454,6 +460,7 @@ impl GameWorld {
             conn_to_creature: HashMap::new(),
             creature_to_conn: HashMap::new(),
             dead_connections: HashSet::new(),
+            dead_conn_state: HashMap::new(),
             deferred_turn_broadcast: HashMap::new(),
             pending_creature_step_events: Vec::new(),
             flushing_step_creature: None,
@@ -492,6 +499,7 @@ impl GameWorld {
             last_ambiente_brightness: -1,
             world_light_override: None,
             lag: false,
+            net_load: crate::net_load::NetLoad::default(),
             pending_idle_kick: Vec::new(),
             scheduler: None,
             tshortway_scratch: RefCell::new(crate::pathfinding::TShortwayScratch::new()),
@@ -505,6 +513,8 @@ impl GameWorld {
             scratch_spectator_seen: rustc_hash::FxHashMap::default(),
             scratch_spectator_gen: 0,
             obs: crate::obs::GameObs::new(),
+            mail_outbox: HashMap::new(),
+            mail_deferred_login: HashMap::new(),
             global_storage: HashMap::new(),
             script_env_local_map: RefCell::new(HashMap::new()),
             script_env_item_to_uid: RefCell::new(HashMap::new()),

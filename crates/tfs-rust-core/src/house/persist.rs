@@ -294,6 +294,10 @@ impl GameWorld {
                 continue;
             }
             let town_id = towns.get(&guid).copied().unwrap_or(1);
+            if self.player_by_guid.contains_key(&guid) {
+                let _ = self.apply_house_depot_dump_if_online(guid, items, town_id);
+                continue;
+            }
             let mut rows = store
                 .load_items(guid as i32, ItemTable::Depot)
                 .await
@@ -309,13 +313,7 @@ impl GameWorld {
                 tracing::warn!(guid, error = %e, "house depot dump serialize failed");
                 continue;
             }
-            let offset = max_sid.saturating_sub(100);
-            for rec in &mut extra {
-                if rec.pid > 99 {
-                    rec.pid += offset;
-                }
-                rec.sid += offset;
-            }
+            crate::depot_append::apply_sid_pid_offset(&mut extra, max_sid);
             rows.extend(extra);
             if let Err(e) = store.save_items(guid as i32, ItemTable::Depot, &rows).await {
                 tracing::warn!(guid, error = %e, "house depot dump save failed");
@@ -323,5 +321,22 @@ impl GameWorld {
             self.items_pending_release.extend(items);
         }
         Ok(())
+    }
+
+    /// Live depot wins — skip the DB dump for an online guid (`player_by_guid`).
+    pub(crate) fn apply_house_depot_dump_if_online(
+        &mut self,
+        guid: u32,
+        items: Vec<ItemId>,
+        town_id: u32,
+    ) -> bool {
+        let Some(&cid) = self.player_by_guid.get(&guid) else {
+            return false;
+        };
+        tracing::info!(guid, "skipping house depot dump to DB — player online");
+        for id in items {
+            self.house_add_item_to_town_depot(cid, town_id, id);
+        }
+        true
     }
 }

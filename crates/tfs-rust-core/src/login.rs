@@ -260,7 +260,7 @@ pub fn player_from_loaded(
         last_command_round: 0,
         last_action_round: 0,
         food_remaining: apply_offline_food_drain(p.food_remaining.max(0) as u32, p.lastlogout),
-        food_level: p.food_level,
+        item_regen_interval: 0,
         soul_cycle: p.soul_cycle,
         soul_count: p.soul_count,
         soul_max_count: p.soul_max_count,
@@ -415,6 +415,7 @@ pub fn apply_loaded_player(
             .name_to_guid
             .insert(name.to_ascii_lowercase(), guid);
         world.houses.set_owner_name_for_guid(guid, &name);
+        world.deliver_pending_mail_live(cid, guid);
         return Ok(ApplyPlayerOutcome::TakenOver { cid, old_conn });
     }
 

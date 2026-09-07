@@ -2,8 +2,8 @@
 -- TFS 1.4.2 uses CONDITION_REGENERATION; the 772 decompile uses a timer-skill
 -- (`crskill.cc:220` Cycle). The Rust engine models the decompile: `player:feed`
 -- (registered as a userdata method in tfs-rust-lua) refills `food_remaining`
--- (capped at 1200), and `ProcessCreatures` applies HP+1/Mana+4 item regen
--- gated on `food_level` (`crmain.cc:1087`).
+-- (capped at 1200). Creatures-arm item regen (+1 HP / +4 mana) is equipped
+-- SkillNumber-14 DAct, not eating (`crmain.cc:1087`, `cract.cc:1639-1660`).
 -- No Lua wrapper needed — the Rust binding is the direct implementation.
 
 function Player.getClosestFreePosition(self, position, extended)

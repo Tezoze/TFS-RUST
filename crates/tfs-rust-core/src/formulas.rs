@@ -441,6 +441,10 @@ pub struct MechanicsProfile {
     pub fishing: FishingTuning,
     /// TVP `pick.lua` destroyable-stone aid (not a generic 772 `moveuse.dat` rule).
     pub destroyable_stone: DestroyableStoneTuning,
+    /// Creatures-arm item regen HP grant (`crmain.cc:1087-1095`). Corpus +1.
+    pub item_regen_hp: i32,
+    /// Creatures-arm item regen mana grant (`crmain.cc:1087-1095`). Corpus +4.
+    pub item_regen_mana: i32,
 }
 
 /// Fishing catch-success model (`data/scripts/actions/tools/fishing_rod.lua`).
@@ -633,6 +637,8 @@ impl MechanicsProfile {
                 depot_locker_structure: DepotLockerStructure::ClassicDepotChest,
                 fishing: FishingTuning::classic_772(),
                 destroyable_stone: DestroyableStoneTuning::tvp_pick(),
+                item_regen_hp: 1,
+                item_regen_mana: 4,
             },
             1098 => Self {
                 beat_ms: 50,
@@ -701,6 +707,8 @@ impl MechanicsProfile {
                 depot_locker_structure: DepotLockerStructure::TfsMarketInbox,
                 fishing: FishingTuning::tfs_linear(),
                 destroyable_stone: DestroyableStoneTuning::tvp_pick(),
+                item_regen_hp: 1,
+                item_regen_mana: 4,
             },
             other => unreachable!("unsupported protocol version {other}"),
         };
@@ -1246,6 +1254,21 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
             &stone,
             "selfDamage",
             p.destroyable_stone.self_damage as i64,
+        ) as i32;
+    }
+
+    if let Ok(Value::Table(creatures)) = formulas.get::<Value>("creatures") {
+        p.item_regen_hp = num_or(
+            lua,
+            &creatures,
+            "itemRegenHp",
+            p.item_regen_hp as i64,
+        ) as i32;
+        p.item_regen_mana = num_or(
+            lua,
+            &creatures,
+            "itemRegenMana",
+            p.item_regen_mana as i64,
         ) as i32;
     }
 

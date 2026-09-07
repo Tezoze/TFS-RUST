@@ -43,69 +43,34 @@ impl GameWorld {
         );
 
         for cid in std::mem::take(&mut self.scratch_creature_ids) {
+            // Fed before DoT (`crskill.cc` ProcessSkills: SKILL_FED Event then timer skills).
+            let snap = self.combat_notify_snapshot(cid);
+            let hp_before = self
+                .creatures
+                .get(cid)
+                .map(|k| k.base().health)
+                .unwrap_or(0);
+            if self.process_player_fed_regen(cid) {
+                let hp_after = self
+                    .creatures
+                    .get(cid)
+                    .map(|k| k.base().health)
+                    .unwrap_or(0);
+                if hp_after != hp_before {
+                    if let Some(snap) = snap {
+                        self.notify_creature_healed(cid, snap);
+                    } else {
+                        self.send_player_stats(cid);
+                    }
+                } else {
+                    // Mana-only (or HP already at cap): corpus mana is SendPlayerData only.
+                    self.send_player_stats(cid);
+                }
+            }
             self.process_creature_skills(cid);
-            // Phase 4: 1098 defer deleted — both eras run fed regen.
-            self.process_player_fed_regen(cid);
             self.process_player_soul_regen(cid);
-            self.process_equipment_regeneration(cid);
             // CH-5: flood protection message buffer decrement (1500ms interval).
             self.process_player_message_buffer(cid);
-        }
-    }
-
-    /// TFS `ConditionRegeneration::executeCondition` — life ring / soft boots (`condition.cpp`).
-    ///
-    /// `ProcessSkills` cadence is ~1000 ms; accumulate until `health_ticks_ms` / `mana_ticks_ms`.
-    fn process_equipment_regeneration(&mut self, cid: CreatureId) {
-        const INTERVAL_MS: u32 = 1000;
-        let Some(CreatureKind::Player(_)) = self.creatures.get(cid) else {
-            return;
-        };
-        // Inside PZ — TFS regen conditions still tick; fed regen is PZ-gated separately.
-        let mut hp_delta = 0i32;
-        let mut mana_delta = 0i32;
-        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-            for cond in p.base.active_conditions.iter_mut() {
-                if cond.ctype != ConditionType::Regeneration {
-                    continue;
-                }
-                let ConditionData::Regeneration {
-                    health_gain,
-                    health_ticks_ms,
-                    mana_gain,
-                    mana_ticks_ms,
-                    health_elapsed_ms,
-                    mana_elapsed_ms,
-                } = &mut cond.data
-                else {
-                    continue;
-                };
-                if *health_ticks_ms > 0 && *health_gain > 0 {
-                    *health_elapsed_ms = health_elapsed_ms.saturating_add(INTERVAL_MS);
-                    while *health_elapsed_ms >= *health_ticks_ms {
-                        *health_elapsed_ms -= *health_ticks_ms;
-                        hp_delta += *health_gain;
-                    }
-                }
-                if *mana_ticks_ms > 0 && *mana_gain > 0 {
-                    *mana_elapsed_ms = mana_elapsed_ms.saturating_add(INTERVAL_MS);
-                    while *mana_elapsed_ms >= *mana_ticks_ms {
-                        *mana_elapsed_ms -= *mana_ticks_ms;
-                        mana_delta += *mana_gain;
-                    }
-                }
-            }
-            if hp_delta > 0 {
-                let max_h = p.effective_max_health();
-                p.base.health = (p.base.health + hp_delta).min(max_h);
-            }
-            if mana_delta > 0 {
-                let max_m = p.effective_max_mana();
-                p.mana = (p.mana + mana_delta).min(max_m);
-            }
-        }
-        if hp_delta > 0 || mana_delta > 0 {
-            self.send_player_stats(cid);
         }
     }
 
@@ -376,7 +341,9 @@ impl GameWorld {
                         }
                     }
                     ConditionType::Regeneration => {
-                        // Ticked in `process_equipment_regeneration` (needs HP/mana mutation).
+                        // Pack items no longer arm this; Lua `addCondition` may still
+                        // persist a Regeneration condition. Cadence is Creatures-arm
+                        // `item_regen.rs` (`crmain.cc:1087-1095`).
                     }
                     // C++ `ConditionGeneric::executeCondition` — `condition.cpp:315-317` →
                     // `Condition::executeCondition` (`condition.cpp:154-163`): `ticks =
@@ -473,19 +440,6 @@ impl GameWorld {
         base.speed = base.base_speed;
     }
 
-    /// C++ `TSkillFed::Event` — vocation HP/mana regen (`crskill.cc:812-885`).
-    ///
-    /// Gates (matching the reference):
-    /// - **Protection zone**: return early inside a PZ (`crskill.cc:819`).
-    /// - **Food remaining**: `SKILL_FED` `Cycle == 0` ⇒ skill inactive ⇒ no regen
-    ///   (`crskill.cc:180`, `crskill.cc:877`).
-    ///
-    /// Cadence comes from `vocations.xml` (`gainhpticks`/`gainhpamount`/
-    /// `gainmanaticks`/`gainmanaamount`) via `VocationRegistry::fed_regen_params`, not a
-    /// hardcoded table. `TSkill::Process` decrements `Cycle` *before* `Event` runs
-    /// (`crskill.cc:186-191`), so the modulo is taken on the post-decrement value —
-    /// regen fires when the remaining-food counter hits a multiple of the vocation's
-    /// tick interval (counting down to 0).
     /// C++ `Player::onThink` message buffer tick — `player.cpp:1314-1318`.
     ///
     /// Accumulates the `ProcessSkills` interval (1000ms) and calls `addMessageBuffer`
@@ -512,23 +466,30 @@ impl GameWorld {
             }
         }
     }
-    fn process_player_fed_regen(&mut self, cid: CreatureId) {
+
+    /// 772 `TSkillFed` (`crskill.cc:819-877`): decrement Cycle first; PZ skips Event
+    /// (no HP/mana) but the timer still drains. Returns `true` when an HP or mana
+    /// grant was due (even if already at cap — corpus still `SendPlayerData`).
+    fn process_player_fed_regen(&mut self, cid: CreatureId) -> bool {
         let (food_remaining, voc_id, pos) = match self.creatures.get(cid) {
             Some(CreatureKind::Player(p)) => (p.food_remaining, p.vocation_id, p.base.position),
-            _ => return,
+            _ => return false,
         };
-
-        // PZ gate — `crskill.cc:819`.
-        if self.tile_in_protection_zone(pos) {
-            return;
-        }
         // Food-remaining gate — `SKILL_FED` inactive (`crskill.cc:180`).
         if food_remaining == 0 {
-            return;
+            return false;
         }
 
         // `TSkill::Process` decrements `Cycle` then calls `Event` (`crskill.cc:186-191`).
         let timer = food_remaining - 1;
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.food_remaining = timer;
+        }
+
+        // PZ gate — `crskill.cc:819` (Event only; Cycle already decremented).
+        if self.tile_in_protection_zone(pos) {
+            return false;
+        }
 
         let (hp_ticks, hp_amount, mana_ticks, mana_amount) =
             self.vocations.fed_regen_params(voc_id);
@@ -543,9 +504,11 @@ impl GameWorld {
         } else {
             0
         };
+        if hp_gain == 0 && mana_gain == 0 {
+            return false;
+        }
 
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-            p.food_remaining = timer;
             if hp_gain > 0 {
                 p.base.health = (p.base.health + hp_gain).min(p.base.max_health);
             }
@@ -553,6 +516,7 @@ impl GameWorld {
                 p.mana = (p.mana + mana_gain).min(p.max_mana);
             }
         }
+        true
     }
 }
 
@@ -564,7 +528,7 @@ mod tests {
     use super::poison_factor_percent;
 
     use tfs_rust_common::enums::ConditionType;
-    use tfs_rust_common::{Position, ZoneType};
+    use tfs_rust_common::{ConnId, Position, ZoneType};
 
     use tfs_rust_content::vocations::{VocationDef, VocationRegistry};
 
@@ -872,9 +836,140 @@ mod tests {
         };
         assert_eq!(p.mana, 40, "no mana regen inside a protection zone");
         assert_eq!(
-            p.food_remaining, 12,
-            "PZ gate returns before decrementing food"
+            p.food_remaining, 0,
+            "PZ skips Event but Cycle still decrements (`crskill.cc:186-191`)"
         );
+    }
+
+    /// F3: food Cycle still drains in PZ even when Event is skipped.
+    #[test]
+    fn fed_timer_drains_in_pz_without_regen() {
+        let mut world = beat_driven_test_world();
+        world.vocations = knight_vocation_db();
+
+        let pos = Position::new(100, 100, 7);
+        ensure_pz_tile(&mut world.map, pos, 150);
+
+        let mut player = test_player("PzDrain", pos);
+        player.vocation_id = 4;
+        player.base.health = 90;
+        player.base.max_health = 100;
+        player.mana = 40;
+        player.max_mana = 50;
+        player.food_remaining = 12;
+        let pid = insert_player(&mut world, player);
+
+        world.process_skills();
+        let CreatureKind::Player(p) = world.creatures.get(pid).unwrap() else {
+            panic!("not a player");
+        };
+        assert_eq!(p.food_remaining, 11);
+        assert_eq!(p.base.health, 90);
+        assert_eq!(p.mana, 40);
+    }
+
+    /// H2: HP/mana grant enqueues stats (and health bar on HP gain).
+    #[test]
+    fn fed_regen_enqueues_stats_packet() {
+        let mut world = beat_driven_test_world();
+        world.vocations = knight_vocation_db();
+
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+
+        let mut player = test_player("StatsKnight", pos);
+        player.vocation_id = 4;
+        player.base.health = 90;
+        player.base.max_health = 100;
+        player.mana = 40;
+        player.max_mana = 50;
+        player.food_remaining = 7; // decrement → 6, 6 % 6 == 0
+        let pid = insert_player(&mut world, player);
+        let conn = ConnId(1);
+        world.register_conn_mapping(conn, pid);
+
+        world.process_skills();
+        assert!(
+            world.pending_outgoing.get(&conn).is_some_and(|p| !p.is_empty()),
+            "fed HP/mana grant must enqueue stats (and health bar)"
+        );
+        let CreatureKind::Player(p) = world.creatures.get(pid).unwrap() else {
+            panic!("not a player");
+        };
+        assert_eq!(p.base.health, 91);
+        assert_eq!(p.mana, 42);
+    }
+
+    #[test]
+    fn fed_regen_enqueues_stats_at_cap() {
+        let mut world = beat_driven_test_world();
+        world.vocations = knight_vocation_db();
+
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+
+        let mut player = test_player("FullKnight", pos);
+        player.vocation_id = 4;
+        player.base.health = 100;
+        player.base.max_health = 100;
+        player.mana = 50;
+        player.max_mana = 50;
+        player.food_remaining = 7;
+        let pid = insert_player(&mut world, player);
+        let conn = ConnId(1);
+        world.register_conn_mapping(conn, pid);
+
+        world.process_skills();
+        assert!(
+            world.pending_outgoing.get(&conn).is_some_and(|p| !p.is_empty()),
+            "due grant at cap still SendPlayerData"
+        );
+    }
+
+    /// H2 / L12: fed Event runs before fire DoT so 1 HP + due regen survives lethal fire.
+    #[test]
+    fn fed_regen_runs_before_dot_tick() {
+        let mut world = beat_driven_test_world();
+        world.vocations = knight_vocation_db();
+        world.mechanics.profile.conditions.fire.dmg = 1;
+
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+
+        let mut player = test_player("FedFirst", pos);
+        player.vocation_id = 4;
+        player.base.health = 1;
+        player.base.max_health = 100;
+        player.mana = 40;
+        player.max_mana = 50;
+        player.food_remaining = 7; // due +1 HP this tick
+        let pid = insert_player(&mut world, player);
+
+        apply_condition(
+            &mut world.creatures,
+            pid,
+            ActiveCondition {
+                id: 1,
+                sub_id: 0,
+                ctype: ConditionType::Fire,
+                data: ConditionData::Damage {
+                    total_rank: 10,
+                    factor_percent: 0,
+                },
+                timer_rounds_left: Some(2),
+                skill_count: 0,
+                skill_max_count: 1,
+                field_dot: false,
+            },
+        );
+
+        world.process_skills();
+        let hp = world.creatures.get(pid).unwrap().base().health;
+        assert!(
+            hp > 0,
+            "fed +1 before 1-dmg fire must leave the player alive, got {hp}"
+        );
+        assert_eq!(hp, 1, "1 HP + 1 regen − 1 fire");
     }
 
     /// F3: with no food remaining, `SKILL_FED` is inactive and no regen occurs

@@ -709,22 +709,13 @@ impl GameWorld {
     /// `SetTimer(SKILL_FED, CurFoodTime + ObjFoodTime, ...)`).
     ///
     /// Capped at `MAX_FOOD` (1200) matching the `food.lua` "full" threshold.
-    /// Also sets `food_level` to the regen interval — the decompile's `SKILL_FED`
-    /// `Act` field controls the `ProcessCreatures` item-regen cadence
-    /// (`crmain.cc:1087`). Eating sets `food_level = 12` (the decompile default
-    /// `SecsPerHP` for `PROFESSION_NONE`, `crskill.cc:828-835`).
+    /// Eating does **not** arm Creatures-arm item regen (`SKILL_FED` Act stays 0).
     pub fn lua_script_player_feed(&mut self, creature_u64: u64, amount: u32) -> Result<(), String> {
         let cid = self
             .resolve_creature_u64(creature_u64)
             .ok_or_else(|| "creature not found".to_string())?;
         if let Some(crate::creature::CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.food_remaining = (p.food_remaining.saturating_add(amount)).min(MAX_FOOD);
-            // Eating sets the regen interval — decompile `SKILL_FED` `Act` is the
-            // `ProcessCreatures` `RegenInterval` (`crmain.cc:1087`). We use 12
-            // (the `PROFESSION_NONE`/Knight default `SecsPerHP`, `crskill.cc:833`).
-            if p.food_level <= 0 {
-                p.food_level = 12;
-            }
             Ok(())
         } else {
             Err("not a player".into())

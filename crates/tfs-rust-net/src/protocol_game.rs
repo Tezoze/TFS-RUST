@@ -7,7 +7,7 @@ use tfs_rust_common::{ConnId, GameCommand, ProtocolCaps, ProtocolVersion};
 use tokio::io::AsyncRead;
 
 use crate::adler::adler_checksum;
-use crate::game_frame::read_sized_payload;
+use crate::game_frame::{read_sized_payload, read_sized_payload_with_recv};
 use crate::game_parse::parse_game_packet;
 use crate::message::NetworkMessage;
 use crate::xtea_tfs::{self, RoundKeys};
@@ -149,8 +149,9 @@ pub async fn forward_game_packets_xtea<R: AsyncRead + Unpin>(
     keys: &RoundKeys,
     version: ProtocolVersion,
     caps: &ProtocolCaps,
+    recv_bytes: &std::sync::atomic::AtomicU64,
 ) -> std::io::Result<()> {
-    while let Some(mut body) = read_sized_payload(&mut read).await? {
+    while let Some(mut body) = read_sized_payload_with_recv(&mut read, Some(recv_bytes)).await? {
         let plain = match decrypt_xtea_game_body(&mut body, keys, caps) {
             Ok(p) => p,
             Err(e) => {

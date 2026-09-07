@@ -10,6 +10,13 @@ use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 
+/// Keepalive stamp for a `CONNECTION_DEAD` session (`connections.cc:21-38`).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DeadConnState {
+    pub last_command_round: u32,
+    pub is_otclient: bool,
+}
+
 /// C++ `TALK_ADMIN_MESSAGE` (`enums.hh`).
 const TALK_ADMIN_MESSAGE: u8 = 18;
 
@@ -59,9 +66,15 @@ impl GameWorld {
         let idle_kick_rounds = self.connection_config.idle_kick_rounds();
         let mut kick: Vec<(ConnId, bool)> = Vec::new();
 
-        // CONNECTION_LOGIN — `connections.cc:42–44`.
+        // CONNECTION_LOGIN — `connections.cc:42–44`. Pending-login drain on
+        // Closed is L9 (Phase 3); dead sessions stay InGame until Shutdown.
         if self.game_state != crate::game_state::GameState::Normal {
             for conn_id in self.login_pending_conns.drain() {
+                kick.push((conn_id, false));
+            }
+        }
+        if self.game_state == crate::game_state::GameState::Shutdown {
+            for conn_id in self.dead_conn_state.keys().copied() {
                 kick.push((conn_id, false));
             }
         }
@@ -105,6 +118,25 @@ impl GameWorld {
             }
         }
 
+        // CONNECTION_DEAD — ping / 90-round kick, no idle-action arm (`connections.cc:21-38`).
+        // Shutdown already queued every dead conn above; Closed still InGame().
+        if self.game_state != crate::game_state::GameState::Shutdown {
+            let dead: Vec<(ConnId, DeadConnState)> = self
+                .dead_conn_state
+                .iter()
+                .map(|(&conn, &state)| (conn, state))
+                .collect();
+            for (conn_id, state) in dead {
+                let last_command = round.saturating_sub(state.last_command_round);
+                if last_command == PING_ROUND_1 || last_command == PING_ROUND_2 {
+                    self.enqueue_conn_ping(conn_id, state.is_otclient);
+                }
+                if last_command >= COMMAND_TIMEOUT_ROUNDS {
+                    kick.push((conn_id, false));
+                }
+            }
+        }
+
         kick
     }
 
@@ -130,8 +162,7 @@ impl GameWorld {
         self.last_ambiente_brightness = brightness as i16;
         let packet =
             tfs_rust_net::outgoing_extra::send_world_light(brightness, color, false).into_bytes();
-        let conns: Vec<ConnId> = self.conn_to_creature.keys().copied().collect();
-        for conn_id in conns {
+        for conn_id in self.ambiente_recipient_conns() {
             self.enqueue_outgoing(conn_id, packet.clone());
         }
     }
@@ -145,11 +176,18 @@ impl GameWorld {
         self.last_ambiente_brightness = level as i16;
         let packet =
             tfs_rust_net::outgoing_extra::send_world_light(level, color, false).into_bytes();
-        let conns: Vec<ConnId> = self.conn_to_creature.keys().copied().collect();
-        for conn_id in conns {
+        for conn_id in self.ambiente_recipient_conns() {
             self.enqueue_outgoing(conn_id, packet.clone());
         }
         true
+    }
+
+    fn ambiente_recipient_conns(&self) -> Vec<ConnId> {
+        self.conn_to_creature
+            .keys()
+            .copied()
+            .chain(self.dead_conn_state.keys().copied())
+            .collect()
     }
 }
 
@@ -575,5 +613,115 @@ mod tests {
         assert_eq!(kick[0].0, conn);
         assert!(!kick[0].1, "login disconnect is not StopFight idle kick");
         assert!(world.login_pending_conns.is_empty());
+    }
+
+    fn insert_dead_conn(world: &mut crate::game_world::GameWorld, conn: tfs_rust_common::ConnId) {
+        world.dead_connections.insert(conn);
+        world.dead_conn_state.insert(
+            conn,
+            super::DeadConnState {
+                last_command_round: 0,
+                is_otclient: false,
+            },
+        );
+    }
+
+    #[test]
+    fn dead_conn_ping_at_30_and_60() {
+        let mut world = beat_driven_test_world();
+        let conn = tfs_rust_common::ConnId(7);
+        insert_dead_conn(&mut world, conn);
+
+        world.round_nr = 30;
+        let kick = world.process_connections();
+        assert!(kick.is_empty());
+        assert_eq!(
+            world
+                .pending_outgoing
+                .get(&conn)
+                .and_then(|q| q.first())
+                .map(|b| b.as_slice()),
+            Some(&[0x1E][..]),
+            "dead conn ping at 30"
+        );
+
+        world.pending_outgoing.clear();
+        world.round_nr = 60;
+        let kick = world.process_connections();
+        assert!(kick.is_empty());
+        assert_eq!(
+            world
+                .pending_outgoing
+                .get(&conn)
+                .and_then(|q| q.first())
+                .map(|b| b.as_slice()),
+            Some(&[0x1E][..]),
+            "dead conn ping at 60"
+        );
+    }
+
+    #[test]
+    fn dead_conn_kick_at_90_without_stop_fight() {
+        let mut world = beat_driven_test_world();
+        let conn = tfs_rust_common::ConnId(7);
+        insert_dead_conn(&mut world, conn);
+        world.round_nr = 90;
+        let kick = world.process_connections();
+        assert_eq!(kick, vec![(conn, false)]);
+    }
+
+    #[test]
+    fn dead_conn_ping_resets_stamp() {
+        let mut world = beat_driven_test_world();
+        let conn = tfs_rust_common::ConnId(7);
+        insert_dead_conn(&mut world, conn);
+        world.round_nr = 40;
+        if let Some(state) = world.dead_conn_state.get_mut(&conn) {
+            state.last_command_round = 40;
+        }
+        world.round_nr = 90;
+        let kick = world.process_connections();
+        assert!(
+            kick.is_empty(),
+            "stamp reset at 40 ⇒ last_command=50 < 90, no kick"
+        );
+    }
+
+    #[test]
+    fn ambiente_reaches_dead_conn() {
+        let mut world = beat_driven_test_world();
+        let conn = tfs_rust_common::ConnId(7);
+        insert_dead_conn(&mut world, conn);
+        world.last_ambiente_brightness = -1;
+        world.tick_ambient_light();
+        assert!(
+            world.pending_outgoing.get(&conn).is_some_and(|p| !p.is_empty()),
+            "SendAmbiente must include CONNECTION_DEAD"
+        );
+    }
+
+    #[test]
+    fn shutdown_kicks_dead_conns() {
+        let mut world = beat_driven_test_world();
+        let conn = tfs_rust_common::ConnId(7);
+        insert_dead_conn(&mut world, conn);
+        world.game_state = crate::game_state::GameState::Shutdown;
+        let kick = world.process_connections();
+        assert_eq!(kick, vec![(conn, false)]);
+    }
+
+    #[test]
+    fn closed_does_not_kick_dead_conns() {
+        let mut world = beat_driven_test_world();
+        let conn = tfs_rust_common::ConnId(7);
+        insert_dead_conn(&mut world, conn);
+        world.game_state = crate::game_state::GameState::Closed;
+        world.round_nr = 10;
+        let kick = world.process_connections();
+        assert!(
+            kick.is_empty(),
+            "CONNECTION_DEAD stays InGame while Closed; kick only on Shutdown"
+        );
+        assert!(world.dead_conn_state.contains_key(&conn));
     }
 }

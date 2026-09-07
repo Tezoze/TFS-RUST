@@ -43,6 +43,11 @@ impl GameWorld {
             self.creatures.get(cid),
             Some(CreatureKind::Player(p)) if p.is_otclient()
         );
+        self.enqueue_conn_ping(conn_id, is_otclient);
+    }
+
+    /// Keepalive ping when the player body is gone (`CONNECTION_DEAD`).
+    pub(crate) fn enqueue_conn_ping(&mut self, conn_id: ConnId, is_otclient: bool) {
         let pkt = self.codec.periodic_ping_packet(is_otclient);
         self.enqueue_outgoing(conn_id, pkt.into_bytes());
     }

@@ -110,7 +110,7 @@ fn test_player(name: &str, guid: u32, pos: Position) -> Player {
         last_command_round: 0,
         last_action_round: 0,
         food_remaining: 0,
-        food_level: 0,
+        item_regen_interval: 0,
         soul_cycle: 0,
         soul_count: 0,
         soul_max_count: 0,

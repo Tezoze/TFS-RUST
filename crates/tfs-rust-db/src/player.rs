@@ -72,10 +72,6 @@ pub struct PlayerRecord {
     /// `0` ⇒ skill inactive ⇒ no regen. Persisted across relogs (`crplayer.cc:2496`).
     /// TVP/TFS-1.4.2 do not track food; column defaults to `0`.
     pub food_remaining: i32,
-    /// 772 `SKILL_FED` `Act` — regen interval for `ProcessCreatures` item regen
-    /// (`crmain.cc:1087` `RegenInterval = Skills[SKILL_FED]->Get()`).
-    /// TVP/TFS-1.4.2 do not track food; column defaults to `0`.
-    pub food_level: i32,
     /// 772 `TSkillSoulpoints` Cycle — `crskill.cc` Save; load `crplayer.cc`.
     pub soul_cycle: i32,
     /// 772 `TSkillSoulpoints` Count — not CONDITION_SOUL.
@@ -161,7 +157,7 @@ impl<'a> PlayerStore<'a> {
             skill_fist, skill_fist_tries, skill_club, skill_club_tries, skill_sword, skill_sword_tries,
             skill_axe, skill_axe_tries, skill_dist, skill_dist_tries, skill_shielding, skill_shielding_tries,
             skill_fishing, skill_fishing_tries, direction, save, onlinetime, deletion,
-            food_remaining, food_level, soul_cycle, soul_count, soul_max_count
+            food_remaining, soul_cycle, soul_count, soul_max_count
             FROM players WHERE name = ? AND deletion = 0"#;
 
         let Some(player) = self
@@ -370,7 +366,7 @@ impl<'a> PlayerStore<'a> {
             skill_sword = ?, skill_sword_tries = ?, skill_axe = ?, skill_axe_tries = ?,
             skill_dist = ?, skill_dist_tries = ?, skill_shielding = ?, skill_shielding_tries = ?,
             skill_fishing = ?, skill_fishing_tries = ?, direction = ?, onlinetime = ?, blessings = ?,
-            food_remaining = ?, food_level = ?,
+            food_remaining = ?,
             soul_cycle = ?, soul_count = ?, soul_max_count = ?
             WHERE id = ?"#,
         )
@@ -426,7 +422,6 @@ impl<'a> PlayerStore<'a> {
         .bind(p.onlinetime)
         .bind(p.blessings)
         .bind(p.food_remaining)
-        .bind(p.food_level)
         .bind(p.soul_cycle)
         .bind(p.soul_count)
         .bind(p.soul_max_count)

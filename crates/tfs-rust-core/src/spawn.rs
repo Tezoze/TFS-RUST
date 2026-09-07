@@ -1,5 +1,8 @@
-//! Monster/NPC spawn scheduling from loaded spawn XML + OTBM references.
-// C++ reference: `spawn.cpp` `Spawn::checkSpawn`, `Spawn::spawnMonster`, `Spawn::startup`, `Spawn::findPlayer`.
+//! Monster/NPC spawn scheduling — serial per-(zone, race) home timer.
+//! Pack surface: TFS `spawns.xml` slots. Corpus: `crnonpl.cc` `ProcessMonsterhomes`
+//! / `StartMonsterhomeTimer` / `NotifyMonsterhomeOfDeath` (`:1296-1512`).
+
+use std::collections::HashMap;
 
 use rand::RngExt;
 use tfs_rust_common::Position;
@@ -29,9 +32,24 @@ pub struct SpawnSlot {
     pub respawns: bool,
     /// Live creature occupying this slot, if any.
     pub current: Option<CreatureId>,
-    /// Earliest **RoundNr** this slot may respawn (`ProcessMonsterhomes` Timer, `crnonpl.cc:1409`).
-    /// Delay is drawn in rounds, not movement `server_ms` (lag skip must not freeze homes).
-    pub respawn_at: Option<u32>,
+    /// Index into [`SpawnManager::homes`]; `None` for NPC occupancy-only slots.
+    pub home_index: Option<usize>,
+}
+
+/// Per-(zone, race) serial respawn timer (`crnonpl.cc:1510-1512` `StartMonsterhomeTimer`).
+#[derive(Debug, Clone)]
+pub struct MonsterHome {
+    pub slot_indices: Vec<usize>,
+    pub max_monsters: u32,
+    pub act_monsters: u32,
+    pub timer_at: Option<u32>,
+    pub spawntime_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum HomeKey {
+    Named { zone_index: usize, name: String },
+    Weighted { zone_index: usize, entry_index: usize },
 }
 
 #[derive(Debug, Clone)]
@@ -46,6 +64,7 @@ pub struct SpawnRequest {
 pub struct SpawnManager {
     pub zones: Vec<SpawnZone>,
     pub slots: Vec<SpawnSlot>,
+    pub homes: Vec<MonsterHome>,
     /// GCD of slot spawntimes in XML ms — kept for pack diagnostics; 772 polls every Other.
     pub check_interval_ms: u64,
     /// Last Other RoundNr that scanned slots.
@@ -76,6 +95,54 @@ fn gcd_u64(a: u64, b: u64) -> u64 {
         y = r;
     }
     x
+}
+
+fn group_monster_homes(slots: &mut [SpawnSlot]) -> Vec<MonsterHome> {
+    let mut order: Vec<HomeKey> = Vec::new();
+    let mut grouped: HashMap<HomeKey, Vec<usize>> = HashMap::new();
+    for (idx, slot) in slots.iter().enumerate() {
+        if !slot.respawns {
+            continue;
+        }
+        let key = match &slot.entry {
+            SpawnEntryKind::Monster { name } => HomeKey::Named {
+                zone_index: slot.zone_index,
+                name: name.clone(),
+            },
+            SpawnEntryKind::Monsters { .. } => HomeKey::Weighted {
+                zone_index: slot.zone_index,
+                entry_index: slot.entry_index,
+            },
+            SpawnEntryKind::Npc { .. } => continue,
+        };
+        if !grouped.contains_key(&key) {
+            order.push(key.clone());
+        }
+        grouped.entry(key).or_default().push(idx);
+    }
+    let mut homes = Vec::with_capacity(order.len());
+    for key in order {
+        let indices = grouped.remove(&key).unwrap_or_default();
+        let spawntime_ms = indices
+            .first()
+            .and_then(|&i| slots.get(i))
+            .map(|s| s.spawntime_ms)
+            .unwrap_or(1000);
+        let home_index = homes.len();
+        for &i in &indices {
+            if let Some(slot) = slots.get_mut(i) {
+                slot.home_index = Some(home_index);
+            }
+        }
+        homes.push(MonsterHome {
+            max_monsters: indices.len() as u32,
+            slot_indices: indices,
+            act_monsters: 0,
+            timer_at: None,
+            spawntime_ms,
+        });
+    }
+    homes
 }
 
 impl SpawnManager {
@@ -144,7 +211,7 @@ impl SpawnManager {
                     entry: kind,
                     respawns,
                     current: None,
-                    respawn_at: None,
+                    home_index: None,
                 });
             }
         }
@@ -153,9 +220,17 @@ impl SpawnManager {
             check_interval_ms = 60_000;
         }
 
+        let homes = group_monster_homes(&mut slots);
+        tracing::info!(
+            homes = homes.len(),
+            slots = slots.len(),
+            "spawn homes vs slots"
+        );
+
         Self {
             zones,
             slots,
+            homes,
             check_interval_ms,
             last_check: None,
             started: false,
@@ -172,15 +247,32 @@ impl SpawnManager {
             .collect()
     }
 
-    /// C++ `ProcessMonsterhomes` — empty respawning slots whose Timer has reached 0.
-    /// `now_round` is `RoundNr` after the Other increment (`main.cc:350–354`).
-    pub fn due_slot_indices(&self, now_round: u32) -> Vec<usize> {
-        self.slots
+    /// Homes whose serial timer has expired and that still have a free slot.
+    pub fn due_home_indices(&self, now_round: u32) -> Vec<usize> {
+        self.homes
             .iter()
             .enumerate()
-            .filter(|(_, slot)| slot.current.is_none() && slot.respawns)
-            .filter(|(_, slot)| slot.respawn_at.is_none_or(|at| now_round >= at))
+            .filter(|(_, h)| h.act_monsters < h.max_monsters)
+            .filter(|(_, h)| h.timer_at.is_some_and(|at| now_round >= at))
             .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// First empty slot in a home (one placement per expiry).
+    pub fn empty_slot_in_home(&self, home_index: usize) -> Option<usize> {
+        let home = self.homes.get(home_index)?;
+        home.slot_indices
+            .iter()
+            .copied()
+            .find(|&i| self.slots.get(i).is_some_and(|s| s.current.is_none()))
+    }
+
+    /// C++ `ProcessMonsterhomes` — empty respawning slots whose Timer has reached 0.
+    /// Production poll uses [`Self::due_home_indices`]; this helper remains for tests.
+    pub fn due_slot_indices(&self, now_round: u32) -> Vec<usize> {
+        self.due_home_indices(now_round)
+            .into_iter()
+            .filter_map(|hi| self.empty_slot_in_home(hi))
             .collect()
     }
 
@@ -193,16 +285,25 @@ impl SpawnManager {
         self.last_check = Some(now_round);
     }
 
-    /// C++ `StartMonsterhomeTimer` — resets the spawn timer to a fresh `spawntime` cycle
-    /// (`crnonpl.cc:1296-1323`). Called when placement fails (player nearby, blocked tile) or
-    /// when a player stands on the spawn tile (TFS `Block` mode). The C++ uses
-    /// `random(spawntime/2, spawntime)`; we use the full `spawntime` as the base (the random
-    /// jitter is a minor detail — the key is NOT retrying immediately, which caused the
-    /// per-second WARN spam when a player stood near a spawn point after killing the monster).
-    pub fn stall_respawn(&mut self, slot_index: usize, now_round: u32) {
-        if let Some(slot) = self.slots.get_mut(slot_index) {
-            slot.respawn_at = Some(now_round.saturating_add(ms_to_rounds(slot.spawntime_ms)));
+    /// Arm (or reset) a home timer. Call sites pass [`GameWorld::compute_respawn_delay_ms`].
+    pub fn arm_home(&mut self, home_index: usize, now_round: u32, delay_rounds: u32) {
+        if let Some(home) = self.homes.get_mut(home_index) {
+            home.timer_at = Some(now_round.saturating_add(delay_rounds));
         }
+    }
+
+    pub fn clear_home_timer(&mut self, home_index: usize) {
+        if let Some(home) = self.homes.get_mut(home_index) {
+            home.timer_at = None;
+        }
+    }
+
+    /// Failed placement / Block-mode stall — `StartMonsterhomeTimer` on the slot's home.
+    pub fn stall_respawn(&mut self, slot_index: usize, now_round: u32, delay_rounds: u32) {
+        let Some(home_index) = self.slots.get(slot_index).and_then(|s| s.home_index) else {
+            return;
+        };
+        self.arm_home(home_index, now_round, delay_rounds);
     }
 
     /// C++ `ProcessMonsterhomes` due scan. `now_round` is RoundNr.
@@ -216,12 +317,16 @@ impl SpawnManager {
         self.mark_checked(now_round);
 
         let mut out = Vec::new();
-        for slot_index in self.due_slot_indices(now_round) {
+        for home_index in self.due_home_indices(now_round) {
+            let Some(slot_index) = self.empty_slot_in_home(home_index) else {
+                continue;
+            };
             let Some(slot) = self.slots.get(slot_index) else {
                 continue;
             };
             if find_player(slot.position) {
-                self.stall_respawn(slot_index, now_round);
+                let delay = ms_to_rounds(slot.spawntime_ms);
+                self.arm_home(home_index, now_round, delay);
                 continue;
             }
             if let Some(req) = build_spawn_request(slot_index, slot, false) {
@@ -233,19 +338,38 @@ impl SpawnManager {
 
     /// C++ `spawnedMap` insert — link live creature to slot.
     pub fn on_creature_spawned(&mut self, slot_index: usize, cid: CreatureId) {
+        let home_index = self.slots.get(slot_index).and_then(|s| s.home_index);
         if let Some(slot) = self.slots.get_mut(slot_index) {
+            let was_empty = slot.current.is_none();
             slot.current = Some(cid);
-            slot.respawn_at = None;
+            if was_empty
+                && let Some(hi) = home_index
+                && let Some(home) = self.homes.get_mut(hi)
+            {
+                home.act_monsters = home.act_monsters.saturating_add(1);
+                if home.act_monsters >= home.max_monsters {
+                    home.timer_at = None;
+                }
+            }
         }
     }
 
     /// Schedule respawn when spawn-linked creature is removed.
     /// `now_round` / `delay_rounds` are RoundNr (`StartMonsterhomeTimer`, `crnonpl.cc:1296`).
+    /// Arms **only if** `timer_at.is_none()` (`crnonpl.cc:1510-1512`).
     pub fn on_creature_removed(&mut self, slot_index: usize, now_round: u32, delay_rounds: u32) {
+        let home_index = self.slots.get(slot_index).and_then(|s| s.home_index);
+        let respawns = self.slots.get(slot_index).is_some_and(|s| s.respawns);
         if let Some(slot) = self.slots.get_mut(slot_index) {
             slot.current = None;
-            if slot.respawns {
-                slot.respawn_at = Some(now_round.saturating_add(delay_rounds));
+        }
+        let Some(hi) = home_index else {
+            return;
+        };
+        if let Some(home) = self.homes.get_mut(hi) {
+            home.act_monsters = home.act_monsters.saturating_sub(1);
+            if respawns && home.timer_at.is_none() {
+                home.timer_at = Some(now_round.saturating_add(delay_rounds));
             }
         }
     }
@@ -256,6 +380,13 @@ impl SpawnManager {
             .enumerate()
             .find(|(_, s)| s.current == Some(cid))
             .map(|(i, _)| i)
+    }
+
+    pub fn count_occupied_in_home(&self, home_index: usize) -> usize {
+        self.homes
+            .get(home_index)
+            .map(|h| h.act_monsters as usize)
+            .unwrap_or(0)
     }
 
     pub fn count_occupied_in_zone(&self, zone_index: usize) -> usize {
@@ -346,6 +477,21 @@ mod tests {
         }
     }
 
+    fn three_rat_zone() -> SpawnZone {
+        SpawnZone {
+            center: Position::new(100, 100, 7),
+            radius: 5,
+            entries: (0..3)
+                .map(|i| SpawnEntry::Monster {
+                    name: "Rat".into(),
+                    position: Position::new(101 + i, 101, 7),
+                    spawntime_ms: 60_000,
+                    direction: None,
+                })
+                .collect(),
+        }
+    }
+
     #[test]
     fn from_zones_builds_slots() {
         let mgr = SpawnManager::from_zones(vec![sample_zone()]);
@@ -375,7 +521,74 @@ mod tests {
 
         mgr.on_creature_removed(0, t0, 60);
         mgr.due_spawns(t0 + 61, |_| true);
-        let slot = &mgr.slots[0];
-        assert!(slot.respawn_at.is_some());
+        let home = &mgr.homes[0];
+        assert!(home.timer_at.is_some());
+    }
+
+    #[test]
+    fn mixed_race_zone_splits_into_homes() {
+        let zone = SpawnZone {
+            center: Position::new(100, 100, 7),
+            radius: 5,
+            entries: vec![
+                SpawnEntry::Monster {
+                    name: "Rat".into(),
+                    position: Position::new(101, 101, 7),
+                    spawntime_ms: 60_000,
+                    direction: None,
+                },
+                SpawnEntry::Monster {
+                    name: "Cave Rat".into(),
+                    position: Position::new(102, 101, 7),
+                    spawntime_ms: 60_000,
+                    direction: None,
+                },
+            ],
+        };
+        let mgr = SpawnManager::from_zones(vec![zone]);
+        assert_eq!(mgr.homes.len(), 2);
+        assert_eq!(mgr.homes[0].max_monsters, 1);
+        assert_eq!(mgr.homes[1].max_monsters, 1);
+    }
+
+    #[test]
+    fn three_identical_monsters_share_one_home() {
+        let mgr = SpawnManager::from_zones(vec![three_rat_zone()]);
+        assert_eq!(mgr.slots.len(), 3);
+        assert_eq!(mgr.homes.len(), 1);
+        assert_eq!(mgr.homes[0].max_monsters, 3);
+    }
+
+    #[test]
+    fn wiped_three_slot_home_refills_one_per_cycle() {
+        let mut mgr = SpawnManager::from_zones(vec![three_rat_zone()]);
+        mgr.on_creature_spawned(0, CreatureId::default());
+        mgr.on_creature_spawned(1, CreatureId::default());
+        mgr.on_creature_spawned(2, CreatureId::default());
+        mgr.on_creature_removed(0, 10, 60);
+        mgr.on_creature_removed(1, 11, 60);
+        mgr.on_creature_removed(2, 12, 60);
+        assert_eq!(mgr.due_slot_indices(70).len(), 1, "one placement per expiry");
+        mgr.on_creature_spawned(0, CreatureId::default());
+        mgr.arm_home(0, 70, 60);
+        assert!(
+            mgr.due_slot_indices(70).is_empty(),
+            "re-arm after one spawn must not refill the rest this round"
+        );
+        assert_eq!(mgr.homes[0].act_monsters, 1);
+    }
+
+    #[test]
+    fn second_death_does_not_rearm_running_timer() {
+        let mut mgr = SpawnManager::from_zones(vec![three_rat_zone()]);
+        mgr.on_creature_spawned(0, CreatureId::default());
+        mgr.on_creature_spawned(1, CreatureId::default());
+        mgr.on_creature_spawned(2, CreatureId::default());
+        mgr.on_creature_removed(0, 10, 60);
+        let first = mgr.homes[0].timer_at;
+        assert!(first.is_some());
+        mgr.on_creature_removed(1, 15, 60);
+        assert_eq!(mgr.homes[0].timer_at, first, "second death must not re-arm");
+        assert_eq!(mgr.homes[0].act_monsters, 1);
     }
 }

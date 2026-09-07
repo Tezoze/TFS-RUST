@@ -156,6 +156,8 @@ async fn main() -> anyhow::Result<()> {
         free_premium: true,
         protocol_version,
         protocol_caps,
+        recv_bytes: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        send_bytes: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
     };
 
     tokio::spawn(async move {

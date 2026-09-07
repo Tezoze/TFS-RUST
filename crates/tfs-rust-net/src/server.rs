@@ -11,7 +11,7 @@ use tfs_rust_common::{ConnId, GameCommand, ProtocolCaps, ProtocolVersion};
 use crate::game_challenge::{GameChallenge, send_game_challenge};
 use crate::game_cmd_bus::GameCmdTx;
 use crate::game_first_packet::{FirstClientPacket, LoginIdentity, parse_first_client_packet};
-use crate::game_frame::read_sized_payload;
+use crate::game_frame::{read_sized_payload, read_sized_payload_with_recv};
 use crate::outbound::OutboundTx;
 use crate::protocol_game::{encrypt_xtea_game_frame, forward_game_packets_xtea};
 use crate::protocol_login_out::{LoginSuccess, build_login_error, build_login_success};
@@ -40,6 +40,9 @@ pub struct GameWireConfig {
     pub free_premium: bool,
     pub protocol_version: ProtocolVersion,
     pub protocol_caps: ProtocolCaps,
+    /// Recv/send byte counters for corpus `NetLoadCheck` (`communication.cc:141-229`).
+    pub recv_bytes: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    pub send_bytes: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// Login port: character list only (`src/protocollogin.cpp`).
@@ -252,7 +255,7 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
 
     let mut stream = stream.into_inner();
 
-    let first_body = match read_sized_payload(&mut stream).await {
+    let first_body = match read_sized_payload_with_recv(&mut stream, Some(&wire.recv_bytes)).await {
         Ok(Some(b)) => b,
         Ok(None) => {
             let _ = stream.shutdown().await;
@@ -339,10 +342,12 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
         .send(GameCommand::RegisterOutputSink { conn_id })
         .map_err(|_| anyhow::anyhow!("game command channel closed"))?;
 
+    let send_bytes = wire.send_bytes.clone();
     tokio::spawn(async move {
         while let Some(blobs) = batch_rx.recv().await {
             for b in blobs {
                 let frame = encrypt_xtea_game_frame(&b, &round_keys, &caps);
+                send_bytes.fetch_add(frame.len() as u64, std::sync::atomic::Ordering::Relaxed);
                 if write_half.write_all(&frame).await.is_err() {
                     break;
                 }
@@ -369,6 +374,7 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
         &round_keys,
         wire.protocol_version,
         &caps,
+        &wire.recv_bytes,
     )
     .await
     {
@@ -392,6 +398,7 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
     let _ = wire.cmd_tx.send(GameCommand::PlayerDisconnect {
         conn_id,
         display_effect: false,
+        stop_fight: false,
     });
     let _ = wire
         .cmd_tx

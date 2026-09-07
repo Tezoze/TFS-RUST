@@ -223,6 +223,8 @@ pub async fn run() -> anyhow::Result<()> {
 
     // Dual-lane game command bus (GL-2): bounded game packets + control lane.
     let (cmd_tx, game_rx, ctrl_rx) = open_game_command_channels();
+    let net_recv_bytes = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let net_send_bytes = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     // `addEvent` / `stopEvent` scheduler — game-thread only (`Rc` → `!Send`).
     // C++ reference: `g_scheduler` (`scheduler.cpp`).
     let scheduler = std::rc::Rc::new(crate::scheduler::Scheduler::new(
@@ -489,6 +491,7 @@ pub async fn run() -> anyhow::Result<()> {
         codec,
         mechanics,
     );
+    world.net_load = crate::net_load::NetLoad::new(net_recv_bytes.clone(), net_send_bytes.clone());
     world.outfits_db = outfits_db;
     world.scheduler = Some(scheduler.clone());
     world.stepping_tiles = crate::stepping_tiles::load_from_data_dir(&data_path);
@@ -767,6 +770,8 @@ pub async fn run() -> anyhow::Result<()> {
         free_premium,
         protocol_version,
         protocol_caps,
+        recv_bytes: net_recv_bytes,
+        send_bytes: net_send_bytes,
     };
 
     // `GameWorld` holds `ConfigManager` → mlua `Lua` (not `Send`); drive the simulation on a `LocalSet`.

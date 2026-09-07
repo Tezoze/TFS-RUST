@@ -222,13 +222,7 @@ impl GameWorld {
             return false;
         }
         self.stamp_mail(item_id, kind);
-        self.houses
-            .pending_depot_dumps
-            .entry(guid)
-            .or_default()
-            .push(item_id);
-        self.houses.pending_depot_town.insert(guid, town_id);
-        true
+        self.queue_offline_mail(item_id, guid, town_id)
     }
 
     fn mail_tile_pos(&self, item_id: ItemId) -> Option<Position> {
@@ -475,7 +469,7 @@ mod tests {
     }
 
     #[test]
-    fn offline_guid_queues_pending_depot_dump() {
+    fn offline_guid_queues_mail_outbox() {
         let (mut world, pos) = setup_mailbox_world();
         world.houses.name_to_guid.insert("Offline".into(), 99);
         let mut letter = Item::new_single(ITEM_LETTER);
@@ -488,10 +482,220 @@ mod tests {
             world.items.get(letter_id).map(|i| i.item_type),
             Some(ITEM_LETTER_STAMPED)
         );
-        assert_eq!(
-            world.houses.pending_depot_dumps.get(&99),
-            Some(&vec![letter_id])
+        assert!(
+            world.houses.pending_depot_dumps.get(&99).is_none(),
+            "mail must not use house pending_depot_dumps"
         );
-        assert_eq!(world.houses.pending_depot_town.get(&99), Some(&1));
+        let pending = &world.mail_outbox.get(&99).expect("mail outbox").pending;
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].item_ids, vec![letter_id]);
+        assert_eq!(pending[0].town_id, 1);
+        assert!(
+            !pending[0].records.is_empty(),
+            "serialize now for DB append / login splice"
+        );
+    }
+
+    fn stub_loaded(guid: i32) -> tfs_rust_db::player::LoadedPlayerData {
+        tfs_rust_db::player::LoadedPlayerData {
+            player: tfs_rust_db::player::PlayerRecord {
+                id: guid,
+                name: "Offline".into(),
+                account_id: 1,
+                group_id: 1,
+                sex: 0,
+                vocation: 0,
+                experience: 0,
+                level: 8,
+                maglevel: 0,
+                health: 100,
+                healthmax: 100,
+                blessings: 0,
+                mana: 50,
+                manamax: 50,
+                manaspent: 0,
+                soul: 100,
+                lookbody: 0,
+                lookfeet: 0,
+                lookhead: 0,
+                looklegs: 0,
+                looktype: 128,
+                lookaddons: 0,
+                posx: 100,
+                posy: 100,
+                posz: 7,
+                cap: 400,
+                lastlogin: 0,
+                lastlogout: 0,
+                lastip: 0,
+                conditions: None,
+                skulltime: 0,
+                murder_timestamps: String::new(),
+                skull: 0,
+                town_id: 1,
+                balance: 0,
+                offlinetraining_time: 0,
+                offlinetraining_skill: 0,
+                stamina: 2520,
+                skill_fist: 10,
+                skill_fist_tries: 0,
+                skill_club: 10,
+                skill_club_tries: 0,
+                skill_sword: 10,
+                skill_sword_tries: 0,
+                skill_axe: 10,
+                skill_axe_tries: 0,
+                skill_dist: 10,
+                skill_dist_tries: 0,
+                skill_shielding: 10,
+                skill_shielding_tries: 0,
+                skill_fishing: 10,
+                skill_fishing_tries: 0,
+                direction: 0,
+                save: 1,
+                onlinetime: 0,
+                deletion: 0,
+                food_remaining: 0,
+                soul_cycle: 0,
+                soul_count: 0,
+                soul_max_count: 0,
+            },
+            premium_ends_at: 0,
+            account_type: 1,
+            spells: Vec::new(),
+            storage: Vec::new(),
+            vip_list: Vec::new(),
+            guild: None,
+            items: tfs_rust_db::player::PlayerItemPayload::default(),
+        }
+    }
+
+    fn queue_offline_letter(world: &mut crate::game_world::GameWorld, pos: Position) -> ItemId {
+        world.houses.name_to_guid.insert("Offline".into(), 99);
+        let mut letter = Item::new_single(ITEM_LETTER);
+        letter.set_text("Offline\nThais");
+        let letter_id = world.items.insert(letter);
+        world
+            .internal_add_item_to_tile(pos, letter_id, crate::cylinder::CylinderFlags::NONE)
+            .expect("drop");
+        letter_id
+    }
+
+    #[test]
+    fn login_before_ack_sees_mail() {
+        let (mut world, pos) = setup_mailbox_world();
+        queue_offline_letter(&mut world, pos);
+        // No Tokio runtime in this test → append is not in flight; splice on apply.
+        assert!(!world.mail_login_should_defer(99));
+        let mut loaded = stub_loaded(99);
+        world.apply_outbox_to_loaded(99, &mut loaded);
+        assert!(
+            loaded
+                .items
+                .depot
+                .iter()
+                .any(|r| r.itemtype == ITEM_LETTER_STAMPED),
+            "stale load must receive spliced mail"
+        );
+        assert!(!world.mail_outbox.contains_key(&99));
+    }
+
+    #[test]
+    fn login_after_ack_does_not_duplicate() {
+        let (mut world, pos) = setup_mailbox_world();
+        queue_offline_letter(&mut world, pos);
+        let records = world.mail_outbox.get(&99).expect("outbox").pending[0]
+            .records
+            .clone();
+        let appended: Vec<(i32, i32, u16)> = records
+            .iter()
+            .map(|r| (r.pid, r.sid, r.itemtype))
+            .collect();
+        world.apply_mail_delivery_finished(99, true, appended.clone());
+        assert!(!world.mail_login_should_defer(99));
+        let mut loaded = stub_loaded(99);
+        loaded.items.depot = records;
+        let n = loaded.items.depot.len();
+        world.apply_outbox_to_loaded(99, &mut loaded);
+        assert_eq!(
+            loaded.items.depot.len(),
+            n,
+            "fresh load already has appended sids — no splice"
+        );
+        assert!(!world.mail_outbox.contains_key(&99));
+    }
+
+    #[test]
+    fn house_dump_skips_online_guid() {
+        let (mut world, _pos) = setup_mailbox_world();
+        let start = Position::new(81, 80, 7);
+        ensure_walkable_tile(&mut world.map, start, 100);
+        let mut hero = test_player("Hero", start);
+        hero.guid = 42;
+        let cid = insert_player(&mut world, hero);
+        world.player_by_name.insert("Hero".into(), cid);
+        world.player_by_guid.insert(42, cid);
+        let letter_id = world.items.insert(Item::new_single(ITEM_LETTER_STAMPED));
+        assert!(world.apply_house_depot_dump_if_online(42, vec![letter_id], 1));
+        let chest = world
+            .player_get_depot_chest(cid, 1, false)
+            .expect("live depot");
+        assert!(
+            world
+                .container_registry
+                .get(chest)
+                .is_some_and(|c| c.items.contains(&letter_id))
+        );
+    }
+
+    #[test]
+    fn two_offline_letters_accumulate_in_outbox() {
+        let (mut world, pos) = setup_mailbox_world();
+        queue_offline_letter(&mut world, pos);
+        queue_offline_letter(&mut world, pos);
+        let pending = &world.mail_outbox.get(&99).expect("outbox").pending;
+        assert_eq!(pending.len(), 2, "second letter must not overwrite the first");
+        assert_eq!(
+            pending
+                .iter()
+                .filter(|p| p.records.iter().any(|r| r.itemtype == ITEM_LETTER_STAMPED))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn failed_append_keeps_outbox() {
+        let (mut world, pos) = setup_mailbox_world();
+        let letter_id = queue_offline_letter(&mut world, pos);
+        world.apply_mail_delivery_finished(99, false, Vec::new());
+        let pending = &world.mail_outbox.get(&99).expect("kept after fail").pending;
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].item_ids, vec![letter_id]);
+    }
+
+    #[test]
+    fn stale_load_after_ack_splices_missing_rows() {
+        let (mut world, pos) = setup_mailbox_world();
+        queue_offline_letter(&mut world, pos);
+        let records = world.mail_outbox.get(&99).expect("outbox").pending[0]
+            .records
+            .clone();
+        let appended: Vec<(i32, i32, u16)> = records
+            .iter()
+            .map(|r| (r.pid, r.sid, r.itemtype))
+            .collect();
+        world.apply_mail_delivery_finished(99, true, appended);
+        let mut loaded = stub_loaded(99);
+        world.apply_outbox_to_loaded(99, &mut loaded);
+        assert!(
+            loaded
+                .items
+                .depot
+                .iter()
+                .any(|r| r.itemtype == ITEM_LETTER_STAMPED),
+            "ack then stale PlayerLoaded must still splice"
+        );
+        assert!(!world.mail_outbox.contains_key(&99));
     }
 }

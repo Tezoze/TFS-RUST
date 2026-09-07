@@ -76,6 +76,7 @@ impl PendingLogin {
             | GameCommand::HouseNamesResolved { .. }
             | GameCommand::VipLookupFinished { .. }
             | GameCommand::MailLookupFinished { .. }
+            | GameCommand::MailDeliveryFinished { .. }
             | GameCommand::HousePolicyScanFinished { .. } => PendingLoginPacketAction::Dropped,
         }
     }

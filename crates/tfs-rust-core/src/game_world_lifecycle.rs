@@ -128,11 +128,13 @@ impl GameWorld {
             self.player_by_name.remove(&name);
             self.player_by_guid.remove(&guid);
             let db = self.db.clone();
-            tokio::spawn(async move {
-                if let Err(e) = tfs_rust_db::delete_player_online(&db, guid).await {
-                    tracing::warn!(error = %e, guid, "players_online delete failed");
-                }
-            });
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn(async move {
+                    if let Err(e) = tfs_rust_db::delete_player_online(&db, guid).await {
+                        tracing::warn!(error = %e, guid, "players_online delete failed");
+                    }
+                });
+            }
             if in_guild {
                 self.guilds.unregister_online(id);
             }
@@ -156,10 +158,13 @@ impl GameWorld {
         if p.logout_allowed || p.base.health <= 0 {
             return LogoutPossible::Ok;
         }
+        if self.game_state == crate::game_state::GameState::Shutdown {
+            return LogoutPossible::Ok;
+        }
         let round_nr = self.round_nr;
         let earliest = p.earliest_logout_round;
         let pos = p.base.position;
-        if earliest > round_nr {
+        if earliest > round_nr && !self.net_load.lag_detected(round_nr) {
             return LogoutPossible::Combat;
         }
         // NoLogout is an orthogonal tile flag — TFS `getZone()` never returns
@@ -253,9 +258,10 @@ impl GameWorld {
     /// `StopAttack(0)` or `StopAttack(60)` from `stop_fight`. Does **not** remove the
     /// creature — `ProcessCreatures` finalizes when `LogoutPossible` succeeds.
     pub(crate) fn creature_begin_logout(&mut self, cid: CreatureId, force: bool, stop_fight: bool) {
+        let force_or_lag = force || self.net_load.lag_detected(self.round_nr);
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.logging_out = true;
-            if force {
+            if force_or_lag {
                 p.logout_allowed = true;
             }
         }
@@ -570,6 +576,17 @@ impl GameWorld {
             self.send_player_advance_message(victim, "You are dead.\n");
             if let Some(conn) = self.conn_for_creature(victim) {
                 self.dead_connections.insert(conn);
+                let is_otclient = matches!(
+                    self.creatures.get(victim),
+                    Some(CreatureKind::Player(p)) if p.is_otclient()
+                );
+                self.dead_conn_state.insert(
+                    conn,
+                    crate::connections::DeadConnState {
+                        last_command_round: self.round_nr,
+                        is_otclient,
+                    },
+                );
             }
             // TFS `Player::death` (`player.cpp:2065` / `2157-2161` / TVP `1882-1897`):
             // set login position to temple, restore vitals, clear persistent conditions
@@ -637,7 +654,7 @@ impl GameWorld {
         // Persistent combat/buff conditions must not survive death into the next login.
         p.base.active_conditions.clear();
         p.food_remaining = 0;
-        p.food_level = 0;
+        p.item_regen_interval = 0;
     }
 
     /// Town temple used as TFS `loginPosition` after death (`Player::getTemplePosition`).

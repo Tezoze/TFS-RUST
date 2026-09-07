@@ -284,10 +284,9 @@ pub struct Player {
     /// `moveuse.cc:1840` `Skills[SKILL_FED]->TimerValue()`). Decrements each
     /// `ProcessSkills` tick; `0` ⇒ skill inactive ⇒ no HP/mana regen (`crskill.cc:180`).
     pub food_remaining: u32,
-    /// 772 `TSkillFed` `Act` — regen interval for `ProcessCreatures` item regen
-    /// (`crmain.cc:1087` `RegenInterval = Skills[SKILL_FED]->Get()`).
-    /// `0` ⇒ no item regen. Set by eating (each food item sets a fixed interval).
-    pub food_level: i32,
+    /// Cached `TSkill::Get()` DAct for equipped SkillNumber-14 items (`cract.cc:1639-1660`).
+    /// `0` ⇒ no Creatures-arm item regen. Recomputed on equip/de-equip.
+    pub item_regen_interval: u32,
     /// 772 `TSkillSoulpoints` Cycle — soul regen Events remaining (`crcombat.cc:938-955`).
     pub soul_cycle: i32,
     /// 772 `TSkillSoulpoints` Count — ProcessSkills countdown to next +1 soul.

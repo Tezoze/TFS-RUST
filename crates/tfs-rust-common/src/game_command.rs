@@ -48,11 +48,15 @@ pub enum GameCommand {
         reason: String,
     },
     /// Close connection and clean up player session (logout / kick).
-    // C++ reference: `ProtocolGame::disconnect()` (`src/protocolgame.cpp`).
+    // C++ reference: `ProtocolGame::disconnect()` (`src/protocolgame.cpp`);
+    // 772 `Connection::Logout` StopFight (`connections.cc:37`).
     PlayerDisconnect {
         conn_id: ConnId,
         /// Send logout effect (poff) before closing.
         display_effect: bool,
+        /// 772 `StartLogout` StopFight. `true` only for `CL_CMD_LOGOUT` / idle kick;
+        /// socket drop is `false` (`connections.cc:37`).
+        stop_fight: bool,
     },
     /// I/O thread registered a bounded outbound writer — mirror into game-thread sink map (GL-3).
     RegisterOutputSink { conn_id: ConnId },
@@ -82,6 +86,14 @@ pub enum GameCommand {
         town_id: u32,
         /// `None` when no living character matches the addressee.
         guid: Option<u32>,
+    },
+    /// Offline mail DB append finished (`mail_delivery.rs`).
+    MailDeliveryFinished {
+        guid: u32,
+        ok: bool,
+        /// `(pid, sid, itemtype)` rows written this append; empty on failure.
+        /// Used to detect a stale `PlayerLoaded` that raced the persist.
+        appended: Vec<(i32, i32, u16)>,
     },
     /// House policy eviction candidates from async SQL (`EvictFreeAccounts` /
     /// `EvictDeletedCharacters` / `EvictExGuildLeaders`).

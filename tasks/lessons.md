@@ -1006,4 +1006,13 @@
 443. **Path, target, spawn, and chase replan are corpus constants, not formula knobs** (`formulas.rs` `pin_corpus_path_spawn_target`; `pathfinding.rs`; `data/formulas/{772,1098}.lua`): terrain cost, reverse `TShortway`, idle/`CreatureMoveStimulus` chase replan (no TFS `hasFollowPath` gate), current-HP weakest target, radius-shrink spawn, SearchSpawnField, and `StartMonsterhomeTimer` are the 772 default for every `clientVersion`. There is no forward A* and no forward fallback. These are not keys in the formulas Lua and Lua cannot overlay them. TFS `getPathMatching` 10/25, max-HP targeting, `Spawn::shuffle` / fixed `spawntime`, and `creature.cpp` `hasFollowPath` follow-repath are not a second tree.
     *(2026-09-06)*
 
+444. **Soft boots 2640 are cadence-only on the Creatures arm** (`item_regen.rs`; `equip_abilities.rs`; `objects.srv` SkillNumber=14 SkillModification=6): TFS pack `healthgain`/`managain` +3/+12 on the Skills `Regeneration` condition is not the corpus. Item regen is `RoundNr % interval == 0` with profile `item_regen_hp`/`item_regen_mana` (defaults 1/4). Soft boots contribute interval 6 only; they do not change the grant. Eating still never writes the interval (lesson 439).
+    *(2026-09-06)*
+
+445. **Offline mail is an immediate depot append, not a house dump** (`mail_delivery.rs`; `depot_append.rs`; `moveuse.cc:825-919` `DelayedMail` / `SendMails`): parking letters in `houses.pending_depot_dumps` until `FlushStay` lost mail on crash and let an intervening login save overwrite the dump. Serialize on the game thread, one in-flight `Handle::spawn` append **per guid** (a `HashMap<guid, PendingMail>` last-writer-wins and overlapping load-append-save both drop earlier letters). Keep the outbox on `ok: false` and after a successful ack until login consumes it — a `PlayerLoaded` query that started before the append is stale, and dropping the outbox on ack lets the next save wipe the DB row. Sid-tuple `last_appended` skips the splice when the load already contains those rows (no duplicate). TakeOver delivers live and must not consume/release those item ids. House eviction / welcome letters keep `pending_depot_dumps` and skip DB for guids in `player_by_guid`.
+    *(2026-09-06)*
+
+446. **Fed timer always decrements, including in PZ** (`process_skills.rs` `process_player_fed_regen`; `crskill.cc:186-188, 816-818`): `TSkill::Process` does `Cycle -= 1` before `Event`; `TSkillFed::Event` skips only the HP/mana grant in PZ. Returning early on PZ left `food_remaining` stuck. Fed still runs before DoT so 1 HP + due regen can outrun lethal fire on the same Skills arm.
+    *(2026-09-06)*
+
 

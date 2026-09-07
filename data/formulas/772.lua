@@ -58,6 +58,13 @@ formulas = {
   -- pick-hole transform + two position-locked quest rocks, not this roll.
   destroyableStone = { chance = 40, selfDamage = -50 },
 
+  -- Creatures-arm item regen amounts (`crmain.cc:1087-1095`). Cadence comes from
+  -- equipped SkillNumber-14 DAct (`items.xml` healthticks/1000), not from eating.
+  creatures = {
+    itemRegenHp = 1,
+    itemRegenMana = 4,
+  },
+
   -- 1098 TFS extras. 772 has no coin-exchange on use, no extra instruments,
   -- no magic-level spellbook groups.
   otherActions = {

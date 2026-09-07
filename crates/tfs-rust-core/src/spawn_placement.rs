@@ -430,7 +430,10 @@ impl GameWorld {
                     return false;
                 };
                 let home = self.spawns.zone_center(slot.zone_index).unwrap_or(center);
-                let act = self.spawns.count_occupied_in_zone(slot.zone_index);
+                let act = slot
+                    .home_index
+                    .map(|hi| self.spawns.count_occupied_in_home(hi))
+                    .unwrap_or(0);
                 let mut effective_radius = home_radius;
                 if !startup
                     && self.mechanics.profile.spawn_near_player == SpawnNearPlayer::RadiusShrink

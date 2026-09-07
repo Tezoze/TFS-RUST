@@ -23,8 +23,8 @@ impl GameWorld {
     /// 772 `ProcessCreatures` — item regen + PK-mark clearing + death safety (`crmain.cc:1075–1138`).
     ///
     /// **Not** an AI think sweep. C++ `ProcessCreatures` does:
-    /// 1. **Item regen** (HP+1/Mana+4) gated on `SKILL_FED` `Get()` = `food_level`
-    ///    (`crmain.cc:1087-1095`) — separate from vocation regen in `TSkillFed::Event`.
+    /// 1. **Item regen** (HP+1/Mana+4) gated on equipped SkillNumber-14 DAct
+    ///    (`item_regen_interval`) (`crmain.cc:1087-1095`) — separate from vocation regen in `TSkillFed::Event`.
     /// 2. **PK-mark clearing** on `EarliestLogoutRound` expiry (`crmain.cc:1102-1105`).
     /// 3. **Death safety net** (`HP <= 0 && !IsDead → Death()`).
     ///
@@ -54,15 +54,11 @@ impl GameWorld {
                 continue;
             };
             // C++ `ProcessCreatures` item regen (`crmain.cc:1087-1095`):
-            //   RegenInterval = Skills[SKILL_FED]->Get();  // food_level (Act)
+            //   RegenInterval = Skills[SKILL_FED]->Get();  // equipped DAct, never eating
             //   if(RegenInterval > 0 && (RoundNr % RegenInterval) == 0
             //      && !IsDead && !IsProtectionZone(pos))
             //       HP += 1; Mana += 4; SendPlayerData();
-            if p.food_level > 0
-                && p.base.health > 0
-                && round_nr.is_multiple_of(p.food_level as u32)
-                && !self.tile_in_protection_zone(p.base.position)
-            {
+            if p.item_regen_interval > 0 && p.base.health > 0 {
                 self.scratch_stats_dirty.push(cid);
             }
             // C++ PK-mark clearing (`crmain.cc:1102-1105`).
@@ -72,11 +68,7 @@ impl GameWorld {
         }
 
         for cid in std::mem::take(&mut self.scratch_stats_dirty) {
-            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-                p.base.health = (p.base.health + 1).min(p.base.max_health);
-                p.mana = (p.mana + 4).min(p.max_mana);
-            }
-            self.send_player_stats(cid);
+            let _ = self.process_item_regen(cid, round_nr);
         }
 
         for cid in std::mem::take(&mut self.scratch_pk_marks) {

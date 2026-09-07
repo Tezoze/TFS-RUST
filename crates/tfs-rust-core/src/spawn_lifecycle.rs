@@ -205,9 +205,12 @@ impl GameWorld {
         if !self.spawns.should_run_check(now_round) {
             return;
         }
-        let indices = self.spawns.due_slot_indices(now_round);
+        let homes = self.spawns.due_home_indices(now_round);
         self.spawns.mark_checked(now_round);
-        for slot_index in indices {
+        for home_index in homes {
+            let Some(slot_index) = self.spawns.empty_slot_in_home(home_index) else {
+                continue;
+            };
             if self
                 .spawns
                 .slot(slot_index)
@@ -221,15 +224,17 @@ impl GameWorld {
                 .slot(slot_index)
                 .map(|s| self.spawn_find_player(s.position))
                 .unwrap_or(false);
-            // B3.4 — spawn-near-player policy. TFS 1.4.2 (`Block`): a player on the spawn block tile
-            // stalls the respawn (`spawn.cpp` `findPlayer`). 772 (`RadiusShrink`,
-            // `crnonpl.cc:1414`): never stall — still spawn, just further out; the placement search
-            // (`find_spawn_position`) already avoids occupied tiles, so a player only pushes the
-            // monster outward instead of suppressing the spawn.
             let stall_on_player =
                 self.mechanics.profile.spawn_near_player == crate::formulas::SpawnNearPlayer::Block;
             if blocked && stall_on_player {
-                self.spawns.stall_respawn(slot_index, now_round);
+                let regen = self
+                    .spawns
+                    .homes
+                    .get(home_index)
+                    .map(|h| h.spawntime_ms)
+                    .unwrap_or(0);
+                let delay = crate::spawn::ms_to_rounds(self.compute_respawn_delay_ms(regen));
+                self.spawns.arm_home(home_index, now_round, delay);
                 continue;
             }
             let Some(slot) = self.spawns.slot(slot_index).cloned() else {
@@ -237,6 +242,19 @@ impl GameWorld {
             };
             if let Some(req) = crate::spawn::build_spawn_request(slot_index, &slot, false) {
                 self.process_spawn_request(req);
+            }
+            let act_max = self.spawns.homes.get(home_index).map(|h| (h.act_monsters, h.max_monsters));
+            if let Some((act, max)) = act_max {
+                if act < max {
+                    let regen = self
+                        .spawns
+                        .homes
+                        .get(home_index)
+                        .map(|h| h.spawntime_ms)
+                        .unwrap_or(0);
+                    let delay = crate::spawn::ms_to_rounds(self.compute_respawn_delay_ms(regen));
+                    self.spawns.arm_home(home_index, now_round, delay);
+                }
             }
         }
     }
@@ -382,8 +400,13 @@ impl GameWorld {
                 "could not place spawned monster on map"
             );
             self.creatures.remove(cid);
-            // Avoid tight respawn loops on blocked tiles — C++ `checkSpawn` only advances timer on success.
-            self.spawns.stall_respawn(slot_index, self.round_nr);
+            let regen = self
+                .spawns
+                .slot(slot_index)
+                .map(|s| s.spawntime_ms)
+                .unwrap_or(0);
+            let delay = crate::spawn::ms_to_rounds(self.compute_respawn_delay_ms(regen));
+            self.spawns.stall_respawn(slot_index, self.round_nr, delay);
             return None;
         }
 
@@ -1493,7 +1516,7 @@ impl GameWorld {
 
     /// Spawn-slot cleanup + disappear broadcast hook for [`GameWorld::remove_creature`].
     /// `now_ms` is the logical clock (audit Finding 13).
-    pub(crate) fn on_creature_removed_for_spawn(&mut self, cid: CreatureId, now_ms: u64) {
+    pub(crate) fn on_creature_removed_for_spawn(&mut self, cid: CreatureId, _now_ms: u64) {
         if let Some(pos) = self.creatures.get(cid).map(|k| k.position()) {
             let stack_raw = self
                 .map
@@ -1762,6 +1785,7 @@ mod tests {
     #[test]
     fn respawn_queues_appear_packet() {
         let mut world = world_with_spawn();
+        world.mechanics.profile.spawn_near_player = crate::formulas::SpawnNearPlayer::Block;
         world.startup_spawns();
         let (monster_cid, _) = world.creatures.iter().next().unwrap();
         let conn = ConnId(1);
@@ -2703,6 +2727,39 @@ mod tests {
         assert!(
             pkts.is_some_and(|p| p.iter().any(|b| !b.is_empty())),
             "spectator must receive a remove/appear for teleportTo z+1"
+        );
+    }
+
+    #[test]
+    fn failed_placement_rearms_with_random_half_to_full() {
+        let mut world = minimal_world();
+        let mut monsters = HashMap::new();
+        monsters.insert("rat".into(), rat_type());
+        world.monsters_db = Arc::new(MonsterDatabase { monsters });
+        let zone = SpawnZone {
+            center: Position::new(100, 100, 7),
+            radius: 3,
+            entries: vec![SpawnEntry::Monster {
+                name: "Rat".into(),
+                position: Position::new(100, 100, 7),
+                spawntime_ms: 60_000,
+                direction: None,
+            }],
+        };
+        world.spawns = SpawnManager::from_zones(vec![zone]);
+        world.mechanics.profile.respawn_model = crate::formulas::RespawnModel::Monsterhome772;
+        world.seed_parity_rng(42);
+        world.round_nr = 10;
+        world.process_spawn_request(crate::spawn::SpawnRequest {
+            slot_index: 0,
+            monster_name: Some("Rat".into()),
+            startup: false,
+        });
+        let at = world.spawns.homes[0].timer_at.expect("failed place must arm");
+        let delay = at.saturating_sub(10);
+        assert!(
+            (30..=60).contains(&delay),
+            "stall delay {delay} outside half-to-full [30, 60]"
         );
     }
 }

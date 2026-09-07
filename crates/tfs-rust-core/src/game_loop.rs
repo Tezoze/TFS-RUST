@@ -166,6 +166,8 @@ async fn handle_pending_save_tick(world: &mut GameWorld) -> anyhow::Result<bool>
                 tracing::warn!(error = %e, "house process/save on daily save failed");
             }
             flush_online_players_to_db(world).await?;
+            // House dumps skip online guids (`player_by_guid`); online flush first is
+            // then harmless for mail (mail uses `mail_outbox`, not pending_depot_dumps).
             Ok(false)
         }
         crate::server_save::ServerSaveTick::FlushShutdown => {
@@ -349,6 +351,26 @@ fn close_output_connection(
         && let Ok(mut g) = reg.lock()
     {
         g.remove(&conn_id);
+    }
+}
+
+fn drain_dead_conns_on_shutdown(
+    world: &mut GameWorld,
+    pending_login_conns: &mut HashSet<ConnId>,
+    output_sinks: &mut OutputSinkMap,
+    out_registry: &Option<OutRegistry>,
+) {
+    let dead: Vec<ConnId> = world.dead_conn_state.keys().copied().collect();
+    for conn_id in dead {
+        handle_player_disconnect(
+            world,
+            pending_login_conns,
+            conn_id,
+            false,
+            false,
+            output_sinks,
+            out_registry,
+        );
     }
 }
 
@@ -569,7 +591,7 @@ fn handle_player_loaded(
         );
         return;
     }
-    let loaded = match data.downcast::<LoadedPlayerData>() {
+    let mut loaded = match data.downcast::<LoadedPlayerData>() {
         Ok(d) => d,
         Err(_) => {
             error!(
@@ -589,6 +611,51 @@ fn handle_player_loaded(
             return;
         }
     };
+    let guid = u32::try_from(loaded.player.id).unwrap_or(0);
+    if world.mail_login_should_defer(guid) {
+        world.mail_deferred_login.insert(
+            guid,
+            crate::mail_delivery::DeferredLogin {
+                conn_id,
+                name,
+                operating_system,
+                otclient_v8,
+                peer_ip,
+                loaded,
+            },
+        );
+        return;
+    }
+    if !world.player_by_guid.contains_key(&guid) {
+        world.apply_outbox_to_loaded(guid, &mut loaded);
+    }
+    finish_loaded_player(
+        world,
+        pending_login_conns,
+        conn_id,
+        name,
+        operating_system,
+        otclient_v8,
+        peer_ip,
+        loaded,
+        output_sinks,
+        out_registry,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finish_loaded_player(
+    world: &mut GameWorld,
+    pending_login_conns: &mut HashSet<ConnId>,
+    conn_id: ConnId,
+    name: String,
+    operating_system: u16,
+    otclient_v8: u16,
+    peer_ip: u32,
+    loaded: LoadedPlayerData,
+    output_sinks: &mut OutputSinkMap,
+    out_registry: &Option<OutRegistry>,
+) {
     match login::apply_loaded_player(world, loaded, operating_system, otclient_v8, peer_ip) {
         Ok(login::ApplyPlayerOutcome::Spawned(cid)) => {
             world.register_conn_mapping(conn_id, cid);
@@ -676,6 +743,7 @@ fn handle_player_disconnect(
     pending_login_conns.remove(&conn_id);
     world.login_pending_conns.remove(&conn_id);
     world.dead_connections.remove(&conn_id);
+    world.dead_conn_state.remove(&conn_id);
     if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
         if display_effect {
             world.broadcast_player_logout_poff(cid);
@@ -736,7 +804,12 @@ fn handle_game_packet(
             GamePacket::Logout
             | GamePacket::Ping
             | GamePacket::PingBack
-            | GamePacket::BugReport(_) => {}
+            | GamePacket::BugReport(_)
+            | GamePacket::DebugAssert { .. } => {
+                if let Some(state) = world.dead_conn_state.get_mut(&conn_id) {
+                    state.last_command_round = world.round_nr;
+                }
+            }
             _ => {
                 trace!(
                     conn_id = conn_id.0,
@@ -1065,6 +1138,7 @@ fn handle_game_packet(
                     GameCommand::PlayerDisconnect {
                         conn_id,
                         display_effect: false,
+                        stop_fight: true,
                     },
                 );
             } else if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
@@ -1074,6 +1148,7 @@ fn handle_game_packet(
                         GameCommand::PlayerDisconnect {
                             conn_id,
                             display_effect: true,
+                            stop_fight: true,
                         },
                     );
                 }
@@ -1083,6 +1158,7 @@ fn handle_game_packet(
                     GameCommand::PlayerDisconnect {
                         conn_id,
                         display_effect: false,
+                        stop_fight: true,
                     },
                 );
             }
@@ -1420,13 +1496,14 @@ fn dispatch_command(
         GameCommand::PlayerDisconnect {
             conn_id,
             display_effect,
+            stop_fight,
         } => {
             handle_player_disconnect(
                 world,
                 pending_login_conns,
                 conn_id,
                 display_effect,
-                true, // CQuitGame / intentional — StopFight=true
+                stop_fight,
                 output_sinks,
                 out_registry,
             );
@@ -1459,6 +1536,30 @@ fn dispatch_command(
             guid,
         } => {
             world.apply_mail_lookup_finished(item_id, town_id, guid);
+            ControlFlow::Continue(())
+        }
+        GameCommand::MailDeliveryFinished {
+            guid,
+            ok,
+            appended,
+        } => {
+            world.apply_mail_delivery_finished(guid, ok, appended);
+            if let Some(mut d) = world.take_deferred_login_if_mail_ready(guid) {
+                world.splice_outbox_into_loaded(guid, &mut d.loaded);
+                world.consume_mail_outbox(guid);
+                finish_loaded_player(
+                    world,
+                    pending_login_conns,
+                    d.conn_id,
+                    d.name,
+                    d.operating_system,
+                    d.otclient_v8,
+                    d.peer_ip,
+                    d.loaded,
+                    output_sinks,
+                    out_registry,
+                );
+            }
             ControlFlow::Continue(())
         }
         GameCommand::HousePolicyScanFinished { evict } => {
@@ -1711,6 +1812,12 @@ pub async fn run_game_loop(
                             tracing::warn!(error = %e, "house save on SIGINT failed");
                         }
                         flush_online_players_to_db(&mut world).await?;
+                        drain_dead_conns_on_shutdown(
+                            &mut world,
+                            &mut pending_login_conns,
+                            &mut output_sinks,
+                            &out_registry,
+                        );
                         break;
                     }
                     ControlFlow::Break(LoopExit::ChannelClosed) => break,
@@ -1754,6 +1861,12 @@ pub async fn run_game_loop(
                                         tracing::warn!(error = %e, "house save on SIGINT failed");
                                     }
                                     flush_online_players_to_db(&mut world).await?;
+                                    drain_dead_conns_on_shutdown(
+                                        &mut world,
+                                        &mut pending_login_conns,
+                                        &mut output_sinks,
+                                        &out_registry,
+                                    );
                                     return Ok(());
                                 }
                                 ControlFlow::Break(LoopExit::ChannelClosed) => return Ok(()),
@@ -2929,3 +3042,7 @@ mod f8_s6_handler_routing_tests {
         test_player("unused", Position::new(0, 0, 7))
     }
 }
+
+#[cfg(test)]
+#[path = "game_loop_disconnect_tests.rs"]
+mod game_loop_disconnect_tests;

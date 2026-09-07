@@ -9,14 +9,14 @@ Deliverable: `docs/772_GAME_LOOP_AUDIT.md` (gaps + bugs + fix plan). Corpus anch
 - [x] Integrate → `docs/772_GAME_LOOP_AUDIT.md` — 7 High, 12 Medium, 22 Low; fix plan Phases 1–3
 - [x] Lessons 439–442 (`SKILL_FED` Act, `NetLoadCheck` semantics, `Logout(0,false)` on drop, serial monsterhome timer)
 
-Fix work (not started — separate steps, one module each; see audit §3):
-- [ ] Phase 1.1 `item_regen.rs` — H1/M3 ring regen on Creatures arm; remove `food_level = 12`
-- [ ] Phase 1.2 `process_skills.rs` — H2 fed regen stats send; M2 food drains in PZ
-- [ ] Phase 1.3 `PlayerDisconnect { stop_fight }` — H5
-- [ ] Phase 1.4 `connections.rs` dead-conn arm — H6
-- [ ] Phase 1.5 `net_load.rs` — H7 (+ L4 summary, `lag_detected` in logout rules)
-- [ ] Phase 1.6 `spawn.rs` zone timer — H3/M5
-- [ ] Phase 1.7 `mail_delivery.rs` — H4
+Fix work (Phase 1 H1–H7 landed 2026-09-06; see audit §2 DONE):
+- [x] Phase 1.1 `item_regen.rs` — H1/M3 ring regen on Creatures arm; remove `food_level = 12`
+- [x] Phase 1.2 `process_skills.rs` — H2 fed regen stats send; M2 food drains in PZ
+- [x] Phase 1.3 `PlayerDisconnect { stop_fight }` — H5
+- [x] Phase 1.4 `connections.rs` dead-conn arm — H6
+- [x] Phase 1.5 `net_load.rs` — H7 (+ L4 summary, `lag_detected` in logout rules)
+- [x] Phase 1.6 `spawn.rs` zone timer — H3/M5
+- [x] Phase 1.7 `mail_delivery.rs` — H4 (outbox is a per-guid queue; serialized append; keep on fail / until login consume)
 - [ ] Phase 2 (M1, M4–M9, M11) and Phase 3 (Low table) per audit §3; M10 house cadence needs a user decision
 
 # Sector refresh cadence, decay, residency — audit Step 11 (2026-09-06)
@@ -43,7 +43,7 @@ Plan: `docs/772_SECTOR_REFRESH_DECAY_PLAN.md`. Corpus: `RefreshCylinders` (`oper
 **Architecture:** focused modules, thin `GameWorld` delegates only. No new hub methods clusters.
 
 - [x] C++ analysis — SendMail parse/stamp/depot vs offline queue; RefreshSector MapFlags vs OTBM `TILEFLAG_REFRESH`; house Evict*/TransferHouses SQL; MOVEMENTEVENT trigger; UseAnnouncer 1/3 items+strings; UNLAY adjacent scan; NPC Bless/Town/String/Promote semantics
-- [x] Mail — `mail.rs`: letter/parcel+label parse (name line 1, town line 2), stamp 2597→2598 / 2595→2596, deliver town depot (online) or `pending_depot_dumps` (offline). Hook `tile_specials` `MAILBOX`. Fail leaves item on tile. No 1098 inbox.
+- [x] Mail — `mail.rs` + `mail_delivery.rs`: letter/parcel+label parse (name line 1, town line 2), stamp 2597→2598 / 2595→2596, deliver town depot (online) or immediate DB append + login splice (offline). Hook `tile_specials` `MAILBOX`. Fail leaves item on tile. No 1098 inbox. House dumps stay on `pending_depot_dumps` for eviction / welcome letters only.
 - [x] Live sector refresh — `sector_refresh.rs`: OTBM `1<<5` snapshots. **Minute cron is `RefreshCylinders`** (one ORIGMAP 32×32 XY / minute, skip `CanSeeFloor` players) — not full `refresh_map()` (that froze the live map: 673k tiles/min). Lua `Game.refreshMap()` still full restore.
 - [x] Align `forgotten.otbm` `TILEFLAG_REFRESH` with ORIGMAP `.sec` `Refresh` (`scripts/patch_otbm_refresh_from_origmap.py`): insert 2,778 missing tiles (2,750 empty holes + 28 with Content). **Corrected 2026-09-06:** the first run's line-based parser missed 21,064 Refresh fields and wrongly cleared 20,861 correct bits; token-based re-run restored them. Result **694,625 / 694,625** (lesson 438).
 - [x] House policy — `house/policy.rs`: `EvictFreeAccounts`, `EvictDeletedCharacters`, `EvictExGuildLeaders`. `TransferHouses` skipped (no table; `!sellhouse`/trade). Call from minute job. DB via VIP-style spawn. `StartAuctions` stays MyAAC.
