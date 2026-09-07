@@ -260,6 +260,10 @@ pub struct GameWorld {
     /// Offline mailbox items waiting for DB ack / login splice (`mail_delivery.rs`).
     pub(crate) mail_outbox: HashMap<u32, crate::mail_delivery::MailOutbox>,
     pub(crate) mail_deferred_login: HashMap<u32, crate::mail_delivery::DeferredLogin>,
+    /// Detached unstamped mail waiting for `MailLookupFinished` (item already off the tile).
+    pub(crate) mail_lookup_holds: HashMap<u64, tfs_rust_common::Position>,
+    /// Skip one mailbox specials pass after a failed lookup restore.
+    pub(crate) mail_skip_mailbox_specials: HashSet<ItemId>,
     /// Ephemeral quest globals; reset on restart (772 pack parity).
     pub global_storage: HashMap<u32, i32>,
     /// TFS `ScriptEnvironment::localMap` — per-script-execution UID → ItemId mapping
@@ -515,6 +519,8 @@ impl GameWorld {
             obs: crate::obs::GameObs::new(),
             mail_outbox: HashMap::new(),
             mail_deferred_login: HashMap::new(),
+            mail_lookup_holds: HashMap::new(),
+            mail_skip_mailbox_specials: HashSet::new(),
             global_storage: HashMap::new(),
             script_env_local_map: RefCell::new(HashMap::new()),
             script_env_item_to_uid: RefCell::new(HashMap::new()),

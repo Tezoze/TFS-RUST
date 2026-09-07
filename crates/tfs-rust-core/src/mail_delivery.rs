@@ -66,7 +66,14 @@ pub struct DeferredLogin {
 impl GameWorld {
     /// Detach+stamp already done by caller. Serialize the tree now and spawn DB append.
     pub(crate) fn queue_offline_mail(&mut self, item_id: ItemId, guid: u32, town_id: u32) -> bool {
-        let roots = vec![(town_id as i32, item_id)];
+        use crate::formulas::DepotLockerStructure;
+        let pid = match self.mechanics.profile.depot_locker_structure {
+            DepotLockerStructure::ClassicDepotChest => {
+                crate::depot_append::LOCKER_ROOT_PID_BASE + town_id as i32
+            }
+            DepotLockerStructure::TfsMarketInbox => town_id as i32,
+        };
+        let roots = vec![(pid, item_id)];
         let mut records: Vec<ItemRecord> = Vec::new();
         if append_save_item_tree(self, &roots, &mut records).is_err() {
             return false;
@@ -156,7 +163,7 @@ impl GameWorld {
         let inflight = outbox.has_inflight();
         for (town_id, ids) in jobs {
             for item_id in ids {
-                self.house_add_item_to_town_depot(cid, town_id, item_id);
+                self.place_mail_in_depot(cid, town_id, item_id);
             }
         }
         if !inflight {

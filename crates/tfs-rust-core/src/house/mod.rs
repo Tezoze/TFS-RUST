@@ -27,6 +27,7 @@ pub use serialize::{
     encode_house_tile_store,
 };
 pub use window::{HouseEditSession, house_window_door_id_ok, house_window_id_ok};
+pub(crate) use ownership::add_to_container_front;
 
 use std::collections::{HashMap, HashSet};
 

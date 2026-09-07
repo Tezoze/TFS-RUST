@@ -1015,4 +1015,7 @@
 446. **Fed timer always decrements, including in PZ** (`process_skills.rs` `process_player_fed_regen`; `crskill.cc:186-188, 816-818`): `TSkill::Process` does `Cycle -= 1` before `Event`; `TSkillFed::Event` skips only the HP/mana grant in PZ. Returning early on PZ left `food_remaining` stuck. Fed still runs before DoT so 1 HP + due regen can outrun lethal fire on the same Skills arm.
     *(2026-09-06)*
 
+447. **772 mail is locker-loose, not chest-nested** (`mail.rs` `place_mail_in_depot`; `moveuse.cc:791-811` `SendMail` `Move` into `Player->Depot`): `Player->Depot` is the map locker (`LoadDepotBox`, type 3498 / `ITEM_LOCKER1` 2589). The chest (`ITEM_DEPOT` 2594) is a *child* of that locker. Putting stamped parcels into `player_get_depot_chest` hid them one window down and skipped the open-locker `0x70`. Offline serialize must use `pid = 0x10000 + town_id` (same as `game_world_save.rs`) so `load_depot_table` restores beside the chest; `depot_append` must not treat those pids as nested sids. `"New mail has arrived."` fires only when that town's locker window is already open. Name lookup detaches the tile item immediately (corpus `GetCharacterID` is in-memory) and restores unstamped on miss.
+    *(2026-09-07)*
+
 

@@ -1,15 +1,19 @@
 //! Mailbox delivery — 772 `SendMail` / `SendMails`.
 //!
 //! Corpus: `SendMail` / `SendMails` (`moveuse.cc:712-919`); Collision dat
-//! `IsType(Obj1,3501|3508) -> SendMail(Obj2)`. Pack: TFS `mailbox.cpp` cylinder
-//! `addThing` (same outcome; deliver to **town depot**, never 1098 inbox).
+//! `IsType(Obj1,3501|3508) -> SendMail(Obj2)`. 772 lands in the **locker**
+//! (`Player->Depot` / `LoadDepotBox`) beside the chest, not inside it.
+//! 1098 locker `queryAdd` blocks that; gated path still uses the town chest.
 
 use slotmap::Key;
 use tfs_rust_common::GameCommand;
 use tfs_rust_common::Position;
 use tfs_rust_db::player::PlayerStore;
 
-use crate::cylinder::Cylinder;
+use crate::container_ui::ContainerContentChange;
+use crate::creature::CreatureKind;
+use crate::cylinder::{Cylinder, CylinderFlags};
+use crate::formulas::DepotLockerStructure;
 use crate::game_world::GameWorld;
 use crate::ids::ItemId;
 use crate::item_constants::{
@@ -47,6 +51,9 @@ fn is_new_parcel(item_type: u16) -> bool {
 impl GameWorld {
     /// Collision `SendMail(Obj2)` after an item lands on a mailbox tile.
     pub(crate) fn apply_mailbox_send(&mut self, pos: Position, item_id: ItemId) {
+        if self.mail_skip_mailbox_specials.remove(&item_id) {
+            return;
+        }
         let flags = self.map.get_tile(pos).map(|t| t.body().flags).unwrap_or(0);
         if flags & tilestate::MAILBOX == 0 {
             return;
@@ -86,7 +93,7 @@ impl GameWorld {
         false
     }
 
-    /// Async `GetCharacterID` result — stamp+queue if the item is still on a mailbox.
+    /// Async `GetCharacterID` result — stamp+queue a held (already detached) item.
     pub(crate) fn apply_mail_lookup_finished(
         &mut self,
         item_ffi: u64,
@@ -94,19 +101,29 @@ impl GameWorld {
         guid: Option<u32>,
     ) {
         let item_id = ItemId::from(slotmap::KeyData::from_ffi(item_ffi));
+        let held_pos = self.mail_lookup_holds.remove(&item_ffi);
         let Some(guid) = guid else {
+            if let Some(pos) = held_pos {
+                self.restore_mail_to_mailbox(item_id, pos);
+            }
             return;
         };
-        if !self.item_still_on_mailbox(item_id) {
+        if held_pos.is_none() && !self.item_still_on_mailbox(item_id) {
             return;
         }
         let Some(kind) = self.mail_kind(item_id) else {
+            if let Some(pos) = held_pos {
+                self.restore_mail_to_mailbox(item_id, pos);
+            }
             return;
         };
-        if let Some(&cid) = self.player_by_guid.get(&guid) {
-            let _ = self.deliver_mail_to_online(item_id, cid, town_id, kind);
+        let ok = if let Some(&cid) = self.player_by_guid.get(&guid) {
+            self.deliver_mail_to_online(item_id, cid, town_id, kind)
         } else {
-            let _ = self.deliver_mail_offline(item_id, guid, town_id, kind);
+            self.deliver_mail_offline(item_id, guid, town_id, kind)
+        };
+        if !ok && let Some(pos) = held_pos {
+            self.restore_mail_to_mailbox(item_id, pos);
         }
     }
 
@@ -183,22 +200,18 @@ impl GameWorld {
         town_id: u32,
         kind: MailKind,
     ) -> bool {
-        let depot_open = self.player_get_depot_chest(cid, town_id, false).is_some();
-        if depot_open
-            && let Some(chest) = self.player_get_depot_chest(cid, town_id, false)
-            && self.container_is_slot_full(chest)
-        {
+        if self.mail_destination_full(cid, town_id) {
             return false;
         }
-        let Some(pos) = self.mail_tile_pos(item_id) else {
-            return false;
-        };
-        if self.detach_item_from_tile(pos, item_id).is_err() {
+        // Corpus: `"New mail has arrived."` only when `Player->Depot` (locker) is open
+        // (`moveuse.cc:791-803`). Snapshot before auto-create.
+        let locker_open = self.mail_window_open(cid, town_id);
+        if !self.take_unstamped_mail(item_id) {
             return false;
         }
         self.stamp_mail(item_id, kind);
-        self.house_add_item_to_town_depot(cid, town_id, item_id);
-        if depot_open {
+        self.place_mail_in_depot(cid, town_id, item_id);
+        if locker_open {
             let _ = self.lua_script_player_send_text_message(
                 cid.data().as_ffi(),
                 MESSAGE_INFO_DESCR,
@@ -215,14 +228,111 @@ impl GameWorld {
         town_id: u32,
         kind: MailKind,
     ) -> bool {
-        let Some(pos) = self.mail_tile_pos(item_id) else {
-            return false;
-        };
-        if self.detach_item_from_tile(pos, item_id).is_err() {
+        if !self.take_unstamped_mail(item_id) {
             return false;
         }
         self.stamp_mail(item_id, kind);
         self.queue_offline_mail(item_id, guid, town_id)
+    }
+
+    /// Take the letter off the mailbox, or accept an already-detached lookup hold.
+    fn take_unstamped_mail(&mut self, item_id: ItemId) -> bool {
+        if let Some(pos) = self.mail_tile_pos(item_id) {
+            return self.detach_item_from_tile(pos, item_id).is_ok();
+        }
+        self.items
+            .get(item_id)
+            .is_some_and(|i| i.parent.is_none())
+    }
+
+    fn restore_mail_to_mailbox(&mut self, item_id: ItemId, pos: Position) {
+        if self.items.get(item_id).is_none() {
+            return;
+        }
+        self.mail_skip_mailbox_specials.insert(item_id);
+        if self
+            .internal_add_item_to_tile(pos, item_id, CylinderFlags::NO_LIMIT)
+            .is_err()
+        {
+            self.mail_skip_mailbox_specials.remove(&item_id);
+        }
+    }
+
+    fn existing_depot_locker(
+        &self,
+        cid: crate::ids::CreatureId,
+        town_id: u32,
+    ) -> Option<ItemId> {
+        match self.creatures.get(cid)? {
+            CreatureKind::Player(p) => p.depot_lockers.get(&town_id).copied(),
+            _ => None,
+        }
+    }
+
+    fn existing_depot_chest(
+        &self,
+        cid: crate::ids::CreatureId,
+        town_id: u32,
+    ) -> Option<ItemId> {
+        match self.creatures.get(cid)? {
+            CreatureKind::Player(p) => p.depot_chests.get(&town_id).copied(),
+            _ => None,
+        }
+    }
+
+    fn mail_destination_full(&self, cid: crate::ids::CreatureId, town_id: u32) -> bool {
+        match self.mechanics.profile.depot_locker_structure {
+            DepotLockerStructure::ClassicDepotChest => self
+                .existing_depot_locker(cid, town_id)
+                .is_some_and(|id| self.container_is_slot_full(id)),
+            DepotLockerStructure::TfsMarketInbox => self
+                .existing_depot_chest(cid, town_id)
+                .is_some_and(|id| self.container_is_slot_full(id)),
+        }
+    }
+
+    fn mail_window_open(&self, cid: crate::ids::CreatureId, town_id: u32) -> bool {
+        let root = match self.mechanics.profile.depot_locker_structure {
+            DepotLockerStructure::ClassicDepotChest => self.existing_depot_locker(cid, town_id),
+            DepotLockerStructure::TfsMarketInbox => self.existing_depot_chest(cid, town_id),
+        };
+        root.is_some_and(|id| {
+            self.container_registry
+                .get_cid_for_container(cid, id)
+                .is_some()
+        })
+    }
+
+    /// 772: prepend into the locker. 1098: town chest (`queryAdd` rejects locker adds).
+    pub(crate) fn place_mail_in_depot(
+        &mut self,
+        cid: crate::ids::CreatureId,
+        town_id: u32,
+        item_id: ItemId,
+    ) {
+        match self.mechanics.profile.depot_locker_structure {
+            DepotLockerStructure::ClassicDepotChest => {
+                let Some(locker) = self.player_get_depot_locker(cid, town_id) else {
+                    return;
+                };
+                crate::house::add_to_container_front(self, locker, item_id);
+                self.player_set_last_depot_id(cid, town_id);
+                self.notify_container_content_changed(
+                    locker,
+                    ContainerContentChange::Add { slot: 0 },
+                );
+            }
+            DepotLockerStructure::TfsMarketInbox => {
+                self.house_add_item_to_town_depot(cid, town_id, item_id);
+                self.player_set_last_depot_id(cid, town_id);
+                if let Some(chest) = self.player_get_depot_chest(cid, town_id, false) {
+                    self.notify_container_content_changed(
+                        chest,
+                        ContainerContentChange::Add { slot: 0 },
+                    );
+                }
+            }
+        }
     }
 
     fn mail_tile_pos(&self, item_id: ItemId) -> Option<Position> {
@@ -246,14 +356,23 @@ impl GameWorld {
             .is_some_and(|c| c.items.len() as u32 >= c.capacity)
     }
 
-    fn spawn_mail_lookup(&self, item_id: ItemId, town_id: u32, name: String) {
-        let Some(sched) = self.scheduler.as_ref() else {
+    fn spawn_mail_lookup(&mut self, item_id: ItemId, town_id: u32, name: String) {
+        let Some(tx) = self.scheduler.as_ref().map(|s| s.ctrl_sender()) else {
             return;
         };
-        let tx = sched.ctrl_sender();
-        let db = self.db.clone();
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let Some(pos) = self.mail_tile_pos(item_id) else {
+            return;
+        };
+        if self.detach_item_from_tile(pos, item_id).is_err() {
+            return;
+        }
         let item_ffi = item_id.data().as_ffi();
-        tokio::spawn(async move {
+        self.mail_lookup_holds.insert(item_ffi, pos);
+        let db = self.db.clone();
+        handle.spawn(async move {
             let found = PlayerStore::new(&db)
                 .guid_and_name_by_name(&name)
                 .await
@@ -381,7 +500,7 @@ mod tests {
     }
 
     #[test]
-    fn letter_to_online_player_stamps_and_lands_in_town_depot() {
+    fn letter_to_online_player_stamps_and_lands_in_town_locker() {
         let (mut world, pos) = setup_mailbox_world();
         let start = Position::new(81, 80, 7);
         ensure_walkable_tile(&mut world.map, start, 100);
@@ -410,15 +529,38 @@ mod tests {
             !world.item_still_on_mailbox(letter_id),
             "must leave the mailbox tile"
         );
+        let locker = world
+            .player_get_depot_locker(cid, 1)
+            .expect("locker created");
         let chest = world
             .player_get_depot_chest(cid, 1, false)
-            .expect("depot created");
+            .expect("chest still nested in locker");
+        assert!(
+            world
+                .container_registry
+                .get(locker)
+                .is_some_and(|c| c.items.contains(&letter_id)),
+            "772 SendMail lands in the locker, beside the chest"
+        );
         assert!(
             world
                 .container_registry
                 .get(chest)
-                .is_some_and(|c| c.items.contains(&letter_id))
+                .is_some_and(|c| !c.items.contains(&letter_id)),
+            "must not bury the letter inside the depot chest"
         );
+        assert!(
+            world
+                .container_registry
+                .get(locker)
+                .is_some_and(|c| c.items.contains(&chest)),
+            "chest remains a locker child"
+        );
+        let last = match world.creatures.get(cid) {
+            Some(crate::creature::CreatureKind::Player(p)) => p.last_depot_id,
+            _ => -1,
+        };
+        assert_eq!(last, 1, "mail must mark last_depot_id so logout saves the locker");
     }
 
     #[test]
@@ -466,6 +608,20 @@ mod tests {
             world.items.get(parcel_id).map(|i| i.item_type),
             Some(ITEM_PARCEL_STAMPED)
         );
+        let locker = world.player_get_depot_locker(cid, 1).expect("locker");
+        let chest = world.player_get_depot_chest(cid, 1, false).expect("chest");
+        assert!(
+            world
+                .container_registry
+                .get(locker)
+                .is_some_and(|c| c.items.contains(&parcel_id))
+        );
+        assert!(
+            world
+                .container_registry
+                .get(chest)
+                .is_some_and(|c| !c.items.contains(&parcel_id))
+        );
     }
 
     #[test]
@@ -490,6 +646,14 @@ mod tests {
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].item_ids, vec![letter_id]);
         assert_eq!(pending[0].town_id, 1);
+        assert!(
+            pending[0]
+                .records
+                .iter()
+                .any(|r| r.pid == crate::depot_append::LOCKER_ROOT_PID_BASE + 1
+                    && r.itemtype == ITEM_LETTER_STAMPED),
+            "offline serialize uses locker-root pid so load_depot_table places beside the chest"
+        );
         assert!(
             !pending[0].records.is_empty(),
             "serialize now for DB append / login splice"
@@ -697,5 +861,96 @@ mod tests {
             "ack then stale PlayerLoaded must still splice"
         );
         assert!(!world.mail_outbox.contains_key(&99));
+    }
+
+    #[test]
+    fn failed_name_lookup_restores_letter_to_mailbox() {
+        use slotmap::Key;
+        let (mut world, pos) = setup_mailbox_world();
+        let mut letter = Item::new_single(ITEM_LETTER);
+        letter.set_text("Nobody\nThais");
+        let letter_id = world.items.insert(letter);
+        world
+            .internal_add_item_to_tile(pos, letter_id, crate::cylinder::CylinderFlags::NONE)
+            .expect("drop");
+        world
+            .detach_item_from_tile(pos, letter_id)
+            .expect("hold");
+        let ffi = letter_id.data().as_ffi();
+        world.mail_lookup_holds.insert(ffi, pos);
+        world.apply_mail_lookup_finished(ffi, 1, None);
+        assert_eq!(
+            world.items.get(letter_id).map(|i| i.item_type),
+            Some(ITEM_LETTER)
+        );
+        assert!(world.item_still_on_mailbox(letter_id));
+        assert!(world.mail_lookup_holds.is_empty());
+    }
+
+    #[test]
+    fn lookup_success_delivers_held_letter_to_locker() {
+        use slotmap::Key;
+        let (mut world, pos) = setup_mailbox_world();
+        let start = Position::new(81, 80, 7);
+        ensure_walkable_tile(&mut world.map, start, 100);
+        let mut hero = test_player("Hero", start);
+        hero.guid = 42;
+        let cid = insert_player(&mut world, hero);
+        world.player_by_guid.insert(42, cid);
+
+        let mut letter = Item::new_single(ITEM_LETTER);
+        letter.set_text("Hero\nThais");
+        let letter_id = world.items.insert(letter);
+        world
+            .internal_add_item_to_tile(pos, letter_id, crate::cylinder::CylinderFlags::NONE)
+            .expect("drop");
+        world
+            .detach_item_from_tile(pos, letter_id)
+            .expect("hold");
+        let ffi = letter_id.data().as_ffi();
+        world.mail_lookup_holds.insert(ffi, pos);
+        world.apply_mail_lookup_finished(ffi, 1, Some(42));
+        let locker = world.player_get_depot_locker(cid, 1).expect("locker");
+        assert!(
+            world
+                .container_registry
+                .get(locker)
+                .is_some_and(|c| c.items.contains(&letter_id))
+        );
+        assert_eq!(
+            world.items.get(letter_id).map(|i| i.item_type),
+            Some(ITEM_LETTER_STAMPED)
+        );
+    }
+
+    #[test]
+    fn open_locker_gets_mail_at_front_slot() {
+        let (mut world, pos) = setup_mailbox_world();
+        let start = Position::new(81, 80, 7);
+        ensure_walkable_tile(&mut world.map, start, 100);
+        let mut hero = test_player("Hero", start);
+        hero.guid = 42;
+        let cid = insert_player(&mut world, hero);
+        world.player_by_name.insert("Hero".into(), cid);
+        world.player_by_guid.insert(42, cid);
+        let locker = world.player_get_depot_locker(cid, 1).expect("open locker");
+        world
+            .container_registry
+            .add_container(cid, locker, Some(0), 0);
+
+        let mut letter = Item::new_single(ITEM_LETTER);
+        letter.set_text("Hero\nThais");
+        let letter_id = world.items.insert(letter);
+        world
+            .internal_add_item_to_tile(pos, letter_id, crate::cylinder::CylinderFlags::NONE)
+            .expect("drop");
+
+        let items = world
+            .container_registry
+            .get(locker)
+            .map(|c| c.items.clone())
+            .unwrap_or_default();
+        assert_eq!(items.first().copied(), Some(letter_id));
+        assert!(world.mail_window_open(cid, 1));
     }
 }

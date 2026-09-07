@@ -57,7 +57,7 @@ AdvanceGame(Delay):              (main.cc:318-456)
 | `RefreshCylinders` (not `RefreshMap`) on the minute arm; `SectorRefreshable` ±31 + `CanSeeFloor` | `main.cc:383`, `operate.cc:2796-2821, 2964-2988` | `game_world_tick.rs:60`, `sector_refresh.rs:132-203` |
 | Monsterhome death-path delay: player scaling + `random(Max/2, Max)`; radius clamp 10 / `ActMonsters==0 → 1` / negative extended search; no shrink at startup | `crnonpl.cc:1296-1323, 1372-1398, 1427-1471` | `spawn_lifecycle.rs:1531-1553`, `spawn_placement.rs:26-39, 436` |
 | Raid queue pop while `execution_round <= RoundNr`; `LifeEndRound` set at spawn, checked in `IdleStimulus`; announce before spawn | `crmain.cc:2022-2064`, `crnonpl.cc:2352` | `raid_waves.rs:80-95, 245-282`, `idle_stimulus.rs:1059` |
-| Online mail: depot-full silent fail, town depot, "New mail has arrived." only when depot open, stamp on send, addressee ≥30 rejected | `moveuse.cc:767, 791-811` | `mail.rs:21-33, 179-209` |
+| Online mail: locker-full silent fail, 772 locker (beside chest), "New mail has arrived." only when locker UI is open, stamp on send, addressee ≥30 rejected | `moveuse.cc:767, 791-811` | `mail.rs` `place_mail_in_depot` |
 | `WriteKillStatistics` at minute 55 + shutdown | `main.cc:393-395`, `crmain.cc:1177-1223` | `game_world_tick.rs:62-64`, `kill_statistics.rs` |
 
 ---

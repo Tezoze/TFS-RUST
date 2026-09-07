@@ -367,7 +367,7 @@ fn collect_clean_field(
     }
 }
 
-fn add_to_container_front(world: &mut GameWorld, container: ItemId, item_id: ItemId) {
+pub(crate) fn add_to_container_front(world: &mut GameWorld, container: ItemId, item_id: ItemId) {
     let mut reg = std::mem::take(&mut world.container_registry);
     if reg.get(container).is_none() {
         let cap = 32;
