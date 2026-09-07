@@ -175,7 +175,10 @@ impl GameWorld {
             return;
         }
 
-        let tile_pos = match self.resolve_item_parent_cylinder(item_id) {
+        // Use the maintained parent only. `resolve_item_parent_cylinder` would
+        // scan every registered container (and used to walk the whole map) when
+        // parent is None — the mailbox stamp path detaches first (`SendMail`).
+        let tile_pos = match self.items.get(item_id).and_then(|i| i.parent) {
             Some(crate::cylinder::Cylinder::Tile { pos }) => Some(pos),
             _ => None,
         };
@@ -500,7 +503,8 @@ impl GameWorld {
     }
 
     fn notify_item_appearance_changed(&mut self, item_id: ItemId) {
-        let Some(parent) = self.resolve_item_parent_cylinder(item_id) else {
+        // Detached items (mailbox stamp) have `parent == None` on purpose.
+        let Some(parent) = self.items.get(item_id).and_then(|i| i.parent) else {
             return;
         };
         match parent {

@@ -577,7 +577,7 @@ mod tests {
     }
 
     /// Virtual locker is not on a tile — `resolve_item_parent_cylinder` must not
-    /// fall through to `map.find_item_position` (`build_container_open_packet` has_parent).
+    /// invent a tile parent (`build_container_open_packet` has_parent).
     #[test]
     fn virtual_depot_locker_parent_is_none_without_tile() {
         let mut world = minimal_world();

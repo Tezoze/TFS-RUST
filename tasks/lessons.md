@@ -1018,4 +1018,10 @@
 447. **772 mail is locker-loose, not chest-nested** (`mail.rs` `place_mail_in_depot`; `moveuse.cc:791-811` `SendMail` `Move` into `Player->Depot`): `Player->Depot` is the map locker (`LoadDepotBox`, type 3498 / `ITEM_LOCKER1` 2589). The chest (`ITEM_DEPOT` 2594) is a *child* of that locker. Putting stamped parcels into `player_get_depot_chest` hid them one window down and skipped the open-locker `0x70`. Offline serialize must use `pid = 0x10000 + town_id` (same as `game_world_save.rs`) so `load_depot_table` restores beside the chest; `depot_append` must not treat those pids as nested sids. `"New mail has arrived."` fires only when that town's locker window is already open. Name lookup detaches the tile item immediately (corpus `GetCharacterID` is in-memory) and restores unstamped on miss.
     *(2026-09-07)*
 
+448. **Detached mail must not full-scan the map for a parent** (`player_lua_context.rs` `discover_item_parent`; `decay_apply.rs` `change_item_type` / `notify_item_appearance_changed`; lesson 219): `SendMail` detaches the letter/parcel (`parent = None`) then stamps via `change_item_type`. `resolve_item_parent_cylinder` treated None as stale and called `map.find_item_position` — a walk of every chunk tile on forgotten (~1 s). That froze the LocalSet game thread, coalesced ~21 beats (`delay_ms=1050`), and skipped `MoveCreatures` (`Delay >= 1000`). None is a valid parent (detached hold, virtual locker). Tile-flag / appearance updates use `Item.parent` only; discover stays registry+equipment, never a world tile scan.
+    *(2026-09-07)*
+
+449. **Mail prepend must refresh locker holding count** (`house/ownership.rs` `add_to_container_front`; `stepping_tiles.rs` `announce_depot`; `moveuse.cc:640` `CountObjects(Con) - 1`): `internal_add_item_front` only mutates the child list. Depot-tile `"Your depot contains N items"` reads `total_item_count` (chest excluded). SendMail / house dump used that prepend without `refresh_container_chain`, so the announce stayed stale until a cylinder move or relog rebuilt the cache. Nested parcel contents are included because `ContainerIterator` walks the registry tree on refresh.
+    *(2026-09-07)*
+
 

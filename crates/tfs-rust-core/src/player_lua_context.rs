@@ -5,7 +5,7 @@
 use slotmap::Key;
 use tfs_rust_common::{ScriptContainerData, ScriptCylinder, ScriptItemId};
 
-use crate::container::{ContainerIterator, ContainerType};
+use crate::container::ContainerIterator;
 use crate::creature::CreatureKind;
 use crate::cylinder::Cylinder;
 use crate::game_world::GameWorld;
@@ -192,7 +192,8 @@ impl GameWorld {
     /// Resolve parent [`Cylinder`] for Lua `item:moveTo` / `item:remove` / decay apply.
     ///
     /// O(1) via [`Item::parent`] (772 `TObject::Container` outcome). Hubs maintain the field.
-    /// When unset (legacy loot/corpse paths), fall back to a registry/slot/map scan.
+    /// When unset (detached mail, virtual locker, legacy loot), fall back to a registry/slot
+    /// scan only — never `map.find_item_position` (full-world tile walk, ~1 s on forgotten).
     pub fn resolve_item_parent_cylinder(&self, item_id: ItemId) -> Option<Cylinder> {
         if let Some(p) = self.items.get(item_id).and_then(|i| i.parent) {
             return Some(p);
@@ -201,6 +202,9 @@ impl GameWorld {
     }
 
     /// Locate which cylinder currently holds `item_id` when [`Item::parent`] is stale/None.
+    ///
+    /// `parent == None` is a valid state (just-detached mail, virtual depot locker). A
+    /// full-map tile walk would always miss those and stall `AdvanceGame` (`Delay >= 1000`).
     pub(crate) fn discover_item_parent(&self, item_id: ItemId) -> Option<Cylinder> {
         for parent_id in self.container_registry.registered_container_ids() {
             if self
@@ -227,27 +231,7 @@ impl GameWorld {
                 }
             }
         }
-        // Virtual depot locker / inbox / depot chest live only in the registry — they are
-        // never on a tile. `map.find_item_position` is a full-world scan (~8.5M items) and
-        // always misses them (`build_container_open_packet` `has_parent` on locker open).
-        if self.container_is_unmapped_virtual_root(item_id) {
-            return None;
-        }
-        self.map
-            .find_item_position(item_id)
-            .map(|pos| Cylinder::Tile { pos })
-    }
-
-    /// Per-player virtual container roots (`DepotLocker` / inbox / depot chest before locker attach).
-    fn container_is_unmapped_virtual_root(&self, item_id: ItemId) -> bool {
-        let Some(c) = self.container_registry.get(item_id) else {
-            return false;
-        };
-        c.depot_locker_town_id.is_some()
-            || matches!(
-                c.container_type,
-                ContainerType::Depot | ContainerType::Inbox | ContainerType::StoreInbox
-            )
+        None
     }
 
     /// Like [`Self::resolve_item_parent_cylinder`], but writes back a discovered parent.

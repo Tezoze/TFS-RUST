@@ -18,6 +18,8 @@ Fix work (Phase 1 H1–H7 landed 2026-09-06; see audit §2 DONE):
 - [x] Phase 1.6 `spawn.rs` zone timer — H3/M5
 - [x] Phase 1.7 `mail_delivery.rs` — H4 (outbox is a per-guid queue; serialized append; keep on fail / until login consume)
 - [x] Mail lands in the 772 **locker** (not the nested chest); locker-root `pid = 0x10000+town`; lookup detaches immediately (`mail.rs` / `depot_append.rs`)
+- [x] Mailbox throw stall: stamp-after-detach no longer full-map `find_item_position` (`discover_item_parent`; lesson 448)
+- [x] Mail into locker refreshes `total_item_count` so depot-tile "contains N items" updates (`add_to_container_front`)
 - [ ] Phase 2 (M1, M4–M9, M11) and Phase 3 (Low table) per audit §3; M10 house cadence needs a user decision
 
 # Sector refresh cadence, decay, residency — audit Step 11 (2026-09-06)

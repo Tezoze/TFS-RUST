@@ -556,6 +556,13 @@ mod tests {
                 .is_some_and(|c| c.items.contains(&chest)),
             "chest remains a locker child"
         );
+        assert_eq!(
+            world
+                .script_container_data(locker)
+                .map(|d| d.item_holding_count),
+            Some(1),
+            "depot-tile holding count must include the letter without a depot shuffle"
+        );
         let last = match world.creatures.get(cid) {
             Some(crate::creature::CreatureKind::Player(p)) => p.last_depot_id,
             _ => -1,
@@ -621,6 +628,13 @@ mod tests {
                 .container_registry
                 .get(chest)
                 .is_some_and(|c| !c.items.contains(&parcel_id))
+        );
+        assert_eq!(
+            world
+                .script_container_data(locker)
+                .map(|d| d.item_holding_count),
+            Some(2),
+            "holding count is parcel + label (chest excluded)"
         );
     }
 
@@ -861,6 +875,33 @@ mod tests {
             "ack then stale PlayerLoaded must still splice"
         );
         assert!(!world.mail_outbox.contains_key(&99));
+    }
+
+    #[test]
+    fn stamp_after_detach_keeps_parent_none() {
+        let (mut world, pos) = setup_mailbox_world();
+        let letter_id = world.items.insert(Item::new_single(ITEM_LETTER));
+        world
+            .internal_add_item_to_tile(pos, letter_id, crate::cylinder::CylinderFlags::NONE)
+            .expect("drop");
+        world.detach_item_from_tile(pos, letter_id).expect("detach");
+        assert!(
+            world.items.get(letter_id).is_some_and(|i| i.parent.is_none()),
+            "SendMail holds the letter with no cylinder parent"
+        );
+        assert!(
+            world.discover_item_parent(letter_id).is_none(),
+            "must not invent a tile parent (full-map scan) for detached mail"
+        );
+        world.change_item_type(letter_id, ITEM_LETTER_STAMPED);
+        assert_eq!(
+            world.items.get(letter_id).map(|i| i.item_type),
+            Some(ITEM_LETTER_STAMPED)
+        );
+        assert!(
+            world.items.get(letter_id).is_some_and(|i| i.parent.is_none()),
+            "stamp must not re-parent onto a tile"
+        );
     }
 
     #[test]

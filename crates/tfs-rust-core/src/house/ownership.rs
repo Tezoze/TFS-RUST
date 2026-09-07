@@ -386,6 +386,9 @@ pub(crate) fn add_to_container_front(world: &mut GameWorld, container: ItemId, i
         });
     }
     world.container_registry = reg;
+    // `internal_add_item_front` does not touch `total_item_count`. Depot-tile
+    // "Your depot contains N items" reads that cache (`stepping_tiles.rs`).
+    world.refresh_container_chain(container);
 }
 
 #[cfg(test)]
