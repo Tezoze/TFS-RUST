@@ -150,7 +150,11 @@ use tfs_rust_common::enums::ConditionType;
 use tfs_rust_content::item_abilities::ItemAbilities;
 use tfs_rust_content::otb::ItemType;
 
-fn register_item_type(world: &mut crate::game_world::GameWorld, item_type_id: u16, mut it: ItemType) {
+fn register_item_type(
+    world: &mut crate::game_world::GameWorld,
+    item_type_id: u16,
+    mut it: ItemType,
+) {
     it.id = item_type_id;
     it.server_id = item_type_id;
     let mut items = std::collections::HashMap::clone(&world.items_db.items);
@@ -261,7 +265,10 @@ fn life_ring_regens_every_3_rounds() {
         world.process_creatures();
         if round.is_multiple_of(3) {
             assert!(
-                world.pending_outgoing.get(&conn).is_some_and(|p| !p.is_empty()),
+                world
+                    .pending_outgoing
+                    .get(&conn)
+                    .is_some_and(|p| !p.is_empty()),
                 "stats/health packets at round {round}"
             );
         }

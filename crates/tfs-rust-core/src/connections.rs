@@ -454,7 +454,7 @@ mod tests {
             Some(CreatureKind::Player(p)) => p,
             _ => panic!("body must remain on map"),
         };
-        assert!(p.logging_out);
+        assert!(p.base.logging_out);
         assert_eq!(
             p.base.attack_target,
             Some(mon),
@@ -527,7 +527,7 @@ mod tests {
         world.creature_begin_logout(player, false, false);
         assert!(matches!(
             world.creatures.get(player),
-            Some(CreatureKind::Player(p)) if p.logging_out
+            Some(CreatureKind::Player(p)) if p.base.logging_out
         ));
 
         let (cid, old_conn) = world
@@ -541,8 +541,8 @@ mod tests {
             Some(CreatureKind::Player(p)) => p,
             _ => panic!("same body must remain"),
         };
-        assert!(!p.logging_out);
-        assert!(!p.logout_allowed);
+        assert!(!p.base.logging_out);
+        assert!(!p.base.logout_allowed);
         assert!(p.base.attack_target.is_none(), "TakeOver StopAttack(0)");
         assert_eq!(world.player_by_guid.get(&42), Some(&player));
         assert_eq!(world.creatures.len(), 2, "no duplicate player spawn");
@@ -564,7 +564,7 @@ mod tests {
         world.round_nr = 200;
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
             p.earliest_logout_round = 0;
-            p.logging_out = true;
+            p.base.logging_out = true;
         }
         let err = world
             .player_try_takeover_for_login(7, "Finishing", 0, 0)
@@ -598,7 +598,7 @@ mod tests {
         if let Some(CreatureKind::Player(p)) = world.creatures.get(player) {
             assert_eq!(p.operating_system, 1);
             assert_eq!(p.otclient_v8, 2);
-            assert!(!p.logging_out);
+            assert!(!p.base.logging_out);
         }
     }
 
@@ -695,7 +695,10 @@ mod tests {
         world.last_ambiente_brightness = -1;
         world.tick_ambient_light();
         assert!(
-            world.pending_outgoing.get(&conn).is_some_and(|p| !p.is_empty()),
+            world
+                .pending_outgoing
+                .get(&conn)
+                .is_some_and(|p| !p.is_empty()),
             "SendAmbiente must include CONNECTION_DEAD"
         );
     }

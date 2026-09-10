@@ -243,7 +243,11 @@ impl GameWorld {
             if let Some(req) = crate::spawn::build_spawn_request(slot_index, &slot, false) {
                 self.process_spawn_request(req);
             }
-            let act_max = self.spawns.homes.get(home_index).map(|h| (h.act_monsters, h.max_monsters));
+            let act_max = self
+                .spawns
+                .homes
+                .get(home_index)
+                .map(|h| (h.act_monsters, h.max_monsters));
             if let Some((act, max)) = act_max {
                 if act < max {
                     let regen = self
@@ -345,6 +349,7 @@ impl GameWorld {
             follow_target: None,
             attack_target: None,
             master: None,
+            master_is_player: false,
             damage_map: Default::default(),
             last_hit_by: None,
             last_damage_type: CombatType::Physical,
@@ -361,6 +366,9 @@ impl GameWorld {
             last_auto_walk_armed_ms: u64::MAX,
             drop_loot: true,
             skill_loss: true,
+            is_dead: false,
+            logging_out: false,
+            logout_allowed: false,
         };
 
         let ai_config = MonsterAiConfig::from_monster_type(&mtype);
@@ -504,6 +512,7 @@ impl GameWorld {
             follow_target: None,
             attack_target: None,
             master: None,
+            master_is_player: false,
             damage_map: Default::default(),
             last_hit_by: None,
             last_damage_type: CombatType::Physical,
@@ -520,6 +529,9 @@ impl GameWorld {
             last_auto_walk_armed_ms: u64::MAX,
             drop_loot: true,
             skill_loss: true,
+            is_dead: false,
+            logging_out: false,
+            logout_allowed: false,
         };
 
         let cid = self.creatures.insert(CreatureKind::Npc(Npc {
@@ -636,6 +648,7 @@ impl GameWorld {
             follow_target: None,
             attack_target: None,
             master: None,
+            master_is_player: false,
             damage_map: Default::default(),
             last_hit_by: None,
             last_damage_type: CombatType::Physical,
@@ -652,6 +665,9 @@ impl GameWorld {
             last_auto_walk_armed_ms: u64::MAX,
             drop_loot: true,
             skill_loss: true,
+            is_dead: false,
+            logging_out: false,
+            logout_allowed: false,
         };
         let ai_config = MonsterAiConfig::from_monster_type(&mtype);
         let cid = self
@@ -733,6 +749,7 @@ impl GameWorld {
             follow_target: None,
             attack_target: None,
             master: None,
+            master_is_player: false,
             damage_map: Default::default(),
             last_hit_by: None,
             last_damage_type: CombatType::Physical,
@@ -749,6 +766,9 @@ impl GameWorld {
             last_auto_walk_armed_ms: u64::MAX,
             drop_loot: true,
             skill_loss: true,
+            is_dead: false,
+            logging_out: false,
+            logout_allowed: false,
         };
         let cid = self.creatures.insert(CreatureKind::Npc(Npc {
             base,
@@ -790,11 +810,13 @@ impl GameWorld {
         let summon = self
             .resolve_creature_u64(summon_u64)
             .ok_or_else(|| "addSummon: summon not found".to_string())?;
+        let master_is_player =
+            matches!(self.creatures.get(master), Some(CreatureKind::Player(_)));
         let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(summon) else {
             return Ok(false);
         };
         m.base.clear_targets();
-        m.base.master = Some(master);
+        m.base.bind_master(master, master_is_player);
         m.base.drop_loot = false;
         m.base.skill_loss = false;
         Ok(true)
@@ -892,6 +914,10 @@ impl GameWorld {
         // `TMonster` ctor reparents summon-of-summon up to the wild/player ancestor
         // (`crnonpl.cc:2012–2028`). CASTING still only *builds* IMPACT_SUMMON when Master==0.
         let effective_master = self.effective_summon_master(master_id)?;
+        let master_is_player = matches!(
+            self.creatures.get(effective_master),
+            Some(CreatureKind::Player(_))
+        );
         let summon_field = self.search_summon_field(search_origin, 2)?;
         // `CreateMonster` ignores `SearchFreeField` failure — keep SearchSummonField coords
         // (`crnonpl.cc:3169`).
@@ -939,6 +965,7 @@ impl GameWorld {
             follow_target: None,
             attack_target: None,
             master: Some(effective_master),
+            master_is_player,
             damage_map: Default::default(),
             last_hit_by: None,
             last_damage_type: CombatType::Physical,
@@ -953,8 +980,11 @@ impl GameWorld {
             todo: Default::default(),
             chase_mode: Default::default(),
             last_auto_walk_armed_ms: u64::MAX,
-            drop_loot: true,
+            drop_loot: false,
             skill_loss: true,
+            is_dead: false,
+            logging_out: false,
+            logout_allowed: false,
         };
         let ai_config = MonsterAiConfig::from_monster_type(&mtype);
         let cid = self
@@ -2755,7 +2785,9 @@ mod tests {
             monster_name: Some("Rat".into()),
             startup: false,
         });
-        let at = world.spawns.homes[0].timer_at.expect("failed place must arm");
+        let at = world.spawns.homes[0]
+            .timer_at
+            .expect("failed place must arm");
         let delay = at.saturating_sub(10);
         assert!(
             (30..=60).contains(&delay),

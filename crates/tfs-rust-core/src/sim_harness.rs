@@ -146,6 +146,7 @@ fn test_player_base(name: &str, pos: Position) -> Player {
             follow_target: None,
             attack_target: None,
             master: None,
+            master_is_player: false,
             damage_map: Default::default(),
             last_hit_by: None,
             last_damage_type: CombatType::Physical,
@@ -162,6 +163,9 @@ fn test_player_base(name: &str, pos: Position) -> Player {
             last_auto_walk_armed_ms: u64::MAX,
             drop_loot: true,
             skill_loss: true,
+            is_dead: false,
+            logging_out: false,
+            logout_allowed: false,
         },
         account_id: 1,
         guid: 1,
@@ -224,8 +228,6 @@ fn test_player_base(name: &str, pos: Position) -> Player {
         former_logout_round: 0,
         playerkiller_end: 0,
         murder_timestamps: [0; 20],
-        logging_out: false,
-        logout_allowed: false,
         last_ping_sent: Instant::now(),
         last_pong_at: Instant::now(),
         next_action_until: None,
@@ -297,6 +299,7 @@ pub fn minimal_creature_base() -> CreatureBase {
         follow_target: None,
         attack_target: None,
         master: None,
+        master_is_player: false,
         damage_map: Default::default(),
         last_hit_by: None,
         last_damage_type: CombatType::Physical,
@@ -313,6 +316,9 @@ pub fn minimal_creature_base() -> CreatureBase {
         last_auto_walk_armed_ms: u64::MAX,
         drop_loot: true,
         skill_loss: true,
+        is_dead: false,
+        logging_out: false,
+        logout_allowed: false,
     }
 }
 
@@ -1010,6 +1016,7 @@ pub fn insert_monster_with_config(
         follow_target: None,
         attack_target: None,
         master: None,
+        master_is_player: false,
         damage_map: Default::default(),
         last_hit_by: None,
         last_damage_type: CombatType::Physical,
@@ -1026,6 +1033,9 @@ pub fn insert_monster_with_config(
         last_auto_walk_armed_ms: u64::MAX,
         drop_loot: true,
         skill_loss: true,
+        is_dead: false,
+        logging_out: false,
+        logout_allowed: false,
     };
     let cid = world
         .creatures
@@ -1082,6 +1092,7 @@ pub fn insert_monster_from_type(
         follow_target: None,
         attack_target: None,
         master: None,
+        master_is_player: false,
         damage_map: Default::default(),
         last_hit_by: None,
         last_damage_type: CombatType::Physical,
@@ -1098,6 +1109,9 @@ pub fn insert_monster_from_type(
         last_auto_walk_armed_ms: u64::MAX,
         drop_loot: true,
         skill_loss: true,
+        is_dead: false,
+        logging_out: false,
+        logout_allowed: false,
     };
     let cid = world
         .creatures
@@ -1184,6 +1198,7 @@ pub fn insert_npc(world: &mut GameWorld, name: &str, pos: Position, speed: i32) 
         follow_target: None,
         attack_target: None,
         master: None,
+        master_is_player: false,
         damage_map: Default::default(),
         last_hit_by: None,
         last_damage_type: CombatType::Physical,
@@ -1200,6 +1215,9 @@ pub fn insert_npc(world: &mut GameWorld, name: &str, pos: Position, speed: i32) 
         last_auto_walk_armed_ms: u64::MAX,
         drop_loot: true,
         skill_loss: true,
+        is_dead: false,
+        logging_out: false,
+        logout_allowed: false,
     };
     let cid = world
         .creatures

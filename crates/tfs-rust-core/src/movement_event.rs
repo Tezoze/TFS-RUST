@@ -61,7 +61,9 @@ impl GameWorld {
     fn movement_event_pos(&self, item_id: ItemId) -> Option<Position> {
         match self.items.get(item_id)?.parent {
             Some(Cylinder::Tile { pos }) => Some(pos),
-            _ => self.creatures.get(self.item_holding_player(item_id)?)
+            _ => self
+                .creatures
+                .get(self.item_holding_player(item_id)?)
                 .map(|k| k.position()),
         }
     }

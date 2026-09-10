@@ -137,6 +137,7 @@ pub fn player_from_loaded(
         follow_target: None,
         attack_target: None,
         master: None,
+        master_is_player: false,
         damage_map: Default::default(),
         last_hit_by: None,
         last_damage_type: CombatType::Physical,
@@ -153,6 +154,9 @@ pub fn player_from_loaded(
         last_auto_walk_armed_ms: u64::MAX,
         drop_loot: true,
         skill_loss: true,
+        is_dead: false,
+        logging_out: false,
+        logout_allowed: false,
     };
 
     let account_id =
@@ -274,8 +278,6 @@ pub fn player_from_loaded(
         murder_timestamps: crate::player::combat::skulls::decode_murder_timestamps(
             &p.murder_timestamps,
         ),
-        logging_out: false,
-        logout_allowed: false,
         last_ping_sent: std::time::Instant::now(),
         last_pong_at: std::time::Instant::now(),
         next_action_until: None,

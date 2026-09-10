@@ -272,6 +272,10 @@ pub struct Monster {
     pub spells: Vec<MonsterSpell>,
     /// Race XP grant on death — `MonsterType.experience` / `crcombat.cc:908`.
     pub experience: u32,
+    /// 772 `Skills[SKILL_LEVEL]->Exp` — `TSkillLevel::Increase` (`crskill.cc:249`,
+    /// `crcombat.cc:957`). Race `SetSkills` rarely overwrites `SKILL_LEVEL`, so
+    /// `NextLevel` stays unreachable (`TSkill::Reset`); this only accumulates Exp.
+    pub skill_level_exp: u64,
     /// `<look corpse=…>` item id for death drop — `crmain.cc:204`.
     pub corpse_id: u16,
     /// Blood family — on-hit effect + death/hit splash liquid. Set at spawn from `MonsterType.race`
@@ -356,6 +360,7 @@ impl Monster {
             immunity_outfit: config.immunity_outfit,
             spells: config.spells,
             experience: 0,
+            skill_level_exp: 0,
             corpse_id: 0,
             blood: BloodType::Blood,
             inventory: MonsterInventory::default(),

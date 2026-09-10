@@ -532,9 +532,8 @@ impl GameWorld {
             }
 
             // Capture the notify snapshot BEFORE `combat_execute_with_stimulus` —
-            // that path may kill the target (`apply_creature_death`), making
-            // `self.creatures.get` return `None`. Without this, the killing-blow
-            // damage text + health bar are never sent. Mirrors `strike.rs:145`.
+            // `mark_dead` leaves the body, but `apply_creature_death` (tests/Lua) still
+            // removes immediately. Snapshot also forces killing-blow HP percent to 0.
             let notify_snap = self.combat_notify_snapshot(target_id);
             let hp_before = self
                 .creatures

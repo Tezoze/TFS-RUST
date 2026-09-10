@@ -48,8 +48,14 @@ pub struct MonsterHome {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum HomeKey {
-    Named { zone_index: usize, name: String },
-    Weighted { zone_index: usize, entry_index: usize },
+    Named {
+        zone_index: usize,
+        name: String,
+    },
+    Weighted {
+        zone_index: usize,
+        entry_index: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -568,7 +574,11 @@ mod tests {
         mgr.on_creature_removed(0, 10, 60);
         mgr.on_creature_removed(1, 11, 60);
         mgr.on_creature_removed(2, 12, 60);
-        assert_eq!(mgr.due_slot_indices(70).len(), 1, "one placement per expiry");
+        assert_eq!(
+            mgr.due_slot_indices(70).len(),
+            1,
+            "one placement per expiry"
+        );
         mgr.on_creature_spawned(0, CreatureId::default());
         mgr.arm_home(0, 70, 60);
         assert!(

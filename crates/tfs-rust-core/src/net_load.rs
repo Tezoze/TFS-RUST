@@ -69,7 +69,10 @@ impl NetLoad {
             delta / players_online as i32
         };
         self.history[self.ptr] = per_player;
-        self.total_load = self.total_load.saturating_sub(old).saturating_add(per_player);
+        self.total_load = self
+            .total_load
+            .saturating_sub(old)
+            .saturating_add(per_player);
         self.ptr = (self.ptr + 1) % HISTORY_LEN;
 
         if round_nr < WARMUP_ROUNDS || players_online < MIN_PLAYERS {
@@ -119,11 +122,8 @@ impl GameWorld {
             }
             self.enqueue_periodic_ping(conn_id, cid);
         }
-        let dead: Vec<(tfs_rust_common::ConnId, DeadConnState)> = self
-            .dead_conn_state
-            .iter()
-            .map(|(&c, &s)| (c, s))
-            .collect();
+        let dead: Vec<(tfs_rust_common::ConnId, DeadConnState)> =
+            self.dead_conn_state.iter().map(|(&c, &s)| (c, s)).collect();
         for (conn_id, mut state) in dead {
             if round.saturating_sub(state.last_command_round) < EMERGENCY_PING_IDLE {
                 state.last_command_round = round.saturating_sub(EMERGENCY_REWIND);

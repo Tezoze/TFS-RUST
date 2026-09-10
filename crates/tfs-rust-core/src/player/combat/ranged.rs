@@ -324,7 +324,7 @@ impl GameWorld {
         );
         // M2 — Use the real `Damage` scalar (includes mana-shield absorb).
         let damage_done = damage_scalar;
-        let target_alive = self.creatures.contains_key(target_id);
+        let target_alive = !self.creature_is_dead(target_id);
         let _hp_after = if target_alive {
             self.creatures
                 .get(target_id)
@@ -648,7 +648,7 @@ impl GameWorld {
                 // M2 — Use the real `Damage` scalar (includes mana-shield absorb and remaining-HP
                 // clamp) for `ActivateLearning` and damage text instead of the HP delta.
                 let damage_done = damage_scalar;
-                let target_alive = self.creatures.contains_key(target_id);
+                let target_alive = !self.creature_is_dead(target_id);
                 let _hp_after = if target_alive {
                     self.creatures
                         .get(target_id)
@@ -773,7 +773,7 @@ impl GameWorld {
         }
 
         // `if target dead: StopAttack` (`crcombat.cc:643-645`).
-        if !self.creatures.contains_key(target_id) {
+        if self.creature_is_dead(target_id) {
             if let Some(conn) = self.conn_for_creature(cid) {
                 self.player_stop_attack(conn, cid);
             } else if let Some(k) = self.creatures.get_mut(cid) {

@@ -1,7 +1,7 @@
 //! Death: loot, XP from damage map, events, corpse decay placeholder.
 //! C++ reference: `Creature::dropCorpse`, `Game::playerDeath`, `combat.cpp`;
 //! 772 player death — `crmain.cc:790+` (AoL), `crplayer.cc:324` `TPlayer::Death` (skill/exp loss);
-//! PvP kill XP — `crplayer.cc:339–340` + `crcombat.cc:922–934` `DistributeExperiencePoints`.
+//! monster XP share — `crcombat.cc:908-958` `DistributeExperiencePoints` (any living attacker).
 
 use crate::combat::{distribute_experience, pvp_kill_experience_amount};
 use crate::config::ConfigManager;
@@ -130,10 +130,11 @@ pub struct XpShareGrant {
 ///
 /// Returns `(leveled, xp_grants)`:
 /// - `leveled` — creature IDs whose level (and thus speed) changed
-/// - `xp_grants` — killers with positive XP (stats + popup) **and** the player victim
+/// - `xp_grants` — killers with positive XP (white popup; player stats) **and** the player victim
 ///   (always, so `sendStats` runs after blessing clear even when exp loss is 0)
-// C++ reference: `Creature::onDeath` chain; monster XP — `crcombat.cc:891-908`;
-// player kill XP — `crplayer.cc:339-340` (OE only) + `crcombat.cc:922-934`.
+// C++ reference: `Creature::onDeath` chain; monster XP — `crcombat.cc:908-958`
+// (`Increase` + `TextualEffect` are not player-gated); player kill XP —
+// `crplayer.cc:339-340` (OE only) + `crcombat.cc:922-934`.
 #[allow(clippy::too_many_arguments)]
 pub fn handle_creature_death(
     creatures: &mut SlotMap<CreatureId, CreatureKind>,
@@ -231,59 +232,78 @@ pub fn handle_creature_death(
     let grants = distribute_experience(exp_reward, &shares, Some(combat_damage));
 
     for ((killer_id, _), share) in killer_entries.iter().zip(grants) {
-        let share = if is_pvp_kill {
-            // 772 PvP arm: no TFS party shared-XP split; party members skipped below.
-            share
-        } else if let Some(n) = party_size_for_xp.filter(|&n| n > 1) {
-            split_shared_experience(share, n)
-        } else {
-            share
-        };
-
-        let Some(CreatureKind::Player(k)) = creatures.get(*killer_id) else {
-            let names = player_script_event_names(creatures, *killer_id);
-            events.on_kill(*killer_id, victim, &names);
+        // C++ `GetCreature == NULL || IsDead` → skip (`crcombat.cc:916-918`).
+        if creatures.get(*killer_id).is_none_or(|k| k.base().is_dead) {
             continue;
-        };
+        }
 
-        let share = if is_pvp_kill {
-            // 772 `InPartyWith(..., true)` — live or former party within +5 rounds.
-            let same_party = match creatures.get(victim) {
-                Some(CreatureKind::Player(v)) => v.in_party_with(k, true, round_nr),
-                _ => false,
-            };
-            if same_party {
-                0
-            } else if let Some(vic_lvl) = pvp_victim_level {
-                pvp_kill_experience_amount(mechanics, vic_lvl, k.level, share)
+        if matches!(creatures.get(*killer_id), Some(CreatureKind::Player(_))) {
+            let share = if is_pvp_kill {
+                share
+            } else if let Some(n) = party_size_for_xp.filter(|&n| n > 1) {
+                split_shared_experience(share, n)
             } else {
-                0
-            }
-        } else {
-            share
-        };
+                share
+            };
+            let share = if is_pvp_kill {
+                // 772 `InPartyWith(..., true)` — live or former party within +5 rounds.
+                let same_party = match creatures.get(victim) {
+                    Some(CreatureKind::Player(v)) => match creatures.get(*killer_id) {
+                        Some(CreatureKind::Player(k)) => v.in_party_with(k, true, round_nr),
+                        _ => false,
+                    },
+                    _ => false,
+                };
+                if same_party {
+                    0
+                } else if let (Some(vic_lvl), Some(CreatureKind::Player(k))) =
+                    (pvp_victim_level, creatures.get(*killer_id))
+                {
+                    pvp_kill_experience_amount(mechanics, vic_lvl, k.level, share)
+                } else {
+                    0
+                }
+            } else {
+                share
+            };
 
-        let rate_exp = config
-            .experience_rate_for_level(k.level)
-            .unwrap_or(1.0)
-            .max(0.0);
-        let share = ((share as f64) * rate_exp).floor() as u64;
-        if share > 0
-            && let Some(CreatureKind::Player(k)) = creatures.get_mut(*killer_id)
-        {
-            let old_level = k.level;
-            if k.add_experience(share, step_speed_model) {
-                leveled_killers.push(*killer_id);
+            let rate_exp = match creatures.get(*killer_id) {
+                Some(CreatureKind::Player(k)) => config
+                    .experience_rate_for_level(k.level)
+                    .unwrap_or(1.0)
+                    .max(0.0),
+                _ => 1.0,
+            };
+            let share = ((share as f64) * rate_exp).floor() as u64;
+            if share > 0
+                && let Some(CreatureKind::Player(k)) = creatures.get_mut(*killer_id)
+            {
+                let old_level = k.level;
+                if k.add_experience(share, step_speed_model) {
+                    leveled_killers.push(*killer_id);
+                }
+                // 772 soul regen on exp (`crcombat.cc:938-955`): Amount >= AttackerLevel.
+                if share >= old_level as u64 {
+                    k.arm_soul_regen_timer();
+                }
+                xp_grants.push(XpShareGrant {
+                    cid: *killer_id,
+                    amount: share,
+                    old_level,
+                    new_level: k.level,
+                });
             }
-            // 772 soul regen on exp (`crcombat.cc:938-955`): Amount >= AttackerLevel.
-            if share >= old_level as u64 {
-                k.arm_soul_regen_timer();
+        } else if share > 0 {
+            // `Skills[SKILL_LEVEL]->Increase` + white `TextualEffect` — not player-gated
+            // (`crcombat.cc:957-958`). PvP 11/10 cap is player-vs-player only (`:922`).
+            if let Some(CreatureKind::Monster(m)) = creatures.get_mut(*killer_id) {
+                m.skill_level_exp = m.skill_level_exp.saturating_add(share);
             }
             xp_grants.push(XpShareGrant {
                 cid: *killer_id,
                 amount: share,
-                old_level,
-                new_level: k.level,
+                old_level: 0,
+                new_level: 0,
             });
         }
         let names = player_script_event_names(creatures, *killer_id);
@@ -319,7 +339,7 @@ mod tests {
     use super::*;
     use crate::event_dispatcher::NullEventDispatcher;
     use crate::formulas::{MechanicsProfile, StepSpeedModel};
-    use crate::sim_harness::{insert_player, minimal_world, test_player};
+    use crate::sim_harness::{insert_monster, insert_player, minimal_world, test_player};
     use tfs_rust_common::Position;
     use tfs_rust_common::enums::WorldType;
 
@@ -595,5 +615,48 @@ mod tests {
         };
         // 7% - 5 = 2% → lose 200.
         assert_eq!(exp, 9_800, "promoted + 5 blessings → 2% loss");
+    }
+
+    #[test]
+    fn monster_killer_gains_skill_level_exp() {
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let kicker = insert_monster(&mut world, "Cyclops", pos, 200);
+        let victim = insert_monster(&mut world, "Rat", pos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(victim) {
+            m.experience = 5;
+            m.base.damage_map.insert(kicker, 100);
+        }
+        let (_, grants) = death_call(&mut world, victim, WorldType::Pvp);
+        assert!(
+            grants.iter().any(|g| g.cid == kicker && g.amount == 5),
+            "white-popup grant must include the monster killer"
+        );
+        let got = match world.creatures.get(kicker) {
+            Some(CreatureKind::Monster(m)) => m.skill_level_exp,
+            _ => panic!("kicker"),
+        };
+        assert_eq!(got, 5, "SKILL_LEVEL Increase is not player-gated (`crcombat.cc:957`)");
+    }
+
+    #[test]
+    fn dead_monster_killer_is_skipped() {
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let kicker = insert_monster(&mut world, "Cyclops", pos, 200);
+        let victim = insert_monster(&mut world, "Rat", pos, 200);
+        if let Some(k) = world.creatures.get_mut(kicker) {
+            k.base_mut().is_dead = true;
+        }
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(victim) {
+            m.experience = 5;
+            m.base.damage_map.insert(kicker, 100);
+        }
+        let _ = death_call(&mut world, victim, WorldType::Pvp);
+        let got = match world.creatures.get(kicker) {
+            Some(CreatureKind::Monster(m)) => m.skill_level_exp,
+            _ => panic!("kicker"),
+        };
+        assert_eq!(got, 0, "IsDead attackers are skipped (`crcombat.cc:917`)");
     }
 }

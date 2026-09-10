@@ -53,7 +53,11 @@ async fn socket_drop_keeps_attack_for_60_rounds() {
         &mut sinks,
         &None,
     );
-    let base = world.creatures.get(pid).expect("combat-locked body stays").base();
+    let base = world
+        .creatures
+        .get(pid)
+        .expect("combat-locked body stays")
+        .base();
     assert_eq!(base.attack_target, Some(mon), "socket drop StopFight=false");
     assert_eq!(base.latest_attack_round, 160);
 }
@@ -72,7 +76,11 @@ async fn logout_packet_clears_attack_now() {
         &mut sinks,
         &None,
     );
-    let base = world.creatures.get(pid).expect("combat-locked body stays").base();
+    let base = world
+        .creatures
+        .get(pid)
+        .expect("combat-locked body stays")
+        .base();
     assert!(
         base.attack_target.is_none(),
         "CL_CMD_LOGOUT StopFight=true clears dest now"

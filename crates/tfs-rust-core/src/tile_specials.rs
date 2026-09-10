@@ -325,10 +325,7 @@ mod tests {
             world.items.get(gold).is_none(),
             "dustbin Collision deletes Obj2"
         );
-        assert!(
-            world.items.get(bin).is_some(),
-            "dustbin itself stays"
-        );
+        assert!(world.items.get(bin).is_some(), "dustbin itself stays");
     }
 
     #[test]

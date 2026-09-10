@@ -435,14 +435,15 @@ impl GameWorld {
     /// Tries the fixed N,S,W,E offsets (skipping the kicker's own tile and `AVOID`/magic-field
     /// tiles); relocates the blocker to the first valid one. If none work, the blocker is **killed**
     /// with full parity to C++ (`crnonpl.cc:3076-3080`): full-HP physical damage attributed to the
-    /// kicker (so kill credit / loot / experience go to it) + the block-hit effect, then the death
-    /// pipeline (corpse + loot drop + exp distribution). Returns `true` if moved, `false` if killed.
+    /// kicker (combat list + `DistributeExperiencePoints` `SKILL_LEVEL` Increase, including
+    /// monster killers — `crcombat.cc:957-958`) + the block-hit effect, then the death pipeline.
     ///
     /// F2: destination validation uses the execute-mode `MovePossible` gate
     /// ([`Self::monster_move_possible_execute_for_kick`]) — the blocker's own
     /// `MovePossible(Execute=true)` (`crnonpl.cc:3066`) — which recursively kicks pushable
     /// creatures on the escape tile (chain-push). Was: planning gate (`Execute=false`) which
     /// skipped the recursive kick and caused stacking + spurious kills in dense convoys.
+    /// Returns `true` if moved, `false` if killed.
     fn monster_kick_creature(
         &mut self,
         kicker: CreatureId,
@@ -593,9 +594,8 @@ impl GameWorld {
                 &crate::combat::CombatParams::default(),
             );
         }
-        // C++ `Kill()` — death xp/events/corpse + remove (mirrors `combat_execute_with_stimulus`'s
-        // post-apply death branch without re-running `DamageStimulus`, which `Kill()` skips).
-        self.apply_creature_death(blocker);
+        // C++ `Kill()` — HP 0 + `Death()` flags; ProcessCreatures destructor removes.
+        self.mark_dead(blocker);
     }
 
     /// F2: 772 `TMonster::MovePossible(Execute=true)` for `KickCreature` dest validation

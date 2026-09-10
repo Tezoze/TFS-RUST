@@ -133,10 +133,9 @@ pub fn creature_can_see(
 
 /// Pre-captured target info for `notify_player_combat_damage`.
 ///
-/// Must be captured **before** `combat_execute_with_stimulus` because that path may kill the
-/// target (`apply_creature_death` → `remove_creature`), making `self.creatures.get(target_id)`
-/// return `None`. Without this snapshot, the killing-blow damage text + health bar are never
-/// sent (`crmain.cc:765` `TextualEffect`, `crmain.cc:777-784` status message).
+/// Must be captured **before** `combat_execute_with_stimulus`. Production combat calls
+/// `mark_dead` (body stays); tests/Lua `apply_creature_death` still remove immediately.
+/// Killing-blow damage text + health bar use this snapshot (`crmain.cc:765`, `:777-784`).
 pub(crate) struct CombatNotifySnapshot {
     pub pos: Position,
     pub wire_id: u32,
@@ -531,9 +530,9 @@ impl GameWorld {
     /// the private "You lose X hitpoints" status message + stats update. For all targets,
     /// broadcasts the animated damage text + health bar to spectators.
     ///
-    /// `snapshot` must be captured before `combat_execute_with_stimulus` — the target may be dead
-    /// (removed from `world.creatures`) by the time this runs, so we cannot read pos/wire_id from
-    /// `self.creatures` here. HP percent is re-read if the target is still alive; 0 if dead.
+    /// `snapshot` must be captured before `combat_execute_with_stimulus`. Production combat
+    /// `mark_dead` leaves the body; tests/Lua `apply_creature_death` still remove it.
+    /// HP percent is re-read if the target is still alive; 0 if dead.
     pub(crate) fn notify_player_combat_damage(
         &mut self,
         attacker_id: Option<CreatureId>,
@@ -552,8 +551,8 @@ impl GameWorld {
             max_hp,
         } = snapshot;
         let max_hp = max_hp.max(1);
-        // Re-read current HP if the target is still alive; 0 if dead (removed by
-        // `apply_creature_death`). A dead creature shows 0% health (red bar).
+        // Re-read current HP if the target is still on the map; 0 if already removed.
+        // A lingering `is_dead` body shows 0% health (red bar).
         let hp_pct = self
             .creatures
             .get(target_id)

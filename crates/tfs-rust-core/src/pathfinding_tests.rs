@@ -548,7 +548,10 @@ fn reverse_noway_without_fallback() {
         ground,
         None,
     );
-    assert!(path.is_none(), "Must return None when reverse search is cut off");
+    assert!(
+        path.is_none(),
+        "Must return None when reverse search is cut off"
+    );
 }
 
 #[test]

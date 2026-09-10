@@ -382,7 +382,7 @@ impl GameWorld {
         let target_alive = self
             .creatures
             .get(target_id)
-            .is_some_and(|k| k.base().health > 0);
+            .is_some_and(|k| k.base().health > 0 && !k.base().is_dead);
         if !target_alive {
             return;
         }
@@ -587,13 +587,10 @@ impl GameWorld {
             k.base_mut().delay_attack_ms(server_ms, 2000);
         }
 
-        // A1 — `if (Target->IsDead) this->StopAttack(0)` (`crcombat.cc:643-645`). C++ `CloseAttack`
-        // clears the attacker's combat targets after the strike when the victim died. Our melee
-        // arm early-returns when `target_alive` is false at entry, but the strike itself can kill
-        // the target (HP ≤ 0 → `apply_creature_death` removes it from `world.creatures`). Without
-        // this, a monster keeps swinging at a removed target id until the next `target_alive` gate.
-        let target_dead = !self.creatures.contains_key(target_id);
-        if target_dead && let Some(k) = self.creatures.get_mut(cid) {
+        // A1 — `if (Target->IsDead) this->StopAttack(0)` (`crcombat.cc:643-645`).
+        if self.creature_is_dead(target_id)
+            && let Some(k) = self.creatures.get_mut(cid)
+        {
             let base = k.base_mut();
             base.attack_target = None;
             base.follow_target = None;

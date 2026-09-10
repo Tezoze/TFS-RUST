@@ -74,7 +74,7 @@ pub fn build_player_death_row(
 impl GameWorld {
     /// Snapshot kill-stat races + player death row, then persist (VIP-style spawn).
     ///
-    /// Call from [`Self::apply_creature_death`] **before** skill/exp loss. Does **not**
+    /// Call from [`Self::mark_dead`] **before** skill/exp loss. Does **not**
     /// call `RecordMurder` (already in `player_on_pvp_death_marks`).
     pub(crate) fn record_lethal_outcome(&mut self, victim: CreatureId) {
         let Some((

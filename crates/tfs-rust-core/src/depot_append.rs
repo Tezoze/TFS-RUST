@@ -19,8 +19,7 @@ pub fn depot_table_root_pid(structure: DepotLockerStructure, town_id: u32) -> i3
 
 /// Town-chest roots (`pid` 0–99) and locker roots (`0x10000 + town`) stay unshifted.
 fn is_depot_table_root_pid(pid: i32) -> bool {
-    (0..100).contains(&pid)
-        || (LOCKER_ROOT_PID_BASE..LOCKER_ROOT_PID_BASE + 100).contains(&pid)
+    (0..100).contains(&pid) || (LOCKER_ROOT_PID_BASE..LOCKER_ROOT_PID_BASE + 100).contains(&pid)
 }
 
 /// Shift freshly serialized rows (sids starting at 101) so they sit after `max_sid`.
@@ -96,7 +95,10 @@ mod tests {
 
     #[test]
     fn locker_root_pid_stays_unshifted() {
-        let mut extra = vec![rec(LOCKER_ROOT_PID_BASE + 1, 101, 2598), rec(101, 102, 2599)];
+        let mut extra = vec![
+            rec(LOCKER_ROOT_PID_BASE + 1, 101, 2598),
+            rec(101, 102, 2599),
+        ];
         apply_sid_pid_offset(&mut extra, 150);
         assert_eq!(extra[0].pid, LOCKER_ROOT_PID_BASE + 1);
         assert_eq!(extra[0].sid, 151);
@@ -115,7 +117,10 @@ mod tests {
 
     #[test]
     fn prepend_keeps_new_rows_at_lowest_sids() {
-        let mut rows = vec![rec(LOCKER_ROOT_PID_BASE + 1, 101, 2148), rec(101, 102, 2599)];
+        let mut rows = vec![
+            rec(LOCKER_ROOT_PID_BASE + 1, 101, 2148),
+            rec(101, 102, 2599),
+        ];
         prepend_offset_records(
             &mut rows,
             vec![

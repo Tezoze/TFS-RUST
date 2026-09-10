@@ -2531,7 +2531,10 @@ fn test_combat_execute_overkill_clamps_to_remaining_hp() {
         "overkill must return remaining hitpoints, not the rolled hit"
     );
     assert!(
-        !world.creatures.contains_key(monster),
+        world
+            .creatures
+            .get(monster)
+            .is_some_and(|k| k.base().is_dead),
         "target must die from the overkill hit"
     );
 }
@@ -4224,8 +4227,12 @@ fn insert_summon(
     master_id: CreatureId,
 ) -> CreatureId {
     let summon = insert_monster_with_config(world, name, pos, 200, MonsterAiConfig::default());
+    let master_is_player = matches!(
+        world.creatures.get(master_id),
+        Some(CreatureKind::Player(_))
+    );
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(summon) {
-        m.base.master = Some(master_id);
+        m.base.bind_master(master_id, master_is_player);
     }
     summon
 }
@@ -4245,13 +4252,17 @@ fn summon_despawns_when_master_gone() {
     let mpos = Position::new(100, 100, 7);
     let master = insert_monster(&mut world, "Master", mpos, 200);
     let summon = insert_summon(&mut world, "Summon", mpos, master);
-    // Bypass `remove_creature`'s summon-chain cleanup — directly remove the master from the
-    // SlotMap so the summon's `master` field still points to a now-gone creature. This
-    // simulates the C++ path where `GetCreature(Master)` returns NULL.
-    world.map.unregister_creature_at(mpos, master);
-    world.creatures.remove(master);
+    world.remove_creature(master);
     assert!(world.creatures.contains_key(summon));
     world.monster_idle_stimulus(summon);
+    assert!(
+        world
+            .creatures
+            .get(summon)
+            .is_some_and(|k| k.base().is_dead && k.base().logging_out),
+        "monster-master gone → Kill(); body waits for ProcessCreatures (`crnonpl.cc:2387-2391`)"
+    );
+    world.process_creatures();
     assert!(
         !world.creatures.contains_key(summon),
         "summon must despawn when master is gone"
@@ -4271,6 +4282,14 @@ fn summon_despawns_on_floor_change() {
     let summon = insert_summon(&mut world, "Summon", mpos, master);
     world.monster_idle_stimulus(summon);
     assert!(
+        world
+            .creatures
+            .get(summon)
+            .is_some_and(|k| k.base().is_dead),
+        "monster-master floor change → Kill(); body waits for ProcessCreatures"
+    );
+    world.process_creatures();
+    assert!(
         !world.creatures.contains_key(summon),
         "summon must despawn when monster master changes floor"
     );
@@ -4286,6 +4305,7 @@ fn summon_despawns_beyond_30_tiles() {
     ensure_walkable_tile(&mut world.map, far, TEST_SYNTHETIC_GROUND_WP);
     let summon = insert_summon(&mut world, "Summon", far, master);
     world.monster_idle_stimulus(summon);
+    world.process_creatures();
     assert!(
         !world.creatures.contains_key(summon),
         "summon must despawn when >30 tiles from master"
@@ -7655,6 +7675,7 @@ fn idle_despawns_when_life_end_round_due() {
         m.idle_stimulus_last_ms = None;
     }
     world.monster_idle_stimulus(monster);
+    world.process_creatures();
     assert!(
         !world.creatures.contains_key(monster),
         "LifeEndRound == RoundNr must despawn"
@@ -7717,6 +7738,7 @@ fn raid_tick_does_not_despawn_due_life_end_idle_does() {
         "raid tick must not drain LifeEndRound"
     );
     world.monster_idle_stimulus(monster);
+    world.process_creatures();
     assert!(
         !world.creatures.contains_key(monster),
         "IdleStimulus must drain LifeEndRound after raid tick"
@@ -7740,6 +7762,7 @@ fn idle_despawns_attacking_monster_outside_monsterhome() {
         m.idle_stimulus_last_ms = None;
     }
     world.monster_idle_stimulus(monster);
+    world.process_creatures();
     assert!(
         !world.creatures.contains_key(monster),
         "IdleStimulus must despawn even while Attacking when outside monsterhome"

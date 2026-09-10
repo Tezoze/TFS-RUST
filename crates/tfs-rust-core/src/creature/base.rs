@@ -250,6 +250,9 @@ pub struct CreatureBase {
     pub follow_target: Option<CreatureId>,
     pub attack_target: Option<CreatureId>,
     pub master: Option<CreatureId>,
+    /// 772 `IsCreaturePlayer(Master)` — `crmain.cc:974` (`CreatureID < 0x40000000`).
+    /// Survives after the master is removed from SlotMap (C++ still classifies the stale ID).
+    pub master_is_player: bool,
     pub damage_map: DamageMap,
     /// Last creature that dealt HP damage — 772 `Attacker` on killing blow (`crmain.cc:822`).
     pub last_hit_by: Option<CreatureId>,
@@ -294,11 +297,30 @@ pub struct CreatureBase {
     pub drop_loot: bool,
     /// TFS `Creature::skillLoss` — `creature.h` `setSkillLoss`.
     pub skill_loss: bool,
+    /// 772 `TCreature::IsDead` — `crmain.cc:878-881` `Death()`. Body stays on the map
+    /// until `ProcessCreatures` finalizes `LoggingOut && LogoutPossible`.
+    pub is_dead: bool,
+    /// 772 `TCreature::LoggingOut` — `crmain.cc:405` `StartLogout` / `Death()`.
+    pub logging_out: bool,
+    /// 772 `TCreature::LogoutAllowed` — set by `LogoutPossible` success or `StartLogout(Force)`.
+    pub logout_allowed: bool,
 }
 
 impl CreatureBase {
     pub fn is_summon(&self) -> bool {
         self.master.is_some()
+    }
+
+    /// Bind summon master. `master_is_player` is 772 `IsCreaturePlayer` and must be set
+    /// while the master is still in SlotMap (`crmain.cc:974`, `crnonpl.cc:2361`).
+    pub fn bind_master(&mut self, master: CreatureId, master_is_player: bool) {
+        self.master = Some(master);
+        self.master_is_player = master_is_player;
+    }
+
+    /// Execute / Idle skip — dead or `StartLogout` body still on the map.
+    pub fn is_dead_or_logging_out(&self) -> bool {
+        self.is_dead || self.logging_out
     }
 
     pub fn clear_targets(&mut self) {

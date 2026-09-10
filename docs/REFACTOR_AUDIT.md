@@ -418,6 +418,8 @@ them into one wrapper module.
    binaries and `tests/` enable `--features sim`.
 4. Stretch: if `sim_harness` has no inbound deps from production modules, move it to a new
    `tfs-rust-sim` crate that depends on `core`.
+   **Superseded 2026-09-10:** crate-first extract is blocked (fixtures fused with harness;
+   `pub(crate)` clock/todo access). Ordered plan: `docs/SIM_HARNESS.md` §5 / `tasks/todo.md`.
 
 **Exit criteria:** `rtk cargo check -p tfs-rust-core` (default features) compiles without
 `sim_harness`/`chase_debug`; sim binaries still build with `--features sim`.

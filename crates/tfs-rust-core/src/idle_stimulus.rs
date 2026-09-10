@@ -127,7 +127,7 @@ impl GameWorld {
         if self
             .creatures
             .get(cid)
-            .is_some_and(|k| k.base().todo.locked)
+            .is_some_and(|k| k.base().todo.locked || k.base().logging_out)
         {
             return;
         }
@@ -279,6 +279,10 @@ impl GameWorld {
         // arms (`:582-613`). So arming a DoT on a player, or hitting an immune monster /
         // invulnerable GM, still refreshes the attacker's infight lock, the victim's black
         // `SendMarkCreature`, and `RecordAttack`. Skip pure heals and condition applications.
+        // 772 `IsDead` → return 0 (`crmain.cc:488`) before those arms.
+        if self.creatures.get(target).is_some_and(|k| k.base().is_dead) {
+            return 0;
+        }
         let healing = damage.primary.1 > 0 || damage.secondary.1 > 0;
         if let Some(attacker_id) = attacker
             && !healing
@@ -546,7 +550,7 @@ impl GameWorld {
             }
 
             if hp_after <= 0 && self.creatures.contains_key(target) {
-                self.apply_creature_death(target);
+                self.mark_dead(target);
             }
         }
         // M2 — Return the real `Damage` scalar (C++ `return Damage`, `crmain.cc:875`).
@@ -1082,19 +1086,23 @@ impl GameWorld {
     ///
     /// Returns `true` when the summon was despawned (caller must early-return — the creature is gone).
     fn monster_idle_summon_lifecycle(&mut self, cid: CreatureId) -> bool {
-        let (master_id, master_is_player, summon_pos) = match self.creatures.get(cid) {
+        let (master_id, persisted_master_is_player, summon_pos) = match self.creatures.get(cid) {
             Some(k) => match k.base().master {
-                Some(m) => (
-                    m,
-                    matches!(self.creatures.get(m), Some(CreatureKind::Player(_))),
-                    k.position(),
-                ),
+                Some(m) => (m, k.base().master_is_player, k.position()),
                 None => return false, // Not a summon — skip the block.
             },
             None => return false,
         };
 
         let master_present = self.creatures.contains_key(master_id);
+        // C++ `IsCreaturePlayer(Master)` is the ID range (`crmain.cc:974`) and still
+        // works after `GetCreature` returns NULL. SlotMap cannot recover type, so
+        // fall back to the flag captured at bind.
+        let master_is_player = match self.creatures.get(master_id) {
+            Some(CreatureKind::Player(_)) => true,
+            Some(_) => false,
+            None => persisted_master_is_player,
+        };
         let should_despawn = if !master_present {
             // C++ `Master == NULL` → despawn (`crnonpl.cc:2363`).
             tracing::debug!(
@@ -1140,11 +1148,14 @@ impl GameWorld {
         };
 
         if should_despawn {
-            // C++ player master → `StartLogout(true, true)`; monster master → `Kill()` (`crnonpl.cc:2388`).
-            // Both paths set `State = SLEEPING` and return. Rust `remove_creature` covers the
-            // disappear broadcast + summon-chain cleanup; `apply_creature_death` is reserved for
-            // combat kills (loot/XP), not lifecycle despawns.
-            self.remove_creature(cid);
+            // C++ `MasterIsPlayer` → `StartLogout(true, true)` else `Kill()`
+            // (`crnonpl.cc:2387-2391`). Player vs monster is the ID range, not
+            // whether the master pointer is still live.
+            if master_is_player {
+                self.start_logout_despawn(cid);
+            } else {
+                self.kill_for_despawn(cid);
+            }
             return true;
         }
 
@@ -2338,14 +2349,14 @@ impl GameWorld {
         // LifeEndRound → Master summon block → else MonsterhomeInRange → sleeping.
         // Before `wants_lua_think` so scripted monsters still expire.
         if self.monster_idle_life_end_expired(cid) {
-            self.remove_creature(cid);
+            self.start_logout_despawn(cid);
             return;
         }
         if self.monster_idle_summon_lifecycle(cid) {
             return;
         }
         if self.monster_idle_outside_monsterhome(cid) {
-            self.remove_creature(cid);
+            self.start_logout_despawn(cid);
             return;
         }
 

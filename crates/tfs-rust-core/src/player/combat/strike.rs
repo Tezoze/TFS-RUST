@@ -164,9 +164,8 @@ impl GameWorld {
             }
         }
 
-        // Capture the notify snapshot BEFORE `combat_execute_with_stimulus` — that path may kill
-        // the target (`apply_creature_death` → `remove_creature`), making `self.creatures.get`
-        // return `None`. Without this, the killing-blow damage text + health bar are never sent.
+        // Capture the notify snapshot BEFORE `combat_execute_with_stimulus` — HP may hit 0
+        // and `mark_dead` runs; the snapshot still carries pos/wire_id for the killing blow.
         let notify_snap = self.combat_notify_snapshot(target_id);
         let hp_before = self
             .creatures
@@ -190,11 +189,9 @@ impl GameWorld {
         // Use it for `ActivateLearning` and damage text instead of the HP delta (which is 0 when
         // mana absorbs everything).
         let damage_done = damage_scalar;
-        // `combat_execute_with_stimulus` calls `apply_creature_death` when HP ≤ 0, which
-        // removes the target from `world.creatures`. So a missing key means the target died
-        // on this strike — `hp_after = 0` so the `StopAttack` branch below fires
-        // (`crcombat.cc:656`).
-        let target_alive = self.creatures.contains_key(target_id);
+        // `combat_execute_with_stimulus` calls `mark_dead` when HP ≤ 0; the body stays
+        // until ProcessCreatures. `IsDead` still fires `StopAttack` (`crcombat.cc:656`).
+        let target_alive = !self.creature_is_dead(target_id);
         let _hp_after = if target_alive {
             self.creatures
                 .get(target_id)
@@ -487,14 +484,14 @@ mod tests {
         // Loop strikes until the target dies (fresh from_entropy rng per strike).
         let mut died = false;
         for i in 0..20 {
-            if !world.creatures.contains_key(target) {
+            if world.creature_is_dead(target) {
                 died = true;
                 break;
             }
             world.server_ms = i * 3000;
             world.player_close_attack_strike(pid, target);
         }
-        if !world.creatures.contains_key(target) {
+        if world.creature_is_dead(target) {
             died = true;
         }
         assert!(died, "target should die within 20 strikes");
@@ -551,9 +548,8 @@ mod tests {
     }
 
     /// Bug fix: the killing-blow damage text must be sent even when the target dies.
-    /// `combat_execute_with_stimulus` calls `apply_creature_death` → `remove_creature` when
-    /// HP ≤ 0, so `notify_player_combat_damage` can't read the target from `self.creatures`
-    /// after the strike. The pre-captured `CombatNotifySnapshot` fixes this.
+    /// `combat_execute_with_stimulus` calls `mark_dead` (body stays until ProcessCreatures).
+    /// Snapshot still covers `apply_creature_death` one-shot remove and killing-blow HP%.
     #[test]
     fn strike_killing_blow_sends_damage_text() {
         let mut world = beat_driven_test_world();
@@ -588,7 +584,7 @@ mod tests {
         // Loop strikes until the target dies (fresh from_entropy rng per strike).
         let mut died = false;
         for i in 0..20 {
-            if !world.creatures.contains_key(target) {
+            if world.creature_is_dead(target) {
                 died = true;
                 break;
             }
@@ -596,7 +592,7 @@ mod tests {
             world.pending_outgoing.clear();
             world.player_close_attack_strike(pid, target);
         }
-        if !world.creatures.contains_key(target) {
+        if world.creature_is_dead(target) {
             died = true;
         }
         assert!(died, "target should die within 20 strikes");
@@ -647,7 +643,7 @@ mod tests {
         world.pending_outgoing.clear();
         let mut killing_text_hp: Option<i32> = None;
         for i in 0..20 {
-            if !world.creatures.contains_key(target) {
+            if world.creature_is_dead(target) {
                 break;
             }
             let remaining = world
@@ -658,7 +654,7 @@ mod tests {
             world.server_ms = i * 3000;
             world.pending_outgoing.clear();
             world.player_close_attack_strike(pid, target);
-            if !world.creatures.contains_key(target) {
+            if world.creature_is_dead(target) {
                 killing_text_hp = Some(remaining);
                 break;
             }

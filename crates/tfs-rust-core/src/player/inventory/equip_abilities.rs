@@ -658,7 +658,10 @@ mod tests {
             Some(CreatureKind::Player(p)) => p,
             _ => panic!(),
         };
-        assert_eq!(p.item_regen_interval, 3, "life ring DAct = healthticks/1000");
+        assert_eq!(
+            p.item_regen_interval, 3,
+            "life ring DAct = healthticks/1000"
+        );
         assert!(
             !p.base
                 .active_conditions

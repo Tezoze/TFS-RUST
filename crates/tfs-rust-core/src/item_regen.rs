@@ -49,14 +49,17 @@ impl GameWorld {
     /// Gate: `interval > 0 && RoundNr % interval == 0 && health > 0 && !PZ`.
     /// Returns `true` when HP or mana was granted.
     pub(crate) fn process_item_regen(&mut self, cid: CreatureId, round_nr: u32) -> bool {
-        let (interval, pos, health) = match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => {
-                (p.item_regen_interval, p.base.position, p.base.health)
-            }
+        let (interval, pos, health, is_dead) = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => (
+                p.item_regen_interval,
+                p.base.position,
+                p.base.health,
+                p.base.is_dead,
+            ),
             _ => return false,
         };
-        // `!IsDead` is health<=0 until M1 deferred death (`crmain.cc:1087-1095`).
-        if interval == 0 || health <= 0 || !round_nr.is_multiple_of(interval) {
+        // `!IsDead` (`crmain.cc:1087-1095`).
+        if interval == 0 || health <= 0 || is_dead || !round_nr.is_multiple_of(interval) {
             return false;
         }
         if self.tile_in_protection_zone(pos) {

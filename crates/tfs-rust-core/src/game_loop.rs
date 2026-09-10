@@ -1538,11 +1538,7 @@ fn dispatch_command(
             world.apply_mail_lookup_finished(item_id, town_id, guid);
             ControlFlow::Continue(())
         }
-        GameCommand::MailDeliveryFinished {
-            guid,
-            ok,
-            appended,
-        } => {
+        GameCommand::MailDeliveryFinished { guid, ok, appended } => {
             world.apply_mail_delivery_finished(guid, ok, appended);
             if let Some(mut d) = world.take_deferred_login_if_mail_ready(guid) {
                 world.splice_outbox_into_loaded(guid, &mut d.loaded);

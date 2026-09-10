@@ -835,8 +835,8 @@ impl GameWorld {
     /// E4: HP clamp like `addMana` (not `combatChangeHealth` / death) **for players**.
     /// 772 `Heal` in `DrinkPotion` (`magic.cc:2086`) → `TSkill::Change`
     /// (`crskill.cc:58`) clamps Act to Max; no-op when hitpoints are already 0.
-    /// Monsters / NPCs: same clamp; HP ≤ 0 runs [`Self::apply_creature_death`]
-    /// so `/killall` (`addHealth(-getMaxHealth())`) actually removes them.
+    /// Monsters / NPCs: same clamp; HP ≤ 0 runs [`Self::mark_dead`]
+    /// so `/killall` (`addHealth(-getMaxHealth())`) flags them for ProcessCreatures.
     pub fn lua_script_player_add_health(
         &mut self,
         creature_u64: u64,
@@ -865,7 +865,7 @@ impl GameWorld {
             (before, after)
         };
         if !is_player && after == 0 {
-            self.apply_creature_death(cid);
+            self.mark_dead(cid);
             return Ok(());
         }
         if is_player {
@@ -969,8 +969,16 @@ impl GameWorld {
             }
         }
         if old_type != new_type {
-            let becoming_unlay = self.items_db.items.get(&old_type).is_some_and(|t| !t.is_unlay())
-                && self.items_db.items.get(&new_type).is_some_and(|t| t.is_unlay())
+            let becoming_unlay = self
+                .items_db
+                .items
+                .get(&old_type)
+                .is_some_and(|t| !t.is_unlay())
+                && self
+                    .items_db
+                    .items
+                    .get(&new_type)
+                    .is_some_and(|t| t.is_unlay())
                 && self
                     .items_db
                     .items

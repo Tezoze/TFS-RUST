@@ -20,6 +20,7 @@ pub use access::{
     AccessHouseLevel, AccessList, GUEST_LIST, HouseAccess, SUBOWNER_LIST, can_edit_access_list,
 };
 pub use auction::{AuctionOutcome, auction_paid_until, decide_auction};
+pub(crate) use ownership::add_to_container_front;
 pub use registry::{House, HouseRentPeriod};
 pub use rent::{HOUSE_GRACE_SECS, HOUSE_MONTH_SECS, RentAction, decide_rent};
 pub use serialize::{
@@ -27,7 +28,6 @@ pub use serialize::{
     encode_house_tile_store,
 };
 pub use window::{HouseEditSession, house_window_door_id_ok, house_window_id_ok};
-pub(crate) use ownership::add_to_container_front;
 
 use std::collections::{HashMap, HashSet};
 

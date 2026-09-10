@@ -180,11 +180,15 @@ impl GameWorld {
             }
             for ox in 0..ORIGMAP_SECTOR {
                 for oy in 0..ORIGMAP_SECTOR {
-                    let Some(x) = sx.checked_mul(ORIGMAP_SECTOR).and_then(|b| b.checked_add(ox))
+                    let Some(x) = sx
+                        .checked_mul(ORIGMAP_SECTOR)
+                        .and_then(|b| b.checked_add(ox))
                     else {
                         continue;
                     };
-                    let Some(y) = sy.checked_mul(ORIGMAP_SECTOR).and_then(|b| b.checked_add(oy))
+                    let Some(y) = sy
+                        .checked_mul(ORIGMAP_SECTOR)
+                        .and_then(|b| b.checked_add(oy))
                     else {
                         continue;
                     };
@@ -296,7 +300,10 @@ mod tests {
         let n0 = world.refresh_cylinders();
         assert_eq!(n0, 1, "first cylinder is one ORIGMAP XY");
         assert!(!has_junk(&world, a, junk_a), "sector (2,2) restores first");
-        assert!(has_junk(&world, b, junk_b), "other XY waits for next minute");
+        assert!(
+            has_junk(&world, b, junk_b),
+            "other XY waits for next minute"
+        );
 
         let n1 = world.refresh_cylinders();
         assert_eq!(n1, 1);

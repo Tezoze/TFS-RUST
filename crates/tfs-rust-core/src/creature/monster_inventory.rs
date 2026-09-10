@@ -1091,9 +1091,10 @@ mod tests {
             &CombatParams::default(),
         );
         assert!(applied > 0, "lethal hit must apply");
+        world.process_creatures();
         assert!(
             world.creatures.get(monster).is_none(),
-            "monster must be removed after death hook"
+            "monster must be removed after ProcessCreatures destructor"
         );
 
         let exp_after = match world.creatures.get(player) {

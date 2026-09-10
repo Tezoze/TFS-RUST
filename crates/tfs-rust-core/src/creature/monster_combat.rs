@@ -1251,6 +1251,7 @@ mod tests {
             follow_target: None,
             attack_target: None,
             master: None,
+            master_is_player: false,
             damage_map: Default::default(),
             last_hit_by: None,
             last_damage_type: CombatType::Physical,
@@ -1267,6 +1268,9 @@ mod tests {
             last_auto_walk_armed_ms: u64::MAX,
             drop_loot: true,
             skill_loss: true,
+            is_dead: false,
+            logging_out: false,
+            logout_allowed: false,
         }
     }
 

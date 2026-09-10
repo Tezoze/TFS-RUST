@@ -535,8 +535,11 @@ impl GameWorld {
 
     /// 772 `TCreature::Execute` walk path — one due heap entry (`cract.cc:728`).
     pub fn process_creature_todo(&mut self, cid: CreatureId) {
-        let health_ok = self.creatures.get(cid).is_some_and(|k| k.base().health > 0);
-        if !health_ok {
+        let runnable = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| k.base().health > 0 && !k.base().is_dead_or_logging_out());
+        if !runnable {
             return;
         }
         let had_wakeup = self
@@ -1596,8 +1599,11 @@ impl GameWorld {
     /// both eras schedule steps via the ToDo queue. This sync entry point remains for the
     /// `ticks == 1` fast path inside `add_event_walk`.
     fn check_creature_walk_from_add_event_walk(&mut self, cid: CreatureId, now: Instant) {
-        let health_ok = self.creatures.get(cid).is_some_and(|k| k.base().health > 0);
-        if !health_ok {
+        let runnable = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| k.base().health > 0 && !k.base().is_dead_or_logging_out());
+        if !runnable {
             return;
         }
 

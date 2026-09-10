@@ -315,15 +315,6 @@ pub struct Player {
     /// 772 `PlayerData::MurderTimestamps[20]` — unjust kill wall-clock ring (`cr.hh:147`).
     /// Persisted as `players.murder_timestamps` CSV.
     pub murder_timestamps: [i64; 20],
-    /// 772 `TCreature::LoggingOut` — `crmain.cc:405` `StartLogout`.
-    ///
-    /// When set, `ProcessCreatures` removes the character once `logout_allowed` /
-    /// `LogoutPossible` succeeds (`crmain.cc:1113-1124`). Dead-connection
-    /// `StopFight=false` leaves the body on the map (still fighting until
-    /// `LatestAttackTime`) until the combat logout lock expires.
-    pub logging_out: bool,
-    /// 772 `TCreature::LogoutAllowed` — set by `LogoutPossible` success or `StartLogout(Force)`.
-    pub logout_allowed: bool,
     /// 772 `RecordTalk` / `RecordMessage` / trade-channel gate (`crplayer.cc`).
     pub talk_guard: crate::chat_talk::PlayerTalkGuard,
     /// C++ `MessageBufferCount` — leftover TFS buffer (inert; RecordTalk is live).

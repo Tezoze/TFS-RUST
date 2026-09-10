@@ -1258,18 +1258,9 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
     }
 
     if let Ok(Value::Table(creatures)) = formulas.get::<Value>("creatures") {
-        p.item_regen_hp = num_or(
-            lua,
-            &creatures,
-            "itemRegenHp",
-            p.item_regen_hp as i64,
-        ) as i32;
-        p.item_regen_mana = num_or(
-            lua,
-            &creatures,
-            "itemRegenMana",
-            p.item_regen_mana as i64,
-        ) as i32;
+        p.item_regen_hp = num_or(lua, &creatures, "itemRegenHp", p.item_regen_hp as i64) as i32;
+        p.item_regen_mana =
+            num_or(lua, &creatures, "itemRegenMana", p.item_regen_mana as i64) as i32;
     }
 
     p.pin_corpus_path_spawn_target();

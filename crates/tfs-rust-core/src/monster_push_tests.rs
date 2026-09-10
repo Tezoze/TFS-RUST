@@ -275,7 +275,10 @@ fn boxed_in_blocker_is_killed_and_step_exhausted() {
     let outcome = world.monster_push_before_step(kicker, bpos, now);
     assert_eq!(outcome, MonsterKickOutcome::Exhausted);
     assert!(
-        !world.creatures.contains_key(blocker),
+        world
+            .creatures
+            .get(blocker)
+            .is_some_and(|k| k.base().is_dead),
         "boxed-in blocker must be killed by the kick"
     );
 }
@@ -321,7 +324,10 @@ fn master_kicks_own_boxed_summon() {
         "boxed own summon must kick-kill (EXHAUSTED) like any boxed blocker"
     );
     assert!(
-        !world.creatures.contains_key(summon),
+        world
+            .creatures
+            .get(summon)
+            .is_some_and(|k| k.base().is_dead),
         "boxed own summon must be killed when no escape tile"
     );
 }
@@ -430,7 +436,7 @@ fn cyclops_kills_boxed_in_pushable_blocker_end_to_end() {
         "boxed-in pushable rat must be killed (EXHAUSTED), not Proceed"
     );
     assert!(
-        !world.creatures.contains_key(rat),
+        world.creatures.get(rat).is_some_and(|k| k.base().is_dead),
         "rat must be killed by the cyclops kick"
     );
 }
@@ -743,8 +749,13 @@ fn f3_kick_kill_preserves_target() {
         Some(target),
         "kick-kill must preserve follow_target (C++ Execute catch cract.cc:870-877)"
     );
-    // Blocker was killed.
-    assert!(!world.creatures.contains_key(blocker));
+    // Blocker was killed (body lingers until ProcessCreatures).
+    assert!(
+        world
+            .creatures
+            .get(blocker)
+            .is_some_and(|k| k.base().is_dead)
+    );
     // Wait armed.
     assert!(
         base.todo.queue.iter().any(
@@ -854,9 +865,11 @@ fn f3_kick_kill_reengages_same_target() {
     assert_eq!(base.attack_target, Some(player));
     assert_eq!(base.follow_target, Some(player));
 
-    // Advance past the 1000 ms wait and run IdleStimulus — the monster should still
-    // target the same player (close, same floor, not in PZ/house, not invisible).
+    // Advance past the 1000 ms wait. ProcessCreatures runs on that same Creatures
+    // fire (`crmain.cc:1113-1125`) and removes the lingering body so idle does not
+    // kick a corpse into the player tile (F3 drop-target).
     world.server_ms += MONSTER_IDLE_WAIT_MS as u64 + 1;
+    world.process_creatures();
     world.monster_idle_stimulus(mover);
 
     let base = world.creatures.get(mover).unwrap().base();
@@ -1006,7 +1019,10 @@ fn f2_chain_push_boxed_in_kills() {
         "boxed-in blocker must be killed → Exhausted (kick-kill)"
     );
     assert!(
-        !world.creatures.contains_key(blocker),
+        world
+            .creatures
+            .get(blocker)
+            .is_some_and(|k| k.base().is_dead),
         "boxed-in blocker must be killed by the kick"
     );
 }
@@ -1048,7 +1064,7 @@ fn f2_chain_push_cycle_guard() {
         "cycle must terminate via depth guard → blocker killed → Exhausted"
     );
     assert!(
-        !world.creatures.contains_key(b),
+        world.creatures.get(b).is_some_and(|k| k.base().is_dead),
         "blocker must be killed after cycle guard terminates recursion"
     );
 }

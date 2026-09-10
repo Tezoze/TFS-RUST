@@ -112,10 +112,10 @@ IDs keep the sub-agent slice letter (A scheduler, B per-creature arms, C world c
 
 ### 2.2 Medium — cadence / timing / ordering differences
 
-**M1 (B1, B2) — Death and despawn are finalized immediately; corpus defers to the next `ProcessCreatures` pass.**
+**M1 (B1, B2) — Death and despawn are finalized immediately; corpus defers to the next `ProcessCreatures` pass. DONE.**
 - Corpus: `Death()` only sets `IsDead + LoggingOut` (`crmain.cc:878-881`); corpse/pool/loot/`DelOnMap`/`Connection->Logout(30)` run in `~TCreature` when `ProcessCreatures` hits `LoggingOut && LogoutPossible()==0` (`:1113-1125`). Monster despawn via `StartLogout(true,true); State=SLEEPING` (`crnonpl.cc:2352-2415`) likewise. Body lingers 0-1000 ms at 0 HP; `Execute` and `Damage` skip it.
-- Rust: `idle_stimulus.rs:548-550` → `apply_creature_death` synchronously (`game_world_lifecycle.rs:447-612`); `idle_stimulus.rs:1141-1148` `remove_creature` immediately, with a summons cascade (`game_world_lifecycle.rs:92-100`) the corpus does per-summon via `IdleStimulus`.
-- Fix: `creature_death_defer.rs` — `mark_dead(cid)` sets `is_dead + logging_out`, announces health 0; `process_creatures` finalizes; guard `Execute`/`Damage`/`IdleStimulus` on `is_dead`. Drop the summons cascade in favour of the per-summon idle check. This is a behavior change on the death/loot ordering; do it after H1-H7.
+- Rust: `creature_death_defer.rs` `mark_dead` / `start_logout_despawn` / `kill_for_despawn` / `finalize_pending`; combat lethal sites call `mark_dead` only; `process_creatures` HP safety then destructor. Summons idle-despawn when the master is gone (no `remove_creature` cascade).
+- Fix: landed Step 2.1 — combat `Death()` is flags + player death UI; corpse / monster XP wait for the ProcessCreatures destructor.
 
 **M2 (B5) — Food is not consumed inside a protection zone. DONE.**
 - Corpus: `TSkill::Process` always `Cycle -= 1` before `Event`; `TSkillFed::Event` skips only the regen in PZ (`crskill.cc:186-188, 816-818`).
@@ -346,7 +346,7 @@ Tests: `offline_mail_serializes_and_spawns_db_append`, `login_before_ack_sees_ma
 
 ### 3.2 Phase 2 — cadence / timing (M1, M4-M9, M11)
 
-#### Step 2.1 — Deferred death/despawn finalize (M1)
+#### Step 2.1 — Deferred death/despawn finalize (M1) DONE.
 
 Corpus: `crmain.cc:878-881, 1108-1125`, `crnonpl.cc:2346, 2352-2415`, `cract.cc:785`.
 

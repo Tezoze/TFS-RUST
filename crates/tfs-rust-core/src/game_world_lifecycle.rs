@@ -5,7 +5,6 @@
 //! - 772 `TConnection` login TakeOver — `connections.cc:224-253`; `TPlayer::TakeOver` —
 //!   `crplayer.cc:721-775`.
 
-use slotmap::Key;
 use tfs_rust_common::enums::{ConditionType, PlayerSex, SkullType, ZoneType};
 use tfs_rust_common::{ConnId, Position};
 
@@ -67,8 +66,8 @@ impl GameWorld {
         }
     }
 
-    /// Remove creature from map index, player lookups, guild online; remove summons if master dies.
-    // C++ reference: `Game::removeCreature` — summon chain + spectator disappear.
+    /// Remove creature from map index, player lookups, guild online.
+    // C++ reference: `Game::removeCreature` — spectator disappear. Summons idle-despawn.
     pub fn remove_creature(&mut self, id: CreatureId) {
         if matches!(self.creatures.get(id), Some(CreatureKind::Player(_))) {
             self.cancel_trade_for_player(id);
@@ -89,15 +88,8 @@ impl GameWorld {
         let now_ms = self.now_ms();
         self.on_creature_removed_for_spawn(id, now_ms);
 
-        let mut summons: Vec<CreatureId> = Vec::new();
-        for (cid, k) in self.creatures.iter() {
-            if k.base().master == Some(id) {
-                summons.push(cid);
-            }
-        }
-        for s in summons {
-            self.remove_creature(s);
-        }
+        // Summons despawn via their own IdleStimulus (`crnonpl.cc:2363-2415`), not a
+        // remove cascade. Master gone → `StartLogout` / `Kill()` on the next idle.
 
         let pos = self.creatures.get(id).map(|k| k.position());
         let player_cleanup = self.creatures.get(id).and_then(|k| {
@@ -152,15 +144,20 @@ impl GameWorld {
     /// On success, sets `LogoutAllowed = true` (sticky). Used by `CQuitGame` before
     /// `Logout`, and by `ProcessCreatures` to finalize `LoggingOut` bodies.
     pub fn player_logout_possible(&mut self, cid: CreatureId) -> LogoutPossible {
-        let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+        let Some(kind) = self.creatures.get(cid) else {
             return LogoutPossible::Ok;
         };
-        if p.logout_allowed || p.base.health <= 0 {
+        // 772 `LogoutPossible`: `IsDead` / `LogoutAllowed` always OK (`crmain.cc:417-418`).
+        if kind.base().logout_allowed || kind.base().is_dead || kind.base().health <= 0 {
             return LogoutPossible::Ok;
         }
         if self.game_state == crate::game_state::GameState::Shutdown {
             return LogoutPossible::Ok;
         }
+        let CreatureKind::Player(p) = kind else {
+            // Non-players: Force/`Death` set `logout_allowed` / `is_dead`; otherwise wait.
+            return LogoutPossible::Combat;
+        };
         let round_nr = self.round_nr;
         let earliest = p.earliest_logout_round;
         let pos = p.base.position;
@@ -177,8 +174,8 @@ impl GameWorld {
         {
             return LogoutPossible::NoLogoutField;
         }
-        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-            p.logout_allowed = true;
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().logout_allowed = true;
         }
         LogoutPossible::Ok
     }
@@ -205,7 +202,7 @@ impl GameWorld {
 
         // 772 `LogoutPossible`: dead always OK — skip Infight / combat / nologout gates
         // (`crmain.cc:417-418` `!IsDead` guard).
-        if player.base.health <= 0 {
+        if player.base.health <= 0 || player.base.is_dead {
             return true;
         }
 
@@ -259,10 +256,10 @@ impl GameWorld {
     /// creature — `ProcessCreatures` finalizes when `LogoutPossible` succeeds.
     pub(crate) fn creature_begin_logout(&mut self, cid: CreatureId, force: bool, stop_fight: bool) {
         let force_or_lag = force || self.net_load.lag_detected(self.round_nr);
-        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-            p.logging_out = true;
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().logging_out = true;
             if force_or_lag {
-                p.logout_allowed = true;
+                k.base_mut().logout_allowed = true;
             }
         }
         self.creature_start_logout_stop_fight(cid, stop_fight);
@@ -297,13 +294,13 @@ impl GameWorld {
             return Ok(None);
         };
 
-        if p.base.health <= 0 {
+        if p.base.health <= 0 || p.base.is_dead {
             return Err(tfs_rust_common::error::TfsRustError::Database(format!(
                 "player `{name}` is dying — login failed"
             )));
         }
 
-        let logging_out = p.logging_out;
+        let logging_out = p.base.logging_out;
         if logging_out && self.player_logout_possible(cid) == LogoutPossible::Ok {
             // `connections.cc:238-241` — body is finalize-ready; reject until removed.
             return Err(tfs_rust_common::error::TfsRustError::Database(format!(
@@ -336,8 +333,8 @@ impl GameWorld {
         }
 
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-            p.logging_out = false;
-            p.logout_allowed = false;
+            p.base.logging_out = false;
+            p.base.logout_allowed = false;
             p.operating_system = operating_system;
             p.otclient_v8 = otclient_v8;
         }
@@ -361,11 +358,7 @@ impl GameWorld {
         let logging_out = self
             .creatures
             .get(cid)
-            .and_then(|k| match k {
-                CreatureKind::Player(p) => Some(p.logging_out),
-                _ => None,
-            })
-            .unwrap_or(false);
+            .is_some_and(|k| matches!(k, CreatureKind::Player(_)) && k.base().logging_out);
         if !logging_out {
             return false;
         }
@@ -449,189 +442,16 @@ impl GameWorld {
         }
     }
 
-    /// Run death XP / events / corpse scheduling, then remove the creature (and summons).
+    /// Mark + destructor in one call — tests and Lua helpers that need immediate remove.
+    /// Combat lethal sites call [`Self::mark_dead`] only; `ProcessCreatures` finalizes.
     pub fn apply_creature_death(&mut self, victim: CreatureId) {
         if self.creatures.get(victim).is_none() {
             return;
         }
-
-        // Kill stats + `player_deaths` snapshot before skill/exp loss (`crmain.cc:830-860`).
-        self.record_lethal_outcome(victim);
-
-        let is_player = matches!(self.creatures.get(victim), Some(CreatureKind::Player(_)));
-
-        // 772 kill logout + RecordMurder before XP/remove (`crmain.cc:822–870`).
-        if is_player {
-            self.player_on_pvp_death_marks(victim);
+        if !self.creatures.get(victim).is_some_and(|k| k.base().is_dead) {
+            self.mark_dead(victim);
         }
-
-        // PC-5 M7 — skill / magic try loss at the bless-reduced death fraction.
-        if matches!(
-            self.creatures.get(victim),
-            Some(CreatureKind::Player(p)) if p.base.skill_loss
-        ) {
-            self.apply_player_death_skill_loss(victim);
-        }
-        if matches!(self.creatures.get(victim), Some(CreatureKind::Player(_))) {
-            self.player_death_drop_inventory(victim);
-        }
-
-        let corpse_snapshot = self.creatures.get(victim).and_then(|k| {
-            let CreatureKind::Monster(m) = k else {
-                return None;
-            };
-            if !m.base.drop_loot {
-                return None;
-            }
-            Some((m.base.position, m.corpse_id, m.blood, m.inventory.clone()))
-        });
-
-        if let Some((pos, corpse_id, blood, inventory)) = corpse_snapshot {
-            self.drop_monster_corpse(pos, corpse_id, blood, &inventory);
-        }
-
-        if crate::chase_debug::chase_path_debug_enabled()
-            && let Some(CreatureKind::Monster(m)) = self.creatures.get(victim)
-        {
-            let killer_id = m
-                .base
-                .damage_map
-                .most_dangerous(self.round_nr, self.mechanics.profile.exp_attribution_rounds)
-                .map(|id| id.data().as_ffi())
-                .unwrap_or(0);
-            crate::chase_debug::log_creature_death(
-                self.chase_trace_tick(),
-                victim,
-                &m.base.name,
-                killer_id,
-                m.experience,
-                m.corpse_id,
-            );
-        }
-
-        let decay_now = self.now_ms();
-        // Players already placed corpse 3128 in `player_death_drop_inventory`; skip generic 3058.
-        let schedule_generic_corpse = !is_player;
-        let victim_active_promotion = self.player_active_promotion(victim);
-        let (leveled, xp_grants) = crate::lua_scope::with_lua_script_scope(self, |world| {
-            crate::death::handle_creature_death(
-                &mut world.creatures,
-                &mut world.items,
-                &mut world.decay,
-                world.events.as_ref(),
-                victim,
-                decay_now,
-                None,
-                world.mechanics.profile.step_speed,
-                world.config.as_ref(),
-                schedule_generic_corpse,
-                world.mechanics.profile.corpse_decay_offset_ms,
-                world.pvp_config.world_type,
-                &world.mechanics.profile,
-                world.round_nr,
-                victim_active_promotion,
-            )
-        });
-        // C++ `cract.cc:1637` `CREATURE_SPEED_CHANGED` — announce new speed to spectators
-        // for any killer (or victim) whose level changed via experience gain/loss.
-        for cid in leveled {
-            self.announce_creature_speed(cid);
-            // 772 `TSkillLevel::Jump` → `Combat.CheckCombatValues()` (`crskill.cc:367`).
-            self.player_check_combat_values(cid);
-        }
-        // TFS/772: `sendStats` + animated exp popup (`Creature::onGainExperience`) + level advance text.
-        // Victim is always in `xp_grants` (even at zero exp loss) so blessing clear reaches the client.
-        for grant in xp_grants {
-            self.send_player_stats(grant.cid);
-            if grant.amount > 0
-                && let Some(pos) = self.creatures.get(grant.cid).map(|k| k.position())
-            {
-                self.broadcast_experience_popup(pos, grant.amount);
-            }
-            if grant.new_level > grant.old_level {
-                // 772 `Player::addExperience` — `player.cpp:1548`.
-                self.send_player_advance_message(
-                    grant.cid,
-                    &format!(
-                        "You advanced from Level {} to Level {}.",
-                        grant.old_level, grant.new_level
-                    ),
-                );
-            } else if grant.new_level < grant.old_level {
-                self.send_player_advance_message(
-                    grant.cid,
-                    &format!(
-                        "You were downgraded from Level {} to Level {}.",
-                        grant.old_level, grant.new_level
-                    ),
-                );
-            }
-        }
-        // TFS `Player::death` — `sendSkills()` after death penalties (`player.cpp:2154`).
-        if is_player {
-            self.send_player_skills(victim);
-            // 772 `TPlayer::Death` — `crplayer.cc:331-334`: SendPlayerData (stats above),
-            // `SendMessage(TALK_EVENT_MESSAGE, "You are dead.\n")`, `Connection->Die()`.
-            // Trailing newline is required for the stock 772 death dialog.
-            self.send_player_advance_message(victim, "You are dead.\n");
-            if let Some(conn) = self.conn_for_creature(victim) {
-                self.dead_connections.insert(conn);
-                let is_otclient = matches!(
-                    self.creatures.get(victim),
-                    Some(CreatureKind::Player(p)) if p.is_otclient()
-                );
-                self.dead_conn_state.insert(
-                    conn,
-                    crate::connections::DeadConnState {
-                        last_command_round: self.round_nr,
-                        is_otclient,
-                    },
-                );
-            }
-            // TFS `Player::death` (`player.cpp:2065` / `2157-2161` / TVP `1882-1897`):
-            // set login position to temple, restore vitals, clear persistent conditions
-            // *before* save — otherwise relog lands on the death tile at 1 HP and dies again.
-            self.prepare_player_death_save(victim);
-            // Persist before teardown — OK→Logout only closes TCP (`CONNECTION_DEAD`);
-            // mapping is cleared so `handle_player_disconnect` cannot save afterwards.
-            let db = self.db.clone();
-            match self.build_player_save_data(victim) {
-                Ok(mut data) => {
-                    // TFS `loginPosition = town->getTemplePosition()` — write temple into the
-                    // save row without moving the live body (remove still needs death tile).
-                    let temple = self
-                        .player_temple_position(victim)
-                        .unwrap_or(Position::new(0, 0, 0));
-                    data.player.posx = i32::from(temple.x);
-                    data.player.posy = i32::from(temple.y);
-                    data.player.posz = i32::from(temple.z);
-                    let guid = data.player.id;
-                    // Game loop always has a runtime; unit tests may not — skip spawn there.
-                    if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                        handle.spawn(async move {
-                            if let Err(e) = PlayerStore::new(&db).save_player(&data).await {
-                                tracing::error!(?e, guid, "player save on death failed");
-                            }
-                        });
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        ?e,
-                        ?victim,
-                        "build_player_save_data failed on death — body still removed"
-                    );
-                }
-            }
-        }
-        // Capture before remove — disappear broadcast still needs the mapping.
-        let dead_conn = is_player.then(|| self.conn_for_creature(victim)).flatten();
-        self.remove_creature(victim);
-        // Drop ConnId↔CreatureId so a recycled SlotMap key cannot hijack the dead session.
-        // TCP stays open (`CONNECTION_DEAD`) until OK→Logout / idle timeout.
-        if let Some(conn) = dead_conn {
-            self.unregister_conn_mapping(conn);
-        }
+        self.finalize_creature_death(victim);
     }
 
     /// TFS / TVP `Player::death` prep for the next login (`player.cpp:2065`, `2157-2161`).
@@ -675,7 +495,7 @@ impl GameWorld {
     /// (`crplayer.cc:352-360`) produces the same demotion outcomes with per-level tries.
     /// `TSkillProbe::Decrease` has no 100000 abort (`crskill.cc`); that quirk is
     /// `TSkillLevel::Decrease` only ([`Player::remove_experience`]).
-    fn apply_player_death_skill_loss(&mut self, victim: CreatureId) {
+    pub(crate) fn apply_player_death_skill_loss(&mut self, victim: CreatureId) {
         let profile = self.mechanics.profile;
         let hooks = &self.mechanics.hooks;
         let frac = {
@@ -717,7 +537,7 @@ impl GameWorld {
     ///
     /// AoL only when the killing blow was exact (`Damage == HitPoints`) — overkill skips it.
     /// Domain type id `2173` stands in for 772 `GetNewObjectType(77,12)` in the TFS pack.
-    fn player_death_drop_inventory(&mut self, victim: CreatureId) {
+    pub(crate) fn player_death_drop_inventory(&mut self, victim: CreatureId) {
         const AMULET_OF_LOSS: u16 = 2173;
         const DEAD_HUMAN_CORPSE: u16 = 3128;
 

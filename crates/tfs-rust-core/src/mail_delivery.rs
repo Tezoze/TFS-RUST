@@ -75,13 +75,17 @@ impl GameWorld {
         if append_save_item_tree(self, &roots, &mut records).is_err() {
             return false;
         }
-        self.mail_outbox.entry(guid).or_default().pending.push(PendingMail {
-            town_id,
-            records,
-            item_ids: vec![item_id],
-            delivered_live: false,
-            persist: MailPersistState::Queued,
-        });
+        self.mail_outbox
+            .entry(guid)
+            .or_default()
+            .pending
+            .push(PendingMail {
+                town_id,
+                records,
+                item_ids: vec![item_id],
+                delivered_live: false,
+                persist: MailPersistState::Queued,
+            });
         self.spawn_mail_append(guid);
         true
     }
@@ -192,16 +196,17 @@ impl GameWorld {
                     p.persist = MailPersistState::Queued;
                 }
             }
-            tracing::warn!(guid, fails = outbox.fail_count, "offline mail DB append failed");
+            tracing::warn!(
+                guid,
+                fails = outbox.fail_count,
+                "offline mail DB append failed"
+            );
         }
         self.spawn_mail_append(guid);
     }
 
     /// After an ack, finish a deferred login if nothing is still in flight.
-    pub(crate) fn take_deferred_login_if_mail_ready(
-        &mut self,
-        guid: u32,
-    ) -> Option<DeferredLogin> {
+    pub(crate) fn take_deferred_login_if_mail_ready(&mut self, guid: u32) -> Option<DeferredLogin> {
         if self.mail_login_should_defer(guid) {
             return None;
         }
@@ -252,11 +257,7 @@ impl GameWorld {
                 .await
                 .is_ok();
             let appended = if ok { appended } else { Vec::new() };
-            let _ = tx.send(GameCommand::MailDeliveryFinished {
-                guid,
-                ok,
-                appended,
-            });
+            let _ = tx.send(GameCommand::MailDeliveryFinished { guid, ok, appended });
         });
     }
 }

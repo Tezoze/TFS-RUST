@@ -155,7 +155,11 @@ impl GameWorld {
     fn parcel_label_text(&self, parcel_id: ItemId) -> Option<String> {
         let children = self.container_registry.get(parcel_id)?.items.clone();
         for child in children {
-            if self.items.get(child).is_some_and(|i| i.item_type == ITEM_LABEL) {
+            if self
+                .items
+                .get(child)
+                .is_some_and(|i| i.item_type == ITEM_LABEL)
+            {
                 return Some(self.items.get(child)?.text().to_string());
             }
         }
@@ -240,9 +244,7 @@ impl GameWorld {
         if let Some(pos) = self.mail_tile_pos(item_id) {
             return self.detach_item_from_tile(pos, item_id).is_ok();
         }
-        self.items
-            .get(item_id)
-            .is_some_and(|i| i.parent.is_none())
+        self.items.get(item_id).is_some_and(|i| i.parent.is_none())
     }
 
     fn restore_mail_to_mailbox(&mut self, item_id: ItemId, pos: Position) {
@@ -258,22 +260,14 @@ impl GameWorld {
         }
     }
 
-    fn existing_depot_locker(
-        &self,
-        cid: crate::ids::CreatureId,
-        town_id: u32,
-    ) -> Option<ItemId> {
+    fn existing_depot_locker(&self, cid: crate::ids::CreatureId, town_id: u32) -> Option<ItemId> {
         match self.creatures.get(cid)? {
             CreatureKind::Player(p) => p.depot_lockers.get(&town_id).copied(),
             _ => None,
         }
     }
 
-    fn existing_depot_chest(
-        &self,
-        cid: crate::ids::CreatureId,
-        town_id: u32,
-    ) -> Option<ItemId> {
+    fn existing_depot_chest(&self, cid: crate::ids::CreatureId, town_id: u32) -> Option<ItemId> {
         match self.creatures.get(cid)? {
             CreatureKind::Player(p) => p.depot_chests.get(&town_id).copied(),
             _ => None,
@@ -561,7 +555,10 @@ mod tests {
             Some(crate::creature::CreatureKind::Player(p)) => p.last_depot_id,
             _ => -1,
         };
-        assert_eq!(last, 1, "mail must mark last_depot_id so logout saves the locker");
+        assert_eq!(
+            last, 1,
+            "mail must mark last_depot_id so logout saves the locker"
+        );
     }
 
     #[test]
@@ -823,10 +820,8 @@ mod tests {
         let records = world.mail_outbox.get(&99).expect("outbox").pending[0]
             .records
             .clone();
-        let appended: Vec<(i32, i32, u16)> = records
-            .iter()
-            .map(|r| (r.pid, r.sid, r.itemtype))
-            .collect();
+        let appended: Vec<(i32, i32, u16)> =
+            records.iter().map(|r| (r.pid, r.sid, r.itemtype)).collect();
         world.apply_mail_delivery_finished(99, true, appended.clone());
         assert!(!world.mail_login_should_defer(99));
         let mut loaded = stub_loaded(99);
@@ -853,9 +848,7 @@ mod tests {
         world.player_by_guid.insert(42, cid);
         let letter_id = world.items.insert(Item::new_single(ITEM_LETTER_STAMPED));
         assert!(world.apply_house_depot_dump_if_online(42, vec![letter_id], 1));
-        let locker = world
-            .player_get_depot_locker(cid, 1)
-            .expect("live locker");
+        let locker = world.player_get_depot_locker(cid, 1).expect("live locker");
         let chest = world
             .player_get_depot_chest(cid, 1, false)
             .expect("live chest");
@@ -881,7 +874,11 @@ mod tests {
         queue_offline_letter(&mut world, pos);
         queue_offline_letter(&mut world, pos);
         let pending = &world.mail_outbox.get(&99).expect("outbox").pending;
-        assert_eq!(pending.len(), 2, "second letter must not overwrite the first");
+        assert_eq!(
+            pending.len(),
+            2,
+            "second letter must not overwrite the first"
+        );
         assert_eq!(
             pending
                 .iter()
@@ -908,10 +905,8 @@ mod tests {
         let records = world.mail_outbox.get(&99).expect("outbox").pending[0]
             .records
             .clone();
-        let appended: Vec<(i32, i32, u16)> = records
-            .iter()
-            .map(|r| (r.pid, r.sid, r.itemtype))
-            .collect();
+        let appended: Vec<(i32, i32, u16)> =
+            records.iter().map(|r| (r.pid, r.sid, r.itemtype)).collect();
         world.apply_mail_delivery_finished(99, true, appended);
         let mut loaded = stub_loaded(99);
         world.apply_outbox_to_loaded(99, &mut loaded);
@@ -935,7 +930,10 @@ mod tests {
             .expect("drop");
         world.detach_item_from_tile(pos, letter_id).expect("detach");
         assert!(
-            world.items.get(letter_id).is_some_and(|i| i.parent.is_none()),
+            world
+                .items
+                .get(letter_id)
+                .is_some_and(|i| i.parent.is_none()),
             "SendMail holds the letter with no cylinder parent"
         );
         assert!(
@@ -948,7 +946,10 @@ mod tests {
             Some(ITEM_LETTER_STAMPED)
         );
         assert!(
-            world.items.get(letter_id).is_some_and(|i| i.parent.is_none()),
+            world
+                .items
+                .get(letter_id)
+                .is_some_and(|i| i.parent.is_none()),
             "stamp must not re-parent onto a tile"
         );
     }
@@ -963,9 +964,7 @@ mod tests {
         world
             .internal_add_item_to_tile(pos, letter_id, crate::cylinder::CylinderFlags::NONE)
             .expect("drop");
-        world
-            .detach_item_from_tile(pos, letter_id)
-            .expect("hold");
+        world.detach_item_from_tile(pos, letter_id).expect("hold");
         let ffi = letter_id.data().as_ffi();
         world.mail_lookup_holds.insert(ffi, pos);
         world.apply_mail_lookup_finished(ffi, 1, None);
@@ -994,9 +993,7 @@ mod tests {
         world
             .internal_add_item_to_tile(pos, letter_id, crate::cylinder::CylinderFlags::NONE)
             .expect("drop");
-        world
-            .detach_item_from_tile(pos, letter_id)
-            .expect("hold");
+        world.detach_item_from_tile(pos, letter_id).expect("hold");
         let ffi = letter_id.data().as_ffi();
         world.mail_lookup_holds.insert(ffi, pos);
         world.apply_mail_lookup_finished(ffi, 1, Some(42));

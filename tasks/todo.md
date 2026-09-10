@@ -1,3 +1,18 @@
+# Sim harness extract — `docs/SIM_HARNESS.md` (2026-09-10)
+
+Decouple the chase/kite harness from live `tfs-rust-core`. Outer loop (`.scenario` + dual runners + Python diffs) stays. Inner loop today is cfg-quarantined inside core and fused with unit-test fixtures (~1,116 / 1,398 tests import `sim_harness` via `test_world`).
+
+**Do not extract the crate first** — `sim_harness` writes `pub(crate)` `server_ms` / `todo_queue` and calls ~15 `pub(crate)` methods. Crate-first would either break tests or permanently widen the core API.
+
+- [ ] Phase 0 — Rename `Player::sim_melee_attack/defense` → `fist_attack` / `fist_defense` (race data, not harness; login 7/5). Do not delete.
+- [ ] Phase 1 — One per-world `GlibcRngState`. Delete global glibc + `thread_rng` parity fallback + `init_sim_rng_from_env`. Core never reads `TFS_SIM_SEED`. Re-baseline battery JSONL in the same change.
+- [ ] Phase 2 — Replace `chase_debug` with `tracing::trace!(target: "chase", …)`. JSONL writer is a subscriber on `chase_kite_sim`. No `SimObserver` trait.
+- [ ] Phase 3 — Split `sim_harness.rs`: `#[cfg(test)]` fixtures stay (`test_world`); scenario/OTBM/wall-clock module separate. Do not `pub use` the whole file from `test_world`.
+- [ ] Phase 4 — Public `GameWorld::{server_ms, move_creatures, next_todo_execution_ms}` matching C++ `MoveCreatures` (not `advance_beat` / `AdvanceGame`). Drop `harness_preserve_sleep` and cfg-gated `pub(crate)` walk/login hooks.
+- [ ] Phase 5 — New `tfs-rust-sim` crate; move scenario module + `chase_kite_sim`; drop `feature = "sim"` from core. `path_compare` stays. `rg` for `feature = "sim"|sim_glibc_rng_enabled|chase_debug::` in `crates/tfs-rust-core/src` is empty.
+
+Verify each phase: `rtk cargo check/clippy/test -p tfs-rust-core` + `python3 scripts/run_sim_battery.py`. Full file list and exit criteria: `docs/SIM_HARNESS.md` §5.
+
 # Game loop audit vs decompile — audit Step 12 (2026-09-06)
 
 Deliverable: `docs/772_GAME_LOOP_AUDIT.md` (gaps + bugs + fix plan). Corpus anchor: `AdvanceGame` / `LaunchGame` (`main.cc:318-501`), `ProcessCreatures` / `ProcessSkills` / `MoveCreatures` (`crmain.cc:1075+`), `ProcessCronSystem` (`operate.cc:2763`), `RefreshCylinders` (`operate.cc:2966`), `ProcessMonsterhomes` (`crnonpl.cc:1409`), `ProcessMonsterRaids`, `ProcessConnections` / `ProcessCommunicationControl` (`operate.cc:3193`, `communication.cc`), `NetLoadCheck`, `SendAll`, `ReceiveData`, `GetRoundForNextMinute` (`time.cc`). Rust: `game_loop.rs`, `game_world_tick.rs`, `subsystem_counters.rs`, `run_server.rs`, `creature_todo.rs`, `creature_think.rs`, `sector_refresh.rs`, `spawn_lifecycle.rs`, `raid_waves.rs`, `player/ping.rs`.
@@ -23,7 +38,9 @@ Fix work (Phase 1 H1–H7 landed 2026-09-06; see audit §2 DONE):
 - [x] House leave/evict dump → **locker** root like `CleanHouse` (`DEPOT_LOCKER` / `CreateTempDepot`), not nested chest; offline pid `0x10000+town` (`house/ownership.rs` / `house/persist.rs`)
 - [x] Dustbins confirmed: pack 1777 `type=trashholder` → tile `TRASHHOLDER` → `apply_trashholder_consume` on cylinder add (`moveuse.dat` Dustbins `Delete(Obj2)`, no Effect)
 - [x] Offline mail **prepends** into `player_depotitems` (`SendMails` byte prepend); load reverse+front then puts newest at locker slot 0, not last-before-chest
-- [ ] Phase 2 (M1, M4–M9, M11) and Phase 3 (Low table) per audit §3; M10 house cadence needs a user decision
+- [x] Phase 2.1 deferred death/despawn (M1) — `creature_death_defer.rs`; combat `Death()` flags only; corpse/XP on ProcessCreatures
+- [x] Monster killers get `SKILL_LEVEL` exp + white popup (`DistributeExperiencePoints` has no player gate; `crcombat.cc:908-958`)
+- [ ] Phase 2 (M4–M9, M11) and Phase 3 (Low table) per audit §3; M10 house cadence needs a user decision
 
 # Sector refresh cadence, decay, residency — audit Step 11 (2026-09-06)
 

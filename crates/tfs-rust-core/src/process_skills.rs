@@ -34,7 +34,7 @@ impl GameWorld {
             self.creatures
                 .iter()
                 .filter(|(_, k)| {
-                    if k.base().health <= 0 {
+                    if k.base().health <= 0 || k.base().is_dead {
                         return false;
                     }
                     matches!(k, CreatureKind::Player(_)) || !k.base().active_conditions.is_empty()
@@ -229,8 +229,8 @@ impl GameWorld {
 
             // C2 — Field re-extension: 772 `TSkillPoison/Burning/Energy::Event` scans the
             // creature's tile for a matching AVOID field and increments `Cycle += 1`
-            // (`crskill.cc:1030-1045,1062-1077,1088-1103`). This keeps the DoT alive while
-            // the creature stands on the field. Only extend if the creature survived.
+            // (`crskill.cc:1030-1045,1062-1077,1088-1103`). C++ does this after Damage with
+            // no survival check; later ProcessSkills ticks skip `is_dead` bodies.
             //
             // `Cycle` maps to different Rust fields per condition type:
             // - Poison: `ConditionData::Damage::total_rank` (the damage pool — `crskill.cc:983`)
@@ -890,7 +890,10 @@ mod tests {
 
         world.process_skills();
         assert!(
-            world.pending_outgoing.get(&conn).is_some_and(|p| !p.is_empty()),
+            world
+                .pending_outgoing
+                .get(&conn)
+                .is_some_and(|p| !p.is_empty()),
             "fed HP/mana grant must enqueue stats (and health bar)"
         );
         let CreatureKind::Player(p) = world.creatures.get(pid).unwrap() else {
@@ -921,7 +924,10 @@ mod tests {
 
         world.process_skills();
         assert!(
-            world.pending_outgoing.get(&conn).is_some_and(|p| !p.is_empty()),
+            world
+                .pending_outgoing
+                .get(&conn)
+                .is_some_and(|p| !p.is_empty()),
             "due grant at cap still SendPlayerData"
         );
     }
