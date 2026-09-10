@@ -3,8 +3,19 @@
 
 use tfs_rust_db::items::ItemRecord;
 
+use crate::formulas::DepotLockerStructure;
+
 /// 772 locker-root pid (`game_world_save.rs` / `load_depot_table`): `0x10000 + town_id`.
 pub const LOCKER_ROOT_PID_BASE: i32 = 0x10000;
+
+/// Offline depot-table parent for mail / house dump.
+/// 772: locker-loose (`CleanHouse` `CreateTempDepot` / `SendMails`). 1098: town chest pid.
+pub fn depot_table_root_pid(structure: DepotLockerStructure, town_id: u32) -> i32 {
+    match structure {
+        DepotLockerStructure::ClassicDepotChest => LOCKER_ROOT_PID_BASE + town_id as i32,
+        DepotLockerStructure::TfsMarketInbox => town_id as i32,
+    }
+}
 
 /// Town-chest roots (`pid` 0–99) and locker roots (`0x10000 + town`) stay unshifted.
 fn is_depot_table_root_pid(pid: i32) -> bool {
@@ -34,9 +45,34 @@ pub fn append_offset_records(rows: &mut Vec<ItemRecord>, mut extra: Vec<ItemReco
     rows.extend(extra);
 }
 
+/// `SendMails` prepends mail bytes ahead of the existing depot blob (`moveuse.cc:883-899`).
+/// `load_depot_table` sorts sid descending then `internal_add_item_front`, so **lowest sid**
+/// among locker-root children becomes slot 0 (UI top). New rows keep 101-based sids;
+/// existing rows shift up.
+pub fn prepend_offset_records(rows: &mut Vec<ItemRecord>, extra: Vec<ItemRecord>) {
+    let shift = extra
+        .iter()
+        .map(|r| r.sid)
+        .max()
+        .unwrap_or(100)
+        .saturating_sub(100);
+    if shift > 0 {
+        for rec in rows.iter_mut() {
+            if !is_depot_table_root_pid(rec.pid) && rec.pid > 99 {
+                rec.pid += shift;
+            }
+            rec.sid += shift;
+        }
+    }
+    let mut combined = extra;
+    combined.append(rows);
+    *rows = combined;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::formulas::DepotLockerStructure;
 
     fn rec(pid: i32, sid: i32, itemtype: u16) -> ItemRecord {
         ItemRecord {
@@ -75,5 +111,38 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[1].pid, 1);
         assert_eq!(rows[1].sid, 141);
+    }
+
+    #[test]
+    fn prepend_keeps_new_rows_at_lowest_sids() {
+        let mut rows = vec![rec(LOCKER_ROOT_PID_BASE + 1, 101, 2148), rec(101, 102, 2599)];
+        prepend_offset_records(
+            &mut rows,
+            vec![
+                rec(LOCKER_ROOT_PID_BASE + 1, 101, 2598),
+                rec(101, 102, 2599),
+            ],
+        );
+        assert_eq!(rows.len(), 4);
+        assert_eq!(rows[0].itemtype, 2598);
+        assert_eq!(rows[0].sid, 101);
+        assert_eq!(rows[1].pid, 101);
+        assert_eq!(rows[1].sid, 102);
+        assert_eq!(rows[2].itemtype, 2148);
+        assert_eq!(rows[2].sid, 103);
+        assert_eq!(rows[3].pid, 103);
+        assert_eq!(rows[3].sid, 104);
+    }
+
+    #[test]
+    fn locker_structure_uses_locker_root_pid() {
+        assert_eq!(
+            depot_table_root_pid(DepotLockerStructure::ClassicDepotChest, 1),
+            LOCKER_ROOT_PID_BASE + 1
+        );
+        assert_eq!(
+            depot_table_root_pid(DepotLockerStructure::TfsMarketInbox, 1),
+            1
+        );
     }
 }

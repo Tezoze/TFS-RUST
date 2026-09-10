@@ -1,6 +1,8 @@
 //! Tile specials: trashholder consume + teleport dest + item-type magic puffs.
 //!
 //! Domain: TFS `TrashHolder::addThing` / `Teleport::addThing` (`trashholder.cpp`, `teleport.cpp`).
+//! Corpus: `moveuse.dat` Dustbins `Collision, IsType(Obj1,2526) -> Delete(Obj2)` (no Effect);
+//! Liquid Deletions add `Effect`. Pack id 1777 (`type=trashholder`) is client 2526.
 //! Outcomes: XML `effect` as 772 `CONST_ME_*` wire byte.
 
 use tfs_rust_common::Position;
@@ -69,6 +71,7 @@ impl GameWorld {
         }
         // TFS `TrashHolder::addThing` — `!item->hasProperty(CONST_PROP_MOVEABLE)` (`trashholder.cpp`).
         // `CONST_PROP_MOVEABLE` is `it.moveable && !uniqueId` (`item.cpp` hasProperty).
+        // Dustbins (`moveuse.dat` Dustbins) delete Obj2 with no Effect; liquids puff via XML `effect`.
         // Immovable floor/borders (dirt 4797/4799 on water) must stay; splash is for thrown loot.
         if !it.moveable() || item.unique_id() != 0 {
             return;
@@ -261,6 +264,70 @@ mod tests {
         assert!(
             world.items.get(dirt).is_some(),
             "immovable dirt floor must not be swallowed by water trashholder"
+        );
+    }
+
+    /// Pack dustbin 1777 (`items.xml` `type=trashholder`, `allowpickupable`) ↔ corpus TypeID 2526.
+    /// Throw must pass `IsMapBlocked` (Unpass but not Unlay), then silent `Delete(Obj2)`.
+    #[test]
+    fn dustbin_swallows_thrown_item_no_effect() {
+        use crate::return_value::ReturnValue;
+
+        let mut world = beat_driven_test_world();
+        let mut db = (*world.items_db).clone();
+        db.items.insert(
+            1777,
+            ItemType {
+                id: 1777,
+                server_id: 1777,
+                type_tag: ITEM_TYPE_TRASHHOLDER,
+                flags: 1 << 0, // FLAG_BLOCK_SOLID — corpus Unpass
+                moveable_override: Some(false),
+                allow_pickupable: true, // XML; keeps `is_unlay` false so throws land
+                ..ItemType::default()
+            },
+        );
+        db.items.insert(
+            2148,
+            ItemType {
+                id: 2148,
+                server_id: 2148,
+                flags: (1 << 5) | (1 << 6), // FLAG_PICKUPABLE | FLAG_MOVEABLE
+                ..ItemType::default()
+            },
+        );
+        world.items_db = Arc::new(db);
+
+        let pos = Position::new(80, 80, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+        let bin = world.items.insert(Item::new_single(1777));
+        world
+            .internal_add_item_to_tile(pos, bin, CylinderFlags::NO_LIMIT)
+            .expect("place dustbin");
+        assert!(
+            world
+                .map
+                .get_tile(pos)
+                .is_some_and(|t| t.body().flags & tile_flags::TRASHHOLDER != 0),
+            "placing 1777 must set TILESTATE_TRASHHOLDER"
+        );
+
+        let gold = world.items.insert(Item::new_single(2148));
+        assert_eq!(
+            world.query_add_item_to_tile(pos, gold, CylinderFlags::NONE),
+            ReturnValue::NoError,
+            "Unpass dustbin must still accept a thrown TAKE item (not Unlay)"
+        );
+        world
+            .internal_add_item_to_tile(pos, gold, CylinderFlags::NONE)
+            .expect("throw gold");
+        assert!(
+            world.items.get(gold).is_none(),
+            "dustbin Collision deletes Obj2"
+        );
+        assert!(
+            world.items.get(bin).is_some(),
+            "dustbin itself stays"
         );
     }
 

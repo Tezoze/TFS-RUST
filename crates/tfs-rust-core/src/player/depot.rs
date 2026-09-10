@@ -286,7 +286,8 @@ impl GameWorld {
     /// Re-parent inbox and depot chests when reopening an existing virtual locker.
     fn sync_depot_locker_contents(&mut self, cid: CreatureId, locker_id: ItemId) {
         use crate::formulas::DepotLockerStructure;
-        // 772 lockers have a single depot chest at index 0 — no inbox/market to sync.
+        // 772 lockers: mail/house dumps prepend in front of the chest (`SendMails`).
+        // Chest stays a child; no inbox/market to sync.
         if self.mechanics.profile.depot_locker_structure == DepotLockerStructure::ClassicDepotChest
         {
             return;

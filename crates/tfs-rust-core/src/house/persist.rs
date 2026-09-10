@@ -302,19 +302,18 @@ impl GameWorld {
                 .load_items(guid as i32, ItemTable::Depot)
                 .await
                 .unwrap_or_default();
-            let max_sid = rows.iter().map(|r| r.sid).max().unwrap_or(100);
-            let roots: Vec<(i32, ItemId)> = items
-                .iter()
-                .copied()
-                .map(|id| (town_id as i32, id))
-                .collect();
+            // 772 `SaveDepot` serializes locker children (`CleanHouse`); pid matches mail.
+            let pid = crate::depot_append::depot_table_root_pid(
+                self.mechanics.profile.depot_locker_structure,
+                town_id,
+            );
+            let roots: Vec<(i32, ItemId)> = items.iter().copied().map(|id| (pid, id)).collect();
             let mut extra: Vec<ItemRecord> = Vec::new();
             if let Err(e) = append_save_item_tree(self, &roots, &mut extra) {
                 tracing::warn!(guid, error = %e, "house depot dump serialize failed");
                 continue;
             }
-            crate::depot_append::apply_sid_pid_offset(&mut extra, max_sid);
-            rows.extend(extra);
+            crate::depot_append::prepend_offset_records(&mut rows, extra);
             if let Err(e) = store.save_items(guid as i32, ItemTable::Depot, &rows).await {
                 tracing::warn!(guid, error = %e, "house depot dump save failed");
             }

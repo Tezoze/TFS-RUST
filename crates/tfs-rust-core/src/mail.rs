@@ -325,12 +325,6 @@ impl GameWorld {
             DepotLockerStructure::TfsMarketInbox => {
                 self.house_add_item_to_town_depot(cid, town_id, item_id);
                 self.player_set_last_depot_id(cid, town_id);
-                if let Some(chest) = self.player_get_depot_chest(cid, town_id, false) {
-                    self.notify_container_content_changed(
-                        chest,
-                        ContainerContentChange::Add { slot: 0 },
-                    );
-                }
             }
         }
     }
@@ -775,7 +769,51 @@ mod tests {
                 .any(|r| r.itemtype == ITEM_LETTER_STAMPED),
             "stale load must receive spliced mail"
         );
+        let letter_sid = loaded
+            .items
+            .depot
+            .iter()
+            .find(|r| r.itemtype == ITEM_LETTER_STAMPED)
+            .map(|r| r.sid)
+            .expect("letter sid");
+        assert_eq!(
+            letter_sid, 101,
+            "spliced mail must keep lowest sid so login puts it at locker slot 0"
+        );
         assert!(!world.mail_outbox.contains_key(&99));
+    }
+
+    #[test]
+    fn login_splice_prepends_ahead_of_existing_locker_items() {
+        let (mut world, pos) = setup_mailbox_world();
+        queue_offline_letter(&mut world, pos);
+        let mut loaded = stub_loaded(99);
+        loaded.items.depot.push(tfs_rust_db::items::ItemRecord {
+            pid: crate::depot_append::LOCKER_ROOT_PID_BASE + 1,
+            sid: 101,
+            itemtype: 2148,
+            count: 1,
+            attributes: Vec::new(),
+        });
+        world.apply_outbox_to_loaded(99, &mut loaded);
+        let letter = loaded
+            .items
+            .depot
+            .iter()
+            .find(|r| r.itemtype == ITEM_LETTER_STAMPED)
+            .expect("letter");
+        let coin = loaded
+            .items
+            .depot
+            .iter()
+            .find(|r| r.itemtype == 2148)
+            .expect("old locker item");
+        assert!(
+            letter.sid < coin.sid,
+            "new mail sid {} must be below existing locker item sid {} (slot 0 after load)",
+            letter.sid,
+            coin.sid
+        );
     }
 
     #[test]
@@ -815,14 +853,25 @@ mod tests {
         world.player_by_guid.insert(42, cid);
         let letter_id = world.items.insert(Item::new_single(ITEM_LETTER_STAMPED));
         assert!(world.apply_house_depot_dump_if_online(42, vec![letter_id], 1));
+        let locker = world
+            .player_get_depot_locker(cid, 1)
+            .expect("live locker");
         let chest = world
             .player_get_depot_chest(cid, 1, false)
-            .expect("live depot");
+            .expect("live chest");
+        assert!(
+            world
+                .container_registry
+                .get(locker)
+                .is_some_and(|c| c.items.contains(&letter_id)),
+            "house dump must land in the locker"
+        );
         assert!(
             world
                 .container_registry
                 .get(chest)
-                .is_some_and(|c| c.items.contains(&letter_id))
+                .is_none_or(|c| !c.items.contains(&letter_id)),
+            "house dump must not nest in the chest"
         );
     }
 

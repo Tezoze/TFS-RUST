@@ -797,7 +797,7 @@
 375. **Talkactions phase 1–2: session IP, ghost write, FYI dialog, `creature:remove`** (`player:getIp` / `setGhostMode` / `popupFYI` / `remove`): Session IPv4 is packed with the first octet in the low byte (`u32::from_le_bytes(octets)`) so `Game.convertIpToString` matches TFS `luaPlayerGetIp`. Capture TCP `peer_addr` on the I/O thread and pass `peer_ip` through `GameCommand::PlayerLogin` / `PlayerLoaded` (never look up sockets from the game thread). `popupFYI` is a 772 stand-in: `showTextDialog(1950, text)` (`0x96`); there is no FYI box opcode. `creature:remove` is forced `player_logout` for players, `remove_creature` for monsters/NPCs — not `item:remove`. Ghost write flips `ghost_mode` then appear/remove for spectators via `can_see_creature`. **Ghost sparkle:** TFS `sendCreatureChangeVisible` / `0x8E` with `lookType` 0 (empty `Outfit_t`) — send that to self (and other viewers who can still see), not only tile-remove others. Map `AddCreature` uses the same empty outfit while `ghost_mode`. *(August 2026)*
 
 376. **House system: corpus rent/eviction, TFS lists/XML/Lua, AAC auctions** (`house/`; `houses_xml.rs`; `houses.cc` `CollectRent`/`CleanHouse`/`FinishAuctions`; TFS `house.cpp` / `iomapserialize.cpp`):
-    - **Eviction target:** town depot (corpus `CleanHouse`), not 1098 inbox.
+    - **Eviction target:** town **locker** root (corpus `CleanHouse` `CreateTempDepot` / `DEPOT_LOCKER`), not nested chest and not 1098 inbox.
     - **Rent source:** depot cash (corpus), not 1098 bank balance. Monthly `paid_until += 30d`, 7-day grace, one warning letter.
     - **Auctions:** MyAAC writes `bid`/`bid_end`/`highest_bidder`; the server only **settles** when `bid_end` elapses (`rent + bid` from depot). No native `StartAuctions`. In-game `!buyhouse` / `!leavehouse` are wired for testing (`setOwnerGuid`); `!sellhouse` uses native trade + `house:startTrade`.
     - **Access lists:** TFS `GUEST_LIST` 0x100 / `SUBOWNER_LIST` 0x101 / door byte (`house_lists` + MyAAC). Syntax is TFS (`*`, skip `@guild`) — not corpus `MatchString` wildcards / `!` negation.
@@ -893,7 +893,7 @@
 405. **House leave/evict is 772 TAKE, not XML `allowpickupable`** (`house/ownership.rs` `collect_clean_field`; `houses.cc` `CleanField` ~834): `ItemType::pickupable()` ORs `allow_pickupable` (place items **on** a table). Stock tables (1632) have that XML bit and are UNMOVE, so `!leavehouse` / `setOwner(0)` dumped them to depot. Corpus: `!UNMOVE && TAKE` → depot; unmoveable furniture stays; container contents of what remains still dump. `takeable()` is OTB `FLAG_PICKUPABLE` only.
     *(August 2026)*
 
-406. **House→depot must detach, not `internalRemoveItem`** (`house_transfer_to_depot`; `game_world_item_cylinder.rs` `internal_remove_item_from_tile`): C++ `MoveObject` keeps the instance. Our remove path `detach` then `items.remove`, so leavehouse stuffed **dead** ids into the depot chest. Locker `CountObjects - 1` still counted them (`Your depot contains 5 items`) while `sendContainer` skipped missing SlotMap nodes (empty window). Use `detach_item_from_tile` then add; `refresh_container_chain` so the count matches.
+406. **House→depot must detach, not `internalRemoveItem`** (`house_transfer_to_depot`; `game_world_item_cylinder.rs` `internal_remove_item_from_tile`): C++ `MoveObject` keeps the instance. Our remove path `detach` then `items.remove`, so leavehouse stuffed **dead** ids into the depot. Locker `CountObjects - 1` still counted them (`Your depot contains 5 items`) while `sendContainer` skipped missing SlotMap nodes (empty window). Use `detach_item_from_tile` then add; `refresh_container_chain` so the count matches.
     *(August 2026)*
 
 407. **House area SQM uses XML `size` and house name** (`house_prices.rs`, `house/mod.rs` `apply_sqm_rents`): TFS XML has no `Area`; RON maps house **name** → corpus area (XML `name` = `houses.dat` `Name`). `rent = area.sqm * xml.size`. Do not use DAT `Fields` count or OTBM `tiles.len()`. `RentOffset` is not applied. Flag off + `housePriceEachSQM = -1` keeps XML rent.
@@ -1022,6 +1022,12 @@
     *(2026-09-07)*
 
 449. **Mail prepend must refresh locker holding count** (`house/ownership.rs` `add_to_container_front`; `stepping_tiles.rs` `announce_depot`; `moveuse.cc:640` `CountObjects(Con) - 1`): `internal_add_item_front` only mutates the child list. Depot-tile `"Your depot contains N items"` reads `total_item_count` (chest excluded). SendMail / house dump used that prepend without `refresh_container_chain`, so the announce stayed stale until a cylinder move or relog rebuilt the cache. Nested parcel contents are included because `ContainerIterator` walks the registry tree on refresh.
+    *(2026-09-07)*
+
+450. **House leave/evict dump is locker-loose, same as mail** (`house/ownership.rs` `house_transfer_to_depot`; `houses.cc:788-798` `CreateTempDepot` / `CleanHouse`): `CleanField` `MoveObject`s TAKE items into a temp **DEPOT_LOCKER**, then `SaveDepot` persists locker children (chest + dumped items as siblings). Nesting into `player_get_depot_chest` hid house goods one window down from mail. Offline dump pid is `0x10000+town` (`depot_table_root_pid`), not chest `pid = town_id`. 1098 stays gated to the town chest (`queryAdd` rejects locker). Welcome/rent letters share this insert site because they use the same `pending_depot_dumps` queue.
+    *(2026-09-07)*
+
+451. **Offline mail must prepend the depot blob, not append sids** (`depot_append.rs` `prepend_offset_records`; `moveuse.cc:883-899` `SendMails`): corpus copies mail bytes *ahead of* the existing `Depot[DepotNr]` stream so `LoadObjects`/`AppendObject` puts the letter at list head (slot 0). Our DB append assigned higher sids; `load_depot_table` walks sid DESC + `push_front`, so newest mail landed last-before-chest. New rows keep 101-based sids and existing rows shift up — same visual as live `add_to_container_front`.
     *(2026-09-07)*
 
 

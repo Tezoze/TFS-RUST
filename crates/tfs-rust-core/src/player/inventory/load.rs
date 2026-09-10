@@ -917,6 +917,61 @@ mod tests {
         );
     }
 
+    /// Offline `SendMails` prepends; after sid-shift the new letter is lowest sid → locker slot 0.
+    #[test]
+    fn load_depot_newest_locker_mail_is_slot_zero() {
+        let mut world = minimal_world();
+        world.mechanics.profile.depot_locker_structure =
+            crate::formulas::DepotLockerStructure::ClassicDepotChest;
+        let pos = Position::new(50, 50, 7);
+        let cid = insert_player(&mut world, test_player("mail_order", pos));
+        let rows = vec![
+            ItemRecord {
+                pid: 0x10001,
+                sid: 101,
+                itemtype: 2598, // stamped letter — newest after prepend
+                count: 1,
+                attributes: Vec::new(),
+            },
+            ItemRecord {
+                pid: 0x10001,
+                sid: 102,
+                itemtype: 2148, // older locker-loose item
+                count: 5,
+                attributes: Vec::new(),
+            },
+        ];
+        world.hydrate_player_inventory_from_db(cid, &[], &[], &rows, &[]);
+        let locker_id = world
+            .creatures
+            .get(cid)
+            .and_then(|k| match k {
+                CreatureKind::Player(p) => p.depot_lockers.get(&1).copied(),
+                _ => None,
+            })
+            .expect("locker");
+        let chest_id = world
+            .creatures
+            .get(cid)
+            .and_then(|k| match k {
+                CreatureKind::Player(p) => p.depot_chests.get(&1).copied(),
+                _ => None,
+            })
+            .expect("chest");
+        let locker = world.container_registry.get(locker_id).expect("reg");
+        assert!(locker.items.len() >= 3, "letter + old item + chest");
+        assert_eq!(
+            world.items.get(locker.items[0]).map(|i| i.item_type),
+            Some(2598),
+            "newest mail must be locker slot 0, not last-before-chest"
+        );
+        assert_eq!(
+            world.items.get(locker.items[1]).map(|i| i.item_type),
+            Some(2148)
+        );
+        assert_eq!(locker.items.last().copied(), Some(chest_id));
+    }
+
     /// TFS `internalAddThing` is `push_front` while walking `sid` DESC (`iologindata.cpp`).
     /// `Container::add_item` (push_back) reversed backpack slots on every login.
     #[test]

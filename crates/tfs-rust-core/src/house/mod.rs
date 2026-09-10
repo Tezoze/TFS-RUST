@@ -50,7 +50,8 @@ pub struct HouseManager {
     pub edit_sessions: HashMap<u32, HouseEditSession>,
     /// Name → GUID cache for access-list parse (boot + logins).
     pub name_to_guid: HashMap<String, u32>,
-    /// Offline eviction: item ids waiting to be written into `player_depotitems`.
+    /// Offline eviction: item ids waiting to be written into `player_depotitems`
+    /// (772 locker-root pid `0x10000+town`, same as mail).
     pub pending_depot_dumps: HashMap<u32, Vec<ItemId>>,
     pub pending_depot_town: HashMap<u32, u32>,
     pub last_process_unix: i64,

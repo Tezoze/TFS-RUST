@@ -1,6 +1,6 @@
-//! Offline mailbox delivery — serialize now, append DB off the game thread, splice on login.
+//! Offline mailbox delivery — serialize now, prepend DB off the game thread, splice on login.
 //!
-//! C++ reference: `moveuse.cc:712-919` `SendMail` / `SendMails`.
+//! C++ reference: `moveuse.cc:712-919` `SendMail` / `SendMails` (offline blob prepend).
 //! Does **not** use `houses.pending_depot_dumps` (that map is house eviction / welcome letters).
 //!
 //! One outbox *queue* per guid (multiple letters accumulate). At most one DB
@@ -66,13 +66,10 @@ pub struct DeferredLogin {
 impl GameWorld {
     /// Detach+stamp already done by caller. Serialize the tree now and spawn DB append.
     pub(crate) fn queue_offline_mail(&mut self, item_id: ItemId, guid: u32, town_id: u32) -> bool {
-        use crate::formulas::DepotLockerStructure;
-        let pid = match self.mechanics.profile.depot_locker_structure {
-            DepotLockerStructure::ClassicDepotChest => {
-                crate::depot_append::LOCKER_ROOT_PID_BASE + town_id as i32
-            }
-            DepotLockerStructure::TfsMarketInbox => town_id as i32,
-        };
+        let pid = crate::depot_append::depot_table_root_pid(
+            self.mechanics.profile.depot_locker_structure,
+            town_id,
+        );
         let roots = vec![(pid, item_id)];
         let mut records: Vec<ItemRecord> = Vec::new();
         if append_save_item_tree(self, &roots, &mut records).is_err() {
@@ -91,7 +88,7 @@ impl GameWorld {
 
     /// Splice pending records into a loaded character's depot (login-before-ack).
     pub(crate) fn splice_mail_into_loaded(loaded: &mut LoadedPlayerData, records: &[ItemRecord]) {
-        crate::depot_append::append_offset_records(&mut loaded.items.depot, records.to_vec());
+        crate::depot_append::prepend_offset_records(&mut loaded.items.depot, records.to_vec());
     }
 
     pub(crate) fn splice_outbox_into_loaded(&self, guid: u32, loaded: &mut LoadedPlayerData) {
@@ -228,7 +225,7 @@ impl GameWorld {
         let mut any = false;
         for p in &mut outbox.pending {
             if p.persist == MailPersistState::Queued && !p.delivered_live {
-                crate::depot_append::append_offset_records(&mut batch, p.records.clone());
+                crate::depot_append::prepend_offset_records(&mut batch, p.records.clone());
                 p.persist = MailPersistState::InFlight;
                 any = true;
             }
@@ -244,9 +241,9 @@ impl GameWorld {
                 .load_items(guid as i32, ItemTable::Depot)
                 .await
                 .unwrap_or_default();
-            let start = rows.len();
-            crate::depot_append::append_offset_records(&mut rows, batch);
-            let appended: Vec<(i32, i32, u16)> = rows[start..]
+            let added = batch.len();
+            crate::depot_append::prepend_offset_records(&mut rows, batch);
+            let appended: Vec<(i32, i32, u16)> = rows[..added]
                 .iter()
                 .map(|r| (r.pid, r.sid, r.itemtype))
                 .collect();

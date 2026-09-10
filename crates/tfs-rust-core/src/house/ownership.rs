@@ -1,12 +1,15 @@
 //! House ownership change — TFS `House::setOwner` with corpus eviction target.
 //!
 //! Pack surface: `house.cpp` `House::setOwner` (~27) / `kickPlayer` (~143).
-//! Corpus: `CleanHouse` (`houses.cc` ~855) moves TAKE items to the **town depot**, not inbox.
+//! Corpus: `CleanHouse` (`houses.cc` ~855) `MoveObject` into a temp **DEPOT_LOCKER**
+//! (`CreateTempDepot`), same layer as `SendMail` — not nested `DEPOT_CHEST`, not inbox.
 
 use slotmap::Key;
 use tfs_rust_common::Position;
 
+use crate::container_ui::ContainerContentChange;
 use crate::creature::CreatureKind;
+use crate::formulas::DepotLockerStructure;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::item::Item;
@@ -70,7 +73,7 @@ impl GameWorld {
         }
     }
 
-    /// Corpus `CleanHouse` / `CleanField` (`houses.cc` ~812): TAKE + not UNMOVE → town depot.
+    /// Corpus `CleanHouse` / `CleanField` (`houses.cc` ~812): TAKE + not UNMOVE → locker.
     /// Unmoveable house furniture (tables with XML `allowpickupable`) stays.
     pub fn house_transfer_to_depot(&mut self, house_id: u32, owner_guid: u32) {
         let tiles = self
@@ -117,14 +120,13 @@ impl GameWorld {
         for (pos, iid) in delete_ids {
             let _ = self.internal_remove_item_from_tile(pos, iid, u16::MAX);
         }
-        if let Some(&cid) = self.player_by_guid.get(&owner_guid) {
-            if let Some(chest) = self.player_get_depot_chest(cid, town_id, true) {
-                for iid in move_ids {
-                    add_to_container_front(self, chest, iid);
-                }
-                self.refresh_container_chain(chest);
-                return;
+        if let Some(&cid) = self.player_by_guid.get(&owner_guid)
+            && self.town_depot_insert_root(cid, town_id).is_some()
+        {
+            for iid in move_ids {
+                self.house_add_item_to_town_depot(cid, town_id, iid);
             }
+            return;
         }
         self.houses
             .pending_depot_dumps
@@ -283,11 +285,11 @@ impl GameWorld {
         let mut letter = Item::new_single(ITEM_LETTER_STAMPED);
         letter.set_text(text);
         let iid = self.items.insert(letter);
-        if let Some(&cid) = self.player_by_guid.get(&owner_guid) {
-            if let Some(chest) = self.player_get_depot_chest(cid, town_id, true) {
-                add_to_container_front(self, chest, iid);
-                return;
-            }
+        if let Some(&cid) = self.player_by_guid.get(&owner_guid)
+            && self.town_depot_insert_root(cid, town_id).is_some()
+        {
+            self.house_add_item_to_town_depot(cid, town_id, iid);
+            return;
         }
         self.houses
             .pending_depot_dumps
@@ -323,10 +325,20 @@ impl GameWorld {
         self.house_kick_player(house_id, kicker_cid, target_cid)
     }
 
-    pub fn house_add_item_to_town_depot(&mut self, cid: CreatureId, town_id: u32, item_id: ItemId) {
-        if let Some(chest) = self.player_get_depot_chest(cid, town_id, true) {
-            add_to_container_front(self, chest, item_id);
+    /// 772 `CleanHouse` / `SendMail`: locker root. 1098: town chest (`queryAdd` rejects locker).
+    fn town_depot_insert_root(&mut self, cid: CreatureId, town_id: u32) -> Option<ItemId> {
+        match self.mechanics.profile.depot_locker_structure {
+            DepotLockerStructure::ClassicDepotChest => self.player_get_depot_locker(cid, town_id),
+            DepotLockerStructure::TfsMarketInbox => self.player_get_depot_chest(cid, town_id, true),
         }
+    }
+
+    pub fn house_add_item_to_town_depot(&mut self, cid: CreatureId, town_id: u32, item_id: ItemId) {
+        let Some(dest) = self.town_depot_insert_root(cid, town_id) else {
+            return;
+        };
+        add_to_container_front(self, dest, item_id);
+        self.notify_container_content_changed(dest, ContainerContentChange::Add { slot: 0 });
     }
 }
 
@@ -546,6 +558,8 @@ mod tests {
         use tfs_rust_content::otb::ItemType;
 
         let mut world = minimal_world();
+        world.mechanics.profile.depot_locker_structure =
+            crate::formulas::DepotLockerStructure::ClassicDepotChest;
         let mut db = (*world.items_db).clone();
         db.items.insert(
             2148,
@@ -587,12 +601,18 @@ mod tests {
 
         world.house_set_owner(1, 0, 1_000);
 
+        let locker = world.player_get_depot_locker(cid, 1).expect("locker");
         let chest = world.player_get_depot_chest(cid, 1, false).expect("chest");
+        let in_locker = world
+            .container_registry
+            .get(locker)
+            .is_some_and(|c| c.items.contains(&gold));
         let in_chest = world
             .container_registry
             .get(chest)
             .is_some_and(|c| c.items.contains(&gold));
-        assert!(in_chest, "gold must be in town depot chest");
+        assert!(in_locker, "gold must be in town depot locker (CleanHouse)");
+        assert!(!in_chest, "gold must not be nested inside the depot chest");
         assert!(world.items.get(gold).is_some());
         assert_eq!(world.items.get(gold).map(|i| i.item_type), Some(2148));
     }
