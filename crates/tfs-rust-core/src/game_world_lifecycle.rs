@@ -526,19 +526,59 @@ impl GameWorld {
         }
     }
 
-    /// PC-5 M7 — amulet of loss + inventory drop onto dead-human corpse.
+    /// 772 `Damage` AoL scan **before** `Death()` (`crmain.cc:790-817`).
     ///
-    /// C++ `crmain.cc:790-815` (AoL → `LOSE_INVENTORY_NONE` + delete amulet);
+    /// Called from [`Self::mark_dead`] so the amulet is gone during the body linger,
+    /// not at `~TCreature`. Sets `Player::amulet_of_loss_saved` for the destructor drop mode.
+    /// Domain type id `2173` stands in for 772 `GetNewObjectType(77,12)` in the TFS pack.
+    pub(crate) fn consume_amulet_of_loss_on_death(&mut self, victim: CreatureId) {
+        const AMULET_OF_LOSS: u16 = 2173;
+        let keep_inventory =
+            self.player_has_flag(victim, crate::player_flags::PLAYER_FLAG_KEEP_INVENTORY);
+        let exact_lethal = match self.creatures.get(victim) {
+            Some(CreatureKind::Player(p)) => p.exact_lethal_blow,
+            _ => return,
+        };
+        if keep_inventory || !exact_lethal {
+            return;
+        }
+        for slot in crate::inventory::PLAYER_INVENTORY_SLOT_FIRST
+            ..=crate::inventory::PLAYER_INVENTORY_SLOT_LAST
+        {
+            let Some(iid) = self.get_player_inventory_item(victim, slot) else {
+                continue;
+            };
+            let Some(item) = self.items.get(iid) else {
+                continue;
+            };
+            if item.item_type != AMULET_OF_LOSS {
+                continue;
+            }
+            let Some(it) = self.items_db.items.get(&item.item_type) else {
+                continue;
+            };
+            if !crate::inventory::item_fits_equipment_slot(slot, it) {
+                continue;
+            }
+            let _ = self.internal_remove_item_from_inventory_slot(victim, slot, iid);
+            self.items.remove(iid);
+            if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(victim) {
+                p.amulet_of_loss_saved = true;
+            }
+            tracing::info!(?victim, slot, "player died with amulet of loss");
+            break;
+        }
+    }
+
+    /// PC-5 M7 — inventory drop onto dead-human corpse (`~TCreature`).
+    ///
     /// `crmain.cc:267-281` drop logic: `LOSE_INVENTORY_ALL` drops everything,
     /// `LOSE_INVENTORY_SOME` drops containers always + 10% chance per slot.
     /// `crplayer.cc:292,296-300`: `LOSE_INVENTORY_ALL` when red skull
-    /// (`PlayerkillerEnd != 0`); `LOSE_INVENTORY_NONE` under `KEEP_INVENTORY` right.
+    /// (`PlayerkillerEnd != 0`); `LOSE_INVENTORY_NONE` under `KEEP_INVENTORY` right
+    /// or after AoL consume in [`Self::consume_amulet_of_loss_on_death`].
     /// Corpse type `3128` (dead human). Default player mode is SOME (`crplayer.cc:30`).
-    ///
-    /// AoL only when the killing blow was exact (`Damage == HitPoints`) — overkill skips it.
-    /// Domain type id `2173` stands in for 772 `GetNewObjectType(77,12)` in the TFS pack.
     pub(crate) fn player_death_drop_inventory(&mut self, victim: CreatureId) {
-        const AMULET_OF_LOSS: u16 = 2173;
         const DEAD_HUMAN_CORPSE: u16 = 3128;
 
         let last_hit = self.creatures.get(victim).and_then(|k| match k {
@@ -551,11 +591,11 @@ impl GameWorld {
         // reads `self.creatures`.
         let keep_inventory =
             self.player_has_flag(victim, crate::player_flags::PLAYER_FLAG_KEEP_INVENTORY);
-        let (pos, exact_lethal, playerkiller_end, victim_name, sex) =
+        let (pos, aol_saved, playerkiller_end, victim_name, sex) =
             match self.creatures.get(victim) {
                 Some(CreatureKind::Player(p)) => (
                     p.base.position,
-                    p.exact_lethal_blow,
+                    p.amulet_of_loss_saved,
                     p.playerkiller_end,
                     p.base.name.clone(),
                     p.sex,
@@ -564,38 +604,9 @@ impl GameWorld {
             };
 
         // M7 — Determine LoseInventory mode (`crplayer.cc:292,296-300`).
-        // KEEP_INVENTORY right → NONE; red skull (PlayerkillerEnd != 0) → ALL; else SOME.
-        let mut lose_none = keep_inventory;
+        // KEEP_INVENTORY right / AoL → NONE; red skull (PlayerkillerEnd != 0) → ALL; else SOME.
+        let lose_none = keep_inventory || aol_saved;
         let lose_all = !lose_none && playerkiller_end != 0;
-
-        if !lose_none && exact_lethal {
-            // 772 loops all inventory slots requiring CLOTHES && BODYPOSITION == slot.
-            for slot in crate::inventory::PLAYER_INVENTORY_SLOT_FIRST
-                ..=crate::inventory::PLAYER_INVENTORY_SLOT_LAST
-            {
-                let Some(iid) = self.get_player_inventory_item(victim, slot) else {
-                    continue;
-                };
-                let Some(item) = self.items.get(iid) else {
-                    continue;
-                };
-                if item.item_type != AMULET_OF_LOSS {
-                    continue;
-                }
-                let Some(it) = self.items_db.items.get(&item.item_type) else {
-                    continue;
-                };
-                // TFS-domain: clothes slot mask must match the occupied slot (BODYPOSITION).
-                if !crate::inventory::item_fits_equipment_slot(slot, it) {
-                    continue;
-                }
-                lose_none = true;
-                let _ = self.internal_remove_item_from_inventory_slot(victim, slot, iid);
-                self.items.remove(iid);
-                tracing::info!(?victim, slot, "player died with amulet of loss");
-                break;
-            }
-        }
 
         // C++ `~TCreature` blood pool before corpse (`crmain.cc:216-226`).
         let blood = self.creature_blood_type(victim);

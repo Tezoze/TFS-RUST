@@ -742,9 +742,18 @@ fn handle_player_disconnect(
 ) {
     pending_login_conns.remove(&conn_id);
     world.login_pending_conns.remove(&conn_id);
+    let cid = world.conn_to_creature.get(&conn_id).copied();
+    // Linger window: `Die()` already ran (`dead_connections`) but `~TCreature` has not.
+    // Closing TCP must not `remove_creature` — corpse / AoL / temple save wait for
+    // `ProcessCreatures` (`crmain.cc:299-300, 1113-1124`).
+    let dead_body = cid.is_some_and(|id| world.creatures.get(id).is_some_and(|k| k.base().is_dead));
     world.dead_connections.remove(&conn_id);
     world.dead_conn_state.remove(&conn_id);
-    if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+    if dead_body {
+        world.unregister_conn_mapping(conn_id);
+        world.known_creatures_by_conn.remove(&conn_id);
+        world.creature_fully_sent_by_conn.remove(&conn_id);
+    } else if let Some(cid) = cid {
         if display_effect {
             world.broadcast_player_logout_poff(cid);
         }

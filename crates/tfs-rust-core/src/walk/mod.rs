@@ -534,11 +534,12 @@ impl GameWorld {
     }
 
     /// 772 `TCreature::Execute` walk path — one due heap entry (`cract.cc:728`).
+    /// Skips `IsDead` (and HP ≤ 0); living `LoggingOut` still runs (`cract.cc:785`).
     pub fn process_creature_todo(&mut self, cid: CreatureId) {
         let runnable = self
             .creatures
             .get(cid)
-            .is_some_and(|k| k.base().health > 0 && !k.base().is_dead_or_logging_out());
+            .is_some_and(|k| k.base().health > 0 && !k.base().is_dead);
         if !runnable {
             return;
         }
@@ -1602,7 +1603,7 @@ impl GameWorld {
         let runnable = self
             .creatures
             .get(cid)
-            .is_some_and(|k| k.base().health > 0 && !k.base().is_dead_or_logging_out());
+            .is_some_and(|k| k.base().health > 0 && !k.base().is_dead);
         if !runnable {
             return;
         }

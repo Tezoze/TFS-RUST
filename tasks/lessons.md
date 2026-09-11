@@ -1036,4 +1036,7 @@
 453. **`DistributeExperiencePoints` is not player-gated** (`death.rs`; `crcombat.cc:908-958`): kick (`AddDamageToCombatList` then `Kill`) and AoE/`Damage` both credit the attacker. `Increase` + white `TextualEffect` (`COLOR_WHITE` = 215) run for any living combat-list creature; soul regen and the 11/10 PvP cap stay player-only. Race tables rarely set `SKILL_LEVEL`, so monster Exp accumulates without Jump. Summon victims still skip the pool (`Master != 0`).
     *(2026-09-10)*
 
+454. **Deferred death linger must not finalize via `PlayerDisconnect`** (`game_loop.rs` `handle_player_disconnect`; `connections.rs` live-loop skip; `playerdeath.lua`; `cract.cc:785`; `crmain.cc:790-817`): `Die()` at `mark_dead` keeps the `conn_to_creature` mapping until `~TCreature`. Death-screen OK / TCP drop in that window used `LogoutPossible` (`IsDead` → Ok) + `remove_creature`, skipping corpse/AoL/temple save. Detach TCP only; `ProcessCreatures` still runs the destructor. The conn is in both `conn_to_creature` and `dead_conn_state` during linger — skip `dead_connections` in the living idle-kick arm. `Execute` skips `IsDead` only (`LoggingOut` is IdleStimulus). AoL consume is at `mark_dead`, not drop. Native `"You are dead.\n"` replaces pack `playerdeath.lua` text (event still registers).
+    *(2026-09-11)*
+
 

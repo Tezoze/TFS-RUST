@@ -374,6 +374,9 @@ pub struct Player {
     /// 772 `Damage == HitPoints` exact-lethal arm (`crmain.cc:792`) — gates amulet-of-loss scan.
     /// Overkill deaths leave this false so AoL does not fire.
     pub exact_lethal_blow: bool,
+    /// Set when the AoL scan in `mark_dead` consumed the amulet (`crmain.cc:790-817`).
+    /// `player_death_drop_inventory` then uses `LOSE_INVENTORY_NONE`.
+    pub amulet_of_loss_saved: bool,
     /// TFS `Player::eventsList` — names from `player:registerEvent` (`player.cpp`).
     /// Looked up against the current CreatureEvent name map at dispatch (reload stance a).
     pub registered_creature_events: HashSet<String>,

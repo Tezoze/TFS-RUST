@@ -427,6 +427,40 @@ fn attach_playerdeath_lua(world: &mut GameWorld) -> bool {
     true
 }
 
+#[test]
+fn player_death_aol_consumed_at_mark_dead() {
+    let mut world = loot_world(ProtocolVersion::V772);
+    let pos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, pos, 100);
+    let cid = insert_player(&mut world, {
+        let mut p = test_player("AolLinger", pos);
+        p.exact_lethal_blow = true;
+        p.playerkiller_end = 0;
+        p
+    });
+    let gold = place_inventory_item(&mut world, cid, 1, GOLD);
+    let aol = place_inventory_item(&mut world, cid, InventorySlot::Necklace as u8, AOL);
+    static RT: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    let rt = RT.get_or_init(|| tokio::runtime::Runtime::new().expect("tokio test runtime"));
+    let _enter = rt.enter();
+    world.mark_dead(cid);
+    assert!(
+        world.items.get(aol).is_none(),
+        "AoL is consumed at Death(), not ~TCreature"
+    );
+    assert!(
+        world.creatures.contains_key(cid),
+        "body still on the map during linger"
+    );
+    assert!(
+        world.items.get(gold).is_some(),
+        "gold stays equipped until destructor"
+    );
+    world.process_creatures();
+    assert!(world.items.get(gold).is_some(), "AoL → LOSE_INVENTORY_NONE");
+    assert!(tile_has_corpse_type(&world, pos, DEAD_HUMAN));
+}
+
 fn player_death_aol(version: ProtocolVersion, with_lua: bool) {
     let mut world = loot_world(version);
     if with_lua && !attach_playerdeath_lua(&mut world) {

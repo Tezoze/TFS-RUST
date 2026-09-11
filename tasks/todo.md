@@ -40,6 +40,7 @@ Fix work (Phase 1 H1–H7 landed 2026-09-06; see audit §2 DONE):
 - [x] Offline mail **prepends** into `player_depotitems` (`SendMails` byte prepend); load reverse+front then puts newest at locker slot 0, not last-before-chest
 - [x] Phase 2.1 deferred death/despawn (M1) — `creature_death_defer.rs`; combat `Death()` flags only; corpse/XP on ProcessCreatures
 - [x] Monster killers get `SKILL_LEVEL` exp + white popup (`DistributeExperiencePoints` has no player gate; `crcombat.cc:908-958`)
+- [x] Phase 2.1 linger follow-up — disconnect/OK must not `remove_creature` a dead body; skip `dead_connections` in the live `ProcessConnections` loop; slim `playerdeath.lua`; `Execute` skips `IsDead` only; AoL consume at `mark_dead`
 - [ ] Phase 2 (M4–M9, M11) and Phase 3 (Low table) per audit §3; M10 house cadence needs a user decision
 
 # Sector refresh cadence, decay, residency — audit Step 11 (2026-09-06)

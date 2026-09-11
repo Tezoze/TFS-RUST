@@ -113,3 +113,53 @@ fn logout_packet_enqueues_stop_fight_true() {
         other => panic!("expected PlayerDisconnect, got {other:?}"),
     }
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn death_ok_during_linger_leaves_body_for_destructor() {
+    let mut world = beat_driven_test_world();
+    let pos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+    let pid = insert_player(&mut world, test_player("Dying", pos));
+    world.map.register_creature_at(pos, pid);
+    let conn = ConnId(1);
+    world.register_conn_mapping(conn, pid);
+    world.mark_dead(pid);
+    assert!(
+        world.creatures.contains_key(pid),
+        "body lingers until ProcessCreatures"
+    );
+
+    let mut pending_login = HashSet::new();
+    let mut sinks = HashMap::new();
+    handle_player_disconnect(
+        &mut world,
+        &mut pending_login,
+        conn,
+        false,
+        true,
+        &mut sinks,
+        &None,
+    );
+    assert!(
+        world.creatures.contains_key(pid),
+        "death-screen OK / TCP drop must not remove_creature"
+    );
+    assert!(
+        world.conn_to_creature.get(&conn).is_none(),
+        "TCP mapping is gone"
+    );
+    assert!(!world.dead_connections.contains(&conn));
+
+    world.process_creatures();
+    assert!(
+        !world.creatures.contains_key(pid),
+        "ProcessCreatures destructor still runs after linger disconnect"
+    );
+    assert!(
+        world
+            .map
+            .get_tile(pos)
+            .is_some_and(|t| !t.body().down_items.is_empty()),
+        "corpse/pool must land — destructor not skipped"
+    );
+}

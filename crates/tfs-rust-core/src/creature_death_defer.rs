@@ -39,6 +39,7 @@ impl GameWorld {
 
         let is_player = matches!(self.creatures.get(cid), Some(CreatureKind::Player(_)));
         if is_player {
+            self.consume_amulet_of_loss_on_death(cid);
             self.player_on_pvp_death_marks(cid);
             if matches!(
                 self.creatures.get(cid),
@@ -510,5 +511,35 @@ mod tests {
             got, 5,
             "AoE/melee Damage combat-list credit grants SKILL_LEVEL exp to the monster"
         );
+    }
+
+    #[test]
+    fn logging_out_living_still_runs_todo() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let monster = insert_monster(&mut world, "Rat", pos, 200);
+        if let Some(k) = world.creatures.get_mut(monster) {
+            k.base_mut().health = 50;
+            k.base_mut().next_wakeup = Some(0);
+        }
+        world.start_logout_despawn(monster);
+        assert!(
+            world
+                .creatures
+                .get(monster)
+                .is_some_and(|k| k.base().logging_out && !k.base().is_dead && k.base().health > 0)
+        );
+        world.process_creature_todo(monster);
+        let wakeup = world
+            .creatures
+            .get(monster)
+            .and_then(|k| k.base().next_wakeup);
+        assert_ne!(
+            wakeup,
+            Some(0),
+            "Execute must run for living LoggingOut (`cract.cc:785`); skip would leave wakeup=0"
+        );
+        assert!(world.creatures.contains_key(monster));
     }
 }

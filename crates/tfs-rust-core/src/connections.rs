@@ -85,7 +85,14 @@ impl GameWorld {
             .map(|(&conn, &cid)| (conn, cid))
             .collect();
 
+        // CONNECTION_DEAD sessions stay in `conn_to_creature` until the body is
+        // removed (`Die()` at `TPlayer::Death`, destructor later). Skip them here —
+        // idle warn/kick is GAME-only; ping/90-round kick is the dead arm below
+        // (`connections.cc:21-38`).
         for (conn_id, cid) in online {
+            if self.dead_connections.contains(&conn_id) {
+                continue;
+            }
             let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
                 continue;
             };
@@ -613,6 +620,32 @@ mod tests {
         assert_eq!(kick[0].0, conn);
         assert!(!kick[0].1, "login disconnect is not StopFight idle kick");
         assert!(world.login_pending_conns.is_empty());
+    }
+
+    #[test]
+    fn dead_linger_skips_live_idle_kick() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let player = insert_player(&mut world, test_player("DyingIdle", pos));
+        let conn = tfs_rust_common::ConnId(1);
+        world.register_conn_mapping(conn, player);
+        world.round_nr = 100;
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.last_command_round = 0;
+            p.last_action_round = 0;
+        }
+        world.mark_dead(player);
+        world.round_nr = 960;
+        let kick = world.process_connections();
+        assert!(
+            !kick.iter().any(|(_, stop_fight)| *stop_fight),
+            "CONNECTION_DEAD linger must not take the living idle-kick arm"
+        );
+        assert!(
+            kick.iter().any(|(c, stop_fight)| *c == conn && !*stop_fight),
+            "90-round dead-conn timeout still applies (LastCommand from Die stamp)"
+        );
     }
 
     fn insert_dead_conn(world: &mut crate::game_world::GameWorld, conn: tfs_rust_common::ConnId) {

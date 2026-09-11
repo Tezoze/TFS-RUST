@@ -318,11 +318,6 @@ impl CreatureBase {
         self.master_is_player = master_is_player;
     }
 
-    /// Execute / Idle skip — dead or `StartLogout` body still on the map.
-    pub fn is_dead_or_logging_out(&self) -> bool {
-        self.is_dead || self.logging_out
-    }
-
     pub fn clear_targets(&mut self) {
         self.follow_target = None;
         self.attack_target = None;

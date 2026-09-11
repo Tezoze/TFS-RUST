@@ -114,7 +114,7 @@ IDs keep the sub-agent slice letter (A scheduler, B per-creature arms, C world c
 
 **M1 (B1, B2) — Death and despawn are finalized immediately; corpus defers to the next `ProcessCreatures` pass. DONE.**
 - Corpus: `Death()` only sets `IsDead + LoggingOut` (`crmain.cc:878-881`); corpse/pool/loot/`DelOnMap`/`Connection->Logout(30)` run in `~TCreature` when `ProcessCreatures` hits `LoggingOut && LogoutPossible()==0` (`:1113-1125`). Monster despawn via `StartLogout(true,true); State=SLEEPING` (`crnonpl.cc:2352-2415`) likewise. Body lingers 0-1000 ms at 0 HP; `Execute` and `Damage` skip it.
-- Rust: `creature_death_defer.rs` `mark_dead` / `start_logout_despawn` / `kill_for_despawn` / `finalize_pending`; combat lethal sites call `mark_dead` only; `process_creatures` HP safety then destructor. Summons idle-despawn when the master is gone (no `remove_creature` cascade).
+- Rust: `creature_death_defer.rs` `mark_dead` / `start_logout_despawn` / `kill_for_despawn` / `finalize_pending`; combat lethal sites call `mark_dead` only; `process_creatures` HP safety then destructor. Summons idle-despawn when the master is gone (no `remove_creature` cascade). Linger TCP/OK detaches the conn and leaves the body for `finalize_pending` (does not `remove_creature`). `Execute` skips `IsDead` only. AoL is consumed in `mark_dead`. Pack `playerdeath.lua` is a no-op (native sends the death text).
 - Fix: landed Step 2.1 — combat `Death()` is flags + player death UI; corpse / monster XP wait for the ProcessCreatures destructor.
 
 **M2 (B5) — Food is not consumed inside a protection zone. DONE.**
