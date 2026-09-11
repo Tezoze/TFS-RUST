@@ -30,6 +30,8 @@ use std::path::Path;
 use mlua::{Lua, Value};
 use tfs_rust_common::ProtocolVersion;
 
+use crate::skill_timer::{SkillTimerTriple, SkillTimers};
+
 /// A* edge-cost model (`pathfinding.rs`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PathCostModel {
@@ -445,6 +447,8 @@ pub struct MechanicsProfile {
     pub item_regen_hp: i32,
     /// Creatures-arm item regen mana grant (`crmain.cc:1087-1095`). Corpus +4.
     pub item_regen_mana: i32,
+    /// 772 `SetTimer` triples for haste / light / invis / manashield (`magic.cc`).
+    pub skill_timers: SkillTimers,
 }
 
 /// Fishing catch-success model (`data/scripts/actions/tools/fishing_rod.lua`).
@@ -639,6 +643,7 @@ impl MechanicsProfile {
                 destroyable_stone: DestroyableStoneTuning::tvp_pick(),
                 item_regen_hp: 1,
                 item_regen_mana: 4,
+                skill_timers: SkillTimers::classic_772(),
             },
             1098 => Self {
                 beat_ms: 50,
@@ -709,6 +714,7 @@ impl MechanicsProfile {
                 destroyable_stone: DestroyableStoneTuning::tvp_pick(),
                 item_regen_hp: 1,
                 item_regen_mana: 4,
+                skill_timers: SkillTimers::classic_772(),
             },
             other => unreachable!("unsupported protocol version {other}"),
         };
@@ -892,6 +898,30 @@ fn bool_or(table: &mlua::Table, key: &str, default: bool) -> bool {
     match table.get::<Value>(key) {
         Ok(Value::Boolean(b)) => b,
         _ => default,
+    }
+}
+
+fn num_or_int_key(table: &mlua::Table, key: i32, default: i64) -> i64 {
+    match table.get::<Value>(key) {
+        Ok(Value::Integer(i)) => i,
+        Ok(Value::Number(n)) => n as i64,
+        _ => default,
+    }
+}
+
+fn load_timer_triple(
+    lua: &Lua,
+    parent: &mlua::Table,
+    key: &str,
+    default: SkillTimerTriple,
+) -> SkillTimerTriple {
+    let Ok(Value::Table(t)) = parent.get::<Value>(key) else {
+        return default;
+    };
+    SkillTimerTriple {
+        cycle: num_or(lua, &t, "cycle", default.cycle as i64) as i32,
+        count: num_or(lua, &t, "count", default.count as i64) as i32,
+        max_count: num_or(lua, &t, "max", default.max_count as i64) as i32,
     }
 }
 
@@ -1263,6 +1293,25 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
             num_or(lua, &creatures, "itemRegenMana", p.item_regen_mana as i64) as i32;
     }
 
+    if let Ok(Value::Table(st)) = formulas.get::<Value>("skillTimers") {
+        p.skill_timers.haste = load_timer_triple(lua, &st, "haste", p.skill_timers.haste);
+        p.skill_timers.strong_haste =
+            load_timer_triple(lua, &st, "strongHaste", p.skill_timers.strong_haste);
+        p.skill_timers.paralyze = load_timer_triple(lua, &st, "paralyze", p.skill_timers.paralyze);
+        p.skill_timers.mana_shield =
+            load_timer_triple(lua, &st, "manaShield", p.skill_timers.mana_shield);
+        p.skill_timers.invisible =
+            load_timer_triple(lua, &st, "invisible", p.skill_timers.invisible);
+        if let Ok(Value::Table(light)) = st.get::<Value>("light") {
+            p.skill_timers.light_6 =
+                num_or_int_key(&light, 6, p.skill_timers.light_6 as i64) as i32;
+            p.skill_timers.light_8 =
+                num_or_int_key(&light, 8, p.skill_timers.light_8 as i64) as i32;
+            p.skill_timers.light_9 =
+                num_or_int_key(&light, 9, p.skill_timers.light_9 as i64) as i32;
+        }
+    }
+
     p.pin_corpus_path_spawn_target();
     p
 }
@@ -1332,6 +1381,12 @@ mod tests {
         assert_eq!(p.fishing.probe_prob, 50);
         assert_eq!(p.destroyable_stone.chance_percent, 40);
         assert_eq!(p.destroyable_stone.self_damage, -50);
+        assert_eq!(p.item_regen_hp, 1);
+        assert_eq!(p.item_regen_mana, 4);
+        assert_eq!(
+            p.skill_timers,
+            crate::skill_timer::SkillTimers::classic_772()
+        );
     }
 
     #[test]

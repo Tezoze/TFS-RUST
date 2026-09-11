@@ -1039,4 +1039,13 @@
 454. **Deferred death linger must not finalize via `PlayerDisconnect`** (`game_loop.rs` `handle_player_disconnect`; `connections.rs` live-loop skip; `playerdeath.lua`; `cract.cc:785`; `crmain.cc:790-817`): `Die()` at `mark_dead` keeps the `conn_to_creature` mapping until `~TCreature`. Death-screen OK / TCP drop in that window used `LogoutPossible` (`IsDead` → Ok) + `remove_creature`, skipping corpse/AoL/temple save. Detach TCP only; `ProcessCreatures` still runs the destructor. The conn is in both `conn_to_creature` and `dead_conn_state` during linger — skip `dead_connections` in the living idle-kick arm. `Execute` skips `IsDead` only (`LoggingOut` is IdleStimulus). AoL consume is at `mark_dead`, not drop. Native `"You are dead.\n"` replaces pack `playerdeath.lua` text (event still registers).
     *(2026-09-11)*
 
+455. **Spell skill timers are `(Cycle, Count, MaxCount)`, not `ceil(ms/1000)`** (`skill_timer.rs`; `crskill.cc:176-193`; `magic.cc:2288,2336,3431,3501`): pack `CONDITION_PARAM_TICKS` for haste / strong haste / paralyze / manashield / invis / light is ignored; `772.lua` `skillTimers` wins. Event period is `MaxCount+1`; last Event leaves `Cycle==0` in the list and removal/`CheckState` is the next tick (fire icon 1 s later). Strong haste is 22 s not 30; utevo lux is 504 s with radius shrink each Event. Drunk Count is check-then-decrement (period 121). Pack `great_light` level 7 maps to corpus radius 8.
+    *(2026-09-11)*
+
+456. **Lit candelabrum Movement is eternal→expiring, not Use-unlight** (`movement_event.rs`; `moveuse.dat` Movement `2927→2912`; pack **2057→2042**): `2042→2041` is ChangeUse (`decayto.lua`). Applying it on every cylinder add unlit a 50 oz lit candelabrum when shuffled on the ground. Eternal 2057 still becomes expiring lit 2042 (`tools.lua` `preMoveTransforms` + MovementEvent).
+    *(2026-09-11)*
+
+457. **Throw range is `TAKE` vs Chebyshev 2, not weight and not `"this far"`** (`game_world_item_move.rs` `check_map_destination`; `operate.cc:489-490`; `sending.cc:297`): 772 has no weight→tiles formula. `!TAKE && !ObjectInRange(2)` → `OUTOFRANGE` `"Destination is out of range."` LoS fail is `CANNOTTHROW` `"You cannot throw there."`. XML `allowpickupable` (tables) is place-onto, not TAKE — `pickupable()` must not skip the range-2 gate (`takeable()` only). TAKE loot/corpses have no throw-distance cap.
+    *(2026-09-11)*
+
 

@@ -1,7 +1,8 @@
 //! Corpus `MOVEMENTEVENT` after cylinder transfer (`moveuse.cc:2263-2287`).
 //!
-//! `moveuse.dat` Movement rules (not TFS tile `MoveEvent`): lit candelabrum,
-//! armed trap, dress-toggle rings. OTB has no flag bit — match known type ids.
+//! `moveuse.dat` Movement rules (not TFS tile `MoveEvent`): eternal lit
+//! candelabrum 2057→2042, armed trap, dress-toggle rings. OTB has no flag bit
+//! — match known type ids. Normal lit 2042 is ChangeUse only (stays lit on move).
 
 use tfs_rust_common::Position;
 
@@ -9,8 +10,10 @@ use crate::cylinder::Cylinder;
 use crate::game_world::GameWorld;
 use crate::ids::ItemId;
 
+/// Eternal (non-expiring) lit candelabrum — pack id for corpus 2927.
+const ITEM_CANDELABRUM_ETERNAL: u16 = 2057;
+/// Expiring lit candelabrum — pack id for corpus 2912 (`Change(Obj1,2912)`).
 const ITEM_CANDELABRUM_LIT: u16 = 2042;
-const ITEM_CANDELABRUM: u16 = 2041;
 const ITEM_TRAP_ARMED: u16 = 2579;
 const ITEM_TRAP: u16 = 2578;
 const CONST_ME_POFF: u8 = 3;
@@ -33,8 +36,10 @@ impl GameWorld {
         let Some(ty) = self.items.get(item_id).map(|i| i.item_type) else {
             return;
         };
-        if ty == ITEM_CANDELABRUM_LIT {
-            self.change_item_type(item_id, ITEM_CANDELABRUM);
+        // Corpus `moveuse.dat` Movement: eternal lit → expiring lit (stays lit).
+        // Normal lit 2042 has ChangeUse only — Use toggles to 2041, Move does not.
+        if ty == ITEM_CANDELABRUM_ETERNAL {
+            self.change_item_type(item_id, ITEM_CANDELABRUM_LIT);
             return;
         }
         if ty == ITEM_TRAP_ARMED {
@@ -81,5 +86,71 @@ impl GameWorld {
             self.items.get(item_id).and_then(|i| i.parent),
             Some(Cylinder::Inventory { .. })
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cylinder::{Cylinder, CylinderFlags};
+    use crate::item::Item;
+    use crate::sim_harness::{ensure_walkable_tile, minimal_world};
+    use std::sync::Arc;
+    use tfs_rust_common::Position;
+    use tfs_rust_content::otb::ItemType;
+
+    fn register_types(world: &mut GameWorld, ids: &[u16]) {
+        let db = Arc::make_mut(&mut world.items_db);
+        for &id in ids {
+            db.items.entry(id).or_insert_with(ItemType::default);
+        }
+    }
+
+    /// Regression: moving a lit candelabrum on the ground must not unlight it.
+    /// `moveuse.dat` Movement is 2057→2042, not 2042→2041 (that is ChangeUse).
+    #[test]
+    fn lit_candelabrum_stays_lit_when_moved_on_ground() {
+        let mut world = minimal_world();
+        register_types(&mut world, &[2041, 2042, 2057]);
+        let from = Position::new(100, 100, 7);
+        let to = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, from, 100);
+        ensure_walkable_tile(&mut world.map, to, 100);
+
+        let iid = world.items.insert(Item::new_single(2042));
+        world
+            .internal_add_item_to_tile(from, iid, CylinderFlags::NONE)
+            .expect("place lit candelabrum");
+        assert_eq!(world.items.get(iid).map(|i| i.item_type), Some(2042));
+
+        world
+            .internal_move_item(
+                None,
+                Cylinder::Tile { pos: from },
+                Cylinder::Tile { pos: to },
+                iid,
+                1,
+                CylinderFlags::NONE,
+                None,
+            )
+            .expect("move on ground");
+        assert_eq!(
+            world.items.get(iid).map(|i| i.item_type),
+            Some(2042),
+            "expiring lit candelabrum stays lit on move"
+        );
+    }
+
+    #[test]
+    fn eternal_candelabrum_becomes_expiring_on_tile_add() {
+        let mut world = minimal_world();
+        register_types(&mut world, &[2041, 2042, 2057]);
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+        let iid = world.items.insert(Item::new_single(2057));
+        world
+            .internal_add_item_to_tile(pos, iid, CylinderFlags::NONE)
+            .expect("place eternal candelabrum");
+        assert_eq!(world.items.get(iid).map(|i| i.item_type), Some(2042));
     }
 }

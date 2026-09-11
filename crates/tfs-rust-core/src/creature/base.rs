@@ -407,9 +407,9 @@ impl CreatureBase {
     /// (`crnonpl.cc:2221`, `crnonpl.cc:2429`). Checked by `MovePossible` and `IdleStimulus`
     /// lose-target against the mover's `RaceData[Race].SeeInvisible` flag.
     pub fn is_invisible(&self) -> bool {
-        self.active_conditions
-            .iter()
-            .any(|c| c.ctype == tfs_rust_common::enums::ConditionType::Invisible)
+        self.active_conditions.iter().any(|c| {
+            c.ctype == tfs_rust_common::enums::ConditionType::Invisible && c.skill_effect_active()
+        })
     }
 }
 

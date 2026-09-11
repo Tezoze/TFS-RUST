@@ -142,8 +142,10 @@ impl GameWorld {
         };
         let from_pos = self.cylinder_position(from).unwrap_or(actor_pos);
 
-        // 772 `ObjectInRange(2)` for non-takeable items (`operate.cc:489`).
-        if !it.pickupable() && !self.object_in_range(actor, *to_pos, 2) {
+        // 772 `!TAKE && !ObjectInRange(Creature, dest, 2)` → `OUTOFRANGE`
+        // (`operate.cc:489-490`). XML `allowpickupable` is place-*onto* (tables),
+        // not TAKE — use [`ItemType::takeable`], not [`ItemType::pickupable`].
+        if !it.takeable() && !self.object_in_range(actor, *to_pos, 2) {
             return Err(ReturnValue::DestinationOutOfReach);
         }
         // 772 `ThrowPossible` / `canThrowObjectTo` (`info.cc:1154`).
@@ -1213,5 +1215,124 @@ mod tests {
             Some(0),
             "empty subtype must survive the move"
         );
+    }
+
+    fn register_moveable(world: &mut GameWorld, type_id: u16, take: bool, allow_pickupable: bool) {
+        use tfs_rust_content::otb::ItemType;
+        let mut it = ItemType {
+            id: type_id,
+            server_id: type_id,
+            client_id: type_id,
+            flags: if take { 1 << 5 } else { 0 }, // FLAG_PICKUPABLE / TAKE
+            allow_pickupable,
+            ..ItemType::default()
+        };
+        it.moveable_override = Some(true);
+        let db = std::sync::Arc::make_mut(&mut world.items_db);
+        db.items.insert(type_id, it);
+    }
+
+    /// Non-TAKE furniture (`allowpickupable` tables) is `ObjectInRange(2)` only.
+    /// Message is 772 `OUTOFRANGE`: `"Destination is out of range."` (`sending.cc:297`).
+    #[test]
+    fn non_takeable_table_cannot_throw_beyond_two_tiles() {
+        use crate::sim_harness::{insert_player, test_player};
+
+        let mut world = minimal_world();
+        const TABLE: u16 = 1622;
+        register_moveable(&mut world, TABLE, false, true);
+        let from = Position::new(100, 100, 7);
+        let dest = Position::new(103, 100, 7);
+        ensure_walkable_tile(&mut world.map, from, 100);
+        ensure_walkable_tile(&mut world.map, dest, 100);
+        let cid = insert_player(&mut world, test_player("Hauler", from));
+        world.map.register_creature_at(from, cid);
+
+        let iid = world.items.insert(Item::new_single(TABLE));
+        world
+            .internal_add_item_to_tile(from, iid, CylinderFlags::NONE)
+            .expect("place table");
+        let rv = world.internal_move_item(
+            Some(cid),
+            Cylinder::Tile { pos: from },
+            Cylinder::Tile { pos: dest },
+            iid,
+            1,
+            CylinderFlags::NONE,
+            None,
+        );
+        assert_eq!(rv, Err(ReturnValue::DestinationOutOfReach));
+        assert_eq!(
+            ReturnValue::DestinationOutOfReach.description(),
+            "Destination is out of range."
+        );
+    }
+
+    #[test]
+    fn non_takeable_table_can_throw_two_tiles() {
+        use crate::sim_harness::{insert_player, test_player};
+
+        let mut world = minimal_world();
+        const TABLE: u16 = 1622;
+        register_moveable(&mut world, TABLE, false, true);
+        let from = Position::new(100, 100, 7);
+        let mid = Position::new(101, 100, 7);
+        let dest = Position::new(102, 100, 7);
+        ensure_walkable_tile(&mut world.map, from, 100);
+        ensure_walkable_tile(&mut world.map, mid, 100);
+        ensure_walkable_tile(&mut world.map, dest, 100);
+        let cid = insert_player(&mut world, test_player("Hauler", from));
+        world.map.register_creature_at(from, cid);
+
+        let iid = world.items.insert(Item::new_single(TABLE));
+        world
+            .internal_add_item_to_tile(from, iid, CylinderFlags::NONE)
+            .expect("place table");
+        world
+            .internal_move_item(
+                Some(cid),
+                Cylinder::Tile { pos: from },
+                Cylinder::Tile { pos: dest },
+                iid,
+                1,
+                CylinderFlags::NONE,
+                None,
+            )
+            .expect("throw table two tiles");
+        assert!(tile_has(&world, dest, iid));
+    }
+
+    /// 772 TAKE objects have no throw-distance cap (`operate.cc:489` only gates `!TAKE`).
+    #[test]
+    fn takeable_item_can_throw_beyond_two_tiles() {
+        use crate::sim_harness::{insert_player, test_player};
+
+        let mut world = minimal_world();
+        const GOLD: u16 = 2148;
+        register_moveable(&mut world, GOLD, true, false);
+        let from = Position::new(100, 100, 7);
+        let dest = Position::new(105, 100, 7);
+        for x in 100..=105 {
+            ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 100);
+        }
+        let cid = insert_player(&mut world, test_player("Thrower", from));
+        world.map.register_creature_at(from, cid);
+
+        let iid = world.items.insert(Item::new(GOLD, 1));
+        world
+            .internal_add_item_to_tile(from, iid, CylinderFlags::NONE)
+            .expect("place gold");
+        world
+            .internal_move_item(
+                Some(cid),
+                Cylinder::Tile { pos: from },
+                Cylinder::Tile { pos: dest },
+                iid,
+                1,
+                CylinderFlags::NONE,
+                None,
+            )
+            .expect("TAKE item has no range-2 cap");
+        assert!(tile_has(&world, dest, iid));
     }
 }

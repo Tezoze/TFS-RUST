@@ -127,10 +127,10 @@ IDs keep the sub-agent slice letter (A scheduler, B per-creature arms, C world c
 - Rust: `process_skills.rs:59-110` on the Skills arm (1250), ms accumulator, explicitly not PZ-gated (`:64`). Amounts match.
 - Fix: folded into H1's `item_regen.rs`.
 
-**M4 (B7) — Spell skill timers do not model `(Cycle, Count, MaxCount)`; durations and light shrink differ.**
+**M4 (B7) — Spell skill timers do not model `(Cycle, Count, MaxCount)`; durations and light shrink differ. DONE.**
 - Corpus: event period `MaxCount+1` ticks; timer alive until `Cycle == 0`, removed the tick after. Haste `SetTimer(GO_STRENGTH, 3|2, 10, 10)` → 33 / 22 s (`magic.cc:2288, 3431, 3501`); paralyze `(1,10,10)` → 11 s (`:4250`); manashield `(1,200,200)` → icon off at 202 s (`:2308`); invisibility `(1,200,200)` → outfit back at 201 s (`:2349`); light `(Radius, Duration/Radius, Duration/Radius)` shrinks by 1 and re-announces every `Duration/Radius+1` s (`:2336`, `crskill.cc:913-921`) → utevo lux 504 s, gran lux 1008 s, vis lux 2007 s.
-- Rust: `game_world_chat.rs:1624-1628` `rounds = ceil(ms/1000)`; `process_skills.rs:215-237` lives exactly `rounds` ticks; constant light radius. Pack values: haste 30000, strong haste 30000, paralyze 10000, magic shield 200000, invisibility 200000, light 370000 / 695000 / 1990000.
-- Fix: `skill_timer.rs` — generic 772 timer `{cycle, count, max_count}` with `Event` hook (the fire/energy/poison mapper at `game_world_chat.rs:1667-1713` already does this shape); the Lua `addCondition` mapper sets the triple from `772.lua` literals; light `Event` decrements radius and re-announces. Strong haste 30 → 22 s and light 370 → 504 s are user-visible; document before landing.
+- Rust: `skill_timer.rs` `TSkill::Process`; mapper arms haste/strong/paralyze/light/invis/manashield from `772.lua` `skillTimers` (pack `CONDITION_PARAM_TICKS` ignored). Light radius 7 aliases to 8. Removal is the tick after the last Event.
+- Fix: landed in Step 2.2. Strong haste 30 → 22 s and light 370 → 504 s are user-visible.
 
 **M5 (C2) — Stall / suppressed respawn re-arms with fixed `spawntime`, not `random(Max/2, Max)` with player scaling. DONE.**
 - Corpus: `StartMonsterhomeTimer` is used on both death and failed/suppressed attempts (`crnonpl.cc:1296-1323, 1485-1487`).
@@ -184,8 +184,8 @@ IDs keep the sub-agent slice letter (A scheduler, B per-creature arms, C world c
 | L7 (A9) | `SavePlayerDataOrder` every 15 min — corpus saves only **offline** dirty slots; Rust saves at logout | `writer.cc:410`, `crplayer.cc:2919-2942` | logout save | none (match by outcome) |
 | L8 (A12) | Minute block reads `now()` twice; houses before `RefreshCylinders` | `main.cc:380-395` | `game_world_tick.rs:48-66` | single `Local::now()` at top |
 | L9 (A13) | Pending logins dropped in `Closed` (corpus keeps them, rejects via `LoginAllowed`) | `connections.cc:42-44` | `connections.rs:62-67` | kick only when `Shutdown` |
-| L10 (B8) | Drunk `Count` decremented before `<= 0` check (period `Duration` vs `Duration+1`) | `crskill.cc:176-193`, `magic.cc:285` | `condition.rs:261-271` | check-then-decrement |
-| L11 (B9) | Fire/energy timer removed on the last Event tick (corpus one tick later; icon clears 1 s early) | `crskill.cc:177, 186-188` | `process_skills.rs:172-175` | drop `ticks_left <= 1` early removal |
+| L10 (B8) | Drunk `Count` decremented before `<= 0` check (period `Duration` vs `Duration+1`) | `crskill.cc:176-193`, `magic.cc:285` | `condition.rs:261-271` | **DONE** check-then-decrement (`SkillTimer::process`) |
+| L11 (B9) | Fire/energy timer removed on the last Event tick (corpus one tick later; icon clears 1 s early) | `crskill.cc:177, 186-188` | `process_skills.rs:172-175` | **DONE** drop `ticks_left <= 1` early removal |
 | L12 (B10) | Skill order: DoTs before Fed (corpus TimerList insertion order, Fed first) | `crskill.cc:1192-1203` | `process_skills.rs:45-53` | **DONE** fed before DoT (1.2) |
 | L13 (B12) | Vocation 0 mana regen 1 (corpus 2) | `crskill.cc:880-882` | `vocations.xml:3` `gainmanaamount="1"` | data fix or `772.lua` table |
 | L14 (C7) | Sector refresh applied synchronously, no async re-check | `operate.cc:2824-2830, 2985` | `sector_refresh.rs:162-203` | already decided in Step 11 plan §0 |
@@ -360,12 +360,12 @@ Tests: `death_finalizes_on_next_process_creatures`, `dead_body_takes_no_damage`,
 
 Note: this shifts corpse/loot timing by up to 1 s and is the riskiest change in the plan — land after Phase 1 and after the sim-harness death scenarios are green.
 
-#### Step 2.2 — `skill_timer.rs`: 772 `(Cycle, Count, MaxCount)` timers (M4, L10, L11, L12)
+#### Step 2.2 — `skill_timer.rs`: 772 `(Cycle, Count, MaxCount)` timers (M4, L10, L11, L12) DONE.
 
 Corpus: `crskill.cc:176-193, 913-962`, `magic.cc:285, 2288, 2308, 2336, 2349, 3431, 3501, 3511, 3516, 4250`.
 
-- **New `skill_timer.rs`**: `pub struct SkillTimer { cycle: i32, count: i32, max_count: i32 }`, `pub enum TimerStep { Idle, Event, Expired }`, `fn process(&mut self) -> TimerStep` implementing `Cycle==0 → Expired; Count<=0 → Count=MaxCount, Cycle-=1 → Event; else Count-=1 → Idle`. Light variant: `Event` decrements radius and returns the new radius for re-announce.
-- `ActiveCondition` gains `skill_timer: Option<SkillTimer>` (replace `timer_rounds_left` for haste/paralyze/manashield/invisibility/light/drunk; fire/energy/poison already model the triple — migrate them to the same struct).
+- **New `skill_timer.rs`**: `pub struct SkillTimer { cycle: i32, count: i32, max_count: i32 }`, `pub enum TimerStep { Idle, Event, Expired }`, `fn process(&mut self) -> TimerStep` implementing `Cycle==0 → Expired; Count<=0 → Count=MaxCount, Cycle-=1 → Event; else Count-=1 → Idle`. Light `Event` writes `ConditionData::Light.level = Cycle` and re-announces.
+- `ActiveCondition` keeps `timer_rounds_left` / `skill_count` / `skill_max_count` with `skill_timer()` / `set_skill_timer()` helpers (no parallel `Option<SkillTimer>`).
 - `game_world_chat.rs:1624-1628` mapper: per condition type set the triple from `772.lua`:
   ```lua
   skillTimers = { haste = {cycle=3,count=10,max=10}, strongHaste = {cycle=2,count=10,max=10},

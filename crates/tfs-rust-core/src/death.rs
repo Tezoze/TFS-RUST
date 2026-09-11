@@ -636,7 +636,10 @@ mod tests {
             Some(CreatureKind::Monster(m)) => m.skill_level_exp,
             _ => panic!("kicker"),
         };
-        assert_eq!(got, 5, "SKILL_LEVEL Increase is not player-gated (`crcombat.cc:957`)");
+        assert_eq!(
+            got, 5,
+            "SKILL_LEVEL Increase is not player-gated (`crcombat.cc:957`)"
+        );
     }
 
     #[test]

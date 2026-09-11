@@ -34,7 +34,9 @@ fn creature_effective_speed_for_step(base: &crate::creature::CreatureBase) -> i3
     };
     let mut s = go + base.var_speed;
     for c in &base.active_conditions {
-        if let ConditionData::Speed { flat_delta } = c.data {
+        if let ConditionData::Speed { flat_delta } = c.data
+            && c.skill_effect_active()
+        {
             s += flat_delta;
         }
     }

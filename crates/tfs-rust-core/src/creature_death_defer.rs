@@ -240,10 +240,7 @@ impl GameWorld {
             self.player_check_combat_values(cid);
         }
         for grant in xp_grants {
-            let is_player = matches!(
-                self.creatures.get(grant.cid),
-                Some(CreatureKind::Player(_))
-            );
+            let is_player = matches!(self.creatures.get(grant.cid), Some(CreatureKind::Player(_)));
             if is_player {
                 self.send_player_stats(grant.cid);
             }

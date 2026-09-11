@@ -44,8 +44,12 @@ fn is_persistent(cond: &ActiveCondition) -> bool {
 }
 
 fn remaining_ticks_ms(cond: &ActiveCondition) -> i32 {
-    if let Some(rounds) = cond.timer_rounds_left {
-        return rounds.saturating_mul(1000).max(0);
+    if cond.timer_rounds_left.is_some() || cond.skill_max_count > 0 {
+        return cond
+            .skill_timer()
+            .remaining_process_ticks()
+            .saturating_mul(1000)
+            .max(0);
     }
     match &cond.data {
         ConditionData::Generic { ticks } => (*ticks).max(0),
@@ -246,6 +250,48 @@ impl PartialCond {
             skill_max_count: 0,
             field_dot: false,
         })
+    }
+}
+
+fn rearm_loaded_skill_timer(cond: &mut ActiveCondition) {
+    use crate::skill_timer::{
+        STRONG_HASTE_SPEED_MIN, SkillTimerTriple, SkillTimers, light_timer,
+        reconstruct_from_remaining,
+    };
+    let timers = SkillTimers::classic_772();
+    let remaining = cond.skill_timer().remaining_process_ticks();
+    let timer = match cond.ctype {
+        ConditionType::Haste => {
+            let speed = match cond.data {
+                ConditionData::Speed { flat_delta } => flat_delta,
+                _ => 0,
+            };
+            let triple = if speed >= STRONG_HASTE_SPEED_MIN {
+                timers.strong_haste
+            } else {
+                timers.haste
+            };
+            reconstruct_from_remaining(remaining, triple)
+        }
+        ConditionType::Paralyze => reconstruct_from_remaining(remaining, timers.paralyze),
+        ConditionType::ManaShield => reconstruct_from_remaining(remaining, timers.mana_shield),
+        ConditionType::Invisible => reconstruct_from_remaining(remaining, timers.invisible),
+        ConditionType::Light => {
+            let level = match cond.data {
+                ConditionData::Light { level, .. } => level,
+                _ => 6,
+            };
+            let lit = light_timer(level, &timers);
+            reconstruct_from_remaining(
+                remaining,
+                SkillTimerTriple::new(lit.cycle, lit.count, lit.max_count),
+            )
+        }
+        _ => return,
+    };
+    cond.set_skill_timer(timer);
+    if let ConditionData::Light { level, .. } = &mut cond.data {
+        *level = timer.cycle.max(0) as u8;
     }
 }
 
@@ -459,7 +505,8 @@ pub fn deserialize_conditions(blob: &[u8]) -> Vec<ActiveCondition> {
             }
         }
 
-        if let Some(active) = partial.into_active() {
+        if let Some(mut active) = partial.into_active() {
+            rearm_loaded_skill_timer(&mut active);
             out.push(active);
         }
     }
@@ -509,12 +556,15 @@ mod tests {
         let loaded = deserialize_conditions(&blob);
         assert_eq!(loaded.len(), 3);
         assert_eq!(loaded[0].ctype, ConditionType::ManaShield);
-        assert_eq!(loaded[0].timer_rounds_left, Some(200));
+        assert_eq!(loaded[0].timer_rounds_left, Some(1));
+        assert_eq!(loaded[0].skill_max_count, 200);
         assert_eq!(loaded[1].ctype, ConditionType::Haste);
         assert_eq!(loaded[1].data, ConditionData::Speed { flat_delta: 60 });
-        assert_eq!(loaded[1].timer_rounds_left, Some(30));
+        assert_eq!(loaded[1].timer_rounds_left, Some(2));
+        assert_eq!(loaded[1].skill_max_count, 10);
         assert_eq!(loaded[2].ctype, ConditionType::Invisible);
-        assert_eq!(loaded[2].timer_rounds_left, Some(200));
+        assert_eq!(loaded[2].timer_rounds_left, Some(1));
+        assert_eq!(loaded[2].skill_max_count, 200);
     }
 
     #[test]

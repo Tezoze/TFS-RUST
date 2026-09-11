@@ -112,6 +112,28 @@ impl ActiveCondition {
         self.field_dot = field_dot;
         self
     }
+
+    /// View the 772 `(Cycle, Count, MaxCount)` fields as a [`crate::skill_timer::SkillTimer`].
+    pub fn skill_timer(&self) -> crate::skill_timer::SkillTimer {
+        crate::skill_timer::SkillTimer {
+            cycle: self.timer_rounds_left.unwrap_or(0),
+            count: self.skill_count,
+            max_count: self.skill_max_count,
+        }
+    }
+
+    /// Write back after [`crate::skill_timer::SkillTimer::process`].
+    pub fn set_skill_timer(&mut self, t: crate::skill_timer::SkillTimer) {
+        self.timer_rounds_left = Some(t.cycle);
+        self.skill_count = t.count;
+        self.skill_max_count = t.max_count;
+    }
+
+    /// 772 `TSkill::TimerValue() > 0` — `Some(0)` is the post-last-Event tick before removal.
+    /// `None` (no Cycle) stays active.
+    pub fn skill_effect_active(&self) -> bool {
+        self.timer_rounds_left != Some(0)
+    }
 }
 
 /// Insert or merge with an existing condition of the same `(ctype, sub_id)`.
@@ -253,34 +275,25 @@ pub fn apply_drink_drunk_stack(list: &mut Vec<ActiveCondition>, drunkenness: &mu
 
 /// One `ProcessSkills` round for `SKILL_DRUNKEN` (`crskill.cc:176-193`).
 ///
-/// Count--; on 0, Cycle (`drunkenness`) steps toward 0 and Count = MaxCount.
-/// Returns `true` when Cycle hits 0 (caller removes the condition).
-///
-/// Beer uses MaxCount=120; spell-drunk uses Duration as MaxCount. Legacy blobs
-/// with `skill_max_count == 0` still expire via `timer_rounds_left`.
+/// Check `Count <= 0` before decrement (period `MaxCount+1`). Cycle (`drunkenness`)
+/// steps on Event. Returns `true` when Cycle is already 0 at entry (Expired).
 pub fn tick_drunk_skill(drunkenness: &mut u32, cond: &mut ActiveCondition) -> bool {
-    if cond.skill_max_count > 0 {
-        if cond.skill_count > 0 {
-            cond.skill_count -= 1;
-        }
-        if cond.skill_count == 0 {
-            cond.skill_count = cond.skill_max_count;
-            *drunkenness = drunkenness.saturating_sub(1);
-            cond.timer_rounds_left = Some(*drunkenness as i32);
-            return *drunkenness == 0;
-        }
-        false
-    } else if let Some(left) = cond.timer_rounds_left.as_mut() {
-        if *left <= 1 {
-            *left = 0;
+    let mut timer = cond.skill_timer();
+    match timer.process() {
+        crate::skill_timer::TimerStep::Expired => {
             *drunkenness = 0;
+            cond.set_skill_timer(timer);
             true
-        } else {
-            *left -= 1;
+        }
+        crate::skill_timer::TimerStep::Event => {
+            cond.set_skill_timer(timer);
+            *drunkenness = timer.cycle.max(0) as u32;
             false
         }
-    } else {
-        false
+        crate::skill_timer::TimerStep::Idle => {
+            cond.set_skill_timer(timer);
+            false
+        }
     }
 }
 
@@ -397,14 +410,14 @@ mod tests {
         apply_drink_drunk_stack(&mut list, &mut level);
         assert_eq!(level, 2);
 
-        for _ in 0..DRINK_DRUNK_INTERVAL - 1 {
+        for _ in 0..DRINK_DRUNK_INTERVAL {
             assert!(!tick_drunk_skill(&mut level, &mut list[0]));
         }
         assert_eq!(level, 2);
-        assert_eq!(list[0].skill_count, 1);
+        assert_eq!(list[0].skill_count, 0);
 
         assert!(!tick_drunk_skill(&mut level, &mut list[0]));
-        assert_eq!(level, 1, "after 120 rounds level −1");
+        assert_eq!(level, 1, "Event at MaxCount+1 (121) ticks");
         assert_eq!(list[0].skill_count, DRINK_DRUNK_INTERVAL);
     }
 }

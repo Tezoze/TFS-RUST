@@ -643,7 +643,8 @@ mod tests {
             "CONNECTION_DEAD linger must not take the living idle-kick arm"
         );
         assert!(
-            kick.iter().any(|(c, stop_fight)| *c == conn && !*stop_fight),
+            kick.iter()
+                .any(|(c, stop_fight)| *c == conn && !*stop_fight),
             "90-round dead-conn timeout still applies (LastCommand from Die stamp)"
         );
     }

@@ -107,6 +107,7 @@ mod sim_glibc_rand;
 /// Compiled when `cfg(test)` or `--features sim`; excluded from production builds.
 #[cfg(any(test, feature = "sim"))]
 pub mod sim_harness;
+mod skill_timer;
 pub mod spawn;
 mod spawn_lifecycle;
 mod spawn_placement;

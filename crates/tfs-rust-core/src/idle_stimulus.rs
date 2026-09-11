@@ -812,7 +812,7 @@ impl GameWorld {
                 .base
                 .active_conditions
                 .iter()
-                .any(|c| c.ctype == ConditionType::ManaShield),
+                .any(|c| c.ctype == ConditionType::ManaShield && c.skill_effect_active()),
             _ => false,
         });
         if !has_shield {

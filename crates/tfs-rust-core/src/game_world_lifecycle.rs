@@ -591,17 +591,17 @@ impl GameWorld {
         // reads `self.creatures`.
         let keep_inventory =
             self.player_has_flag(victim, crate::player_flags::PLAYER_FLAG_KEEP_INVENTORY);
-        let (pos, aol_saved, playerkiller_end, victim_name, sex) =
-            match self.creatures.get(victim) {
-                Some(CreatureKind::Player(p)) => (
-                    p.base.position,
-                    p.amulet_of_loss_saved,
-                    p.playerkiller_end,
-                    p.base.name.clone(),
-                    p.sex,
-                ),
-                _ => return,
-            };
+        let (pos, aol_saved, playerkiller_end, victim_name, sex) = match self.creatures.get(victim)
+        {
+            Some(CreatureKind::Player(p)) => (
+                p.base.position,
+                p.amulet_of_loss_saved,
+                p.playerkiller_end,
+                p.base.name.clone(),
+                p.sex,
+            ),
+            _ => return,
+        };
 
         // M7 — Determine LoseInventory mode (`crplayer.cc:292,296-300`).
         // KEEP_INVENTORY right / AoL → NONE; red skull (PlayerkillerEnd != 0) → ALL; else SOME.

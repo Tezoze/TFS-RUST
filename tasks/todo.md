@@ -41,7 +41,8 @@ Fix work (Phase 1 H1–H7 landed 2026-09-06; see audit §2 DONE):
 - [x] Phase 2.1 deferred death/despawn (M1) — `creature_death_defer.rs`; combat `Death()` flags only; corpse/XP on ProcessCreatures
 - [x] Monster killers get `SKILL_LEVEL` exp + white popup (`DistributeExperiencePoints` has no player gate; `crcombat.cc:908-958`)
 - [x] Phase 2.1 linger follow-up — disconnect/OK must not `remove_creature` a dead body; skip `dead_connections` in the live `ProcessConnections` loop; slim `playerdeath.lua`; `Execute` skips `IsDead` only; AoL consume at `mark_dead`
-- [ ] Phase 2 (M4–M9, M11) and Phase 3 (Low table) per audit §3; M10 house cadence needs a user decision
+- [x] Phase 2.2 `skill_timer.rs` — M4/L10/L11 `(Cycle, Count, MaxCount)`; pack duration ignored; strong haste 22 s; light shrink
+- [ ] Phase 2 (M5–M9, M11) and Phase 3 (Low table) per audit §3; M10 house cadence needs a user decision
 
 # Sector refresh cadence, decay, residency — audit Step 11 (2026-09-06)
 
@@ -71,7 +72,7 @@ Plan: `docs/772_SECTOR_REFRESH_DECAY_PLAN.md`. Corpus: `RefreshCylinders` (`oper
 - [x] Live sector refresh — `sector_refresh.rs`: OTBM `1<<5` snapshots. **Minute cron is `RefreshCylinders`** (one ORIGMAP 32×32 XY / minute, skip `CanSeeFloor` players) — not full `refresh_map()` (that froze the live map: 673k tiles/min). Lua `Game.refreshMap()` still full restore.
 - [x] Align `forgotten.otbm` `TILEFLAG_REFRESH` with ORIGMAP `.sec` `Refresh` (`scripts/patch_otbm_refresh_from_origmap.py`): insert 2,778 missing tiles (2,750 empty holes + 28 with Content). **Corrected 2026-09-06:** the first run's line-based parser missed 21,064 Refresh fields and wrongly cleared 20,861 correct bits; token-based re-run restored them. Result **694,625 / 694,625** (lesson 438).
 - [x] House policy — `house/policy.rs`: `EvictFreeAccounts`, `EvictDeletedCharacters`, `EvictExGuildLeaders`. `TransferHouses` skipped (no table; `!sellhouse`/trade). Call from minute job. DB via VIP-style spawn. `StartAuctions` stays MyAAC.
-- [x] `MOVEMENTEVENT` — fire on cylinder transfer: dress-toggle rings, candelabrum 2042→2041, armed trap 2579→2578+poff. No OTB bit; hardcoded ids. Not quest-chest items.
+- [x] `MOVEMENTEVENT` — fire on cylinder transfer: dress-toggle rings, eternal candelabrum 2057→2042 (not 2042→2041), armed trap 2579→2578+poff. No OTB bit; hardcoded ids. Not quest-chest items.
 - [x] `UseAnnouncer` 3 (blessings 101–105) — `ceremonial_mask.lua` OTB 2501. Case 1 skipped (no InformationType=1 items). Case 2/4 stay.
 - [x] UNLAY shuffle — on transform-to-UNLAY (not UNPASS), relocate stack mates E/S/W/N bank+passable (not `ClearField`).
 - [x] NPC `Bless` / `Town` / `String` / `Promote` — `DialogueAction` + import lower + `react`/`host` + Lua emit. Drop `UNSUPPORTED` reject. `String` is session string.

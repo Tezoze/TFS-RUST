@@ -586,7 +586,7 @@ impl GameWorld {
 
             // Apply `combat:addCondition` list — C++ `conditionList` post-effects.
             for spec in condition_specs {
-                let cond = active_condition_from_apply_spec(spec);
+                let cond = active_condition_from_apply_spec(spec, &self.mechanics.profile);
                 let ctype = cond.ctype;
                 apply_condition(&mut self.creatures, target_id, cond);
                 self.on_condition_started(target_id, ctype);

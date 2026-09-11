@@ -810,8 +810,7 @@ impl GameWorld {
         let summon = self
             .resolve_creature_u64(summon_u64)
             .ok_or_else(|| "addSummon: summon not found".to_string())?;
-        let master_is_player =
-            matches!(self.creatures.get(master), Some(CreatureKind::Player(_)));
+        let master_is_player = matches!(self.creatures.get(master), Some(CreatureKind::Player(_)));
         let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(summon) else {
             return Ok(false);
         };

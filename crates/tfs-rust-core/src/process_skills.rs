@@ -5,11 +5,12 @@
 use tfs_rust_common::enums::{CombatType, ConditionType};
 
 use crate::combat::{CombatDamage, CombatParams};
-use crate::condition::{ConditionData, dot_tick_for_condition, tick_drunk_skill};
+use crate::condition::{ConditionData, dot_tick_for_condition};
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::player::flags::PLAYER_FLAG_CANNOT_BE_MUTED;
+use crate::skill_timer::{TimerStep, uses_skill_timer_process};
 
 /// 772 `TSkillPoison::SetTimer` AdditionalValue (`crskill.cc:1001-1013`):
 /// `-1` → 50, then clamp to `[10, 1000]`.
@@ -20,6 +21,14 @@ pub(crate) fn poison_factor_percent(additional_value: i32) -> i32 {
         additional_value
     };
     v.clamp(10, 1000)
+}
+
+struct DotEvent {
+    origin: Option<CreatureId>,
+    combat: CombatType,
+    dmg: i32,
+    cond_idx: Option<usize>,
+    field_dot: bool,
 }
 
 impl GameWorld {
@@ -77,154 +86,235 @@ impl GameWorld {
     fn process_creature_skills(&mut self, cid: CreatureId) {
         // C2 — Track which condition index fired an Event for field re-extension.
         // (origin, combat_type, dmg, condition_index_for_field_extend)
-        let mut dot_events: Vec<(Option<CreatureId>, CombatType, i32, Option<usize>, bool)> =
-            Vec::new();
+        let mut dot_events: Vec<DotEvent> = Vec::new();
         let mut remove_indices: Vec<usize> = Vec::new();
         let mut ended_ctypes: Vec<ConditionType> = Vec::new();
+        let mut light_event = false;
+        let mut speed_ended = false;
+        let mut invis_ended = false;
 
         {
-            let Some(kind) = self.creatures.get(cid) else {
+            let fire_interval = self.mechanics.profile.conditions.fire.ticks.max(1);
+            let energy_interval = self.mechanics.profile.conditions.energy.ticks.max(1);
+            let Some(kind) = self.creatures.get_mut(cid) else {
                 return;
             };
-            let base = kind.base();
-            let profile = &self.mechanics.profile;
-            let hooks = &self.mechanics.hooks;
+            let base = kind.base_mut();
+            let fire_origin = base.fire_damage_origin;
+            let energy_origin = base.energy_damage_origin;
+            let poison_origin = base.poison_damage_origin;
+            let mut drunkenness = base.drunkenness;
 
-            for (idx, cond) in base.active_conditions.iter().enumerate() {
+            for (idx, cond) in base.active_conditions.iter_mut().enumerate() {
                 match cond.ctype {
                     ConditionType::Fire | ConditionType::Energy => {
-                        let interval = match cond.ctype {
-                            ConditionType::Fire => profile.conditions.fire.ticks,
-                            ConditionType::Energy => profile.conditions.energy.ticks,
-                            _ => 1,
-                        }
-                        .max(1);
-                        // 772 `TSkill::Process` (`crskill.cc:186-193`): Count countdown;
-                        // Event only when Count <= 0, then Count = MaxCount.
-                        let initialized = cond.skill_max_count > 0;
-                        if !initialized {
-                            // First tick after apply without SetTimer Count — init, no damage.
-                            continue;
-                        }
-                        if cond.skill_count > 0 {
-                            continue;
-                        }
-                        let round = cond.timer_rounds_left.map(|t| interval - t).unwrap_or(0);
-                        let Some((dmg, max_ticks)) =
-                            dot_tick_for_condition(profile, hooks, cond.ctype, round)
-                        else {
-                            continue;
-                        };
-                        let ticks_left = cond.timer_rounds_left.unwrap_or(max_ticks);
-                        if ticks_left <= 0 {
-                            remove_indices.push(idx);
-                            ended_ctypes.push(cond.ctype);
-                            continue;
-                        }
-                        let combat = if cond.ctype == ConditionType::Fire {
-                            CombatType::Fire
+                        let interval = if cond.ctype == ConditionType::Fire {
+                            fire_interval
                         } else {
-                            CombatType::Energy
+                            energy_interval
                         };
-                        // 772 Event: `Damage(GetCreature(*DamageOrigin), …, DAMAGE_FIRE|ENERGY)`
-                        // (`crskill.cc:1064,1090`) — instant type + stored origin.
-                        let origin = if cond.ctype == ConditionType::Fire {
-                            base.fire_damage_origin
-                        } else {
-                            base.energy_damage_origin
-                        };
-                        dot_events.push((origin, combat, dmg, Some(idx), cond.field_dot));
-                        if ticks_left <= 1 {
-                            remove_indices.push(idx);
-                            ended_ctypes.push(cond.ctype);
+                        if cond.skill_max_count <= 0 {
+                            cond.skill_max_count = interval;
+                            cond.skill_count = interval;
+                            if cond.timer_rounds_left.is_none() {
+                                cond.timer_rounds_left = Some(interval);
+                            }
+                            continue;
+                        }
+                        let mut timer = cond.skill_timer();
+                        match timer.process() {
+                            TimerStep::Expired => {
+                                remove_indices.push(idx);
+                                ended_ctypes.push(cond.ctype);
+                            }
+                            TimerStep::Event => {
+                                cond.set_skill_timer(timer);
+                                let combat = if cond.ctype == ConditionType::Fire {
+                                    CombatType::Fire
+                                } else {
+                                    CombatType::Energy
+                                };
+                                let origin = if cond.ctype == ConditionType::Fire {
+                                    fire_origin
+                                } else {
+                                    energy_origin
+                                };
+                                // Damage filled after this borrow (needs FormulaHooks).
+                                dot_events.push(DotEvent {
+                                    origin,
+                                    combat,
+                                    dmg: 0,
+                                    cond_idx: Some(idx),
+                                    field_dot: cond.field_dot,
+                                });
+                            }
+                            TimerStep::Idle => cond.set_skill_timer(timer),
                         }
                     }
                     ConditionType::Poison => {
-                        // 772 `TSkillPoison::Process` Count/MaxCount = 3 (`crskill.cc:976-990`).
-                        let initialized = cond.skill_max_count > 0;
-                        if !initialized {
+                        if cond.skill_max_count <= 0 {
+                            cond.skill_max_count = 3;
+                            cond.skill_count = 3;
+                            continue;
+                        }
+                        let pool = match cond.data {
+                            ConditionData::Damage { total_rank, .. } => total_rank,
+                            _ => 0,
+                        };
+                        if pool <= 0 {
+                            remove_indices.push(idx);
+                            ended_ctypes.push(cond.ctype);
                             continue;
                         }
                         if cond.skill_count > 0 {
+                            cond.skill_count -= 1;
                             continue;
                         }
+                        cond.skill_count = cond.skill_max_count;
                         if let ConditionData::Damage {
                             total_rank,
                             factor_percent,
-                        } = cond.data
+                        } = &mut cond.data
                         {
-                            if total_rank <= 0 {
-                                remove_indices.push(idx);
-                                ended_ctypes.push(cond.ctype);
-                                continue;
-                            }
-                            // 772 `TSkillPoison::Process` (`crskill.cc:977-984`):
-                            // `Range = (Cycle * FactorPercent) / 1000`; floor to ±1 when 0.
-                            // FactorPercent defaults to 50 → 5% of pool per Event.
-                            let fp = poison_factor_percent(factor_percent);
-                            let mut range = (total_rank * fp) / 1000;
+                            let fp = poison_factor_percent(*factor_percent);
+                            let mut range = (*total_rank * fp) / 1000;
                             if range == 0 {
-                                range = if total_rank > 0 { 1 } else { -1 };
+                                range = if *total_rank > 0 { 1 } else { -1 };
                             }
-                            // 772 Event: `Damage(origin, abs(Range), DAMAGE_POISON)`
-                            // (`crskill.cc:1024-1028`).
-                            dot_events.push((
-                                base.poison_damage_origin,
-                                CombatType::Earth,
-                                range.abs(),
-                                Some(idx),
-                                cond.field_dot,
-                            ));
+                            *total_rank -= range;
+                            dot_events.push(DotEvent {
+                                origin: poison_origin,
+                                combat: CombatType::Earth,
+                                dmg: range.abs(),
+                                cond_idx: Some(idx),
+                                field_dot: cond.field_dot,
+                            });
                         }
                     }
-                    ConditionType::Haste | ConditionType::Paralyze => {
-                        if let Some(left) = cond.timer_rounds_left
-                            && left <= 1
-                        {
-                            remove_indices.push(idx);
-                            ended_ctypes.push(cond.ctype);
+                    ctype if uses_skill_timer_process(ctype) => {
+                        let mut timer = cond.skill_timer();
+                        match timer.process() {
+                            TimerStep::Expired => {
+                                if ctype == ConditionType::Drunk {
+                                    drunkenness = 0;
+                                }
+                                remove_indices.push(idx);
+                                ended_ctypes.push(ctype);
+                            }
+                            TimerStep::Event => {
+                                cond.set_skill_timer(timer);
+                                match ctype {
+                                    ConditionType::Light => {
+                                        if let ConditionData::Light { level, .. } = &mut cond.data {
+                                            *level = timer.cycle.max(0) as u8;
+                                        }
+                                        light_event = true;
+                                    }
+                                    ConditionType::Haste | ConditionType::Paralyze
+                                        if timer.cycle == 0 =>
+                                    {
+                                        speed_ended = true;
+                                    }
+                                    ConditionType::Invisible if timer.cycle == 0 => {
+                                        invis_ended = true;
+                                    }
+                                    ConditionType::Drunk => {
+                                        drunkenness = timer.cycle.max(0) as u32;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            TimerStep::Idle => cond.set_skill_timer(timer),
                         }
                     }
-                    ConditionType::Light
-                    | ConditionType::Invisible
-                    | ConditionType::Outfit
-                    | ConditionType::ManaShield
-                    | ConditionType::Infight => {
+                    ConditionType::Outfit | ConditionType::Infight => {
                         if let Some(left) = cond.timer_rounds_left {
                             if left <= 1 {
                                 remove_indices.push(idx);
                                 ended_ctypes.push(cond.ctype);
+                            } else {
+                                cond.timer_rounds_left = Some(left - 1);
                             }
-                        } else if let ConditionData::Generic { ticks: 0 } = cond.data {
-                            remove_indices.push(idx);
-                            ended_ctypes.push(cond.ctype);
+                        } else if let ConditionData::Generic { ticks } = &mut cond.data {
+                            if *ticks <= 0 {
+                                remove_indices.push(idx);
+                                ended_ctypes.push(cond.ctype);
+                            } else {
+                                *ticks = (*ticks).saturating_sub(1000);
+                            }
+                        }
+                    }
+                    ConditionType::YellTicks
+                    | ConditionType::Muted
+                    | ConditionType::ChannelMutedTicks => {
+                        if let Some(left) = cond.timer_rounds_left.as_mut() {
+                            *left -= 1;
+                        } else if let ConditionData::Generic { ticks } = &mut cond.data {
+                            *ticks = (*ticks).saturating_sub(1000);
                         }
                     }
                     _ => {}
                 }
             }
+            base.drunkenness = drunkenness;
         }
 
-        for (origin, combat, dmg, cond_idx, field_dot) in dot_events {
-            if dmg <= 0 {
+        let profile = self.mechanics.profile;
+        for ev in &mut dot_events {
+            if ev.combat != CombatType::Fire && ev.combat != CombatType::Energy {
+                continue;
+            }
+            let ctype = if ev.combat == CombatType::Fire {
+                ConditionType::Fire
+            } else {
+                ConditionType::Energy
+            };
+            let interval = if ctype == ConditionType::Fire {
+                profile.conditions.fire.ticks
+            } else {
+                profile.conditions.energy.ticks
+            }
+            .max(1);
+            let round = self
+                .creatures
+                .get(cid)
+                .and_then(|k| {
+                    k.base().active_conditions.iter().find_map(|c| {
+                        if c.ctype == ctype {
+                            c.timer_rounds_left.map(|t| interval - t)
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .unwrap_or(0);
+            if let Some((computed, _)) =
+                dot_tick_for_condition(&profile, &self.mechanics.hooks, ctype, round)
+            {
+                ev.dmg = computed;
+            }
+        }
+
+        for ev in dot_events {
+            if ev.dmg <= 0 {
                 continue;
             }
             let damage = CombatDamage {
-                primary: (combat, -dmg),
+                primary: (ev.combat, -ev.dmg),
                 secondary: (CombatType::Physical, 0),
             };
             // 772 `TSkillHitpoints::Set` → `SendPlayerData` (`crskill.cc:682-683`).
             // Snapshot before apply — death may remove the creature.
             let snap = self.combat_notify_snapshot(cid);
             let params = CombatParams {
-                skip_pvp_half: field_dot,
+                skip_pvp_half: ev.field_dot,
                 ..CombatParams::default()
             };
-            let damage_scalar = self.combat_execute_with_stimulus(origin, cid, &damage, &params);
+            let damage_scalar = self.combat_execute_with_stimulus(ev.origin, cid, &damage, &params);
             // M2 — Use the real `Damage` scalar (includes mana-shield absorb).
             let damage_done = damage_scalar;
             if let Some(snap) = snap {
-                self.notify_player_combat_damage(origin, cid, damage_done, combat, snap);
+                self.notify_player_combat_damage(ev.origin, cid, damage_done, ev.combat, snap);
             }
 
             // C2 — Field re-extension: 772 `TSkillPoison/Burning/Energy::Event` scans the
@@ -235,10 +325,10 @@ impl GameWorld {
             // `Cycle` maps to different Rust fields per condition type:
             // - Poison: `ConditionData::Damage::total_rank` (the damage pool — `crskill.cc:983`)
             // - Fire/Energy: `ActiveCondition::timer_rounds_left` (tick countdown — `crskill.cc:187`)
-            if let Some(idx) = cond_idx
+            if let Some(idx) = ev.cond_idx
                 && self.creatures.get(cid).is_some()
             {
-                let field_kind = match combat {
+                let field_kind = match ev.combat {
                     CombatType::Fire => Some(tfs_rust_content::items::FieldDamageType::Fire),
                     CombatType::Energy => Some(tfs_rust_content::items::FieldDamageType::Energy),
                     CombatType::Earth => Some(tfs_rust_content::items::FieldDamageType::Poison),
@@ -269,6 +359,29 @@ impl GameWorld {
             }
         }
 
+        if light_event {
+            self.sync_internal_light_from_conditions(cid);
+            self.change_creature_light(cid);
+        }
+        if speed_ended {
+            if let Some(kind) = self.creatures.get_mut(cid) {
+                Self::recompute_speed_from_conditions(kind.base_mut());
+            }
+            self.announce_creature_speed(cid);
+        }
+        if invis_ended {
+            let (ghost, still_invisible) = match self.creatures.get(cid) {
+                Some(crate::creature::CreatureKind::Player(p)) => {
+                    (p.ghost_mode, p.base.is_invisible())
+                }
+                Some(kind) => (false, kind.base().is_invisible()),
+                None => (false, false),
+            };
+            if !ghost && !still_invisible {
+                self.announce_player_change_visible(cid, true);
+            }
+        }
+
         if let Some(kind) = self.creatures.get_mut(cid) {
             let base = kind.base_mut();
             remove_indices.sort_unstable();
@@ -278,107 +391,7 @@ impl GameWorld {
                     base.active_conditions.remove(idx);
                 }
             }
-            // Decrement timers and apply poison decay after damage pass.
-            let mut drunkenness = base.drunkenness;
-            let mut drunk_expired = false;
-            for cond in base.active_conditions.iter_mut() {
-                match cond.ctype {
-                    ConditionType::Fire | ConditionType::Energy => {
-                        let interval = match cond.ctype {
-                            ConditionType::Fire => self.mechanics.profile.conditions.fire.ticks,
-                            ConditionType::Energy => self.mechanics.profile.conditions.energy.ticks,
-                            _ => 1,
-                        }
-                        .max(1);
-                        if cond.skill_max_count <= 0 {
-                            // Mirror `SetTimer(..., Count=MaxCount)` — start countdown, no Event yet.
-                            cond.skill_max_count = interval;
-                            cond.skill_count = interval;
-                            if cond.timer_rounds_left.is_none() {
-                                cond.timer_rounds_left = Some(interval);
-                            }
-                            continue;
-                        }
-                        if cond.skill_count > 0 {
-                            cond.skill_count -= 1;
-                        } else {
-                            // Event already applied this tick — reset Count + decrement Cycle.
-                            cond.skill_count = cond.skill_max_count;
-                            if let Some(left) = cond.timer_rounds_left.as_mut() {
-                                *left -= 1;
-                            }
-                        }
-                    }
-                    ConditionType::Poison => {
-                        if cond.skill_max_count <= 0 {
-                            cond.skill_max_count = 3;
-                            cond.skill_count = 3;
-                            continue;
-                        }
-                        if cond.skill_count > 0 {
-                            cond.skill_count -= 1;
-                        } else {
-                            cond.skill_count = cond.skill_max_count;
-                            // 772 `TSkillPoison::Process` (`crskill.cc:983`): `Cycle -= Range`.
-                            // Pool drains by exactly the damage dealt this Event.
-                            if let ConditionData::Damage {
-                                total_rank,
-                                factor_percent,
-                            } = &mut cond.data
-                            {
-                                let fp = poison_factor_percent(*factor_percent);
-                                let mut range = (*total_rank * fp) / 1000;
-                                if range == 0 {
-                                    range = if *total_rank > 0 { 1 } else { -1 };
-                                }
-                                *total_rank -= range;
-                            }
-                        }
-                    }
-                    ConditionType::Haste | ConditionType::Paralyze => {
-                        if let Some(left) = cond.timer_rounds_left.as_mut() {
-                            *left -= 1;
-                        }
-                    }
-                    ConditionType::Regeneration => {
-                        // Pack items no longer arm this; Lua `addCondition` may still
-                        // persist a Regeneration condition. Cadence is Creatures-arm
-                        // `item_regen.rs` (`crmain.cc:1087-1095`).
-                    }
-                    // C++ `ConditionGeneric::executeCondition` — `condition.cpp:315-317` →
-                    // `Condition::executeCondition` (`condition.cpp:154-163`): `ticks =
-                    // max(0, ticks - interval)`. `ProcessSkills` fires every ~1000 ms
-                    // (`SkillTimeCounter`, `subsystem_counters.rs`), so we decrement by
-                    // 1000 ms per tick. `YellTicks` (30 000 ms = 30 s) expires after ~30
-                    // ticks. CH-5 adds `Muted`/`ChannelMutedTicks` ticking the same way.
-                    ConditionType::YellTicks
-                    | ConditionType::Muted
-                    | ConditionType::ChannelMutedTicks
-                    | ConditionType::Invisible
-                    | ConditionType::Outfit
-                    | ConditionType::ManaShield
-                    | ConditionType::Light
-                    | ConditionType::Infight => {
-                        if let Some(left) = cond.timer_rounds_left.as_mut() {
-                            *left -= 1;
-                        } else if let ConditionData::Generic { ticks } = &mut cond.data {
-                            *ticks = (*ticks).saturating_sub(1000);
-                        }
-                    }
-                    ConditionType::Drunk => {
-                        // 772 `TSkill::Process` Count/Cycle (`crskill.cc:176-193`).
-                        drunk_expired |= tick_drunk_skill(&mut drunkenness, cond);
-                    }
-                    _ => {}
-                }
-            }
-            base.drunkenness = drunkenness;
-            if drunk_expired {
-                base.active_conditions
-                    .retain(|c| c.ctype != ConditionType::Drunk);
-                ended_ctypes.push(ConditionType::Drunk);
-            }
-            // Remove expired `ConditionGeneric` (YellTicks, Muted, ChannelMutedTicks) conditions after tick-down.
+            // Remove expired `ConditionGeneric` (YellTicks, Muted, ChannelMutedTicks) after tick-down.
             base.active_conditions.retain(|c| {
                 !matches!(
                     (c.ctype, &c.data),
@@ -631,6 +644,126 @@ mod tests {
         world.process_skills(); // Count<=0 → Event
         let hp1 = world.creatures.get(player).unwrap().base().health;
         assert!(hp1 < hp0, "damage on Event when Count hits 0");
+    }
+
+    #[test]
+    fn fire_icon_clears_one_tick_after_last_hit() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let player = insert_player(&mut world, test_player("Ember", pos));
+
+        apply_condition(
+            &mut world.creatures,
+            player,
+            ActiveCondition {
+                id: 1,
+                sub_id: 0,
+                ctype: ConditionType::Fire,
+                data: ConditionData::Damage {
+                    total_rank: 10,
+                    factor_percent: 0,
+                },
+                timer_rounds_left: Some(1),
+                skill_count: 0,
+                skill_max_count: 1,
+                field_dot: false,
+            },
+        );
+
+        world.process_skills(); // Event, Cycle 1→0, still listed (L11)
+        let still = world.creatures.get(player).is_some_and(|k| {
+            k.base()
+                .active_conditions
+                .iter()
+                .any(|c| c.ctype == ConditionType::Fire)
+        });
+        assert!(still, "fire stays one tick after last Event");
+        world.process_skills(); // Expired
+        let gone = world.creatures.get(player).is_some_and(|k| {
+            k.base()
+                .active_conditions
+                .iter()
+                .all(|c| c.ctype != ConditionType::Fire)
+        });
+        assert!(gone, "fire removed the tick after last Event");
+    }
+
+    #[test]
+    fn manashield_icon_off_at_202() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let player = insert_player(&mut world, test_player("Shield", pos));
+        apply_condition(
+            &mut world.creatures,
+            player,
+            ActiveCondition {
+                id: 0,
+                sub_id: 0,
+                ctype: ConditionType::ManaShield,
+                data: ConditionData::Generic { ticks: 200_000 },
+                timer_rounds_left: Some(1),
+                skill_count: 200,
+                skill_max_count: 200,
+                field_dot: false,
+            },
+        );
+        let has_shield = |world: &crate::game_world::GameWorld| {
+            world.creatures.get(player).is_some_and(|k| {
+                k.base()
+                    .active_conditions
+                    .iter()
+                    .any(|c| c.ctype == ConditionType::ManaShield)
+            })
+        };
+        for _ in 0..201 {
+            world.process_skills();
+        }
+        assert!(
+            has_shield(&world),
+            "manashield still listed at last Event (icon on)"
+        );
+        world.process_skills(); // 202 Expired / CheckState
+        assert!(!has_shield(&world), "manashield gone at 202 (icon off)");
+    }
+
+    #[test]
+    fn utevo_lux_radius_drops_at_tick_84() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let player = insert_player(&mut world, test_player("Lux", pos));
+        let t = crate::skill_timer::light_timer(6, &world.mechanics.profile.skill_timers);
+        apply_condition(
+            &mut world.creatures,
+            player,
+            ActiveCondition {
+                id: 0,
+                sub_id: 0,
+                ctype: ConditionType::Light,
+                data: ConditionData::Light {
+                    level: t.cycle as u8,
+                    color: 215,
+                },
+                timer_rounds_left: Some(t.cycle),
+                skill_count: t.count,
+                skill_max_count: t.max_count,
+                field_dot: false,
+            },
+        );
+        world.on_condition_started(player, ConditionType::Light);
+        let level = |world: &crate::game_world::GameWorld| match world.creatures.get(player) {
+            Some(CreatureKind::Player(p)) => p.internal_light.level,
+            _ => 0,
+        };
+        assert_eq!(level(&world), 6);
+        for _ in 0..83 {
+            world.process_skills();
+        }
+        assert_eq!(level(&world), 6, "no shrink while Count > 0");
+        world.process_skills(); // Event at tick 84
+        assert_eq!(level(&world), 5);
     }
 
     #[test]
@@ -1848,19 +1981,19 @@ mod tests {
             apply_drink_drunk_stack(&mut base.active_conditions, &mut base.drunkenness);
         }
 
-        for _ in 0..DRINK_DRUNK_INTERVAL - 1 {
+        for _ in 0..DRINK_DRUNK_INTERVAL {
             world.process_skills();
         }
         assert_eq!(
             drunk_state(&world),
-            Some((2, Some((1, 120)))),
-            "119 rounds leave Count=1"
+            Some((2, Some((0, 120)))),
+            "120 rounds leave Count=0"
         );
         world.process_skills();
         assert_eq!(
             drunk_state(&world),
             Some((1, Some((120, 120)))),
-            "after 120 rounds level −1"
+            "Event at MaxCount+1 (121) ticks, level −1"
         );
     }
 }

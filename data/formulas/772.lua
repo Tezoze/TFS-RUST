@@ -65,6 +65,18 @@ formulas = {
     itemRegenMana = 4,
   },
 
+  -- 772 `SetTimer` triples (`magic.cc`). Pack Lua `CONDITION_PARAM_TICKS` for these
+  -- types is ignored — corpus Cycle/Count/MaxCount win (`docs/DATA_PACK_LUA.md`).
+  skillTimers = {
+    haste = { cycle = 3, count = 10, max = 10 },
+    strongHaste = { cycle = 2, count = 10, max = 10 },
+    paralyze = { cycle = 1, count = 10, max = 10 },
+    manaShield = { cycle = 1, count = 200, max = 200 },
+    invisible = { cycle = 1, count = 200, max = 200 },
+    -- radius → Duration; Count = Duration/radius. Pack great_light level 7 aliases to 8.
+    light = { [6] = 500, [8] = 1000, [9] = 2000 },
+  },
+
   -- 1098 TFS extras. 772 has no coin-exchange on use, no extra instruments,
   -- no magic-level spellbook groups.
   otherActions = {

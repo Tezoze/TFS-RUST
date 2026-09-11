@@ -1317,12 +1317,12 @@ impl GameWorld {
             }
             return Ok(());
         }
-        let cond = active_condition_from_apply_spec(&spec);
+        let cond = active_condition_from_apply_spec(&spec, &self.mechanics.profile);
         apply_condition(&mut self.creatures, cid, cond);
-        if spec.owner_guid > 0 {
-            if let Some(&origin) = self.player_by_guid.get(&(spec.owner_guid as u32)) {
-                set_dot_damage_origin(&mut self.creatures, cid, origin, ctype);
-            }
+        if spec.owner_guid > 0
+            && let Some(&origin) = self.player_by_guid.get(&(spec.owner_guid as u32))
+        {
+            set_dot_damage_origin(&mut self.creatures, cid, origin, ctype);
         }
         self.on_condition_started(cid, ctype);
         Ok(())
@@ -1542,7 +1542,7 @@ impl GameWorld {
 
     /// Copy strongest active `ConditionData::Light` into `Player::internal_light`, or clear.
     /// C++ `ConditionLight::startCondition` / `setNormalCreatureLight` — `condition.cpp` ~1876–1910.
-    fn sync_internal_light_from_conditions(&mut self, cid: CreatureId) {
+    pub(crate) fn sync_internal_light_from_conditions(&mut self, cid: CreatureId) {
         let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
             return;
         };
@@ -1614,6 +1614,7 @@ impl GameWorld {
 /// C++ reference: `Condition::addCondition` / condition subclasses — `condition.cpp`.
 pub(crate) fn active_condition_from_apply_spec(
     spec: &tfs_rust_lua::ConditionApplySpec,
+    profile: &crate::formulas::MechanicsProfile,
 ) -> ActiveCondition {
     let ctype = condition_type_from_lua(spec.ctype);
     let id = if spec.cond_id < 0 {
@@ -1634,7 +1635,16 @@ pub(crate) fn active_condition_from_apply_spec(
             // color 215 (`5*36+5*6+5`). Stock `light.lua` sets LEVEL but not COLOR
             // (TFS ConditionLight also defaults color to 0) — send 215 so the client
             // actually renders the glow instead of black light.
-            let level = spec.light_level.clamp(0, 255) as u8;
+            //
+            // Duration ignores pack `CONDITION_PARAM_TICKS`; Cycle is the radius
+            // (`magic.cc:2336` SetTimer, pack great_light 7 → corpus 8).
+            let timer = crate::skill_timer::arm_from_spec(ctype, spec, &profile.skill_timers)
+                .unwrap_or(crate::skill_timer::SkillTimer {
+                    cycle: spec.light_level.clamp(1, 255),
+                    count: 0,
+                    max_count: 0,
+                });
+            let level = timer.cycle.clamp(0, 255) as u8;
             let color = if level > 0 && spec.light_color == 0 {
                 215
             } else {
@@ -1642,19 +1652,27 @@ pub(crate) fn active_condition_from_apply_spec(
             };
             (
                 ConditionData::Light { level, color },
-                rounds_from_ticks,
-                0,
-                0,
+                Some(timer.cycle),
+                timer.count,
+                timer.max_count,
             )
         }
-        ConditionType::Haste | ConditionType::Paralyze => (
-            ConditionData::Speed {
-                flat_delta: spec.speed,
-            },
-            rounds_from_ticks,
-            0,
-            0,
-        ),
+        ConditionType::Haste | ConditionType::Paralyze => {
+            let timer = crate::skill_timer::arm_from_spec(ctype, spec, &profile.skill_timers)
+                .unwrap_or(crate::skill_timer::SkillTimer {
+                    cycle: rounds_from_ticks.unwrap_or(1),
+                    count: 0,
+                    max_count: 0,
+                });
+            (
+                ConditionData::Speed {
+                    flat_delta: spec.speed,
+                },
+                Some(timer.cycle),
+                timer.count,
+                timer.max_count,
+            )
+        }
         ConditionType::Outfit => (
             ConditionData::Outfit {
                 look_type: spec.look_type,
@@ -1725,12 +1743,20 @@ pub(crate) fn active_condition_from_apply_spec(
             0,
             0,
         ),
-        ConditionType::Invisible | ConditionType::ManaShield => (
-            ConditionData::Generic { ticks: spec.ticks },
-            rounds_from_ticks,
-            0,
-            0,
-        ),
+        ConditionType::Invisible | ConditionType::ManaShield => {
+            let timer = crate::skill_timer::arm_from_spec(ctype, spec, &profile.skill_timers)
+                .unwrap_or(crate::skill_timer::SkillTimer {
+                    cycle: rounds_from_ticks.unwrap_or(1),
+                    count: 0,
+                    max_count: 0,
+                });
+            (
+                ConditionData::Generic { ticks: spec.ticks },
+                Some(timer.cycle),
+                timer.count,
+                timer.max_count,
+            )
+        }
         _ => (
             ConditionData::Generic { ticks: spec.ticks },
             rounds_from_ticks,
@@ -1801,7 +1827,13 @@ fn ascii_uppercase(s: &str) -> String {
 mod apply_spec_tests {
     use super::*;
     use crate::condition::ConditionData;
+    use crate::formulas::MechanicsProfile;
+    use tfs_rust_common::ProtocolVersion;
     use tfs_rust_lua::ConditionApplySpec;
+
+    fn profile() -> MechanicsProfile {
+        MechanicsProfile::for_version(ProtocolVersion::V772)
+    }
 
     #[test]
     fn maps_light_condition() {
@@ -1811,7 +1843,7 @@ mod apply_spec_tests {
             ticks: 370_000,
             ..Default::default()
         };
-        let cond = active_condition_from_apply_spec(&spec);
+        let cond = active_condition_from_apply_spec(&spec, &profile());
         assert_eq!(cond.ctype, ConditionType::Light);
         assert_eq!(
             cond.data,
@@ -1821,7 +1853,9 @@ mod apply_spec_tests {
                 color: 215
             }
         );
-        assert_eq!(cond.timer_rounds_left, Some(370));
+        assert_eq!(cond.timer_rounds_left, Some(6));
+        assert_eq!(cond.skill_count, 83);
+        assert_eq!(cond.skill_max_count, 83);
     }
 
     #[test]
@@ -1833,7 +1867,7 @@ mod apply_spec_tests {
             ticks: 60_000,
             ..Default::default()
         };
-        let cond = active_condition_from_apply_spec(&spec);
+        let cond = active_condition_from_apply_spec(&spec, &profile());
         assert_eq!(
             cond.data,
             ConditionData::Light {
@@ -1841,6 +1875,8 @@ mod apply_spec_tests {
                 color: 180
             }
         );
+        assert_eq!(cond.timer_rounds_left, Some(9));
+        assert_eq!(cond.skill_count, 2000 / 9);
     }
 
     #[test]
@@ -1851,10 +1887,26 @@ mod apply_spec_tests {
             ticks: 30_000,
             ..Default::default()
         };
-        let cond = active_condition_from_apply_spec(&spec);
+        let cond = active_condition_from_apply_spec(&spec, &profile());
         assert_eq!(cond.ctype, ConditionType::Haste);
         assert_eq!(cond.data, ConditionData::Speed { flat_delta: 30 });
-        assert_eq!(cond.timer_rounds_left, Some(30));
+        assert_eq!(cond.timer_rounds_left, Some(3));
+        assert_eq!(cond.skill_count, 10);
+        assert_eq!(cond.skill_max_count, 10);
+    }
+
+    #[test]
+    fn maps_strong_haste_triple() {
+        let spec = ConditionApplySpec {
+            ctype: 16,
+            speed: 60,
+            ticks: 30_000,
+            ..Default::default()
+        };
+        let cond = active_condition_from_apply_spec(&spec, &profile());
+        assert_eq!(cond.timer_rounds_left, Some(2));
+        assert_eq!(cond.skill_count, 10);
+        assert_eq!(cond.data, ConditionData::Speed { flat_delta: 60 });
     }
 
     #[test]
@@ -1866,7 +1918,7 @@ mod apply_spec_tests {
             max_count: 3,
             ..Default::default()
         };
-        let cond = active_condition_from_apply_spec(&spec);
+        let cond = active_condition_from_apply_spec(&spec, &profile());
         assert_eq!(cond.ctype, ConditionType::Poison);
         assert_eq!(
             cond.data,
