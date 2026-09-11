@@ -105,6 +105,64 @@ fn ms_to_rounds(ms: u32) -> u32 {
     ms / 1000
 }
 
+/// Corpus default wave lifetime when unset (`crmain.cc:1922`).
+const DEFAULT_WAVE_LIFETIME_SECS: u32 = 3600;
+
+/// Max wave end in seconds — `Delay + (Lifetime != 0 ? Lifetime : 3600)` (`crmain.cc:1922-1925`).
+pub(crate) fn raid_duration_secs(def: &RaidDefinition) -> u32 {
+    def.waves.iter().map(wave_end_secs).max().unwrap_or(0)
+}
+
+fn wave_end_secs(wave: &RaidWave) -> u32 {
+    match wave {
+        RaidWave::Announce { delay_ms, .. } | RaidWave::SingleSpawn { delay_ms, .. } => {
+            delay_ms / 1000 + DEFAULT_WAVE_LIFETIME_SECS
+        }
+        RaidWave::AreaSpawn {
+            delay_ms,
+            lifetime_ms,
+            ..
+        } => {
+            delay_ms / 1000
+                + if *lifetime_ms > 0 {
+                    lifetime_ms / 1000
+                } else {
+                    DEFAULT_WAVE_LIFETIME_SECS
+                }
+        }
+    }
+}
+
+/// Boot start RoundNr, or `None` to skip this reboot window (`crmain.cc:1980-2010`).
+pub(crate) fn raid_boot_start_round(
+    def: &RaidDefinition,
+    now_unix: i64,
+    round_nr: u32,
+    seconds_to_reboot: u32,
+    random: impl Fn(i32, i32) -> i32,
+) -> Option<u32> {
+    if let Some(date) = def.date_unix {
+        let window_end = now_unix.saturating_add(i64::from(seconds_to_reboot));
+        if now_unix <= date && date <= window_end {
+            let delta = (date - now_unix).clamp(0, i64::from(u32::MAX)) as u32;
+            return Some(round_nr.saturating_add(delta));
+        }
+        return None;
+    }
+    let interval = def.interval_secs.filter(|s| *s > 0)?;
+    let duration = raid_duration_secs(def);
+    if duration > seconds_to_reboot {
+        return None;
+    }
+    let interval_hi = interval.saturating_sub(1).min(i32::MAX as u32) as i32;
+    if random(0, interval_hi) >= seconds_to_reboot as i32 {
+        return None;
+    }
+    let window = seconds_to_reboot.saturating_sub(duration);
+    let jitter = random(0, window as i32).max(0) as u32;
+    Some(round_nr.saturating_add(jitter))
+}
+
 fn announce_message_class(announce_type: &str) -> u8 {
     match announce_type.trim().to_ascii_lowercase().as_str() {
         "warning" => MESSAGE_STATUS_WARNING,
@@ -215,22 +273,18 @@ impl GameWorld {
         ReturnValue::NoError
     }
 
-    /// Boot interval / future-date raids — Start = round_nr + random(0, interval).
+    /// Boot interval / dated raids gated by `SecondsToReboot` (`crmain.cc:1980-2010`).
     pub fn schedule_interval_raids_at_boot(&mut self) {
         let round_nr = self.round_nr;
         let now = unix_now_secs();
+        let seconds_to_reboot = self.server_save.seconds_until_fire(now);
         let defs: Vec<RaidDefinition> = self.raids.catalog.by_name.values().cloned().collect();
         for def in defs {
-            let start = if let Some(date) = def.date_unix {
-                if date <= now {
-                    continue;
-                }
-                let delta = (date - now).clamp(0, i64::from(u32::MAX)) as u32;
-                round_nr.saturating_add(delta)
-            } else if let Some(interval) = def.interval_secs.filter(|s| *s > 0) {
-                let jitter = self.parity_random(0, interval as i32).max(0) as u32;
-                round_nr.saturating_add(jitter)
-            } else {
+            let Some(start) =
+                raid_boot_start_round(&def, now, round_nr, seconds_to_reboot, |lo, hi| {
+                    self.parity_random(lo, hi)
+                })
+            else {
                 continue;
             };
             self.raids.enqueue_definition(&def, start);
@@ -267,7 +321,8 @@ impl GameWorld {
         };
         let min = i32::from(wave.min_count);
         let max = i32::from(wave.max_count.max(wave.min_count));
-        let count = self.parity_random(min, max).max(0) as u32;
+        let cap = self.mechanics.profile.raid_wave_max_count.max(1);
+        let count = (self.parity_random(min, max).max(0) as u32).min(cap);
         let life_end = if wave.lifetime_rounds > 0 {
             Some(self.round_nr.saturating_add(wave.lifetime_rounds))
         } else {
@@ -275,7 +330,13 @@ impl GameWorld {
         };
         for _ in 0..count {
             let pos = self.raid_spawn_position(wave);
-            match self.lua_script_create_monster(&name, pos.x, pos.y, pos.z, true, true) {
+            let Some(pos) = self.search_free_field(pos, 1) else {
+                continue;
+            };
+            if self.tile_in_protection_zone(pos) {
+                continue;
+            }
+            match self.lua_script_create_monster(name, pos.x, pos.y, pos.z, true, true) {
                 Ok(Some(id_bits)) => {
                     if let Some(end) = life_end {
                         set_monster_life_end(self, id_bits, end);
@@ -437,5 +498,138 @@ mod tests {
             world.schedule_raid_now("testraid"),
             ReturnValue::AnotherRaidIsAlreadyExecuting
         );
+    }
+
+    fn area_def(lifetime_ms: u32, interval: Option<u32>, date: Option<i64>) -> RaidDefinition {
+        RaidDefinition {
+            name: "testraid".to_string(),
+            interval_secs: interval,
+            date_unix: date,
+            log: false,
+            filename: "testraid.xml".to_string(),
+            waves: vec![RaidWave::AreaSpawn {
+                delay_ms: 0,
+                lifetime_ms,
+                radius: 0,
+                center: Position::new(100, 100, 7),
+                monsters: vec![RaidMonsterAmount {
+                    name: "Rat".to_string(),
+                    min_amount: 1,
+                    max_amount: 1,
+                }],
+            }],
+        }
+    }
+
+    #[test]
+    fn interval_raid_skipped_when_duration_exceeds_reboot_window() {
+        let def = area_def(7_200_000, Some(60), None);
+        assert!(raid_duration_secs(&def) > 100);
+        assert_eq!(raid_boot_start_round(&def, 1_000, 0, 100, |_, _| 0), None);
+    }
+
+    #[test]
+    fn raid_start_within_window() {
+        let def = area_def(1_000, Some(1), None);
+        let start = raid_boot_start_round(&def, 1_000, 10, 1_000, |_, _| 0).unwrap();
+        assert_eq!(start, 10);
+        let dated = area_def(1_000, None, Some(1_050));
+        assert_eq!(
+            raid_boot_start_round(&dated, 1_000, 10, 100, |_, _| 0),
+            Some(60)
+        );
+        let too_late = area_def(1_000, None, Some(2_000));
+        assert_eq!(
+            raid_boot_start_round(&too_late, 1_000, 10, 100, |_, _| 0),
+            None
+        );
+    }
+
+    #[test]
+    fn raid_monster_not_placed_in_pz() {
+        use tfs_rust_common::enums::ZoneType;
+
+        let mut world = beat_driven_test_world();
+        let mut monsters = HashMap::new();
+        monsters.insert("rat".into(), stub_rat());
+        world.monsters_db = Arc::new(MonsterDatabase { monsters });
+        let center = Position::new(100, 100, 7);
+        lay_arena_tiles(
+            &mut world.map,
+            center.x,
+            center.y,
+            2,
+            center.z,
+            TEST_SYNTHETIC_GROUND_WP,
+        );
+        for dx in -2i32..=2 {
+            for dy in -2i32..=2 {
+                let pos = Position::new(
+                    (i32::from(center.x) + dx) as u16,
+                    (i32::from(center.y) + dy) as u16,
+                    center.z,
+                );
+                if let Some(tile) = world.map.get_tile_mut(pos) {
+                    tile.body_mut().zone = ZoneType::Protection;
+                }
+            }
+        }
+        world.round_nr = 1;
+        world.raids.push_wave(AttackWave {
+            execution_round: 1,
+            message: None,
+            message_class: MESSAGE_EVENT_ADVANCE,
+            center,
+            spread: 0,
+            monster_name: Some("Rat".to_string()),
+            min_count: 1,
+            max_count: 1,
+            lifetime_rounds: 0,
+        });
+        world.process_monster_raids();
+        let monsters = world
+            .creatures
+            .iter()
+            .filter(|(_, k)| matches!(k, CreatureKind::Monster(_)))
+            .count();
+        assert_eq!(monsters, 0, "PZ raid spawn must be skipped");
+    }
+
+    #[test]
+    fn raid_count_capped_64() {
+        let mut world = beat_driven_test_world();
+        world.mechanics.profile.raid_wave_max_count = 64;
+        let mut monsters = HashMap::new();
+        monsters.insert("rat".into(), stub_rat());
+        world.monsters_db = Arc::new(MonsterDatabase { monsters });
+        let center = Position::new(200, 200, 7);
+        lay_arena_tiles(
+            &mut world.map,
+            center.x,
+            center.y,
+            12,
+            center.z,
+            TEST_SYNTHETIC_GROUND_WP,
+        );
+        world.round_nr = 1;
+        world.raids.push_wave(AttackWave {
+            execution_round: 1,
+            message: None,
+            message_class: MESSAGE_EVENT_ADVANCE,
+            center,
+            spread: 8,
+            monster_name: Some("Rat".to_string()),
+            min_count: 100,
+            max_count: 100,
+            lifetime_rounds: 0,
+        });
+        world.process_monster_raids();
+        let monsters = world
+            .creatures
+            .iter()
+            .filter(|(_, k)| matches!(k, CreatureKind::Monster(_)))
+            .count();
+        assert!(monsters <= 64, "wave count must cap at 64, got {monsters}");
+        assert!(monsters >= 1, "expected some raid monsters, got {monsters}");
     }
 }

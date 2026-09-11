@@ -77,7 +77,8 @@ impl PendingLogin {
             | GameCommand::VipLookupFinished { .. }
             | GameCommand::MailLookupFinished { .. }
             | GameCommand::MailDeliveryFinished { .. }
-            | GameCommand::HousePolicyScanFinished { .. } => PendingLoginPacketAction::Dropped,
+            | GameCommand::HousePolicyScanFinished { .. }
+            | GameCommand::ScheduleClose { .. } => PendingLoginPacketAction::Dropped,
         }
     }
 

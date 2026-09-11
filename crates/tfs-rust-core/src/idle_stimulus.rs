@@ -1266,20 +1266,6 @@ impl GameWorld {
 
     /// C++ `TFindCreatures` + `Strategy[]` target pick — `crnonpl.cc:2420-2516`.
     ///
-    /// C++ `TCreature::CanSeeFloor` — `cr.hh:576-582`.
-    ///
-    /// Used by idle acquire's `ShouldSleep` gate (`crnonpl.cc:2504`): a player/summon that can
-    /// see the monster's floor keeps the monster awake even when it cannot be targeted
-    /// (different Z / outside the 10-tile box).
-    #[inline]
-    fn creature_can_see_floor(viewer_z: u8, floor_z: u8) -> bool {
-        if viewer_z <= 7 {
-            floor_z <= 7
-        } else {
-            (viewer_z as i32 - floor_z as i32).abs() <= 2
-        }
-    }
-
     /// Z floors whose occupants can `CanSeeFloor` the monster (`cr.hh:576`).
     ///
     /// Surface viewers (`z≤7`) see 0..=7; a viewer on 8–9 can still see floor 7
@@ -1394,7 +1380,7 @@ impl GameWorld {
 
             let tp = target.position();
             // C++ `Target->CanSeeFloor(this->posz)` — `crnonpl.cc:2504`.
-            if Self::creature_can_see_floor(tp.z, pos.z) {
+            if crate::visibility::can_see_floor(tp.z, pos.z) {
                 should_sleep = false;
             }
 

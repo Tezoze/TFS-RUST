@@ -44,18 +44,12 @@ impl GameWorld {
             .saturating_add(30)
     }
 
-    /// Minute jobs on Other (`main.cc:375–436`) — house rent/auctions; not a Tokio cron.
+    /// Minute jobs on Other (`main.cc:375–436`) — `RefreshCylinders`, kill stats, netload.
+    /// House `ProcessHouses` runs at boot and on save/reboot fire (`houses.cc:1943-1960`).
     fn tick_other_minute_jobs(&mut self) {
         if self.round_nr < self.next_minute_round {
             return;
         }
-        let now = chrono::Local::now()
-            .timestamp()
-            .clamp(0, i64::from(u32::MAX)) as u32;
-        let period = self.house_rent_period_from_config();
-        let grace = self.house_grace_secs_from_config();
-        self.process_houses_online(now, period, grace);
-        self.spawn_house_policy_scan();
         // Corpus minute arm is `RefreshCylinders`, not `RefreshMap` (`main.cc:383` vs `:428`).
         let _ = self.refresh_cylinders();
         // `WriteKillStatistics` at wall-clock minute 55 (`main.cc:393-394`).

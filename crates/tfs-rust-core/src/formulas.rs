@@ -449,6 +449,8 @@ pub struct MechanicsProfile {
     pub item_regen_mana: i32,
     /// 772 `SetTimer` triples for haste / light / invis / manashield (`magic.cc`).
     pub skill_timers: SkillTimers,
+    /// `ProcessMonsterRaids` per-wave spawn cap (`crmain.cc:2046-2048` `NARRAY(Spawned)`).
+    pub raid_wave_max_count: u32,
 }
 
 /// Fishing catch-success model (`data/scripts/actions/tools/fishing_rod.lua`).
@@ -644,6 +646,7 @@ impl MechanicsProfile {
                 item_regen_hp: 1,
                 item_regen_mana: 4,
                 skill_timers: SkillTimers::classic_772(),
+                raid_wave_max_count: 64,
             },
             1098 => Self {
                 beat_ms: 50,
@@ -715,6 +718,7 @@ impl MechanicsProfile {
                 item_regen_hp: 1,
                 item_regen_mana: 4,
                 skill_timers: SkillTimers::classic_772(),
+                raid_wave_max_count: 64,
             },
             other => unreachable!("unsupported protocol version {other}"),
         };
@@ -1293,6 +1297,14 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
             num_or(lua, &creatures, "itemRegenMana", p.item_regen_mana as i64) as i32;
     }
 
+    p.raid_wave_max_count = num_or(
+        lua,
+        &formulas,
+        "raidWaveMaxCount",
+        p.raid_wave_max_count as i64,
+    )
+    .clamp(1, 256) as u32;
+
     if let Ok(Value::Table(st)) = formulas.get::<Value>("skillTimers") {
         p.skill_timers.haste = load_timer_triple(lua, &st, "haste", p.skill_timers.haste);
         p.skill_timers.strong_haste =
@@ -1383,6 +1395,7 @@ mod tests {
         assert_eq!(p.destroyable_stone.self_damage, -50);
         assert_eq!(p.item_regen_hp, 1);
         assert_eq!(p.item_regen_mana, 4);
+        assert_eq!(p.raid_wave_max_count, 64);
         assert_eq!(
             p.skill_timers,
             crate::skill_timer::SkillTimers::classic_772()

@@ -170,8 +170,18 @@ async fn handle_pending_save_tick(world: &mut GameWorld) -> anyhow::Result<bool>
             // then harmless for mail (mail uses `mail_outbox`, not pending_depot_dumps).
             Ok(false)
         }
+        crate::server_save::ServerSaveTick::FlushReboot => {
+            crate::shutdown::run(world, true);
+            if let Err(e) = world.process_and_persist_houses().await {
+                tracing::warn!(error = %e, "house process/save on reboot save failed");
+            }
+            flush_online_players_to_db(world).await?;
+            world.game_state = crate::game_state::GameState::Normal;
+            Ok(false)
+        }
         crate::server_save::ServerSaveTick::FlushShutdown => {
             crate::lua_scope::fire_on_shutdown(world);
+            crate::shutdown::run(world, false);
             if let Err(e) = world.process_and_persist_houses().await {
                 tracing::warn!(error = %e, "house process/save on shutdown save failed");
             }
@@ -1413,6 +1423,10 @@ fn dispatch_command(
     };
     match cmd {
         GameCommand::Shutdown => ControlFlow::Break(LoopExit::Shutdown),
+        GameCommand::ScheduleClose { minutes } => {
+            world.schedule_close_in(minutes, chrono::Local::now().timestamp());
+            ControlFlow::Continue(())
+        }
         GameCommand::PlayerLogin {
             conn_id,
             name,
@@ -1813,6 +1827,7 @@ pub async fn run_game_loop(
                 ) {
                     ControlFlow::Break(LoopExit::Shutdown) => {
                         crate::lua_scope::fire_on_shutdown(&mut world);
+                        crate::shutdown::run(&mut world, false);
                         if let Err(e) = world.process_and_persist_houses().await {
                             tracing::warn!(error = %e, "house save on SIGINT failed");
                         }
@@ -1862,6 +1877,7 @@ pub async fn run_game_loop(
                             ) {
                                 ControlFlow::Break(LoopExit::Shutdown) => {
                                     crate::lua_scope::fire_on_shutdown(&mut world);
+                                    crate::shutdown::run(&mut world, false);
                                     if let Err(e) = world.process_and_persist_houses().await {
                                         tracing::warn!(error = %e, "house save on SIGINT failed");
                                     }
@@ -1914,10 +1930,31 @@ pub async fn run_game_loop(
     Ok(())
 }
 
-/// Wait for Ctrl+C (SIGINT) — SIGTERM requires more setup on some platforms.
-pub async fn wait_for_shutdown_signal() -> anyhow::Result<()> {
-    signal::ctrl_c().await?;
-    Ok(())
+/// Wait for SIGINT (immediate `Shutdown`) or SIGTERM (6-minute close).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShutdownSignal {
+    Interrupt,
+    Terminate,
+}
+
+pub async fn wait_for_shutdown_signal() -> anyhow::Result<ShutdownSignal> {
+    #[cfg(unix)]
+    {
+        let mut sigterm =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        tokio::select! {
+            r = signal::ctrl_c() => {
+                r?;
+                Ok(ShutdownSignal::Interrupt)
+            }
+            _ = sigterm.recv() => Ok(ShutdownSignal::Terminate),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        signal::ctrl_c().await?;
+        Ok(ShutdownSignal::Interrupt)
+    }
 }
 
 /// House items / info are saved from the game thread (`process_and_persist_houses`)

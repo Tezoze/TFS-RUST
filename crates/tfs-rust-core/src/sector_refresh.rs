@@ -21,6 +21,7 @@ use crate::ids::ItemId;
 use crate::item::Item;
 use crate::item_attributes::ItemAttributes;
 use crate::tile::TileBody;
+use crate::visibility::can_see_floor;
 
 /// ORIGMAP sector edge — `RefreshCylinders` / `SectorRefreshable` (`operate.cc:2796`, `:2964`).
 const ORIGMAP_SECTOR: u16 = 32;
@@ -115,15 +116,6 @@ impl TileRefreshSnap {
             .filter_map(|&id| items.get(id).map(RefreshItemSnap::from_item))
             .collect();
         Self { ground, down, top }
-    }
-}
-
-/// C++ `TCreature::CanSeeFloor` — `cr.hh:576-582`.
-fn can_see_floor(viewer_z: u8, floor_z: u8) -> bool {
-    if viewer_z <= 7 {
-        floor_z <= 7
-    } else {
-        (viewer_z as i32 - floor_z as i32).abs() <= 2
     }
 }
 

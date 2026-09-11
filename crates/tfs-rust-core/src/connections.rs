@@ -93,11 +93,18 @@ impl GameWorld {
             if self.dead_connections.contains(&conn_id) {
                 continue;
             }
-            let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
-                continue;
+            let (last_command, last_action) = {
+                let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+                    continue;
+                };
+                (
+                    round.saturating_sub(p.last_command_round),
+                    round.saturating_sub(p.last_action_round),
+                )
             };
-            let last_command = round.saturating_sub(p.last_command_round);
-            let last_action = round.saturating_sub(p.last_action_round);
+            // 772 `NO_LOGOUT_BLOCK` — skip idle warn+kick only (`connections.cc:29-36`).
+            let idle_exempt =
+                self.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_NOT_GAIN_IN_FIGHT);
 
             // C++ `LastCommand == 30 || LastCommand == 60` → `SendPing` (`connections.cc:24`).
             // Opcode via codec: official 772 is 0x1E, not 0x1D (`protocolgame.cpp:1516`).
@@ -106,7 +113,7 @@ impl GameWorld {
                 self.enqueue_periodic_ping(conn_id, cid);
             }
 
-            if last_action == idle_warn_rounds {
+            if !idle_exempt && last_action == idle_warn_rounds {
                 let msg = format!(
                     "You have been idle for {} minutes. You will be disconnected in one minute if you are still idle then.",
                     self.connection_config.kick_idle_after_minutes
@@ -116,7 +123,7 @@ impl GameWorld {
                     send_text_message(TALK_ADMIN_MESSAGE, &msg).into_bytes(),
                 );
             }
-            if last_action >= idle_kick_rounds {
+            if !idle_exempt && last_action >= idle_kick_rounds {
                 // `Logout(0, true)` — StopFight (`connections.cc:35-36`).
                 kick.push((conn_id, true));
             } else if last_command >= COMMAND_TIMEOUT_ROUNDS {
@@ -247,6 +254,54 @@ mod tests {
         assert_eq!(kick.len(), 1);
         assert_eq!(kick[0].0, tfs_rust_common::ConnId(1));
         assert!(kick[0].1, "idle kick → StopFight=true");
+    }
+
+    /// 772 `CheckRight(NO_LOGOUT_BLOCK)` skips idle warn+kick; 90-round timeout stays.
+    #[test]
+    fn gm_not_idle_kicked() {
+        use std::collections::HashMap;
+        use tfs_rust_content::groups::{Group, GroupDatabase};
+
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        world.groups = std::sync::Arc::new(GroupDatabase {
+            groups: HashMap::from([(
+                6u16,
+                Group {
+                    id: 6,
+                    name: "god".to_string(),
+                    access: true,
+                    max_depot_items: 0,
+                    max_vip_entries: 0,
+                    flags: HashMap::from([("notgaininfight".to_string(), true)]),
+                },
+            )]),
+        });
+        let mut player_body = test_player("GmIdle", pos);
+        player_body.group_id = 6;
+        let player = insert_player(&mut world, player_body);
+        assert!(
+            world.player_has_flag(player, crate::player_flags::PLAYER_FLAG_NOT_GAIN_IN_FIGHT),
+            "god group must carry NO_LOGOUT_BLOCK"
+        );
+        world.register_conn_mapping(tfs_rust_common::ConnId(1), player);
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.last_action_round = 0;
+            p.last_command_round = 960;
+        }
+        world.round_nr = 960;
+        let kick = world.process_connections();
+        assert!(kick.is_empty(), "NO_LOGOUT_BLOCK skips idle kick");
+
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.last_command_round = 0;
+        }
+        world.round_nr = 90;
+        let kick = world.process_connections();
+        assert_eq!(kick.len(), 1);
+        assert_eq!(kick[0].0, tfs_rust_common::ConnId(1));
+        assert!(!kick[0].1, "90-round timeout stays unconditional");
     }
 
     /// Custom `kickIdlePlayerAfterMinutes = 10` → warn at 600, kick at 660.

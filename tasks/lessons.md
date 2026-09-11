@@ -1048,4 +1048,19 @@
 457. **Throw range is `TAKE` vs Chebyshev 2, not weight and not `"this far"`** (`game_world_item_move.rs` `check_map_destination`; `operate.cc:489-490`; `sending.cc:297`): 772 has no weight→tiles formula. `!TAKE && !ObjectInRange(2)` → `OUTOFRANGE` `"Destination is out of range."` LoS fail is `CANNOTTHROW` `"You cannot throw there."`. XML `allowpickupable` (tables) is place-onto, not TAKE — `pickupable()` must not skip the range-2 gate (`takeable()` only). TAKE loot/corpses have no throw-distance cap.
     *(2026-09-11)*
 
+458. **Spawn radius shrink uses `CanSeeFloor`, not same-Z** (`visibility.rs`; `spawn_placement.rs` `shrink_spawn_radius_near_players`; `crnonpl.cc:1432-1455`; `cr.hh:576-582`): `TFindCreatures(FIND_PLAYERS)` has no ghost / `IGNORED_BY_MONSTERS` skip. A surface player one floor up still shrinks (and can suppress) a z=7 home; z=11 does not see surface 7.
+    *(2026-09-11)*
+
+459. **Interval raids are gated by `SecondsToReboot`, not jittered across the full interval** (`raid_waves.rs`; `crmain.cc:1980-2010`): `Duration <= str && random(0, Interval-1) < str`, start inside `str - Duration`. Dated raids only when `Now <= Date <= Now+str`. Wave duration is `delay + (lifetime or 3600)` seconds. Placement is `SearchFreeField(1)` + skip PZ + cap 64. TFS XML `radius` is spread, not `Creature->Radius` (lesson pack note in `docs/DATA_PACK_LUA.md`).
+    *(2026-09-11)*
+
+460. **Idle warn/kick skip `NO_LOGOUT_BLOCK`; 90-round command timeout does not** (`connections.rs`; `connections.cc:29-38`): pack analogue is `PLAYER_FLAG_NOT_GAIN_IN_FIGHT`.
+    *(2026-09-11)*
+
+461. **`ProcessHouses` is boot + save/reboot, not every minute** (`house/persist.rs`; `houses.cc:1943-1960`): TFS `housePriceRentPeriod` is paid_until math only. Policy `Evict*` awaits on the same persist path. Minute arm is `RefreshCylinders` / kill stats / netload.
+    *(2026-09-11)*
+
+462. **Daily save warnings are corpus 5/3/1, not TFS `serverSaveNotifyDuration` once** (`server_save.rs`; `shutdown.rs`; `main.cc:397-433, 90-94`): reboot wording when `serverSaveShutdown == false` (also `RefreshMap` + `LogoutAllPlayers`); going-down otherwise. SIGTERM schedules close in 6 minutes + `CloseGame`. `saveServer()` stays persist-only (`FlushStay`).
+    *(2026-09-11)*
+
 

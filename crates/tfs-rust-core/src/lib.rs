@@ -102,6 +102,7 @@ pub mod scheduler;
 mod sector_refresh;
 mod server_save;
 mod shop;
+mod shutdown;
 mod sim_glibc_rand;
 /// Headless simulation harness — test/diagnostic only.
 /// Compiled when `cfg(test)` or `--features sim`; excluded from production builds.
@@ -126,6 +127,7 @@ mod todo_queue;
 mod tool_use;
 mod trade;
 mod vip;
+mod visibility;
 pub mod walk;
 pub mod walk_action;
 pub mod weapon;
@@ -186,7 +188,7 @@ pub use formulas::{
     MechanicsProfile, NpcTuning, PathCostModel, PathSearchModel, SpawnNearPlayer, SpellCoeff,
     TickSpec, WeakestTargetMetric, load_mechanics,
 };
-pub use game_loop::{graceful_shutdown, run_game_loop, wait_for_shutdown_signal};
+pub use game_loop::{ShutdownSignal, graceful_shutdown, run_game_loop, wait_for_shutdown_signal};
 pub use game_world::GameWorld;
 pub use guild::{Guild, GuildRank, GuildRegistry, GuildWarTracker};
 pub use ids::{CreatureId, ItemId};

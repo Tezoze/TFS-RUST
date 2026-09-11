@@ -1,13 +1,14 @@
-//! Wall-clock daily save — replaces TFS `serversave.lua` `onTime`.
+//! Wall-clock daily save — 772 `RebootTime` minute arm (`main.cc:397-433`).
 //!
 //! Config keys (optional, TFS-shaped defaults):
 //! - `serverSaveTime` `"04:30:00"`
-//! - `serverSaveNotifyDuration` minutes (default 5)
-//! - `serverSaveClose` (default true)
-//! - `serverSaveShutdown` (default true)
+//! - `serverSaveNotifyDuration` minutes — unused; corpus broadcasts at 5/3/1.
+//! - `serverSaveClose` (default true) — `CloseGame` at the 5-minute warning.
+//! - `serverSaveShutdown` (default true) — going-down wording + no `RefreshMap`.
+//!   `false` is reboot wording + `RefreshMap` (`main.cc:399-429`).
 //!
 //! Game thread only. [`GameWorld::tick_server_save`] applies the poll result.
-// C++ reference: `GlobalEvents::timer` + pack `serversave.lua`; `Game::setGameState`.
+// C++ reference: `main.cc` `AdvanceGame` reboot block; pack `serversave.lua` is not the cadence.
 
 use chrono::{Local, NaiveTime, TimeZone, Timelike};
 
@@ -19,6 +20,10 @@ use tfs_rust_net::outgoing_extra::send_text_message_simple;
 
 /// `MESSAGE_STATUS_WARNING` (`const.h` / Lua `MESSAGE_STATUS_WARNING` = 0x12).
 const MESSAGE_STATUS_WARNING: u8 = 0x12;
+
+const WARN_5_SECS: i64 = 5 * 60;
+const WARN_3_SECS: i64 = 3 * 60;
+const WARN_1_SECS: i64 = 60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ServerSaveConfig {
@@ -74,14 +79,24 @@ fn parse_hms(raw: &str) -> Result<(u32, u32, u32)> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SavePhase {
     Idle,
-    Warning,
+    Warned5,
+    Warned3,
+    Warned1,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServerSavePoll {
     Idle,
-    EnterWarning { close: bool, notify_minutes: u32 },
-    Fire { shutdown: bool },
+    /// Corpus +5 / +3 / +1 broadcasts (`main.cc:399-422`). `close` only on the 5-minute arm.
+    Warning {
+        minutes: u32,
+        close: bool,
+        /// `serverSaveShutdown == false` → "saving game" / `RefreshMap`.
+        reboot: bool,
+    },
+    Fire {
+        shutdown: bool,
+    },
 }
 
 /// Result of [`GameWorld::tick_server_save`] for the game loop to apply (flush / exit).
@@ -89,8 +104,10 @@ pub enum ServerSavePoll {
 pub enum ServerSaveTick {
     #[default]
     None,
-    /// Persist online players, keep the process running (`serverSaveShutdown = false`).
+    /// Persist online players, keep them in the world (`saveServer()` / `/save`).
     FlushStay,
+    /// Daily save with `serverSaveShutdown = false`: `LogoutAllPlayers` + `RefreshMap`.
+    FlushReboot,
     /// Persist online players, then exit (`serverSaveShutdown = true`).
     FlushShutdown,
 }
@@ -132,30 +149,55 @@ impl ServerSaveController {
     }
 
     pub fn poll(&mut self, now_unix: i64) -> ServerSavePoll {
-        let notify_secs = i64::from(self.cfg.notify_minutes) * 60;
-        let warn_at = self.next_save_unix.saturating_sub(notify_secs);
+        if now_unix >= self.next_save_unix {
+            return self.take_fire(now_unix);
+        }
+        let remaining = self.next_save_unix - now_unix;
+        let reboot = !self.cfg.shutdown;
         match self.phase {
             SavePhase::Idle => {
-                if now_unix >= self.next_save_unix {
-                    return self.take_fire(now_unix);
-                }
-                if now_unix >= warn_at {
-                    self.phase = SavePhase::Warning;
-                    return ServerSavePoll::EnterWarning {
+                if remaining <= WARN_5_SECS {
+                    self.phase = SavePhase::Warned5;
+                    return ServerSavePoll::Warning {
+                        minutes: 5,
                         close: self.cfg.close,
-                        notify_minutes: self.cfg.notify_minutes.max(1),
+                        reboot,
                     };
                 }
                 ServerSavePoll::Idle
             }
-            SavePhase::Warning => {
-                if now_unix >= self.next_save_unix {
-                    self.take_fire(now_unix)
-                } else {
-                    ServerSavePoll::Idle
+            SavePhase::Warned5 => {
+                if remaining <= WARN_3_SECS {
+                    self.phase = SavePhase::Warned3;
+                    return ServerSavePoll::Warning {
+                        minutes: 3,
+                        close: false,
+                        reboot,
+                    };
                 }
+                ServerSavePoll::Idle
             }
+            SavePhase::Warned3 => {
+                if remaining <= WARN_1_SECS {
+                    self.phase = SavePhase::Warned1;
+                    return ServerSavePoll::Warning {
+                        minutes: 1,
+                        close: false,
+                        reboot,
+                    };
+                }
+                ServerSavePoll::Idle
+            }
+            SavePhase::Warned1 => ServerSavePoll::Idle,
         }
+    }
+
+    /// SIGTERM: `RebootTime = now+6`, `CloseGame`, going-down (`main.cc:90-99`).
+    pub fn schedule_in(&mut self, minutes: u32, now_unix: i64) {
+        self.next_save_unix = now_unix.saturating_add(i64::from(minutes) * 60);
+        self.phase = SavePhase::Idle;
+        self.cfg.close = true;
+        self.cfg.shutdown = true;
     }
 
     fn take_fire(&mut self, now_unix: i64) -> ServerSavePoll {
@@ -165,6 +207,19 @@ impl ServerSaveController {
             shutdown: self.cfg.shutdown,
         }
     }
+
+    /// Seconds until `RebootTime` (`crmain.cc:1953-1956`). Never negative — `next_save_unix`
+    /// is always the next future fire.
+    pub fn seconds_until_fire(&self, now_unix: i64) -> u32 {
+        self.next_save_unix
+            .saturating_sub(now_unix)
+            .clamp(0, i64::from(u32::MAX)) as u32
+    }
+
+    #[cfg(test)]
+    pub fn set_next_save_unix(&mut self, unix: i64) {
+        self.next_save_unix = unix;
+    }
 }
 
 impl GameWorld {
@@ -172,14 +227,12 @@ impl GameWorld {
     pub fn tick_server_save(&mut self, now_unix: i64) -> ServerSaveTick {
         let tick = match self.server_save.poll(now_unix) {
             ServerSavePoll::Idle => ServerSaveTick::None,
-            ServerSavePoll::EnterWarning {
+            ServerSavePoll::Warning {
+                minutes,
                 close,
-                notify_minutes,
+                reboot,
             } => {
-                let msg = format!(
-                    "Server is saving game in {notify_minutes} minutes.\nPlease come back in 10 minutes."
-                );
-                broadcast_status(self, &msg);
+                broadcast_status(self, &warning_text(minutes, reboot));
                 if close {
                     self.game_state = GameState::Closed;
                 }
@@ -190,8 +243,8 @@ impl GameWorld {
                     self.game_state = GameState::Shutdown;
                     ServerSaveTick::FlushShutdown
                 } else {
-                    self.game_state = GameState::Normal;
-                    ServerSaveTick::FlushStay
+                    // Stay Closed until `shutdown::run` finishes logout (`main.cc:424-426`).
+                    ServerSaveTick::FlushReboot
                 }
             }
         };
@@ -203,10 +256,31 @@ impl GameWorld {
         self.server_save.take_pending()
     }
 
+    /// SIGTERM — `RebootTime = now+6` + `CloseGame` (`main.cc:90-94`).
+    pub fn schedule_close_in(&mut self, minutes: u32, now_unix: i64) {
+        self.server_save.schedule_in(minutes, now_unix);
+        self.game_state = GameState::Closed;
+    }
+
     /// `/save` / `saveServer()` — TFS `luaSaveServer` queues `Game::saveGameState`
     /// without the daily-save close/shutdown side effects.
     pub fn lua_script_save_server(&mut self) {
         self.server_save.request_flush_stay();
+    }
+}
+
+fn warning_text(minutes: u32, reboot: bool) -> String {
+    match (minutes, reboot) {
+        (5, true) => "Server is saving game in 5 minutes.\nPlease come back in 10 minutes.".into(),
+        (5, false) => "Server is going down in 5 minutes.\nPlease log out.".into(),
+        (3, true) => "Server is saving game in 3 minutes.\nPlease come back in 10 minutes.".into(),
+        (3, false) => "Server is going down in 3 minutes.\nPlease log out.".into(),
+        (1, true) => "Server is saving game in one minute.\nPlease log out.".into(),
+        (1, false) => "Server is going down in one minute.\nPlease log out.".into(),
+        (n, true) => {
+            format!("Server is saving game in {n} minutes.\nPlease come back in 10 minutes.")
+        }
+        (n, false) => format!("Server is going down in {n} minutes.\nPlease log out."),
     }
 }
 
@@ -215,7 +289,7 @@ pub fn next_save_unix(cfg: ServerSaveConfig, now_unix: i64) -> i64 {
     let now = tz
         .timestamp_opt(now_unix, 0)
         .single()
-        .unwrap_or_else(|| Local::now());
+        .unwrap_or_else(Local::now);
     let t = NaiveTime::from_hms_opt(cfg.hour, cfg.minute, cfg.second)
         .unwrap_or_else(|| NaiveTime::from_hms_opt(4, 30, 0).expect("valid"));
     let today = now.date_naive();
@@ -254,7 +328,7 @@ pub fn seconds_since_midnight_local(now_unix: i64) -> u32 {
     let dt = tz
         .timestamp_opt(now_unix, 0)
         .single()
-        .unwrap_or_else(|| Local::now());
+        .unwrap_or_else(Local::now);
     dt.hour() * 3600 + dt.minute() * 60 + dt.second()
 }
 
@@ -296,8 +370,9 @@ mod tests {
     }
 
     #[test]
-    fn poll_enters_warning_inside_notify_window() {
-        let cfg = cfg_at(4, 30, 5);
+    fn warnings_at_5_3_1_with_reboot_wording() {
+        let mut cfg = cfg_at(4, 30, 5);
+        cfg.shutdown = false;
         let save_at = 2_000_000_000;
         let mut ctl = ServerSaveController {
             cfg,
@@ -305,15 +380,40 @@ mod tests {
             next_save_unix: save_at,
             pending: ServerSaveTick::None,
         };
-        let poll = ctl.poll(save_at - 60);
         assert_eq!(
-            poll,
-            ServerSavePoll::EnterWarning {
+            ctl.poll(save_at - WARN_5_SECS),
+            ServerSavePoll::Warning {
+                minutes: 5,
                 close: true,
-                notify_minutes: 5
+                reboot: true,
             }
         );
-        assert_eq!(ctl.phase, SavePhase::Warning);
+        assert_eq!(
+            warning_text(5, true),
+            "Server is saving game in 5 minutes.\nPlease come back in 10 minutes."
+        );
+        assert_eq!(
+            ctl.poll(save_at - WARN_3_SECS),
+            ServerSavePoll::Warning {
+                minutes: 3,
+                close: false,
+                reboot: true,
+            }
+        );
+        assert_eq!(
+            ctl.poll(save_at - WARN_1_SECS),
+            ServerSavePoll::Warning {
+                minutes: 1,
+                close: false,
+                reboot: true,
+            }
+        );
+        assert_eq!(
+            warning_text(1, true),
+            "Server is saving game in one minute.\nPlease log out."
+        );
+        let poll = ctl.poll(save_at);
+        assert_eq!(poll, ServerSavePoll::Fire { shutdown: false });
     }
 
     #[test]
@@ -322,7 +422,7 @@ mod tests {
         let save_at = 2_000_000_000;
         let mut ctl = ServerSaveController {
             cfg,
-            phase: SavePhase::Warning,
+            phase: SavePhase::Warned1,
             next_save_unix: save_at,
             pending: ServerSaveTick::None,
         };
@@ -330,5 +430,33 @@ mod tests {
         assert_eq!(poll, ServerSavePoll::Fire { shutdown: true });
         assert_eq!(ctl.phase, SavePhase::Idle);
         assert!(ctl.next_save_unix > save_at);
+    }
+
+    #[test]
+    fn sigterm_schedules_close_in_6_minutes() {
+        let cfg = cfg_at(4, 30, 5);
+        let now = 2_000_000_000;
+        let mut ctl = ServerSaveController {
+            cfg,
+            phase: SavePhase::Idle,
+            next_save_unix: now + 50_000,
+            pending: ServerSaveTick::None,
+        };
+        ctl.schedule_in(6, now);
+        assert_eq!(ctl.next_save_unix, now + 6 * 60);
+        assert!(ctl.cfg.shutdown);
+        assert_eq!(ctl.seconds_until_fire(now), 6 * 60);
+        assert_eq!(
+            ctl.poll(now + 60),
+            ServerSavePoll::Warning {
+                minutes: 5,
+                close: true,
+                reboot: false,
+            }
+        );
+        assert_eq!(
+            warning_text(5, false),
+            "Server is going down in 5 minutes.\nPlease log out."
+        );
     }
 }

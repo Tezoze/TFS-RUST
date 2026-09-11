@@ -137,35 +137,34 @@ IDs keep the sub-agent slice letter (A scheduler, B per-creature arms, C world c
 - Rust: `spawn.rs:202-206` `stall_respawn` → `now + spawntime`; only the death path uses `compute_respawn_delay_ms`.
 - Fix: pass `compute_respawn_delay_ms` at both `stall_respawn` call sites (`spawn_lifecycle.rs:232, 386`); merges with H3's zone timer.
 
-**M6 (C3) — Radius shrink uses same-Z instead of `CanSeeFloor`; extra ghost/flag filters.**
+**M6 (C3) — Radius shrink uses same-Z instead of `CanSeeFloor`; extra ghost/flag filters. DONE.**
 - Corpus: `TFindCreatures(MaxRadius+9, MaxRadius+7, FIND_PLAYERS)`, skip only `!Player->CanSeeFloor(MH->z)`, `Radius = max(dx-9, dy-7)` (`crnonpl.cc:1432-1455`).
-- Rust: `spawn_placement.rs:42-85` `pos.z != home.z → continue`; also skips ghost / `IGNORED_BY_MONSTERS` players.
-- Fix: reuse `sector_refresh.rs:122-128` `can_see_floor` (hoist to a shared `visibility` helper); drop or gate the extra filters.
+- Rust: `visibility.rs` `can_see_floor`; `spawn_placement.rs` `shrink_spawn_radius_near_players` uses it (no ghost / `IGNORED_BY_MONSTERS` skip). `sector_refresh` and idle stimulus share the helper.
+- Fix: landed Step 2.3.
 
-**M7 (C5) — Interval raids scheduled every boot; corpus gates by `SecondsToReboot`.**
+**M7 (C5) — Interval raids scheduled every boot; corpus gates by `SecondsToReboot`. DONE.**
 - Corpus: `Duration <= SecondsToReboot && random(0, Interval-1) < SecondsToReboot`, start `RoundNr + random(0, SecondsToReboot - Duration)`; dated raids only inside the reboot window (`crmain.cc:1980-2010`).
-- Rust: `raid_waves.rs:219-238` enqueues every interval raid unconditionally at `round + random(0, interval)`.
-- Fix: compute `seconds_to_reboot` from the same `RebootTime` source as the save schedule; apply both gates; duration = max over waves of `delay + (lifetime or 3600)` (`crmain.cc:1921-1925`).
+- Rust: `raid_waves.rs` `schedule_interval_raids_at_boot` uses `ServerSaveController::seconds_until_fire`; duration = max over waves of `delay + (lifetime or 3600)`. `Game.startRaid` / `schedule_raid_now` stays ungated.
+- Fix: landed Step 2.4.
 
-**M8 (C6) — Raid placement: no `SearchFreeField(1)`, no PZ skip, no 64 cap, no wave `Radius` leash.**
+**M8 (C6) — Raid placement: no `SearchFreeField(1)`, no PZ skip, no 64 cap, no wave `Radius` leash. DONE.**
 - Corpus: `crmain.cc:2046-2069`.
-- Rust: `raid_waves.rs:264-306` random offset + `lua_script_create_monster(force=true)`.
-- Fix: in `spawn_raid_wave` call `search_free_field(pos, 1)` (`spawn_placement.rs:256`), skip PZ, clamp count to 64, set `Monster::radius` from the wave.
+- Rust: `spawn_raid_wave` — `search_free_field(pos, 1)`, skip PZ (`tile_in_protection_zone`, not baked into free-field), cap `raidWaveMaxCount` 64. TFS XML `radius` is spawn **spread** only (`AttackWave.spread`); pack has no `.evt` leash — `Monster::radius` stays `i32::MAX`.
+- Fix: landed Step 2.4. Do **not** map XML radius onto the creature leash.
 
-**M9 (A5, A6) — Reboot/save schedule, `RefreshMap` on reboot, `LogoutAllPlayers`, SIGTERM.**
+**M9 (A5, A6) — Reboot/save schedule, `RefreshMap` on reboot, `LogoutAllPlayers`, SIGTERM. DONE.**
 - Corpus: broadcasts at +5 (with `CloseGame`), +3, +1 with reboot/going-down wording; at `RebootTime`: `CloseGame; LogoutAllPlayers; SendAll; if Reboot RefreshMap; SaveMap; EndGame` (`main.cc:397-433`); SIGTERM → `RebootTime = now+6` + `CloseGame` (`:88-95`). `LogoutAllPlayers` deletes each player (`~TPlayer` → save, POFF, `DelInList`) (`crplayer.cc:1874-1892`).
-- Rust: `server_save.rs:134-200` single warning at `serverSaveNotifyDuration`, "saving" wording only, `GameState::Closed` if `serverSaveClose`; shutdown = `flush_online_players_to_db` in place (`game_loop.rs:76-142`) — creatures not removed, `players_online` left stale until boot truncate; no `refresh_map()` on reboot; SIGINT only (`game_loop.rs:1800-1803`).
-- Fix: `server_save.rs` — `[5,3,1]` schedule with both message variants; call `world.refresh_map()` before flush when shutting down; new `shutdown.rs` iterating `conn_to_creature` through the normal logout path then awaiting saves; SIGTERM arm in `run_server.rs` setting `next_save = now + 6 min` with close.
+- Rust: `server_save.rs` 5/3/1 warnings (`serverSaveNotifyDuration` unused); `shutdown.rs` `logout_all_players` + `refresh_map` when reboot (`serverSaveShutdown == false`). `FlushStay` (`/save`) persist-only. SIGTERM → `GameCommand::ScheduleClose { minutes: 6 }`. SIGINT stays immediate `Shutdown`.
+- Fix: landed Step 2.5.
 
-**M10 (A11) — House rent/eviction runs every minute; corpus runs `ProcessHouses` once at boot.**
+**M10 (A11) — House rent/eviction runs every minute; corpus runs `ProcessHouses` once at boot. DONE.**
 - Corpus: `ProcessHouses` (`FinishAuctions/ProcessRent/StartAuctions/UpdateHouseOwners`) is called only from `InitHouses` (`houses.cc:1943-1960`) — i.e. once per daily reboot.
-- Rust: `game_world_tick.rs:54-58` `process_houses_online` + `spawn_house_policy_scan` every minute.
-- Decision needed: this is TFS `housePriceRentPeriod` pack policy layered onto the corpus cron. Either move to the save/reboot fire path (`server_save.rs` already calls `process_and_persist_houses`) or keep and document as a gated extra in `docs/DATA_PACK_LUA.md`.
+- Rust: `process_and_persist_houses_inner` (boot + save/reboot fire) runs online/offline rent plus `run_house_policy_scan`. Minute arm no longer scans. `housePriceRentPeriod` still drives paid_until math.
 
-**M11 (D4) — Idle warn/kick ignores `NO_LOGOUT_BLOCK`.**
+**M11 (D4) — Idle warn/kick ignores `NO_LOGOUT_BLOCK`. DONE.**
 - Corpus: both the 900 warning and 960 kick are skipped when `CheckRight(CharacterID, NO_LOGOUT_BLOCK)` (`connections.cc:29-36`).
-- Rust: `connections.rs:89-102` no right check. `PLAYER_FLAG_NOT_GAIN_IN_FIGHT` is already documented as the 772 `NO_LOGOUT_BLOCK` analogue (`player/flags.rs:35-37`).
-- Fix: skip warn+kick for that flag; keep the 90-round dead-connection branch unconditional.
+- Rust: `connections.rs` skips idle warn/kick when `player_has_flag(cid, PLAYER_FLAG_NOT_GAIN_IN_FIGHT)`. The `>= 90` command-timeout branch stays unconditional.
+- Fix: landed Step 2.6.
 
 **M12 (A1, D6) — Wake ordering inverted: Rust runs a due beat before the command; corpus runs `ReceiveData` first. Deliberate.**
 - Corpus: `main.cc:483-497`. Rust: `game_loop.rs:1677-1697` `send_all_if_beat_pending` before `dispatch_command`; rationale at `:1608-1614` (Tokio `Interval` is Ready at the deadline; SIGALRM usually not yet pending during `ReceiveData`; fixed the 0xA3 red-square race).
@@ -344,7 +343,7 @@ Changes:
 
 Tests: `offline_mail_serializes_and_spawns_db_append`, `login_before_ack_sees_mail_in_depot`, `login_after_ack_has_no_duplicate`, `house_dump_skips_online_guid`.
 
-### 3.2 Phase 2 — cadence / timing (M1, M4-M9, M11)
+### 3.2 Phase 2 — cadence / timing (M1, M4-M11) DONE.
 
 #### Step 2.1 — Deferred death/despawn finalize (M1) DONE.
 
@@ -380,21 +379,21 @@ Tests: `haste_lasts_33_ticks`, `strong_haste_lasts_22_ticks`, `paralyze_rune_11_
 
 User-visible: strong haste 30 → 22 s, light 370 → 504 s. Call out in the PR description.
 
-#### Step 2.3 — Radius shrink via `CanSeeFloor` (M6)
+#### Step 2.3 — Radius shrink via `CanSeeFloor` (M6) DONE.
 
 - Hoist `can_see_floor(viewer_z, floor_z)` from `sector_refresh.rs:122-128` into `visibility.rs` (`cr.hh:576-582`); both callers import it.
 - `spawn_placement.rs:42-85`: replace `pos.z != home.z` with `!can_see_floor(p.z, home.z)`; remove the ghost / `IGNORED_BY_MONSTERS` skips (corpus `TFindCreatures(FIND_PLAYERS)` has no such filter) — or keep behind `profile.tfs_extras` if GM ghost-mode camping is wanted.
 
 Tests: `player_one_floor_up_suppresses_spawn`, `player_underground_does_not_suppress_surface_home`.
 
-#### Step 2.4 — Raids: reboot-window gating and corpus placement (M7, M8)
+#### Step 2.4 — Raids: reboot-window gating and corpus placement (M7, M8) DONE.
 
 - `raid_waves.rs:219-238`: `seconds_to_reboot = server_save.seconds_until_fire(now)` (expose from `ServerSaveController`); interval raids: `duration <= str && parity_random(0, interval-1) < str` → start `round + parity_random(0, str - duration)`; dated raids only when `now <= date <= now + str`. `duration = max(delay + lifetime.unwrap_or(3600))` over waves.
-- `spawn_raid_wave` (`:264-306`): `count = min(count, 64)`; per monster `search_free_field(pos, 1)` → skip on `None` or PZ; set `Monster::radius` from the wave when present.
+- `spawn_raid_wave`: `count = min(count, raidWaveMaxCount)`; per monster `search_free_field(pos, 1)` → skip on `None` or PZ. Do **not** map TFS XML `radius` onto `Monster::radius` (spread only; leash stays `i32::MAX`).
 
 Tests: `interval_raid_skipped_when_duration_exceeds_reboot_window`, `raid_start_within_window`, `raid_monster_not_placed_in_pz`, `raid_count_capped_64`.
 
-#### Step 2.5 — Reboot schedule, `LogoutAllPlayers`, `RefreshMap`, SIGTERM (M9, A6)
+#### Step 2.5 — Reboot schedule, `LogoutAllPlayers`, `RefreshMap`, SIGTERM (M9, A6) DONE.
 
 - `server_save.rs`: `ServerSavePoll::EnterWarning` → `Broadcast { minutes: 5|3|1, reboot: bool }` emitted at `fire - 5m` (also sets `Closed`), `- 3m`, `- 1m`; strings from `main.cc:399-422` (both variants). `reboot` = config `serverSaveShutdown == false`.
 - **New `shutdown.rs`**: `logout_all_players(world)` — for each `conn_to_creature` run the normal logout path (`creature_begin_logout(cid, true, true)` → finalize → `players_online` delete → save), then `flush_online_players_to_db` for stragglers; `refresh_map_if_reboot(world)` → `sector_refresh::refresh_map` when shutting down for restart (`main.cc:427-429`).
@@ -403,15 +402,15 @@ Tests: `interval_raid_skipped_when_duration_exceeds_reboot_window`, `raid_start_
 
 Tests: `warnings_at_5_3_1_with_reboot_wording`, `shutdown_removes_players_online_rows`, `sigterm_schedules_close_in_6_minutes`.
 
-#### Step 2.6 — `NO_LOGOUT_BLOCK` idle exemption (M11)
+#### Step 2.6 — `NO_LOGOUT_BLOCK` idle exemption (M11) DONE.
 
 - `connections.rs:89-102`: `let exempt = player_has_flag(p, PLAYER_FLAG_NOT_GAIN_IN_FIGHT)`; skip warning and idle kick when `exempt`; the `>= 90` branch stays unconditional.
 
 Test: `gm_not_idle_kicked`.
 
-#### Step 2.7 — Decision: house rent cadence (M10)
+#### Step 2.7 — House rent cadence (M10) DONE.
 
-Options: (a) corpus — run `process_houses_online` + policy scan once at boot and on the save/reboot fire (`server_save.rs` already calls `process_and_persist_houses`); (b) keep per-minute as a documented TFS `housePriceRentPeriod` gate in `docs/DATA_PACK_LUA.md`. Default recommendation: (a), because rent/eviction timing is a corpus outcome, not pack policy. Awaiting user call; no code until decided.
+Chose (a): `process_and_persist_houses_inner` (boot + save/reboot) awaits policy eviction. Minute arm no longer calls `process_houses_online` / `spawn_house_policy_scan`. `housePriceRentPeriod` remains paid_until math only (`docs/DATA_PACK_LUA.md`).
 
 ### 3.3 Phase 3 — polish (Low table)
 
@@ -419,7 +418,7 @@ One PR, mechanical:
 
 - L1 `game_world_tick.rs`: `let entering = !self.lag; self.lag = true; if entering && round_nr > 10 { error!(..) }`.
 - L2 `game_world_tick.rs`: `if delay_ms > beat_ms { tracing::debug!(target: "lag", delay_ms) }`.
-- L8 `tick_other_minute_jobs`: single `Local::now()`; order `refresh_cylinders` → houses → minute 55.
+- L8 `tick_other_minute_jobs`: single `Local::now()`; order `refresh_cylinders` → minute 55 (houses left the minute arm in Step 2.7).
 - L9 `connections.rs:62-67`: kick pending logins only when `game_state == Shutdown`.
 - L13 `data/XML/vocations.xml` id 0 `gainmanaamount="2"` (or 772.lua table).
 - L16 `decay_apply.rs:224-229`: remaining `max(1)` round under `RoundNumber` clock.

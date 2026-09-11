@@ -10,8 +10,8 @@ use crate::creature::CreatureKind;
 use crate::formulas::{SpawnNearPlayer, SpawnPlacement};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
-use crate::player_flags::{PLAYER_FLAG_IGNORED_BY_MONSTERS, flags_for_group, has_player_flag};
 use crate::tile::{MapStackEntry, Tile, flags as tilestate};
+use crate::visibility::can_see_floor;
 
 /// Per-tile probe for classic BFS spawn search.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,18 +56,12 @@ pub(crate) fn shrink_spawn_radius_near_players(
     let search_y = max_radius + 7;
 
     for (_, kind) in world.creatures.iter() {
-        let CreatureKind::Player(player) = kind else {
-            continue;
-        };
-        if player.ghost_mode {
-            continue;
-        }
-        let flags = flags_for_group(&world.groups, player.group_id);
-        if has_player_flag(flags, PLAYER_FLAG_IGNORED_BY_MONSTERS) {
+        if !matches!(kind, CreatureKind::Player(_)) {
             continue;
         }
         let pos = kind.position();
-        if pos.z != home.z {
+        // Corpus `TFindCreatures(FIND_PLAYERS)` + `CanSeeFloor` (`crnonpl.cc:1432-1446`).
+        if !can_see_floor(pos.z, home.z) {
             continue;
         }
         let dx = (pos.x as i32 - home.x as i32).abs();
@@ -513,6 +507,42 @@ mod tests {
     fn classic772_later_slots_extended_negative() {
         assert_eq!(classic772_signed_search_distance(50, 1), -10);
         assert_eq!(classic772_signed_search_distance(3, 2), -3);
+    }
+
+    /// Surface viewer one floor up still `CanSeeFloor` the home (`crnonpl.cc:1445`).
+    #[test]
+    fn player_one_floor_up_suppresses_spawn() {
+        use crate::test_world::support::{
+            beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
+        };
+
+        let mut world = beat_driven_test_world();
+        let home = Position::new(100, 100, 7);
+        let viewer = Position::new(100, 100, 6);
+        ensure_walkable_tile(&mut world.map, home, 150);
+        ensure_walkable_tile(&mut world.map, viewer, 150);
+        insert_player(&mut world, test_player("Above", viewer));
+        let shrunk = shrink_spawn_radius_near_players(&world, home, 10);
+        assert!(
+            shrunk < 0,
+            "player on home XY one floor up shrinks radius below 0, got {shrunk}"
+        );
+    }
+
+    /// Underground (`z=11`) cannot `CanSeeFloor` surface 7.
+    #[test]
+    fn player_underground_does_not_suppress_surface_home() {
+        use crate::test_world::support::{
+            beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
+        };
+
+        let mut world = beat_driven_test_world();
+        let home = Position::new(100, 100, 7);
+        let viewer = Position::new(100, 100, 11);
+        ensure_walkable_tile(&mut world.map, home, 150);
+        ensure_walkable_tile(&mut world.map, viewer, 150);
+        insert_player(&mut world, test_player("Below", viewer));
+        assert_eq!(shrink_spawn_radius_near_players(&world, home, 10), 10);
     }
 
     #[test]

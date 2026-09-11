@@ -65,6 +65,9 @@ formulas = {
     itemRegenMana = 4,
   },
 
+  -- ProcessMonsterRaids per-wave cap (`crmain.cc:2046` NARRAY(Spawned)).
+  raidWaveMaxCount = 64,
+
   -- 772 `SetTimer` triples (`magic.cc`). Pack Lua `CONDITION_PARAM_TICKS` for these
   -- types is ignored — corpus Cycle/Count/MaxCount win (`docs/DATA_PACK_LUA.md`).
   skillTimers = {

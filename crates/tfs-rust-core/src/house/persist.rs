@@ -141,6 +141,7 @@ impl GameWorld {
         let grace = self.house_grace_secs_from_config();
         self.process_houses_online(now, period, grace);
         self.process_houses_offline(now, grace).await?;
+        self.run_house_policy_scan().await;
         self.flush_pending_depot_dumps().await?;
         if force_save || self.houses.persist_needed {
             self.save_houses().await?;

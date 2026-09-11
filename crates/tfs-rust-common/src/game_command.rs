@@ -101,4 +101,6 @@ pub enum GameCommand {
         /// `(house_id, owner_guid)` rows still owned by that guid at query time.
         evict: Vec<(u32, u32)>,
     },
+    /// SIGTERM — `RebootTime = now+6` + `CloseGame` (`main.cc:90-94`).
+    ScheduleClose { minutes: u32 },
 }

@@ -22,7 +22,7 @@ use crate::config::{
     resolve_protocol_version,
 };
 use crate::event_dispatcher::NullEventDispatcher;
-use crate::game_loop::{run_game_loop, wait_for_shutdown_signal};
+use crate::game_loop::{ShutdownSignal, run_game_loop, wait_for_shutdown_signal};
 use crate::game_world::GameWorld;
 use crate::lua_event_dispatcher::LuaEventDispatcher;
 use crate::lua_scope::register_lua_mutation_hooks;
@@ -775,16 +775,14 @@ pub async fn run() -> anyhow::Result<()> {
     };
 
     // `GameWorld` holds `ConfigManager` → mlua `Lua` (not `Send`); drive the simulation on a `LocalSet`.
-    // SIGINT → `GameCommand::Shutdown` → `run_game_loop` flushes online players, then we stop TCP
-    // acceptors (C++: `Game::saveGameState` before exit). If the game thread is wedged in a long
-    // sync beat (pathfinding storm), Shutdown never drains — force-exit after timeout / 2nd Ctrl+C.
+    // SIGINT → `GameCommand::Shutdown`; SIGTERM → `ScheduleClose { minutes: 6 }` (`main.cc:90-94`).
     const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
     let local = LocalSet::new();
     local
         .run_until(async move {
             let force_exit = tokio::spawn(async move {
                 match wait_for_shutdown_signal().await {
-                    Ok(()) => {
+                    Ok(ShutdownSignal::Interrupt) => {
                         if shutdown_cmd_tx.send(GameCommand::Shutdown).is_err() {
                             tracing::warn!("could not send Shutdown — game command channel closed");
                         } else {
@@ -792,6 +790,21 @@ pub async fn run() -> anyhow::Result<()> {
                                 "shutdown signal: requested graceful exit (flush runs on game thread)"
                             );
                         }
+                    }
+                    Ok(ShutdownSignal::Terminate) => {
+                        if shutdown_cmd_tx
+                            .send(GameCommand::ScheduleClose { minutes: 6 })
+                            .is_err()
+                        {
+                            tracing::warn!(
+                                "could not send ScheduleClose — game command channel closed"
+                            );
+                        } else {
+                            tracing::info!(
+                                "SIGTERM: CloseGame + reboot in 6 minutes (`main.cc:90-94`)"
+                            );
+                        }
+                        return;
                     }
                     Err(e) => {
                         tracing::error!(?e, "wait_for_shutdown_signal");
@@ -801,7 +814,7 @@ pub async fn run() -> anyhow::Result<()> {
                 tokio::select! {
                     second = wait_for_shutdown_signal() => {
                         match second {
-                            Ok(()) => tracing::error!(
+                            Ok(_) => tracing::error!(
                                 "second Ctrl+C — forcing process exit (game thread may be wedged)"
                             ),
                             Err(e) => tracing::error!(?e, "second wait_for_shutdown_signal"),
