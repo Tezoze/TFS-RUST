@@ -56,9 +56,9 @@ Shared scenarios, dual runners, diff tools. The weight problem is not here.
 | `chase_kite_sim` bin | `tfs-rust-core/src/bin/` | Correct idea, wrong crate. Relies on harness `pub` wrappers over `pub(crate)` world internals. |
 | `path_compare` bin | same `src/bin/` | **Clean** — public pathfinding only, no `sim` feature. Leave in core. |
 | `chase_debug` | Always compiled: stubs in prod, JSONL under `sim`/`test` | 52 production call sites in 6 files. Stubs are free at runtime; the module + `cfg` still couple core to the harness. |
-| `sim_glibc_rand` | Always: `GlibcRngState`; under sim: process-global glibc | Dual stream. Combat/AI branches on `sim_glibc_rng_enabled()`. Free `parity_random()` falls back to `thread_rng` when sim is off (third stream). |
-| `GameWorld::parity_random` | `game_world.rs:599` | Prefers the global sim stream when enabled. `init_sim_rng_from_env` reads `TFS_SIM_SEED` inside core. |
-| `Player::sim_melee_*` | Always on `Player` | **Not harness state.** Race-data fist fallback (`human.mon` Attack=7 / Defend=5, `crcombat.cc:183`). Set in `login.rs`. Misnamed. |
+| `sim_glibc_rand` | Always: `GlibcRngState` + `DANCE_DIR_ORDER` | **Phase 1 done.** One per-world stream. Process-global `libc::rand`, `sim_glibc_rng_enabled`, and free `parity_*` `thread_rng` fallbacks are gone. |
+| `GameWorld::parity_random` | `game_world.rs` | Unconditional `self.parity_rng`. Seed via `seed_parity_rng`; harness reads `TFS_SIM_SEED`. |
+| `Player::fist_attack` / `fist_defense` | Always on `Player` | Race-data fist fallback (`human.mon` Attack=7 / Defend=5, `crcombat.cc:183`). Set in `login.rs`. Renamed from `sim_melee_*` (Phase 0). |
 | `Monster::harness_preserve_sleep` | Always on `Monster` | Genuine harness leak (appear-defer). |
 | `feature = "sim"` | `tfs-rust-core/Cargo.toml` | Empty feature used only as a cfg switch. 80 `cfg(any(test, feature = "sim"))` sites in 9 files. |
 
@@ -75,7 +75,7 @@ Phase 2 (`REFACTOR_AUDIT`) cfg-quarantined this so **default production builds c
 - **General player combat oracle** — weapon resolution, skills, DoTs, combat list. Those need focused unit tests, not chase scenarios.
 - **Confidence after RNG desync** — one extra `rand()` poisons the rest of a run; the battery then measures stream drift, not mechanics.
 - **Separation** — `cargo test` enables full sim modules via `cfg(test)`, so everyday tests sit on the injected surface.
-- **`sim_melee_*` as coupling** — renaming them is hygiene; deleting them breaks unarmed combat (lesson 127).
+- **`sim_melee_*` as coupling** — Phase 0 renamed to `fist_attack` / `fist_defense`; deleting them still breaks unarmed combat (lesson 127).
 
 ---
 
@@ -131,7 +131,7 @@ C++ keeps its own harness. Parity contract is **scenario file + seed + log schem
 ### 3.4 RNG contract
 
 ```
-TFS_SIM_SEED=N          # read only by chase_kite_sim / C++ runner / battery scripts
+TFS_SIM_SEED=N          # read only by sim_harness / C++ runner / battery scripts
   → seed_parity_rng(N) at the same scenario milestones
   → every combat/AI draw comes from that world's GlibcRngState only
   → no libc::srand / process-global rand()
@@ -140,7 +140,7 @@ TFS_SIM_SEED=N          # read only by chase_kite_sim / C++ runner / battery scr
 
 Unit tests that need determinism call `seed_parity_rng` explicitly. They do not require `feature = "sim"` or env vars.
 
-After this change, the free functions `parity_random` / `parity_rand_mod` in `sim_glibc_rand.rs` that use `thread_rng` are deleted or become inherent methods on `GlibcRngState` only. All live draws go through `GameWorld::parity_*`.
+Free `parity_random` / `parity_rand_mod` `thread_rng` fallbacks are deleted (Phase 1). All live draws go through `GameWorld::parity_*` / `GlibcRngState`. Until Phase 5, `sim_harness.rs` (still in core) is the env reader.
 
 ### 3.5 Observe via `tracing`, not a trait
 
@@ -190,7 +190,7 @@ Ordered to remove weight without breaking the battery overnight. Each phase is a
 
 Inventory (old sketch step 1) is done — tables in §2 and the 2026-09-10 audit.
 
-### Phase 0 — Rename `sim_melee_*` → fist race fields
+### Phase 0 — Rename `sim_melee_*` → fist race fields ✅
 
 **Why first:** mechanical, no behavior change, kills the false “harness leaked into Player” signal. Lesson 127: these are `RaceData[Race].Attack/Defend`.
 
@@ -215,32 +215,28 @@ Do **not** delete the fields. Do **not** introduce a sim-only wrapper type.
 
 ---
 
-### Phase 1 — Collapse dual RNG (highest value)
+### Phase 1 — Collapse dual RNG (highest value) — DONE 2026-09-11
 
 **Goal:** one `GlibcRngState` per `GameWorld`. Zero `sim_glibc_rng_enabled()` branches in production code. Core never reads `TFS_SIM_SEED`.
 
-| Delete / stop | Replace with |
-|---------------|--------------|
-| Process-global glibc (`libc::srand` / `sim_random` / `enable_sim_glibc_rng`) | `world.parity_rng` only |
-| `sim_glibc_rng_enabled` checks in `game_world.rs`, `combat/rng.rs`, `combat/math.rs`, `creature/monster_combat.rs` | Unconditional `self.parity_rng.*` |
-| Free `parity_random` / `parity_rand_mod` `thread_rng` fallback (`sim_glibc_rand.rs:258`) | Callers use `GameWorld::parity_*` or `GlibcRngState` methods |
-| `GameWorld::init_sim_rng_from_env` | Sim bin / test helper reads env, calls `seed_parity_rng` |
-| `GameWorld::resync_sim_glibc_rng` | Sim crate calls `seed_parity_rng(seed)` at the same milestones `kite_monsters_appear_batch` does today |
+Landed:
 
-Keep: `GlibcRngState`, `DANCE_DIR_ORDER`, `seed_parity_rng`, `parity_random` / `parity_rand_mod` / `parity_random_shuffle` **as inherent `GameWorld` methods with no cfg**.
+- Process-global glibc (`libc::srand` / `sim_random` / `enable_sim_glibc_rng`) deleted; `libc` crate dropped from `tfs-rust-core`
+- Combat/AI always draw `parity_rng` (`combat/rng.rs`, `combat/math.rs`, `creature/monster_combat.rs`, `GameWorld::parity_*`)
+- Free `parity_random` / `parity_rand_mod` `thread_rng` fallbacks deleted; shuffle tests use `GlibcRngState::random_shuffle`
+- `GameWorld::init_sim_rng_from_env` / `resync_sim_glibc_rng` deleted
+- `sim_dance_choice` → `dance_choice`
 
-Rename `sim_dance_choice` → `dance_choice` in the same change if the diff stays small.
+**Resync milestones (still in-core `sim_harness` until Phase 5):**
 
-**Resync milestones to document in this file when the call sites move (Phase 1 or 5):**
+| Milestone | Call site |
+|-----------|-----------|
+| World construction | `sim_harness::init_beat_driven_world` → `seed_world_from_sim_env` → `seed_parity_rng` |
+| After spawn loot / appear batch | `kite_monsters_appear_batch` → `seed_world_from_sim_env` (C++ `ResyncHarnessRng`) |
 
-| Milestone | Today | After |
-|-----------|--------|--------|
-| World construction | `init_sim_rng_from_env` in beat-driven builders | sim crate / test fixture: `seed_parity_rng` |
-| After spawn loot / appear batch | `resync_sim_glibc_rng` in `kite_monsters_appear_batch` | sim crate: `seed_parity_rng` again (mirrors C++ `ResyncHarnessRng`) |
+`TFS_SIM_SEED` is read only by `sim_seed_from_env` in `sim_harness.rs` (and battery scripts / C++ runner). `GameWorld` never reads the env var.
 
-**This phase will change draw order** vs the global `libc::rand` stream. Re-baseline `run_sim_battery.py` JSONL in the **same** commit. Do not land the code change with a red battery “to fix later.”
-
-**Exit:** `rg sim_glibc_rng_enabled|enable_sim_glibc_rng|init_sim_rng_from_env|resync_sim_glibc_rng` empty in core. `cargo test -p tfs-rust-core` green. Battery green (new baseline).
+**Exit:** `rg sim_glibc_rng_enabled|enable_sim_glibc_rng|init_sim_rng_from_env|resync_sim_glibc_rng` empty in core.
 
 **Verify:**
 
@@ -385,7 +381,7 @@ python3 scripts/run_sim_battery.py
 
 Phase 1 and Phase 5 are the likely JSONL re-baseline points. Capture old vs new in the PR description; do not mix a mechanics change with a baseline in the same commit if it can be avoided.
 
-Tests: Phase 0 updates struct literals. Phase 1 may need tests that currently rely on `TFS_SIM_SEED` in the environment to call `seed_parity_rng` instead (lesson 70). Phase 3 must not drop the 1,116 fixture-backed tests. New tests: `GameWorld::move_creatures` clock/todo drain (Phase 4); subscriber round-trip of one `chase` event to JSONL (Phase 2/5).
+Tests: Phase 0 updates struct literals. Phase 1 seeds via `seed_parity_rng` (harness reads `TFS_SIM_SEED`; lesson 70 `ai_rng` path is gone). Phase 3 must not drop the 1,116 fixture-backed tests. New tests: `GameWorld::move_creatures` clock/todo drain (Phase 4); subscriber round-trip of one `chase` event to JSONL (Phase 2/5).
 
 ---
 

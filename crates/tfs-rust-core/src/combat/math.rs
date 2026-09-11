@@ -128,26 +128,14 @@ fn apply_defense_mode(modes: &FightModes, mode: FightMode, max_value: i32) -> i3
 
 /// Probe damage roll loaded from startup tuning (`formulas.damageTuning`).
 ///
-/// Random factor source: sim harness glibc (`TFS_SIM_SEED`) when enabled, else `parity`
-/// (per-world [`GlibcRngState`] — sole production stream).
+/// Random factor source: per-world [`GlibcRngState`] (`tuning.random_max`, default 99 → `% 100`).
 pub fn probe_value(
     skill: i32,
     attack: i32,
     tuning: DamageProbeTuning,
     parity: &GlibcRngState,
 ) -> i32 {
-    let random_factor = {
-        #[cfg(any(test, feature = "sim"))]
-        if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
-            crate::sim_glibc_rand::sim_probe_random_factor()
-        } else {
-            parity.probe_random_factor(tuning.random_max)
-        }
-        #[cfg(not(any(test, feature = "sim")))]
-        {
-            parity.probe_random_factor(tuning.random_max)
-        }
-    };
+    let random_factor = parity.probe_random_factor(tuning.random_max);
     let max_value = attack.max(0)
         * (skill
             .max(0)
@@ -272,7 +260,7 @@ pub fn formula_skill_damage_bounds(
 /// - [`DamageFormula::Modern`] (1098) — TFS `getMaxWeaponDamage` then triangular melee roll
 ///   (15%‥max), matching `WeaponMelee::getWeaponDamage`.
 ///
-/// Always uses per-world glibc via `parity` (sim harness overrides when enabled).
+/// Always uses per-world glibc via `parity`.
 pub fn weapon_damage(
     profile: &MechanicsProfile,
     hooks: &FormulaHooks,
@@ -338,7 +326,7 @@ pub fn defense_value(
 /// - [`ArmorReduction::Full`] (1098) — subtract the full armor value (`creature.cpp` ~532).
 /// - [`ArmorReduction::Randomized`] (772) — `(A/2)+rand%(A/2)` when `A >= minArmorForRandom`.
 ///
-/// Always uses per-world glibc via `parity` (sim harness overrides when enabled).
+/// Always uses per-world glibc via `parity`.
 pub fn armor_reduction(
     profile: &MechanicsProfile,
     hooks: &FormulaHooks,
@@ -355,18 +343,7 @@ pub fn armor_reduction(
             let div = profile.armor_random.divisor.max(1);
             if armor >= min_armor {
                 let half = (armor / div).max(1);
-                {
-                    #[cfg(any(test, feature = "sim"))]
-                    if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
-                        half + crate::sim_glibc_rand::sim_rand_mod(half as u32) as i32
-                    } else {
-                        half + parity.armor_rand_extra(half)
-                    }
-                    #[cfg(not(any(test, feature = "sim")))]
-                    {
-                        half + parity.armor_rand_extra(half)
-                    }
-                }
+                half + parity.armor_rand_extra(half)
             } else {
                 armor.max(0)
             }
@@ -385,14 +362,8 @@ pub fn melee_damage_after_defense_and_armor(attack: i32, defense: i32, armor: i3
 // B4.8 — distance hit probe (PC-3)
 // ---------------------------------------------------------------------------
 
-/// One `rand() % modulus` draw — sim harness overrides when enabled.
+/// One `rand() % modulus` draw on the per-world glibc stream.
 fn probe_rand_mod(parity: &GlibcRngState, modulus: u32) -> i32 {
-    #[cfg(any(test, feature = "sim"))]
-    {
-        if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
-            return crate::sim_glibc_rand::sim_rand_mod(modulus) as i32;
-        }
-    }
     parity.rand_mod(modulus) as i32
 }
 
@@ -400,7 +371,7 @@ fn probe_rand_mod(parity: &GlibcRngState, modulus: u32) -> i32 {
 ///
 /// Second `rand()%100` is drawn **only** when the skill gate (`Act >= rand()%Diff`)
 /// passes — unconditional second draws desync the glibc stream (audit B4).
-/// Always uses per-world glibc via `parity` (sim harness overrides when enabled).
+/// Always uses per-world glibc via `parity`.
 pub fn probe_hit(skill: i32, diff: i32, prob: i32, parity: &GlibcRngState) -> bool {
     if diff == 0 {
         return true;

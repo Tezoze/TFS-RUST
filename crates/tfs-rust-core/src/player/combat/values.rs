@@ -177,8 +177,8 @@ impl GameWorld {
     /// Priority: `Close` → `Missile` (ammo attack) → `Throw` → `Wand` (0) → fist race attack.
     /// Returns `(max_value, SkillNr)` — the raw unscaled attack value and its skill index.
     pub fn player_get_attack_value(&self, cid: CreatureId) -> (i32, SkillNr) {
-        let sim_melee_attack = match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => p.sim_melee_attack,
+        let fist_attack = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.fist_attack,
             _ => return (0, SkillNr::Fist),
         };
 
@@ -186,10 +186,10 @@ impl GameWorld {
 
         if let Some(iid) = weapons.close {
             let Some(item) = self.items.get(iid) else {
-                return (sim_melee_attack, SkillNr::Fist);
+                return (fist_attack, SkillNr::Fist);
             };
             let Some(it) = self.items_db.items.get(&item.item_type) else {
-                return (sim_melee_attack, SkillNr::Fist);
+                return (fist_attack, SkillNr::Fist);
             };
             return (it.attack, SkillNr::from_weapon_type(it.weapon_type));
         }
@@ -205,10 +205,10 @@ impl GameWorld {
         }
         if let Some(iid) = weapons.throw_ {
             let Some(item) = self.items.get(iid) else {
-                return (sim_melee_attack, SkillNr::Fist);
+                return (fist_attack, SkillNr::Fist);
             };
             let Some(it) = self.items_db.items.get(&item.item_type) else {
-                return (sim_melee_attack, SkillNr::Fist);
+                return (fist_attack, SkillNr::Fist);
             };
             return (it.attack, SkillNr::Distance);
         }
@@ -216,15 +216,15 @@ impl GameWorld {
             // Wand attack value is 0; skill maps via `WEAPON_NONE` → Fist (`crcombat.cc:180-181`).
             return (0, SkillNr::Fist);
         }
-        (sim_melee_attack, SkillNr::Fist)
+        (fist_attack, SkillNr::Fist)
     }
 
     /// 772 `TCombat::GetDefendValue` — `crcombat.cc:191-218`.
     ///
     /// Priority: `Shield` → `Close` → `Throw` → `Missile`(0) → fist race defend.
     pub fn player_get_defend_value(&self, cid: CreatureId) -> (i32, SkillNr) {
-        let sim_melee_defense = match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => p.sim_melee_defense,
+        let fist_defense = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.fist_defense,
             _ => return (0, SkillNr::Fist),
         };
 
@@ -241,10 +241,10 @@ impl GameWorld {
         }
         if let Some(iid) = weapons.close {
             let Some(item) = self.items.get(iid) else {
-                return (sim_melee_defense, SkillNr::Fist);
+                return (fist_defense, SkillNr::Fist);
             };
             let Some(it) = self.items_db.items.get(&item.item_type) else {
-                return (sim_melee_defense, SkillNr::Fist);
+                return (fist_defense, SkillNr::Fist);
             };
             return (it.defense, SkillNr::from_weapon_type(it.weapon_type));
         }
@@ -260,7 +260,7 @@ impl GameWorld {
         if weapons.missile.is_some() {
             return (0, SkillNr::Distance);
         }
-        (sim_melee_defense, SkillNr::Fist)
+        (fist_defense, SkillNr::Fist)
     }
 
     /// 772 `TCombat::GetArmorStrength` — `crcombat.cc:286-307`.

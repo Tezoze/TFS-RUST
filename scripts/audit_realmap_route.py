@@ -208,6 +208,8 @@ def run_rust_audit(
         "-q",
         "-p",
         "tfs-rust-core",
+        "--features",
+        "sim",
         "--bin",
         "chase_kite_sim",
         "--",

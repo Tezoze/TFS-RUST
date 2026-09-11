@@ -34,6 +34,8 @@ mod stubs {
 
     pub fn chase_path_reset_log() {}
 
+    pub fn enable_chase_path_log(_path: Option<std::path::PathBuf>) {}
+
     pub fn log_branch(
         tick: u64,
         cid: CreatureId,
@@ -271,6 +273,18 @@ fn ensure_init() {
             let _ = LOG_PATH.set(path);
         }
     });
+}
+
+/// Enable chase JSONL from the sim bin (`--log`) without `env::set_var`.
+/// `--log` wins; else `TFS_CHASE_PATH_LOG`; else `log/chase_ai.jsonl`. Always enables debug.
+#[cfg(any(test, feature = "sim"))]
+pub fn enable_chase_path_log(path: Option<PathBuf>) {
+    let path = path
+        .or_else(|| std::env::var("TFS_CHASE_PATH_LOG").ok().map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("log/chase_ai.jsonl"));
+    ENABLED.store(true, Ordering::Relaxed);
+    let _ = LOG_PATH.set(path);
+    let _ = INIT.set(());
 }
 
 #[cfg(any(test, feature = "sim"))]
@@ -592,7 +606,9 @@ pub fn log_todo_label(
 }
 
 /// Headless sim RNG trace — glibc draw index + raw value + optional call-site tag.
+/// Silent after Phase 1 (no process-global `draw_rand`); kept for Phase 2 `target = "chase"`.
 #[cfg(any(test, feature = "sim"))]
+#[allow(dead_code)]
 pub fn log_rng_trace(call_index: u64, value: i32, site: Option<&'static str>) {
     if !chase_path_debug_enabled() {
         return;
@@ -607,7 +623,9 @@ pub fn log_rng_trace(call_index: u64, value: i32, site: Option<&'static str>) {
 }
 
 /// Harness RNG stream reset — `ResyncHarnessRng` / appear-batch parity.
+/// Silent after Phase 1; kept for Phase 2 `target = "chase"`.
 #[cfg(any(test, feature = "sim"))]
+#[allow(dead_code)]
 pub fn log_rng_resync(seed: u64) {
     if !chase_path_debug_enabled() {
         return;

@@ -106,8 +106,8 @@ pub fn sim_hero_player(name: &str, pos: Position) -> Player {
     let mut p = test_player_base(name, pos);
     p.base.health = 150;
     p.base.max_health = 150;
-    p.sim_melee_defense = 5;
-    p.sim_melee_attack = 7;
+    p.fist_defense = 5;
+    p.fist_attack = 7;
     p
 }
 
@@ -244,8 +244,8 @@ fn test_player_base(name: &str, pos: Position) -> Player {
             inbox: Vec::new(),
             last_depot_id: -1,
         }),
-        sim_melee_defense: 0,
-        sim_melee_attack: 0,
+        fist_defense: 0,
+        fist_attack: 0,
         attack_mode: Default::default(),
         secure_mode: false,
         earliest_protection_zone_round: 0,
@@ -511,6 +511,18 @@ pub fn beat_driven_world_with_synthetic_ground(waypoint: Option<u16>) -> GameWor
 /// Pinned waypoint for unit-test arenas — matches kite sim synthetic grass (`chase_kite_scenario.cc`).
 pub const TEST_SYNTHETIC_GROUND_WP: u16 = 150;
 
+/// Headless / battery seed — `TFS_SIM_SEED` is read here, never inside `GameWorld` combat.
+fn sim_seed_from_env() -> Option<u32> {
+    let seed_str = std::env::var("TFS_SIM_SEED").ok()?;
+    seed_str.parse::<u64>().ok().map(|s| s as u32)
+}
+
+fn seed_world_from_sim_env(world: &mut GameWorld) {
+    if let Some(seed) = sim_seed_from_env() {
+        world.seed_parity_rng(seed);
+    }
+}
+
 /// 772 beat-driven world with synthetic terrain registered for `TShortway::FillMap`.
 pub fn beat_driven_test_world() -> GameWorld {
     let mut world = beat_driven_world_with_synthetic_ground(Some(TEST_SYNTHETIC_GROUND_WP));
@@ -577,7 +589,7 @@ fn init_beat_driven_world(
     );
     world.server_ms = 0;
     reset_harness_scenario_clock();
-    world.init_sim_rng_from_env();
+    seed_world_from_sim_env(&mut world);
     world
 }
 
@@ -1442,7 +1454,7 @@ pub fn teleport_player(
 /// Wake monsters, acquire targets, then batch `ToDoYield` — `chase_kite_scenario.cc` `SpawnMonsterAppear`.
 pub fn kite_monsters_appear_batch(world: &mut GameWorld, monster_ids: &[CreatureId]) {
     // C++ `EnsureMonstersSpawned` → `ResyncHarnessRng()` after spawn loot (`chase_kite_scenario.cc:537`).
-    world.resync_sim_glibc_rng();
+    seed_world_from_sim_env(world);
     for &monster_id in monster_ids {
         appear_monster_without_idle(world, monster_id);
     }
@@ -1464,6 +1476,11 @@ pub fn kite_monster_appear(world: &mut GameWorld, monster_id: CreatureId) {
 /// Truncate chase JSONL at scenario start — C++ `ChasePathResetLog`.
 pub fn reset_chase_path_log() {
     crate::chase_debug::chase_path_reset_log();
+}
+
+/// Enable chase JSONL from `chase_kite_sim --log` (no process `set_var`).
+pub fn enable_chase_path_log(path: Option<std::path::PathBuf>) {
+    crate::chase_debug::enable_chase_path_log(path);
 }
 
 /// Harness `player_walk` JSONL — C++ `ChasePathLogHarnessPlayerStep`.

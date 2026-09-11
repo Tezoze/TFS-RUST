@@ -189,6 +189,8 @@ def main() -> int:
         "run",
         "-p",
         "tfs-rust-core",
+        "--features",
+        "sim",
         "--bin",
         "chase_kite_sim",
         "--",

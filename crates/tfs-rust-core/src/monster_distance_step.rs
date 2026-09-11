@@ -113,7 +113,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sim_glibc_rand::parity_random_shuffle;
+    use crate::sim_glibc_rand::GlibcRngState;
+
+    fn shuffle<T>(buf: &mut [T]) {
+        GlibcRngState::seed(1).random_shuffle(buf);
+    }
 
     #[test]
     fn flight_field_prefers_axial_then_cardinal_then_diagonal() {
@@ -127,19 +131,19 @@ mod tests {
         // 1. All clear -> East.
         let can_walk = |_d: Direction| true;
         assert_eq!(
-            search_flight_field(from, pursuer, can_walk, parity_random_shuffle),
+            search_flight_field(from, pursuer, can_walk, shuffle),
             Some(Direction::East)
         );
 
         // 2. East blocked -> check remaining cardinals (North/South).
         let can_walk = |d: Direction| !matches!(d, Direction::East);
-        let res = search_flight_field(from, pursuer, can_walk, parity_random_shuffle).unwrap();
+        let res = search_flight_field(from, pursuer, can_walk, shuffle).unwrap();
         assert!(matches!(res, Direction::North | Direction::South));
 
         // 3. East + North + South blocked -> diagonal.
         let can_walk =
             |d: Direction| !matches!(d, Direction::East | Direction::North | Direction::South);
-        let res = search_flight_field(from, pursuer, can_walk, parity_random_shuffle).unwrap();
+        let res = search_flight_field(from, pursuer, can_walk, shuffle).unwrap();
         assert!(matches!(res, Direction::NorthEast | Direction::SouthEast));
     }
 
@@ -148,10 +152,7 @@ mod tests {
         let from = Position::new(100, 100, 7);
         let pursuer = Position::new(98, 100, 7);
         let can_walk = |_d: Direction| false;
-        assert_eq!(
-            search_flight_field(from, pursuer, can_walk, parity_random_shuffle),
-            None
-        );
+        assert_eq!(search_flight_field(from, pursuer, can_walk, shuffle), None);
     }
 
     #[test]
@@ -160,7 +161,7 @@ mod tests {
         let pursuer = Position::new(100, 102, 7); // South of us, oy = -2.
         let can_walk = |_d: Direction| true;
         assert_eq!(
-            search_flight_field(from, pursuer, can_walk, parity_random_shuffle),
+            search_flight_field(from, pursuer, can_walk, shuffle),
             Some(Direction::North)
         );
     }

@@ -12,11 +12,11 @@ use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig, MonsterState};
 use tfs_rust_core::sim_harness::{
     SimMapConfig, audit_otbm_route_tiles, beat_driven_world_for_kite_synthetic,
     beat_driven_world_from_map, default_sim_map_config, drain_todo_queue_once,
-    harness_place_creature_login, insert_monster_from_type, insert_monster_with_config,
-    insert_player, kite_monsters_appear_batch, log_harness_player_step, move_creatures_explicit,
-    run_sim_tick, set_sim_harness_segment_ms, set_sim_harness_wall_ms, sim_hero_player,
-    sim_player_damage_monster, teleport_player, validate_positions_walkable, walk_player_adjacent,
-    write_audit_route_json,
+    enable_chase_path_log, harness_place_creature_login, insert_monster_from_type,
+    insert_monster_with_config, insert_player, kite_monsters_appear_batch, log_harness_player_step,
+    move_creatures_explicit, reset_chase_path_log, run_sim_tick, set_sim_harness_segment_ms,
+    set_sim_harness_wall_ms, sim_hero_player, sim_player_damage_monster, teleport_player,
+    validate_positions_walkable, walk_player_adjacent, write_audit_route_json,
 };
 
 #[derive(Debug, Clone)]
@@ -688,11 +688,8 @@ fn run_main() -> Result<(), String> {
         }
     }
 
-    env::set_var("TFS_CHASE_PATH_DEBUG", "1");
-    if let Some(ref path) = log_path {
-        env::set_var("TFS_CHASE_PATH_LOG", path);
-    }
-    tfs_rust_core::sim_harness::reset_chase_path_log();
+    enable_chase_path_log(log_path);
+    reset_chase_path_log();
 
     let input = fs::read_to_string(&scenario_path)
         .map_err(|e| format!("read {}: {e}", scenario_path.display()))?;

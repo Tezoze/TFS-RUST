@@ -386,7 +386,7 @@ pub fn melee_defense_snapshot(kind: &CreatureKind) -> MeleeDefenseSnapshot {
             // C++ `GetDefendValue` without shield — `WEAPON_NONE` → `SKILL_FIST` (`crcombat.cc:191-217`).
             // World-aware path sets `has_shield` via `melee_defense_snapshot_for`.
             defense_skill: p.skills.fist,
-            defense_value: p.sim_melee_defense,
+            defense_value: p.fist_defense,
             armor: 0,
             defend_mode,
             has_shield: false,
@@ -486,21 +486,7 @@ pub fn melee_poison_on_hit(
     if poison_cycles <= 0 {
         return None;
     }
-    let proc = damage_done > 0
-        || (attack_roll > defense_roll && {
-            #[cfg(any(test, feature = "sim"))]
-            {
-                if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
-                    crate::sim_glibc_rand::sim_rand_mod(5) == 0
-                } else {
-                    parity.rand_mod(5) == 0
-                }
-            }
-            #[cfg(not(any(test, feature = "sim")))]
-            {
-                parity.rand_mod(5) == 0
-            }
-        });
+    let proc = damage_done > 0 || (attack_roll > defense_roll && parity.rand_mod(5) == 0);
     if !proc {
         return None;
     }

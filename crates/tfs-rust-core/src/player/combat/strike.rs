@@ -438,7 +438,7 @@ mod tests {
         let mut player = sim_hero_player("Hero", pos);
         player.vocation_profile.formula.melee_damage = 0.0;
         player.skills.fist = 100;
-        player.sim_melee_attack = 100;
+        player.fist_attack = 100;
         let pid = world.creatures.insert(CreatureKind::Player(player));
         let mut cfg = MonsterAiConfig::default();
         cfg.defense = 0;
@@ -465,7 +465,7 @@ mod tests {
         let pos = Position::new(100, 100, 7);
         let mut player = sim_hero_player("Hero", pos);
         player.skills.fist = 100;
-        player.sim_melee_attack = 5000; // huge fist attack → ~99.99% kill chance per strike
+        player.fist_attack = 5000; // huge fist attack → ~99.99% kill chance per strike
         player.vocation_profile.formula.melee_damage = 1.0;
         let pid = world.creatures.insert(CreatureKind::Player(player));
         let mut cfg = MonsterAiConfig::default();
@@ -514,7 +514,7 @@ mod tests {
         let pos = Position::new(100, 100, 7);
         let defender = sim_hero_player("Def", adjacent_pos(pos));
         let defender_id = world.creatures.insert(CreatureKind::Player(defender));
-        // Without a shield → fist fallback (sim_melee_defense=5, SKILL_FIST=10).
+        // Without a shield → fist fallback (fist_defense=5, SKILL_FIST=10).
         let snap = world.melee_defense_snapshot_for(defender_id);
         assert_eq!(snap.defense_value, 5);
         assert_eq!(snap.defense_skill, 10); // fist skill
@@ -567,7 +567,7 @@ mod tests {
         let conn = ConnId(1);
         let mut player = sim_hero_player("Hero", pos);
         player.skills.fist = 100;
-        player.sim_melee_attack = 5000;
+        player.fist_attack = 5000;
         player.vocation_profile.formula.melee_damage = 1.0;
         let pid = insert_spectator_player(&mut world, conn, player);
         let mut cfg = MonsterAiConfig::default();
@@ -628,7 +628,7 @@ mod tests {
         let conn = ConnId(1);
         let mut player = sim_hero_player("Hero", pos);
         player.skills.fist = 100;
-        player.sim_melee_attack = 5000;
+        player.fist_attack = 5000;
         player.vocation_profile.formula.melee_damage = 1.0;
         let pid = insert_spectator_player(&mut world, conn, player);
         let mut cfg = MonsterAiConfig::default();
@@ -699,7 +699,7 @@ mod tests {
         let pos = Position::new(100, 100, 7);
         let mut player = sim_hero_player("Hero", pos);
         player.skills.fist = 50;
-        player.sim_melee_attack = 20;
+        player.fist_attack = 20;
         let pid = world.creatures.insert(CreatureKind::Player(player));
         let mut cfg = MonsterAiConfig::default();
         cfg.defense = 0;
@@ -757,7 +757,7 @@ mod tests {
         player.skills.sword = 10;
         player.skills.sword_tries = 49;
         player.base.learning_points = 30;
-        player.sim_melee_attack = 0;
+        player.fist_attack = 0;
         let pid = world.creatures.insert(CreatureKind::Player(player));
         equip_item_sword(&mut world, pid, 2377, 20);
         let mut cfg = MonsterAiConfig::default();

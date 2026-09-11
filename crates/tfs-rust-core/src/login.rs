@@ -287,8 +287,9 @@ pub fn player_from_loaded(
         inbox_root: None,
         last_depot_id: -1,
         persist: Some(persist),
-        sim_melee_defense: 5,
-        sim_melee_attack: 7,
+        // Race-data fist fallback — `human.mon` Defend=5 / Attack=7 (`crcombat.cc:183`).
+        fist_defense: 5,
+        fist_attack: 7,
         attack_mode: Default::default(),
         secure_mode: false,
         earliest_protection_zone_round: 0,

@@ -1069,4 +1069,7 @@
 464. **Arrow mid auto-walk skip was beat-before-`ReceiveData`** (`game_loop.rs`; `receiving.cc:172-199` `CGoDirection`; `main.cc:488-497`): 772 `LaunchGame` runs `ReceiveData` then `AdvanceGame`. Lesson 346 pre-advanced a due Tokio beat so `MoveCreatures` consumed the next auto-walk `TDGo` (`0x6D`) before the arrow's `ToDoClear` + `0xB5`. Command arm now drains due ticks, dispatches, then `AdvanceGame`; lone `0xA3` is held across that SendAll (red square). OTClient `0x69` then `0x65` coalesces to `CGoDirection` when both are already on the wire (official client never sends Stop).
     *(2026-09-11)*
 
+465. **One per-world glibc TYPE_3 stream — no process `rand()`, no `thread_rng` parity fallback** (`sim_glibc_rand.rs` `GlibcRngState`; `GameWorld::seed_parity_rng`; `docs/SIM_HARNESS.md` Phase 1): Dual-stream sim (`libc::srand` when `sim_glibc_rng_enabled` plus independent `parity_rng`) made melee/flee draws diverge from `GameWorld::parity_*` / combat math. Collapse: every combat/AI/spawn/loot draw is `parity_rng` only. `TFS_SIM_SEED` is read by `sim_harness::sim_seed_from_env` (world build + `kite_monsters_appear_batch` `ResyncHarnessRng`), never inside `GameWorld`. **TYPE_3 ≠ host `libc::rand()`** (glibc `random()` is a state array); seed 772 `%5` is `4,3,3` on TYPE_3 vs `2,0,0` on Linux `rand()`. C++ chase harness still uses `srand`/`rand`, so lockstep may shift until both sides share one algorithm. Lessons 70/232 still mention `ai_rng` / process `sim_*` override — those paths are gone.
+    *(2026-09-11)*
+
 

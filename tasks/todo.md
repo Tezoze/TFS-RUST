@@ -20,8 +20,8 @@ Decouple the chase/kite harness from live `tfs-rust-core`. Outer loop (`.scenari
 
 **Do not extract the crate first** — `sim_harness` writes `pub(crate)` `server_ms` / `todo_queue` and calls ~15 `pub(crate)` methods. Crate-first would either break tests or permanently widen the core API.
 
-- [ ] Phase 0 — Rename `Player::sim_melee_attack/defense` → `fist_attack` / `fist_defense` (race data, not harness; login 7/5). Do not delete.
-- [ ] Phase 1 — One per-world `GlibcRngState`. Delete global glibc + `thread_rng` parity fallback + `init_sim_rng_from_env`. Core never reads `TFS_SIM_SEED`. Re-baseline battery JSONL in the same change.
+- [x] Phase 0 — Rename `Player::sim_melee_attack/defense` → `fist_attack` / `fist_defense` (race data, not harness; login 7/5). Do not delete.
+- [x] Phase 1 — One per-world `GlibcRngState`. Delete global glibc + `thread_rng` parity fallback + `init_sim_rng_from_env`. Core never reads `TFS_SIM_SEED`. Re-baseline battery JSONL in the same change.
 - [ ] Phase 2 — Replace `chase_debug` with `tracing::trace!(target: "chase", …)`. JSONL writer is a subscriber on `chase_kite_sim`. No `SimObserver` trait.
 - [ ] Phase 3 — Split `sim_harness.rs`: `#[cfg(test)]` fixtures stay (`test_world`); scenario/OTBM/wall-clock module separate. Do not `pub use` the whole file from `test_world`.
 - [ ] Phase 4 — Public `GameWorld::{server_ms, move_creatures, next_todo_execution_ms}` matching C++ `MoveCreatures` (not `advance_beat` / `AdvanceGame`). Drop `harness_preserve_sleep` and cfg-gated `pub(crate)` walk/login hooks.

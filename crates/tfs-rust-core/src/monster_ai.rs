@@ -1135,7 +1135,7 @@ impl GameWorld {
         if chebyshev(pos, target_pos) != band {
             return false;
         }
-        let choice = self.sim_dance_choice();
+        let choice = self.dance_choice();
         let dir = crate::sim_glibc_rand::DANCE_DIR_ORDER[choice as usize];
         let dest = match dir {
             Some(step) => {

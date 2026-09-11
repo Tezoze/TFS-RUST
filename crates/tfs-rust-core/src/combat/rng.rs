@@ -22,7 +22,7 @@ pub fn uniform_random<R: Rng + ?Sized>(rng: &mut R, min_n: i32, max_n: i32) -> i
     rng.random_range(lo..=hi)
 }
 
-/// Inclusive uniform on the per-world glibc stream (sim harness overrides when enabled).
+/// Inclusive uniform on the per-world glibc stream.
 #[inline]
 pub fn uniform_random_glibc(parity: &GlibcRngState, min_n: i32, max_n: i32) -> i32 {
     if min_n == max_n {
@@ -33,10 +33,6 @@ pub fn uniform_random_glibc(parity: &GlibcRngState, min_n: i32, max_n: i32) -> i
     } else {
         (max_n, min_n)
     };
-    #[cfg(any(test, feature = "sim"))]
-    if crate::sim_glibc_rand::sim_glibc_rng_enabled() {
-        return crate::sim_glibc_rand::sim_random(lo, hi);
-    }
     parity.random(lo, hi)
 }
 
