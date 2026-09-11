@@ -925,7 +925,43 @@ fn handle_game_packet(
         }
         GamePacket::StopAutoWalk => {
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
-                world.player_stop_auto_walk(cid);
+                // Official 772 client sends only `CGoDirection` to interrupt auto-walk.
+                // OTClient sends `0x69` (Stop) then `0x65–0x68` (Move). One-packet-per-conn
+                // plus a due beat would `ToDoStop` then complete the next `TDGo` before
+                // the Move arrives — same skip as beat-before-ReceiveData. Coalesce to
+                // `CGoDirection` when the walk packet is already on the wire.
+                match game_rx.try_recv() {
+                    Ok(next) => match next {
+                        GameCommand::Game {
+                            conn_id: next_conn,
+                            packet: next_pkt,
+                        } if next_conn == conn_id => match next_pkt {
+                            GamePacket::Move(d) => {
+                                world.player_move_request(conn_id, cid, d, now);
+                            }
+                            GamePacket::AutoWalk { path } => {
+                                world.player_auto_walk_path(conn_id, cid, path, now);
+                            }
+                            other => {
+                                world.player_stop_auto_walk(cid);
+                                pending_push(
+                                    pending,
+                                    GameCommand::Game {
+                                        conn_id: next_conn,
+                                        packet: other,
+                                    },
+                                );
+                            }
+                        },
+                        other => {
+                            world.player_stop_auto_walk(cid);
+                            pending_push(pending, other);
+                        }
+                    },
+                    Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => {
+                        world.player_stop_auto_walk(cid);
+                    }
+                }
             }
         }
         GamePacket::Attack { creature_id } => {
@@ -1618,6 +1654,70 @@ fn try_recv_next_command(
     game_rx.try_recv().ok()
 }
 
+/// Pull lone `0xA3` (`SendClearTarget`) out of `pending_outgoing` so a raced-beat
+/// `SendAll` after `ReceiveData` does not drop the client's red square in the same
+/// millisecond as an NPC-attack click (lessons 344/346). Walk snapback `0xB5` stays.
+fn hold_lone_clear_target_packets(world: &mut GameWorld) -> HashMap<ConnId, Vec<Vec<u8>>> {
+    let mut held = HashMap::new();
+    for (conn, pkts) in world.pending_outgoing.iter_mut() {
+        let mut rest = Vec::new();
+        let mut clear = Vec::new();
+        for p in pkts.drain(..) {
+            if p.as_slice() == [0xA3] {
+                clear.push(p);
+            } else {
+                rest.push(p);
+            }
+        }
+        *pkts = rest;
+        if !clear.is_empty() {
+            held.insert(*conn, clear);
+        }
+    }
+    held
+}
+
+fn restore_held_clear_target_packets(world: &mut GameWorld, held: HashMap<ConnId, Vec<Vec<u8>>>) {
+    for (conn, pkts) in held {
+        world.pending_outgoing.entry(conn).or_default().extend(pkts);
+    }
+}
+
+/// 772 `LaunchGame` (`main.cc:488-497`): `ReceiveData` then `AdvanceGame` when both a
+/// command and a beat are pending. The command arm wins Tokio `select!` (biased), so the
+/// due ticks must run *after* dispatch — otherwise a mid-auto-walk arrow is processed
+/// after the next `TDGo` already moved the player (skip `0x6D` + later `0xB5`).
+///
+/// Lone `0xA3` from this ReceiveData is held across that SendAll so an attack-deny click
+/// that races a due tick still shows the red square for ~Beat ms.
+#[allow(clippy::too_many_arguments)]
+fn advance_due_beats_after_receive_data(
+    ready: u64,
+    world: &mut GameWorld,
+    next_beat_deadline: &mut Instant,
+    beat_ms: u64,
+    pending_login_conns: &mut HashSet<ConnId>,
+    output_sinks: &mut OutputSinkMap,
+    out_registry: &Option<OutRegistry>,
+    pending_output_shed: &mut Vec<ConnId>,
+) {
+    if ready == 0 {
+        return;
+    }
+    let held = hold_lone_clear_target_packets(world);
+    obs_advance_beats(
+        world,
+        next_beat_deadline,
+        beat_ms,
+        ready,
+        pending_login_conns,
+        output_sinks,
+        out_registry,
+        pending_output_shed,
+    );
+    restore_held_clear_target_packets(world, held);
+}
+
 /// Count how many beat ticks are already ready without awaiting (may be zero).
 fn drain_ready_beats(interval: &mut tokio::time::Interval) -> u64 {
     use std::future::Future;
@@ -1727,11 +1827,11 @@ fn obs_advance_beats(
 
 /// `AdvanceGame` + `SendAll` when a beat is already due (`main.cc:493-497`).
 ///
-/// Call this *before* dispatching the command that just woke the loop. Tokio
-/// `Interval` is Ready the instant the deadline passes, unlike POSIX `SIGALRM`
-/// which is usually still 0 during `ReceiveData`. SendAll-after-dispatch made
-/// `0xA3` ride the same wakeup as the NPC-attack click, so the red square died
-/// instantly instead of lasting ~Beat ms.
+/// Tests / login-burst probes call this directly. The live command arm uses
+/// [`advance_due_beats_after_receive_data`]: drain ticks, `ReceiveData`, then
+/// this simulation+flush with lone `0xA3` held (walk cancel must precede the
+/// due `MoveCreatures`; red-square `0xA3` still waits for the next beat).
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn send_all_if_beat_pending(
     world: &mut GameWorld,
@@ -1795,19 +1895,12 @@ pub async fn run_game_loop(
             biased;
 
             cmd = recv_next_command(&mut game_rx, &mut ctrl_rx, &mut pending) => {
-                // Flush packets queued *before* this command. SendAll after dispatch
-                // raced Tokio's due Interval and dropped the red square on the click
-                // (`main.cc:488-497`; POSIX alarm is usually 0 during ReceiveData).
-                send_all_if_beat_pending(
-                    &mut world,
-                    &mut beat_timer,
-                    &mut next_beat_deadline,
-                    beat_ms,
-                    &mut pending_login_conns,
-                    &mut output_sinks,
-                    &out_registry,
-                    &mut pending_output_shed,
-                );
+                // 772 `LaunchGame`: ReceiveData first, then AdvanceGame if a beat is
+                // pending (`main.cc:488-497`). Drain the Tokio Interval *now* so `select!`
+                // does not double-count, but do not simulate until after dispatch —
+                // a due `MoveCreatures` before `CGoDirection` consumes the next auto-walk
+                // tile (skip). Lone `0xA3` is held across that later SendAll.
+                let ready_beats = drain_ready_beats(&mut beat_timer);
                 world.tick_server_save(chrono::Local::now().timestamp());
                 if handle_pending_save_tick(&mut world).await? {
                     break;
@@ -1901,6 +1994,16 @@ pub async fn run_game_loop(
                         }
                         world.obs_record_commands(processed);
                         world.obs_maybe_emit();
+                        advance_due_beats_after_receive_data(
+                            ready_beats,
+                            &mut world,
+                            &mut next_beat_deadline,
+                            beat_ms,
+                            &mut pending_login_conns,
+                            &mut output_sinks,
+                            &out_registry,
+                            &mut pending_output_shed,
+                        );
                     }
                 }
             }
@@ -2915,8 +3018,9 @@ mod f8_s6_handler_routing_tests {
         );
     }
 
-    /// Tokio `Interval` is Ready as soon as the deadline passes. SendAll must run
-    /// *before* dispatch so a due beat does not flush this click's `0xA3`.
+    /// Tokio `Interval` is Ready as soon as the deadline passes. `ReceiveData` must
+    /// run before that due `AdvanceGame` (walk cancel), but lone `0xA3` from the
+    /// click must not ride the same SendAll.
     #[tokio::test(flavor = "current_thread")]
     async fn due_beat_then_command_keeps_clear_target_queued() {
         use std::collections::HashSet;
@@ -2924,7 +3028,10 @@ mod f8_s6_handler_routing_tests {
 
         use tfs_rust_common::ConnId;
 
-        use super::{new_beat_timer, send_all_if_beat_pending};
+        use super::{
+            advance_due_beats_after_receive_data, drain_ready_beats, new_beat_timer,
+            send_all_if_beat_pending,
+        };
 
         let mut world = beat_driven_test_world();
         let conn = ConnId(1);
@@ -2935,22 +3042,13 @@ mod f8_s6_handler_routing_tests {
         let mut shed = Vec::new();
 
         tokio::time::sleep(Duration::from_millis(beat_ms + 5)).await;
-        // Start of command arm: consume the due beat (nothing queued yet).
-        send_all_if_beat_pending(
-            &mut world,
-            &mut beat_timer,
-            &mut deadline,
-            beat_ms,
-            &mut logins,
-            &mut sinks,
-            &None,
-            &mut shed,
-        );
+        let ready = drain_ready_beats(&mut beat_timer);
+        assert!(ready >= 1, "deadline must have produced a due beat");
+        // Simulate ReceiveData after draining ticks (command arm order).
         world.pending_outgoing.insert(conn, vec![vec![0xA3]]);
-        // End of the same arm must not SendAll — interval was already drained.
-        send_all_if_beat_pending(
+        advance_due_beats_after_receive_data(
+            ready,
             &mut world,
-            &mut beat_timer,
             &mut deadline,
             beat_ms,
             &mut logins,
@@ -2984,6 +3082,49 @@ mod f8_s6_handler_routing_tests {
                 .get(&conn)
                 .is_none_or(|pkts| pkts.is_empty()),
             "next beat SendAll must drain queued 0xA3"
+        );
+    }
+
+    /// Walk snapback `0xB5` queued by `CGoDirection` must flush with the due beat's
+    /// SendAll — holding it would leave the client auto-walking for another tile.
+    #[tokio::test(flavor = "current_thread")]
+    async fn due_beat_after_receive_data_flushes_snapback() {
+        use std::collections::HashSet;
+        use std::time::Duration;
+
+        use tfs_rust_common::ConnId;
+
+        use super::{advance_due_beats_after_receive_data, drain_ready_beats, new_beat_timer};
+
+        let mut world = beat_driven_test_world();
+        let conn = ConnId(1);
+        let beat_ms = u64::from(world.mechanics.profile.beat_ms.max(1));
+        let (mut beat_timer, mut deadline) = new_beat_timer(beat_ms);
+        let mut logins = HashSet::new();
+        let mut sinks = HashMap::new();
+        let mut shed = Vec::new();
+
+        tokio::time::sleep(Duration::from_millis(beat_ms + 5)).await;
+        let ready = drain_ready_beats(&mut beat_timer);
+        assert!(ready >= 1, "deadline must have produced a due beat");
+        world.pending_outgoing.insert(conn, vec![vec![0xB5, 0]]);
+        advance_due_beats_after_receive_data(
+            ready,
+            &mut world,
+            &mut deadline,
+            beat_ms,
+            &mut logins,
+            &mut sinks,
+            &None,
+            &mut shed,
+        );
+        assert!(
+            world
+                .pending_outgoing
+                .get(&conn)
+                .is_none_or(|pkts| pkts.is_empty()),
+            "0xB5 snapback must flush with the raced-beat SendAll, got {:?}",
+            world.pending_outgoing.get(&conn)
         );
     }
 

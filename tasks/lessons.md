@@ -738,7 +738,7 @@
 
 345. **Login burst waits for beat `SendAll`** (`handle_player_loaded`; `crplayer.cc:197-209` ctor, `721-773` `TakeOver`; `main.cc:455`): 772 `JoinGame` builds/`TakeOver`s the player, which `FinishSendData`s `SendInitGame` / `SendFullScreen` / inventory / stats, then `ReceiveData` returns. `SendAll` is only `AdvanceGame`. We flushed `pending_outgoing` in `handle_player_loaded`, so the first `0x0A`/`0x64` hit the client off-beat. Queue the burst; keep `flush_conn_outgoing` on the *old* takeover socket (disconnect-before-close). *(August 2026)*
 
-346. **Due Tokio beat must not `SendAll` this click's `0xA3`** (`game_loop.rs` command arm; `main.cc:488-497`): lesson 344 still `SendAll`d after dispatch when `Interval` was already Ready. POSIX `SIGALRM` is usually 0 during `ReceiveData`, so 772 shows the red square for ~Beat ms then `"You may not attack this person."` + `SendClearTarget` together. Tokio is Ready the instant the deadline passes, so a click that races a due tick flushed in the same wakeup. `send_all_if_beat_pending` now runs *before* dispatch (prior packets only); this click waits for the next beat. *(August 2026)*
+346. **Due Tokio beat must not `SendAll` this click's `0xA3`** (`game_loop.rs` command arm; `main.cc:488-497`): lesson 344 still `SendAll`d after dispatch when `Interval` was already Ready. POSIX `SIGALRM` is usually 0 during `ReceiveData`, so 772 shows the red square for ~Beat ms then `"You may not attack this person."` + `SendClearTarget` together. Tokio is Ready the instant the deadline passes, so a click that races a due tick flushed in the same wakeup. Pre-advancing the beat *before* dispatch (old lesson 346) fixed the red square but skipped a tile on arrow-interrupt auto-walk — see 464.
 
 347. **`Game.createItem` must push Container userdata for container types** (`push_item_userdata`; `luaGameCreateItem` + `setItemMetatable`): TFS `pushUserdata<Item>` then `setItemMetatable` chooses Container vs Item from the live object. mlua `ItemRef` / `ContainerRef` are distinct types; always pushing `ItemRef` made `reward:addItem` nil in `onUseQuest`. Also hydrate on create — TFS `Item::CreateItem` returns a `Container` subclass; `container_query_add` needs the registry. `Container:remove` is `luaItemRemove` so the quest failure path can drop a detached bag. *(August 2026)*
 
@@ -1061,6 +1061,12 @@
     *(2026-09-11)*
 
 462. **Daily save warnings are corpus 5/3/1, not TFS `serverSaveNotifyDuration` once** (`server_save.rs`; `shutdown.rs`; `main.cc:397-433, 90-94`): reboot wording when `serverSaveShutdown == false` (also `RefreshMap` + `LogoutAllPlayers`); going-down otherwise. SIGTERM schedules close in 6 minutes + `CloseGame`. `saveServer()` stays persist-only (`FlushStay`).
+    *(2026-09-11)*
+
+463. **Wall-hangable Use is `ObjectAccessible` hook-side, not Chebyshev-only** (`object_accessible`; `info.cc:252-300`; `operate.cc:2495`): `HANG` items (lamps, paintings, wall torches) sit on the wall tile; `HookEast`/`HookSouth` are on the **wall piece**. OTB `FLAG_VERTICAL` → `HOOKEAST` (inside = east); `FLAG_HORIZONTAL` → `HOOKSOUTH` (inside = south). Wrong-side adjacent use is `NOTACCESSIBLE`. Tile hook flags must **not** require `is_hangable` on the same item (walls are not Hang). DistUse/allowFarUse Obj2 still uses `ThrowPossible`.
+    *(2026-09-11)*
+
+464. **Arrow mid auto-walk skip was beat-before-`ReceiveData`** (`game_loop.rs`; `receiving.cc:172-199` `CGoDirection`; `main.cc:488-497`): 772 `LaunchGame` runs `ReceiveData` then `AdvanceGame`. Lesson 346 pre-advanced a due Tokio beat so `MoveCreatures` consumed the next auto-walk `TDGo` (`0x6D`) before the arrow's `ToDoClear` + `0xB5`. Command arm now drains due ticks, dispatches, then `AdvanceGame`; lone `0xA3` is held across that SendAll (red square). OTClient `0x69` then `0x65` coalesces to `CGoDirection` when both are already on the wire (official client never sends Stop).
     *(2026-09-11)*
 
 

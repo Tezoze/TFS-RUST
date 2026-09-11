@@ -166,9 +166,8 @@ IDs keep the sub-agent slice letter (A scheduler, B per-creature arms, C world c
 - Rust: `connections.rs` skips idle warn/kick when `player_has_flag(cid, PLAYER_FLAG_NOT_GAIN_IN_FIGHT)`. The `>= 90` command-timeout branch stays unconditional.
 - Fix: landed Step 2.6.
 
-**M12 (A1, D6) — Wake ordering inverted: Rust runs a due beat before the command; corpus runs `ReceiveData` first. Deliberate.**
-- Corpus: `main.cc:483-497`. Rust: `game_loop.rs:1677-1697` `send_all_if_beat_pending` before `dispatch_command`; rationale at `:1608-1614` (Tokio `Interval` is Ready at the deadline; SIGALRM usually not yet pending during `ReceiveData`; fixed the 0xA3 red-square race).
-- Impact: a packet arriving in the same wake as a due beat has its output flushed one beat (50 ms) later than corpus. Accepted deviation. Record in `tasks/lessons.md` if not already; optional refinement: only pre-advance when `drain_ready_beats` reports ≥1 full beat of lateness.
+**M12 (A1, D6) — Wake ordering inverted: Rust ran a due beat before the command; corpus runs `ReceiveData` first. FIXED 2026-09-11.**
+- Corpus: `main.cc:483-497`. Pre-advance (`send_all_if_beat_pending` before `dispatch_command`) made a due `MoveCreatures` consume the next auto-walk `TDGo` (`0x6D`) before `CGoDirection` could `ToDoClear` — arrow mid auto-walk skipped a tile. Command arm now drains due ticks, dispatches, then `AdvanceGame`; lone `0xA3` is held across that SendAll so the red-square delay (lessons 344/346) stays.
 
 ### 2.3 Low — log-only, ±1 tick, tooling, ordering with no outcome change
 

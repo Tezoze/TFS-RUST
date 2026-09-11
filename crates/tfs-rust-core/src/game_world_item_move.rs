@@ -70,37 +70,20 @@ impl GameWorld {
             return Err(ReturnValue::NotPossible);
         }
 
-        // 772 `ObjectInRange(1)` for ownerless (tile) sources.
-        if let Cylinder::Tile { pos } = from {
-            if let Some(actor_pos) = self.creatures.get(actor).map(|k| k.position()) {
-                if !are_in_range_1_1_0(actor_pos, *pos) {
-                    return Err(ReturnValue::NotPossible);
-                }
-            } else {
-                return Err(ReturnValue::NotPossible);
-            }
-        }
-
-        // HANG hook source range (only for ownerless items on a hook tile).
+        // 772 `ObjectAccessible(CreatureID, Obj, 1)` for ownerless (tile) sources
+        // (`info.cc:252-300`): Chebyshev range + HANG hook side.
         if let Cylinder::Tile { pos } = from
-            && it.is_hangable()
-            && let Some(tile) = self.map.get_tile(*pos)
+            && !self.object_accessible(actor, *pos, item_id, 1)
         {
-            let body = tile.body();
-            if (body.flags & (tilestate::HOOKEAST | tilestate::HOOKSOUTH)) != 0 {
-                if let Some(actor_pos) = self.creatures.get(actor).map(|k| k.position()) {
-                    if !self.is_hang_hook_accessible(*pos, actor_pos, body.flags) {
-                        return Err(ReturnValue::NotPossible);
-                    }
-                } else {
-                    return Err(ReturnValue::NotPossible);
-                }
-            }
+            return Err(ReturnValue::NotPossible);
         }
 
         Ok(())
     }
 
+    /// 772 `ObjectAccessible` hook-side geometry (`info.cc:279-295`) at range 1:
+    /// `HOOKEAST` rejects `posx < ObjX` (west/outside); `HOOKSOUTH` rejects `posy < ObjY`
+    /// (north/outside). Chebyshev adjacency is required first (`areInRange<1,1,0>`).
     pub(crate) fn is_hang_hook_accessible(
         &self,
         pos: Position,

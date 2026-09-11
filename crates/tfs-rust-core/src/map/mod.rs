@@ -343,13 +343,13 @@ pub(crate) fn tile_remaining_props(
         if it.block_projectile() {
             out.unthrow = true;
         }
-        if it.is_hangable() {
-            if it.is_horizontal() {
-                out.hook_east = true;
-            }
-            if it.is_vertical() {
-                out.hook_south = true;
-            }
+        // 772 `HookEast`/`HookSouth` live on wall pieces (`objects.srv` TypeID 1270/1271),
+        // not on `HANG` lamps. OTB: `FLAG_VERTICAL` → east hook, `FLAG_HORIZONTAL` → south.
+        if it.is_vertical() {
+            out.hook_east = true;
+        }
+        if it.is_horizontal() {
+            out.hook_south = true;
         }
         if it.is_vertical() || it.is_horizontal() {
             out.supports_hangable = true;
@@ -417,10 +417,10 @@ pub(crate) fn reset_item_tile_flags(
     if departing.block_projectile() && !remaining.unthrow {
         body.flags &= !flags::UNTHROW;
     }
-    if departing.is_hangable() && departing.is_horizontal() && !remaining.hook_east {
+    if departing.is_vertical() && !remaining.hook_east {
         body.flags &= !flags::HOOKEAST;
     }
-    if departing.is_hangable() && departing.is_vertical() && !remaining.hook_south {
+    if departing.is_horizontal() && !remaining.hook_south {
         body.flags &= !flags::HOOKSOUTH;
     }
     if (departing.is_vertical() || departing.is_horizontal()) && !remaining.supports_hangable {
@@ -502,16 +502,15 @@ pub(crate) fn apply_item_tile_flags(
         body.flags |= flags::UNTHROW;
     }
 
-    // 772 wall hooks — `HOOKEAST` (horizontal) / `HOOKSOUTH` (vertical) hangable spots.
-    // NOTE(parity): CipSoft `HOOKEAST`/`HOOKSOUTH` ≈ OTB hangable + horizontal/vertical; affects only
-    // the `StartT=0` origin-tile special case of `ThrowPossible` when throwing west/north.
-    if item_type.is_hangable() {
-        if item_type.is_horizontal() {
-            body.flags |= flags::HOOKEAST;
-        }
-        if item_type.is_vertical() {
-            body.flags |= flags::HOOKSOUTH;
-        }
+    // 772 `CoordinateFlag(HOOKSOUTH/HOOKEAST)` (`map.cc:2415-2425`, `objects.cc:142-144`).
+    // Walls carry the hook (`objects.srv` brick 1270 `HookEast` / 1271 `HookSouth`); hangables
+    // carry `Hang` only. OTB `FLAG_VERTICAL` ≡ `HookEast`; `FLAG_HORIZONTAL` ≡ `HookSouth`
+    // (TFS `isVertical`/`isHorizontal`; `clientid_output` 1270 vertical / 1271 horizontal).
+    if item_type.is_vertical() {
+        body.flags |= flags::HOOKEAST;
+    }
+    if item_type.is_horizontal() {
+        body.flags |= flags::HOOKSOUTH;
     }
 
     if items_db.is_depot(item_type.server_id) {
@@ -866,6 +865,49 @@ mod tile_flag_tests {
         );
         let tile = map.get_tile(pos).expect("tile");
         assert_ne!(tile.body().flags & flags::FLOORCHANGE_DOWN, 0);
+    }
+
+    /// OTB `FLAG_VERTICAL` (1<<17) on a wall → 772 `HOOKEAST` (`objects.srv` 1270).
+    #[test]
+    fn vertical_wall_sets_hookeast() {
+        let mut body = crate::tile::TileBody::default();
+        let wall = ItemType {
+            flags: (1 << 17) | (1 << 0), // FLAG_VERTICAL | FLAG_BLOCK_SOLID
+            ..ItemType::default()
+        };
+        let db = item_db(vec![]);
+        super::apply_item_tile_flags(&mut body, &wall, &db);
+        assert_ne!(body.flags & flags::HOOKEAST, 0);
+        assert_eq!(body.flags & flags::HOOKSOUTH, 0);
+        assert_ne!(body.flags & flags::SUPPORTS_HANGABLE, 0);
+    }
+
+    /// OTB `FLAG_HORIZONTAL` (1<<18) on a wall → 772 `HOOKSOUTH` (`objects.srv` 1271).
+    #[test]
+    fn horizontal_wall_sets_hooksouth() {
+        let mut body = crate::tile::TileBody::default();
+        let wall = ItemType {
+            flags: (1 << 18) | (1 << 0), // FLAG_HORIZONTAL | FLAG_BLOCK_SOLID
+            ..ItemType::default()
+        };
+        let db = item_db(vec![]);
+        super::apply_item_tile_flags(&mut body, &wall, &db);
+        assert_ne!(body.flags & flags::HOOKSOUTH, 0);
+        assert_eq!(body.flags & flags::HOOKEAST, 0);
+    }
+
+    /// Hangables carry `Hang` only (`objects.srv` wall lamp 2907) — they must not stamp hooks.
+    #[test]
+    fn hangable_without_orientation_does_not_set_hooks() {
+        let mut body = crate::tile::TileBody::default();
+        let lamp = ItemType {
+            flags: 1 << 16, // FLAG_HANGABLE
+            ..ItemType::default()
+        };
+        let db = item_db(vec![]);
+        super::apply_item_tile_flags(&mut body, &lamp, &db);
+        assert_eq!(body.flags & flags::HOOKEAST, 0);
+        assert_eq!(body.flags & flags::HOOKSOUTH, 0);
     }
 
     #[test]

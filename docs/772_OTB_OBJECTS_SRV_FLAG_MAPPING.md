@@ -158,8 +158,8 @@ Full 772 attribute ↔ flag pairing is in `objects.cc` `TypeAttributeFlags[62]` 
 | 39 | `RestrictProfession` | `RESTRICTPROFESSION` | `vocationString` |
 | 40 | `Take` | `TAKE` | `pickupable` + `weight` |
 | 41 | `Hang` | `HANG` | `isHangable` |
-| 42 | `HookSouth` | `HOOKSOUTH` | hang + orientation |
-| 43 | `HookEast` | `HOOKEAST` | hang + orientation |
+| 42 | `HookSouth` | `HOOKSOUTH` | OTB **`FLAG_HORIZONTAL`** (`isHorizontal`) on **wall pieces**, not hangables |
+| 43 | `HookEast` | `HOOKEAST` | OTB **`FLAG_VERTICAL`** (`isVertical`) on **wall pieces**, not hangables |
 | 44 | `Rotate` | `ROTATE` | `rotatable` + `rotateTo` |
 | 45 | `Destroy` | `DESTROY` | `destroyTo` |
 | 46 | `Clothes` | `CLOTHES` | `slotPosition` |

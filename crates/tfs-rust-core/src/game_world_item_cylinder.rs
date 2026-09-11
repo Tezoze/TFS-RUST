@@ -380,6 +380,41 @@ impl GameWorld {
         dx <= range && dy <= range
     }
 
+    /// 772 `ObjectAccessible` (`info.cc:252-300`).
+    ///
+    /// Inventory/container sources (`pos.x == 0xFFFF`) skip the map range (owner already
+    /// resolved). `HANG` items on a `HOOKSOUTH`/`HOOKEAST` tile require the actor on the
+    /// interior side (south of south-hooks, east of east-hooks) then [`Self::object_in_range`].
+    /// Used by Use (`operate.cc:2495`) and Turn (`operate.cc:2568`), not only move/throw.
+    pub(crate) fn object_accessible(
+        &self,
+        actor: CreatureId,
+        pos: Position,
+        item_id: ItemId,
+        range: u32,
+    ) -> bool {
+        if pos.x == 0xFFFF {
+            return true;
+        }
+        let hangable = self
+            .items
+            .get(item_id)
+            .and_then(|i| self.items_db.items.get(&i.item_type))
+            .is_some_and(|t| t.is_hangable());
+        if hangable && let Some(tile) = self.map.get_tile(pos) {
+            let flags = tile.body().flags;
+            if (flags & (crate::tile::flags::HOOKEAST | crate::tile::flags::HOOKSOUTH)) != 0 {
+                let Some(actor_pos) = self.creatures.get(actor).map(|k| k.position()) else {
+                    return false;
+                };
+                if !self.is_hang_hook_accessible(pos, actor_pos, flags) {
+                    return false;
+                }
+            }
+        }
+        self.object_in_range(actor, pos, range)
+    }
+
     /// 772 `INVENTORY_ANY` resolution (`cract.cc:501-547`).
     /// Scans equipment slots first, then nested containers, and returns the first
     /// cylinder that can accept `count` items. `count == 0` is treated as `1`.

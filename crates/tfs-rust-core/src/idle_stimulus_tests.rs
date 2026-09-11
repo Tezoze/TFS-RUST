@@ -6550,6 +6550,124 @@ fn test_arrow_override_does_not_break_subsequent_auto_walk() {
     );
 }
 
+/// Corpus `LaunchGame` (`main.cc:488-497`): `CGoDirection` (`ReceiveData`) runs
+/// *before* `AdvanceGame`. A due beat that consumed the next auto-walk `TDGo`
+/// first would emit `0x6D` one tile further east, then the arrow would snapback
+/// and step south from the skipped tile — the mid-walk direction-change glitch.
+#[test]
+fn test_arrow_interrupt_before_due_beat_does_not_skip_autowalk_tile() {
+    let (mut world, player, conn) = setup_player_world_with_conn();
+    for x in 102..=103 {
+        ensure_walkable_tile(
+            &mut world.map,
+            Position::new(x, 100, 7),
+            TEST_SYNTHETIC_GROUND_WP,
+        );
+    }
+    ensure_walkable_tile(
+        &mut world.map,
+        Position::new(101, 101, 7),
+        TEST_SYNTHETIC_GROUND_WP,
+    );
+    ensure_walkable_tile(
+        &mut world.map,
+        Position::new(102, 101, 7),
+        TEST_SYNTHETIC_GROUND_WP,
+    );
+
+    let now = std::time::Instant::now();
+    world.player_auto_walk_path(
+        conn,
+        player,
+        vec![Direction::East, Direction::East, Direction::East],
+        now,
+    );
+    world.advance_beat(1);
+    assert_eq!(
+        world.creatures.get(player).map(|k| k.position()),
+        Some(Position::new(101, 100, 7)),
+        "first auto-walk step must land"
+    );
+
+    // ReceiveData (`CGoDirection`) then the due beat — not beat then arrow.
+    world.player_move_request(conn, player, Direction::South, now);
+    let earliest = world
+        .creatures
+        .get(player)
+        .unwrap()
+        .base()
+        .earliest_walk_server_ms;
+    let advance = earliest.saturating_sub(world.server_ms).max(1);
+    world.advance_beat(advance);
+    let pos = world.creatures.get(player).map(|k| k.position());
+    assert_eq!(
+        pos,
+        Some(Position::new(101, 101, 7)),
+        "arrow must step south from the current tile, not skip east first (got {pos:?})"
+    );
+}
+
+/// Inverted order (due `MoveCreatures` then `CGoDirection`) skips one auto-walk
+/// tile — this is the game-loop bug, kept as a guard that the skip is real.
+#[test]
+fn test_due_beat_before_arrow_skips_one_autowalk_tile() {
+    let (mut world, player, conn) = setup_player_world_with_conn();
+    for x in 102..=103 {
+        ensure_walkable_tile(
+            &mut world.map,
+            Position::new(x, 100, 7),
+            TEST_SYNTHETIC_GROUND_WP,
+        );
+    }
+    ensure_walkable_tile(
+        &mut world.map,
+        Position::new(102, 101, 7),
+        TEST_SYNTHETIC_GROUND_WP,
+    );
+
+    let now = std::time::Instant::now();
+    world.player_auto_walk_path(
+        conn,
+        player,
+        vec![Direction::East, Direction::East, Direction::East],
+        now,
+    );
+    world.advance_beat(1);
+    assert_eq!(
+        world.creatures.get(player).map(|k| k.position()),
+        Some(Position::new(101, 100, 7)),
+    );
+
+    // Beat first: remaining auto-walk east fires, then the arrow from the new tile.
+    let earliest = world
+        .creatures
+        .get(player)
+        .unwrap()
+        .base()
+        .earliest_walk_server_ms;
+    let advance = earliest.saturating_sub(world.server_ms).max(1);
+    world.advance_beat(advance);
+    assert_eq!(
+        world.creatures.get(player).map(|k| k.position()),
+        Some(Position::new(102, 100, 7)),
+        "due beat before arrow consumes the next auto-walk TDGo (the skip)"
+    );
+    world.player_move_request(conn, player, Direction::South, now);
+    let earliest = world
+        .creatures
+        .get(player)
+        .unwrap()
+        .base()
+        .earliest_walk_server_ms;
+    let advance = earliest.saturating_sub(world.server_ms).max(1);
+    world.advance_beat(advance);
+    assert_eq!(
+        world.creatures.get(player).map(|k| k.position()),
+        Some(Position::new(102, 101, 7)),
+        "arrow then lands one tile east of where the player turned"
+    );
+}
+
 /// Regression: a rejected step (blocked tile) must NOT strand subsequent
 /// auto-walks at 1 tile per move. The bug was that `on_walk_step_rejected`
 /// set `force_update_follow_path = true` for ALL ToDo creatures including

@@ -15,7 +15,6 @@
 use crate::creature_todo::ActionObjectRef;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
-use crate::item_look::look_distance_tfs;
 use crate::return_value::ReturnValue;
 
 impl GameWorld {
@@ -45,15 +44,10 @@ impl GameWorld {
             return Err(ReturnValue::NotPossible);
         }
 
-        // Range check for map tiles — C++ `ObjectAccessible(CreatureID, Obj, 1)`
-        // (`operate.cc:2568`). Inventory/container items are always accessible.
-        if is_map_tile {
-            let Some(player_pos) = self.creatures.get(cid).map(|k| k.position()) else {
-                return Err(ReturnValue::NotPossible);
-            };
-            if look_distance_tfs(player_pos, obj.pos) > 1 {
-                return Err(ReturnValue::NotPossible);
-            }
+        // Range + hook-side for map tiles — C++ `ObjectAccessible(CreatureID, Obj, 1)`
+        // (`operate.cc:2568`, `info.cc:252-300`). Inventory/container items skip the map check.
+        if is_map_tile && !self.object_accessible(cid, obj.pos, item_id, 1) {
+            return Err(ReturnValue::NotPossible);
         }
 
         // Check `rotatable()` flag — C++ `ObjType.getFlag(ROTATE)` (`operate.cc:2573`).

@@ -1249,6 +1249,66 @@ mod tests {
         }
     }
 
+    fn register_item_type(
+        world: &mut crate::game_world::GameWorld,
+        item_type_id: u16,
+        mut it: tfs_rust_content::otb::ItemType,
+    ) {
+        it.id = item_type_id;
+        it.server_id = item_type_id;
+        let mut items = std::collections::HashMap::clone(&world.items_db.items);
+        items.insert(item_type_id, it);
+        let client_to_server = std::collections::HashMap::clone(&world.items_db.client_to_server);
+        world.items_db = std::sync::Arc::new(tfs_rust_content::items::ItemDatabase {
+            items,
+            client_to_server,
+        });
+    }
+
+    /// Wall (hook orientation) + hangable on the same tile via `internal_add_item_to_tile`.
+    fn place_hangable_on_hook_wall(
+        world: &mut crate::game_world::GameWorld,
+        wall_pos: Position,
+        wall_type: u16,
+        hang_type: u16,
+        wall_flags: u32,
+        hang_flags: u32,
+    ) -> ActionObjectRef {
+        ensure_walkable_tile(&mut world.map, wall_pos, TEST_SYNTHETIC_GROUND_WP);
+        register_item_type(
+            world,
+            wall_type,
+            tfs_rust_content::otb::ItemType {
+                flags: wall_flags,
+                client_id: wall_type,
+                ..tfs_rust_content::otb::ItemType::default()
+            },
+        );
+        register_item_type(
+            world,
+            hang_type,
+            tfs_rust_content::otb::ItemType {
+                flags: hang_flags,
+                client_id: hang_type,
+                ..tfs_rust_content::otb::ItemType::default()
+            },
+        );
+        let wall_id = world.items.insert(crate::item::Item::new_single(wall_type));
+        world
+            .internal_add_item_to_tile(wall_pos, wall_id, crate::cylinder::CylinderFlags::NO_LIMIT)
+            .expect("place wall");
+        let hang_id = world.items.insert(crate::item::Item::new_single(hang_type));
+        world
+            .internal_add_item_to_tile(wall_pos, hang_id, crate::cylinder::CylinderFlags::NO_LIMIT)
+            .expect("place hangable");
+        ActionObjectRef {
+            pos: wall_pos,
+            stack_pos: 0,
+            sprite_id: hang_type,
+            creature_id: None,
+        }
+    }
+
     fn insert_test_player(world: &mut crate::game_world::GameWorld, pos: Position) -> CreatureId {
         ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
         let cid = world
@@ -1745,6 +1805,120 @@ mod tests {
         // No conn registered → returns `Ok(())` (no-op, no panic).
         let result = world.execute_player_use(cid, obj1, None, 0);
         assert!(result.is_ok(), "single-object use dispatches without conn");
+    }
+
+    /// 772 `ObjectAccessible` (`info.cc:266-295`): HANG on HOOKEAST is usable from the east
+    /// (inside), not from the west (outside). Covers wall lamps and any other hangable.
+    #[test]
+    fn execute_player_use_hangable_on_hookeast_rejects_west_allows_east() {
+        const WALL: u16 = 1270;
+        const LAMP: u16 = 2037;
+        const PAINTING: u16 = 2056;
+        const FLAG_HANGABLE: u32 = 1 << 16;
+        const FLAG_VERTICAL: u32 = 1 << 17;
+        const FLAG_BLOCK_SOLID: u32 = 1 << 0;
+
+        let wall_pos = Position::new(101, 100, 7);
+        let west = Position::new(100, 100, 7);
+        let east = Position::new(102, 100, 7);
+
+        for hang_type in [LAMP, PAINTING] {
+            let mut world = beat_driven_test_world();
+            ensure_walkable_tile(&mut world.map, west, TEST_SYNTHETIC_GROUND_WP);
+            ensure_walkable_tile(&mut world.map, east, TEST_SYNTHETIC_GROUND_WP);
+            let obj = place_hangable_on_hook_wall(
+                &mut world,
+                wall_pos,
+                WALL,
+                hang_type,
+                FLAG_VERTICAL | FLAG_BLOCK_SOLID,
+                FLAG_HANGABLE,
+            );
+            let flags = world.map.get_tile(wall_pos).unwrap().body().flags;
+            assert_ne!(
+                flags & crate::tile::flags::HOOKEAST,
+                0,
+                "vertical wall must stamp HOOKEAST"
+            );
+
+            let west_cid = insert_test_player(&mut world, west);
+            assert_eq!(
+                world.execute_player_use(west_cid, obj, None, 0),
+                Err(crate::return_value::ReturnValue::NotPossible),
+                "hangable {hang_type} from west of HOOKEAST → NOTACCESSIBLE"
+            );
+
+            let east_cid = insert_test_player(&mut world, east);
+            assert!(
+                world.execute_player_use(east_cid, obj, None, 0).is_ok(),
+                "hangable {hang_type} from east of HOOKEAST must use"
+            );
+        }
+    }
+
+    /// HOOKSOUTH hangable: north (outside) blocked, south (inside) allowed.
+    #[test]
+    fn execute_player_use_hangable_on_hooksouth_rejects_north_allows_south() {
+        const WALL: u16 = 1271;
+        const LAMP: u16 = 2039;
+        const FLAG_HANGABLE: u32 = 1 << 16;
+        const FLAG_HORIZONTAL: u32 = 1 << 18;
+        const FLAG_BLOCK_SOLID: u32 = 1 << 0;
+
+        let mut world = beat_driven_test_world();
+        let wall_pos = Position::new(100, 101, 7);
+        let north = Position::new(100, 100, 7);
+        let south = Position::new(100, 102, 7);
+        ensure_walkable_tile(&mut world.map, north, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, south, TEST_SYNTHETIC_GROUND_WP);
+        let obj = place_hangable_on_hook_wall(
+            &mut world,
+            wall_pos,
+            WALL,
+            LAMP,
+            FLAG_HORIZONTAL | FLAG_BLOCK_SOLID,
+            FLAG_HANGABLE,
+        );
+
+        let north_cid = insert_test_player(&mut world, north);
+        assert_eq!(
+            world.execute_player_use(north_cid, obj, None, 0),
+            Err(crate::return_value::ReturnValue::NotPossible),
+            "hangable from north of HOOKSOUTH → NOTACCESSIBLE"
+        );
+        let south_cid = insert_test_player(&mut world, south);
+        assert!(
+            world.execute_player_use(south_cid, obj, None, 0).is_ok(),
+            "hangable from south of HOOKSOUTH must use"
+        );
+    }
+
+    /// Non-hangable on a hook wall is not gated by hook side (`ObjectAccessible` HANG-only).
+    #[test]
+    fn execute_player_use_non_hangable_on_hookeast_allows_west() {
+        const WALL: u16 = 1270;
+        const LEVER: u16 = 1945;
+        const FLAG_VERTICAL: u32 = 1 << 17;
+        const FLAG_BLOCK_SOLID: u32 = 1 << 0;
+        const FLAG_USEABLE: u32 = 1 << 4;
+
+        let mut world = beat_driven_test_world();
+        let wall_pos = Position::new(101, 100, 7);
+        let west = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, west, TEST_SYNTHETIC_GROUND_WP);
+        let obj = place_hangable_on_hook_wall(
+            &mut world,
+            wall_pos,
+            WALL,
+            LEVER,
+            FLAG_VERTICAL | FLAG_BLOCK_SOLID,
+            FLAG_USEABLE,
+        );
+        let cid = insert_test_player(&mut world, west);
+        assert!(
+            world.execute_player_use(cid, obj, None, 0).is_ok(),
+            "non-hangable on a hook wall remains usable from the west"
+        );
     }
 
     /// `Move` execute arm: re-validation failure (absent object) → `Err(NotPossible)`.

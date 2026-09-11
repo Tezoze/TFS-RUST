@@ -1,3 +1,19 @@
+# Arrow mid auto-walk skip (2026-09-11)
+
+772 `LaunchGame` runs `ReceiveData` (`CGoDirection` / `ToDoClear`) before `AdvanceGame`. The command arm was pre-advancing a due Tokio beat so the next auto-walk `TDGo` landed (`0x6D`) before the arrow could cancel the path — client skip/glitch.
+
+- [x] Command arm: drain due ticks, dispatch, then `AdvanceGame` (hold lone `0xA3` across that SendAll)
+- [x] OTClient `0x69`+`0x65` coalesce: Stop then Move same conn → `CGoDirection` only
+- [x] Tests + lesson (346 inverted order caused the skip)
+
+# Wall-hangable use from the wrong side of a wall (2026-09-11)
+
+772 `ObjectAccessible` (`info.cc:252-300`) refuses `HANG` items on `HOOKSOUTH`/`HOOKEAST` tiles unless the actor stands on the interior side (south / east). Use currently only checks Chebyshev 1.
+
+- [x] Map OTB `FLAG_VERTICAL` → tile `HOOKEAST`, `FLAG_HORIZONTAL` → `HOOKSOUTH` (walls, not hangable+orientation)
+- [x] `object_accessible` on single-object Use (and Turn); all hangables, not just lamps
+- [x] Tests: wrong-side lamp/painting fail; interior succeed; non-hangable on a hook wall still usable
+
 # Sim harness extract — `docs/SIM_HARNESS.md` (2026-09-10)
 
 Decouple the chase/kite harness from live `tfs-rust-core`. Outer loop (`.scenario` + dual runners + Python diffs) stays. Inner loop today is cfg-quarantined inside core and fused with unit-test fixtures (~1,116 / 1,398 tests import `sim_harness` via `test_world`).

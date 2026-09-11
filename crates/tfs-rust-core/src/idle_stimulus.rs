@@ -4071,12 +4071,11 @@ impl GameWorld {
     }
 
     /// F8 S4/S5 — `TDUse` execute dispatch. Re-validates the object(s) at execute time
-    /// (mirrors C++ `Obj.exists()` in the `Use` executor, `cract.cc:727-760`), resolves
-    /// the `ItemId` from the `ActionObjectRef`, then calls the core use helpers
-    /// (`player_use_item_core` / `player_use_item_ex_core`) directly — **skipping** the
-    /// reactive-path ready check + walk-to-reach (S5: the ToDo arm handles adjacency via
-    /// `Go`-prepend and timing via `Wait{100}` + `CalculateDelay`). Returns `Err(rv)` on
-    /// re-validation or executor failure so the caller can apply the `RESULT` catch.
+    /// (mirrors C++ `Obj.exists()` in the `Use` executor, `cract.cc:727-760`), applies
+    /// `ObjectAccessible(..., 1)` (`operate.cc:2495`, hook-side for `HANG` items), then
+    /// calls the core use helpers. The ToDo arm still handles walk-to-reach adjacency
+    /// via `Go`-prepend and timing via `Wait{100}` + `CalculateDelay`. Returns `Err(rv)`
+    /// on re-validation or executor failure so the caller can apply the `RESULT` catch.
     pub(crate) fn execute_player_use(
         &mut self,
         cid: CreatureId,
@@ -4092,18 +4091,47 @@ impl GameWorld {
             self.validate_use_ex_target_ref(cid, o2)?;
         }
 
-        let Some(conn_id) = self.conn_for_creature(cid) else {
-            // Player disconnected — no conn to send results/open containers to.
-            tracing::debug!(?cid, "execute_player_use: no conn — skipping");
-            return Ok(());
-        };
-
         // Prefer a real ItemId; else bare ground type (TFS getUseItem → ground).
         let item_id = self.resolve_use_object(cid, obj1.pos, obj1.stack_pos, obj1.sprite_id);
         if let Some(item_id) = item_id {
+            // 772 `Use` → `ObjectAccessible(CreatureID, Obj1, 1)` (`operate.cc:2495`).
+            // Hangables on HOOKSOUTH/HOOKEAST tiles are interior-side only (`info.cc:266-295`).
+            if obj1.pos.x != 0xFFFF && !self.object_accessible(cid, obj1.pos, item_id, 1) {
+                return Err(ReturnValue::NotPossible);
+            }
             if let Some(o2) = obj2 {
+                // Obj2: same gate unless DistUse / allowFarUse, which fall through to
+                // `ThrowPossible` in the ToDo arm (`operate.cc:2506-2527`).
+                if o2.pos.x != 0xFFFF {
+                    let item_type = self.items.get(item_id).map(|i| i.item_type);
+                    let action_id = self.items.get(item_id).map(|i| i.action_id()).unwrap_or(0);
+                    let far_obj2 = item_type.is_some_and(|t| {
+                        self.items_db.is_distuse(t)
+                            || self
+                                .spells
+                                .runes_by_id
+                                .get(&t)
+                                .is_some_and(|r| r.allow_far_use)
+                            || self.events.action_allows_far_use(t, action_id)
+                    });
+                    if !far_obj2
+                        && let Some(o2_id) =
+                            self.resolve_use_object(cid, o2.pos, o2.stack_pos, o2.sprite_id)
+                        && !self.object_accessible(cid, o2.pos, o2_id, 1)
+                    {
+                        return Err(ReturnValue::NotPossible);
+                    }
+                }
+                let Some(conn_id) = self.conn_for_creature(cid) else {
+                    tracing::debug!(?cid, "execute_player_use: no conn — skipping");
+                    return Ok(());
+                };
                 return self.player_use_item_ex_core(conn_id, cid, item_id, o2, obj1.pos);
             }
+            let Some(conn_id) = self.conn_for_creature(cid) else {
+                tracing::debug!(?cid, "execute_player_use: no conn — skipping");
+                return Ok(());
+            };
             let preferred_cid = if matches!(
                 self.mechanics.profile.container_window_alloc,
                 crate::formulas::ContainerWindowAlloc::ClientChooses
@@ -4131,6 +4159,10 @@ impl GameWorld {
             self.resolve_ground_use_type(obj1.pos, obj1.stack_pos, obj1.sprite_id)
         else {
             return Err(ReturnValue::NotPossible);
+        };
+        let Some(conn_id) = self.conn_for_creature(cid) else {
+            tracing::debug!(?cid, "execute_player_use: no conn — skipping");
+            return Ok(());
         };
         self.player_use_ground_core(conn_id, cid, ground_type, obj1.pos)
     }

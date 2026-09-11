@@ -44,9 +44,11 @@ pub mod flags {
     /// CipSoft 772 `UNTHROW` — projectile-blocking (`ItemType::block_projectile`). Distinct from
     /// `BLOCKPATH`/`BLOCKSOLID`; used only by 772 `Map::throw_possible` (`info.cc:1189`).
     pub const UNTHROW: u32 = 1 << 24;
-    /// CipSoft 772 `HOOKEAST` — wall hook facing east (`is_hangable && is_horizontal`).
+    /// 772 `HOOKEAST` — east-face hook (`objects.srv` `HookEast`; OTB `FLAG_VERTICAL`).
+    /// Interior is east (`posx >= tile.x`); west is the outside (`info.cc:288-294`).
     pub const HOOKEAST: u32 = 1 << 25;
-    /// CipSoft 772 `HOOKSOUTH` — wall hook facing south (`is_hangable && is_vertical`).
+    /// 772 `HOOKSOUTH` — south-face hook (`objects.srv` `HookSouth`; OTB `FLAG_HORIZONTAL`).
+    /// Interior is south (`posy >= tile.y`); north is the outside (`info.cc:279-285`).
     pub const HOOKSOUTH: u32 = 1 << 26;
 
     /// OTBM `TILEFLAG_REFRESH` (`iomap.h` `1<<5`) — restore snapshot. Placed at
