@@ -168,7 +168,6 @@ mod tests {
     use super::*;
     use crate::creature::CreatureKind;
     use crate::item::Item;
-    use crate::sim_scenario::walk_player_adjacent;
     use crate::test_support::{
         beat_driven_test_world, ensure_walkable_tile, insert_player, insert_spectator_player,
         test_player,
@@ -361,7 +360,10 @@ mod tests {
 
         let cid = insert_player(&mut world, test_player("Hero", start));
         world.map.register_creature_at(start, cid);
-        walk_player_adjacent(&mut world, cid, pad).expect("step onto forcefield");
+        assert!(
+            world.try_walk(cid, Direction::South),
+            "step onto forcefield"
+        );
         assert_eq!(
             world.creatures.get(cid).map(|k| k.position()),
             Some(dest),

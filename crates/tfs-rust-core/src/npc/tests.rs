@@ -325,7 +325,7 @@ fn greeting_farewell_trace() {
     ));
     // Drain reply waits + ChangeState to Idle.
     world.server_ms = world.server_ms.saturating_add(20_000);
-    crate::sim_scenario::run_sim_tick(&mut world);
+    crate::test_support::drain_todos_until_idle(&mut world);
     assert!(matches!(
         world.creatures.get(npc),
         Some(CreatureKind::Npc(n))
@@ -957,7 +957,7 @@ fn reply_todo_schedules_wait_talk_chain() {
 
     // Jump past initial 1000 ms wait and drain.
     world.server_ms = 101_000;
-    crate::sim_scenario::run_sim_tick(&mut world);
+    crate::test_support::drain_todos_until_idle(&mut world);
     // After first Wait+Talk, remaining trailing wait may still be present; speech text was queued.
 }
 

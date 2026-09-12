@@ -104,10 +104,6 @@ mod server_save;
 mod shop;
 mod shutdown;
 mod sim_glibc_rand;
-/// Headless chase/kite scenario helpers — test/diagnostic only.
-/// Compiled when `cfg(test)` or `--features sim`; excluded from production builds.
-#[cfg(any(test, feature = "sim"))]
-pub mod sim_scenario;
 mod skill_timer;
 pub mod spawn;
 mod spawn_lifecycle;
@@ -118,8 +114,8 @@ pub mod stability;
 mod stepping_tiles;
 mod subsystem_counters;
 pub mod talkactions;
-/// Unit-test `GameWorld` fixtures — compiled for tests and `--features sim` (until Phase 5).
-#[cfg(any(test, feature = "sim"))]
+/// Unit-test `GameWorld` fixtures.
+#[cfg(test)]
 pub(crate) mod test_support;
 #[cfg(test)]
 mod test_world;
@@ -202,6 +198,7 @@ pub use item_attributes::{
 pub use lua_command::LuaCommand;
 pub use lua_event_dispatcher::LuaEventDispatcher;
 pub use map::Map;
+pub use monster_ai::TShortwayFillTile;
 pub use matrix_area::MatrixArea;
 pub use party::{Party, PartyShield, split_shared_experience};
 pub use pathfinding::{

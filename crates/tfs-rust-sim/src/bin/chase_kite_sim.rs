@@ -3,15 +3,14 @@
 //! C++ reference: `tibia-game-master` `chase_kite_scenario.cc`; `crmain.cc` `MoveCreatures`;
 //! `operate.cc` `NotifyAllCreatures`.
 
-mod chase_jsonl;
-
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 
 use tfs_rust_common::Position;
 use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig, MonsterState};
-use tfs_rust_core::sim_scenario::{
+use tfs_rust_sim::chase_jsonl;
+use tfs_rust_sim::{
     SimMapConfig, audit_otbm_route_tiles, beat_driven_world_for_kite_synthetic,
     beat_driven_world_from_map, default_sim_map_config, drain_todo_queue_once,
     insert_monster_from_type, insert_monster_with_config, insert_player,
@@ -335,15 +334,16 @@ fn build_world(
 }
 
 fn scenario_monster_config(scenario: &KiteScenario) -> MonsterAiConfig {
-    let mut config = MonsterAiConfig::default();
-    config.is_hostile = scenario.monster_hostile;
-    config.target_distance = scenario.monster_target_distance;
-    config.melee_skill = scenario.monster_melee_skill;
-    config.melee_attack = scenario.monster_melee_attack;
-    config.armor = scenario.monster_armor;
-    config.defense = scenario.monster_defense;
-    config.talks = scenario.monster_talks;
-    config
+    MonsterAiConfig {
+        is_hostile: scenario.monster_hostile,
+        target_distance: scenario.monster_target_distance,
+        melee_skill: scenario.monster_melee_skill,
+        melee_attack: scenario.monster_melee_attack,
+        armor: scenario.monster_armor,
+        defense: scenario.monster_defense,
+        talks: scenario.monster_talks,
+        ..MonsterAiConfig::default()
+    }
 }
 
 fn spawn_entities(
@@ -354,11 +354,11 @@ fn spawn_entities(
     let player_pos = Position::new(scenario.player_start.0, scenario.player_start.1, z);
 
     let player_id = insert_player(world, sim_hero_player(&scenario.player_name, player_pos));
-    if scenario.player_health_from_scenario {
-        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player_id) {
-            p.base.health = scenario.player_health;
-            p.base.max_health = scenario.player_health;
-        }
+    if scenario.player_health_from_scenario
+        && let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player_id)
+    {
+        p.base.health = scenario.player_health;
+        p.base.max_health = scenario.player_health;
     }
     world.map.register_creature_at(player_pos, player_id);
 
@@ -652,11 +652,13 @@ fn main() {
 
 fn run_main() -> Result<(), String> {
     let raw: Vec<String> = env::args().skip(1).collect();
+    const USAGE: &str = "usage: chase_kite_sim <scenario> [--log PATH] [--data-dir DIR] [--map REL] [--synthetic]\n       chase_kite_sim --audit-route <scenario> [--data-dir DIR] [--map REL]";
     if raw.is_empty() {
-        return Err(
-            "usage: chase_kite_sim <scenario> [--log PATH] [--data-dir DIR] [--map REL] [--synthetic]\n       chase_kite_sim --audit-route <scenario> [--data-dir DIR] [--map REL]"
-                .into(),
-        );
+        return Err(USAGE.into());
+    }
+    if raw[0] == "--help" || raw[0] == "-h" {
+        println!("{USAGE}");
+        return Ok(());
     }
     if raw[0] == "--audit-route" {
         return run_audit_route(&raw[1..]);
@@ -866,7 +868,7 @@ sim_tick
     /// P2 — OTBM route audit for real-map cyclops control scenario.
     #[test]
     fn audit_route_kite_cyclops_one_real() {
-        use tfs_rust_core::sim_scenario::{audit_otbm_route_tiles, default_sim_map_config};
+        use tfs_rust_sim::{audit_otbm_route_tiles, default_sim_map_config};
 
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),

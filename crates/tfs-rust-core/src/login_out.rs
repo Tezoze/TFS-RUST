@@ -95,6 +95,15 @@ pub(crate) fn assign_creature_wire_id(world: &mut GameWorld, cid: CreatureId) {
     }
 }
 
+impl GameWorld {
+    /// C++ `Monster::setID` — assigns an auto-incrementing wire id after insert.
+    ///
+    /// See [`assign_creature_wire_id`].
+    pub fn assign_creature_wire_id(&mut self, cid: CreatureId) {
+        assign_creature_wire_id(self, cid);
+    }
+}
+
 /// Protocol creature id for move/turn packets (`protocolgame.cpp` `sendMoveCreature`).
 /// Players use `guid`; monsters/npcs use the auto-incrementing `wire_id` assigned at
 /// spawn (C++ `Monster::setID`, `monster.h:43-46`). Falls back to the SlotMap idx for

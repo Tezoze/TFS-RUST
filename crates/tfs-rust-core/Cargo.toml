@@ -21,14 +21,6 @@ bitflags = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 rustc-hash = "2"
 smallvec = { version = "1", features = ["union"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
-
-[features]
-default = []
-# Enables simulation/diagnostic modules (`sim_scenario`) and `chase_kite_sim`.
-# Tests auto-enable via `cfg(test)`; production builds exclude this.
-# Sim binaries (`chase_kite_sim`) require `--features sim`. Dropped in Phase 5.
-sim = ["dep:tracing-subscriber"]
 
 [dev-dependencies]
 proptest = "1.11"
@@ -36,8 +28,3 @@ proptest = "1.11"
 [[bin]]
 name = "path_compare"
 path = "src/bin/path_compare.rs"
-
-[[bin]]
-name = "chase_kite_sim"
-path = "src/bin/chase_kite_sim.rs"
-required-features = ["sim"]

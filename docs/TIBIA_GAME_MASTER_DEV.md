@@ -262,7 +262,7 @@ Shared line-based scripts under `scripts/scenarios/*.scenario` drive identical p
 python3 scripts/run_kite_scenario.py scripts/scenarios/kite_rat_melee.scenario
 
 # Rust only (fast iteration) — loads OTBM from data/
-TFS_CHASE_PATH_DEBUG=1 cargo run -p tfs-rust-core --bin chase_kite_sim -- \
+TFS_CHASE_PATH_DEBUG=1 cargo run -p tfs-rust-sim --bin chase_kite_sim -- \
   scripts/scenarios/kite_rat_melee.scenario --log log/chase_path_rust.log
 
 # Synthetic flat arena (Rust only; C++ needs .sec tiles at scenario coords)

@@ -1,7 +1,7 @@
 # Simulation harness — current state and implementation plan
 
-**Status:** implementation plan (inventory 2026-09-10; Phase 0–4 done)
-**Related:** `docs/REFACTOR_AUDIT.md` Phase 2 (quarantine done; crate extract was the unfinished stretch);
+**Status:** Phase 0–5 done (crate extract 2026-09-12)
+**Related:** `docs/REFACTOR_AUDIT.md` Phase 2 (quarantine) + Phase 5 (crate extract);
 `tasks/lessons.md` §70, §100, §127, §232; `docs/772_PLAYER_COMBAT_AUDIT.md` (B4 / sim battery fragility);
 `tasks/todo.md` (Sim harness extract)
 
@@ -40,7 +40,7 @@ scripts/scenarios/*.scenario
         │
         ▼
 scripts/run_kite_scenario.py  ──►  C++ chase_kite_scenario
-        │                     ──►  Rust chase_kite_sim (--features sim)
+        │                     ──►  Rust chase_kite_sim (`tfs-rust-sim`)
         ▼
 log/chase_path_{cip,rust}_*.log  →  summarize_chase_gaps.py
 scripts/run_sim_battery.py / run_realmap_sim_battery.py
@@ -52,17 +52,17 @@ Shared scenarios, dual runners, diff tools. The weight problem is not here.
 
 | Artifact | Location | Actual problem |
 |----------|----------|----------------|
-| `test_support.rs` + `sim_scenario.rs` | `tfs-rust-core`, `cfg(any(test, feature = "sim"))` | **Phase 3 done.** Fixtures vs scenario/OTBM/wall-clock. `test_world` re-exports `test_support` only. |
-| `chase_kite_sim` bin | `tfs-rust-core/src/bin/` | Correct idea, wrong crate. Imports `sim_scenario` only. JSONL via `chase_jsonl.rs` tracing layer (Phase 2). |
-| `path_compare` bin | same `src/bin/` | **Clean** — public pathfinding only, no `sim` feature. Leave in core. |
-| `chase_debug` | **Phase 2 done.** Deleted. | Production AI/walk/combat emit `tracing::trace!(target: "chase", …)`. JSONL writer is `chase_kite_sim`’s `ChaseJsonlLayer`. |
-| `sim_glibc_rand` | Always: `GlibcRngState` + `DANCE_DIR_ORDER` | **Phase 1 done.** One per-world stream. Process-global `libc::rand`, `sim_glibc_rng_enabled`, and free `parity_*` `thread_rng` fallbacks are gone. |
-| `GameWorld::parity_random` | `game_world.rs` | Unconditional `self.parity_rng`. Seed via `seed_parity_rng`; harness reads `TFS_SIM_SEED`. |
-| `Player::fist_attack` / `fist_defense` | Always on `Player` | Race-data fist fallback (`human.mon` Attack=7 / Defend=5, `crcombat.cc:183`). Set in `login.rs`. Renamed from `sim_melee_*` (Phase 0). |
+| `test_support.rs` / `test_world` | `tfs-rust-core` `#[cfg(test)]` | In-crate fixtures only. No scenario/OTBM. |
+| `chase_kite_sim` + `sim_scenario` | **`tfs-rust-sim`** | Scenario/OTBM/wall-clock + JSONL subscriber. |
+| `path_compare` bin | `tfs-rust-core/src/bin/` | **Clean** — public pathfinding only. |
+| `chase_debug` | **Phase 2 done.** Deleted. | Production AI/walk/combat emit `tracing::trace!(target: "chase", …)`. |
+| `sim_glibc_rand` | Always: `GlibcRngState` + `DANCE_DIR_ORDER` | **Phase 1 done.** One per-world stream. |
+| `GameWorld::parity_random` | `game_world.rs` | Unconditional `self.parity_rng`. Seed via `seed_parity_rng`; sim crate reads `TFS_SIM_SEED`. |
+| `Player::fist_attack` / `fist_defense` | Always on `Player` | Race-data fist fallback (`human.mon` Attack=7 / Defend=5, `crcombat.cc:183`). Set in `login.rs`. |
 | `Monster::harness_preserve_sleep` | **Phase 4 done.** | Replaced by `GameWorld::sleep_until_damage` + `preserve_monster_sleep_until_damage`. |
-| `feature = "sim"` | `tfs-rust-core/Cargo.toml` | Cfg switch for `test_support` / `sim_scenario` + optional `tracing-subscriber` for `chase_kite_sim`. Dropped in Phase 5. |
+| `feature = "sim"` | **Phase 5 done.** Dropped. | Zero sim cfg in core. |
 
-Phase 2 replaced `chase_debug` with `target = "chase"` tracing; Phase 3 split fixtures from scenario. The stretch — move `sim_scenario` to `tfs-rust-sim` — is Phase 5. Result until then: scenario code is off in the default binary, still in-tree under `feature = "sim"`.
+Phase 5 moved `sim_scenario` + `chase_kite_sim` to `tfs-rust-sim`. Core default and `cargo test` do not compile scenario/OTBM harness code.
 
 ### 2.3 What the battery validates well
 
@@ -131,7 +131,7 @@ C++ keeps its own harness. Parity contract is **scenario file + seed + log schem
 ### 3.4 RNG contract
 
 ```
-TFS_SIM_SEED=N          # read only by test_support / C++ runner / battery scripts
+TFS_SIM_SEED=N          # read only by tfs-rust-sim / C++ runner / battery scripts
   → seed_parity_rng(N) at the same scenario milestones
   → every combat/AI draw comes from that world's GlibcRngState only
   → no libc::srand / process-global rand()
@@ -140,7 +140,7 @@ TFS_SIM_SEED=N          # read only by test_support / C++ runner / battery scrip
 
 Unit tests that need determinism call `seed_parity_rng` explicitly. They do not require `feature = "sim"` or env vars.
 
-Free `parity_random` / `parity_rand_mod` `thread_rng` fallbacks are deleted (Phase 1). All live draws go through `GameWorld::parity_*` / `GlibcRngState`. Until Phase 5, `test_support::sim_seed_from_env` (still in core) is the `TFS_SIM_SEED` env reader. `TFS_CHASE_PATH_*` is read only by `chase_kite_sim` (`chase_jsonl.rs`).
+Free `parity_random` / `parity_rand_mod` `thread_rng` fallbacks are deleted (Phase 1). All live draws go through `GameWorld::parity_*` / `GlibcRngState`. `TFS_SIM_SEED` is read only by `tfs-rust-sim`. `TFS_CHASE_PATH_*` is read only by `chase_kite_sim` (`chase_jsonl.rs`).
 
 ### 3.5 Observe via `tracing`, not a trait
 
@@ -314,7 +314,7 @@ python3 scripts/run_sim_battery.py
 
 ---
 
-### Phase 5 — New crate `tfs-rust-sim`; drop `feature = "sim"`
+### Phase 5 — New crate `tfs-rust-sim`; drop `feature = "sim"` — DONE 2026-09-12
 
 **Goal:** scenario module + `chase_kite_sim` + its 9 bin tests + tracing JSONL layer live in `crates/tfs-rust-sim`. Depends on `tfs-rust-core`. Core default build has **zero** sim cfg.
 
@@ -356,7 +356,7 @@ python3 scripts/run_sim_battery.py
 /home/jessec/.local/bin/rtk cargo check -p tfs-rust-core
 /home/jessec/.local/bin/rtk cargo clippy -p tfs-rust-core --all-targets -- -D warnings
 /home/jessec/.local/bin/rtk cargo test -p tfs-rust-core
-/home/jessec/.local/bin/rtk cargo check -p tfs-rust-core --features sim   # until Phase 5 drops it
+/home/jessec/.local/bin/rtk cargo test -p tfs-rust-sim
 /home/jessec/.local/bin/rtk rg -n 'feature = "sim"|sim_glibc_rng_enabled|chase_debug::|sim_melee_' crates/tfs-rust-core/src
 python3 scripts/run_sim_battery.py
 ```

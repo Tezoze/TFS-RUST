@@ -1,0 +1,20 @@
+[package]
+name = "tfs-rust-sim"
+version = "0.1.0"
+edition = "2024"
+autobins = false
+
+[dependencies]
+tfs-rust-core = { workspace = true }
+tfs-rust-common = { workspace = true }
+tfs-rust-content = { workspace = true }
+tfs-rust-db = { workspace = true }
+tfs-rust-net = { workspace = true }
+slotmap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio = { workspace = true }
+
+[[bin]]
+name = "chase_kite_sim"
+path = "src/bin/chase_kite_sim.rs"

@@ -2,7 +2,6 @@
 //!
 //! C++ reference: `chase_kite_scenario.cc` `SpawnMonsterAppear`, `MoveCreatures`, `DrainTodoQueue`;
 //! `tibia-game-master` `crmain.cc` `MoveCreatures`.
-//! Unit-test world fixtures live in `test_support` (crate-private until Phase 5).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -14,21 +13,24 @@ use tfs_rust_common::enums::Direction;
 use tfs_rust_content::items::ItemDatabase;
 use tfs_rust_content::monsters::MonsterDatabase;
 use tfs_rust_content::otbm::OtbmLoader;
+use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig, MonsterState};
+use tfs_rust_core::game_world::GameWorld;
+use tfs_rust_core::ids::CreatureId;
+use tfs_rust_core::load_mechanics;
+use tfs_rust_core::map::Map;
+use tfs_rust_core::pathfinding::REVERSE_PATH_VIEW_RADIUS;
+use tfs_rust_core::tile::Tile;
 
-use crate::creature::{CreatureKind, MonsterAiConfig, MonsterState};
-use crate::game_world::GameWorld;
-use crate::ids::CreatureId;
-use crate::map::Map;
-use crate::pathfinding::REVERSE_PATH_VIEW_RADIUS;
-use crate::test_support::{
-    beat_driven_world_with_synthetic_ground_data, ensure_walkable_tile,
-    ensure_walkable_tile_if_absent, harness_at_wall, harness_clamp_delay, init_beat_driven_world,
-    lay_synthetic_arena, load_items_db_for, seed_world_from_sim_env, set_harness_segment_ms,
-    set_harness_wall_ms, synthetic_ground_type_for_waypoints, test_runtime,
+use crate::clock::{
+    harness_at_wall, harness_clamp_delay, set_harness_segment_ms, set_harness_wall_ms,
 };
-use crate::tile::Tile;
+use crate::world::{
+    beat_driven_world_with_synthetic_ground_data, ensure_walkable_tile,
+    ensure_walkable_tile_if_absent, init_beat_driven_world, lay_synthetic_arena, load_items_db_for,
+    seed_world_from_sim_env, synthetic_ground_type_for_waypoints, test_runtime,
+};
 
-pub use crate::test_support::{
+pub use crate::world::{
     insert_monster_from_type, insert_monster_with_config, insert_player, sim_hero_player,
     sim_player_damage_monster,
 };
@@ -78,7 +80,7 @@ pub fn beat_driven_world_from_map(data_dir: &Path, map_rel: &str) -> Result<Game
     let map_data = OtbmLoader::load_from_file(&map_path).map_err(|e| e.to_string())?;
     let mut items = SlotMap::default();
     let map = Map::from_map_data(map_data, items_db.as_ref(), &mut items);
-    let mechanics = crate::formulas::load_mechanics(data_dir, ProtocolVersion::V772);
+    let mechanics = load_mechanics(data_dir, ProtocolVersion::V772);
     let monsters_dir = data_dir.join("monster");
     let monsters_db = Arc::new(
         MonsterDatabase::load_dir(&monsters_dir, items_db.as_ref()).map_err(|e| e.to_string())?,
@@ -750,7 +752,7 @@ pub fn write_fill_walkable_dump_json(
     target: Position,
     path: &Path,
 ) -> std::io::Result<()> {
-    use crate::monster_ai::TShortwayFillTile;
+    use tfs_rust_core::TShortwayFillTile;
     use std::io::Write;
 
     let (state, tiles) =
@@ -862,5 +864,5 @@ pub fn run_sim_tick(world: &mut GameWorld) {
 }
 
 #[cfg(test)]
-#[path = "sim_scenario_tests.rs"]
+#[path = "scenario_tests.rs"]
 mod scenario_tests;

@@ -25,7 +25,7 @@ Decouple the chase/kite harness from live `tfs-rust-core`. Outer loop (`.scenari
 - [x] Phase 2 — Replace `chase_debug` with `tracing::trace!(target: "chase", …)`. JSONL writer is a subscriber on `chase_kite_sim`. No `SimObserver` trait.
 - [x] Phase 3 — Split `sim_harness.rs`: `#[cfg(test)]` fixtures stay (`test_world`); scenario/OTBM/wall-clock module separate. Do not `pub use` the whole file from `test_world`.
 - [x] Phase 4 — Public `GameWorld::{server_ms, move_creatures, next_todo_execution_ms}` matching C++ `MoveCreatures` (`crmain.cc:1142`, not `advance_beat`). Scenario clock wrappers only. Promote `place_creature_login` + `try_walk`. Drop `Monster::harness_preserve_sleep` (world `sleep_until_damage` set + public appear-batch). Do not `pub` remaining helpers (`combat_execute_with_stimulus`, `creature_todo_yield`, …).
-- [ ] Phase 5 — New `tfs-rust-sim` crate; move scenario module + `chase_kite_sim`; drop `feature = "sim"` from core. `path_compare` stays. `rg` for `feature = "sim"|sim_glibc_rng_enabled|chase_debug::` in `crates/tfs-rust-core/src` is empty.
+- [x] Phase 5 — New `tfs-rust-sim` crate; move scenario module + `chase_kite_sim`; drop `feature = "sim"` from core. `path_compare` stays. `rg` for `feature = "sim"|sim_glibc_rng_enabled|chase_debug::` in `crates/tfs-rust-core/src` is empty.
 
 Verify each phase: `rtk cargo check/clippy/test -p tfs-rust-core` + `python3 scripts/run_sim_battery.py`. Full file list and exit criteria: `docs/SIM_HARNESS.md` §5.
 

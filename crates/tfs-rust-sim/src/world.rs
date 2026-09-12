@@ -1,6 +1,7 @@
-//! Unit-test `GameWorld` fixtures (never touches the database).
+//! Headless `GameWorld` builders and spawn/damage helpers for chase scenarios.
 //!
-//! C++ reference: `tibia-game-master` test patterns; `GameWorld` tick — `game.cpp`, `crmain.cc`.
+//! C++ reference: `chase_kite_scenario.cc` spawn/appear; `crnonpl.cc` `TMonster::TMonster`;
+//! `crmain.cc` `TCreature::Damage`. Core never reads `TFS_SIM_SEED`.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -17,34 +18,38 @@ use tfs_rust_common::enums::{Direction, SkullType};
 use tfs_rust_content::groups::GroupDatabase;
 use tfs_rust_content::items::ItemDatabase;
 use tfs_rust_content::monsters::MonsterDatabase;
+use tfs_rust_content::monsters::{MonsterOutfit, MonsterType};
 use tfs_rust_content::npcs::NpcDatabase;
 use tfs_rust_content::otb::ItemType;
 use tfs_rust_content::otbm::TownData;
 use tfs_rust_content::vocations::VocationRegistry;
+use tfs_rust_core::combat::{CombatDamage, CombatParams};
+use tfs_rust_core::config::ConfigManager;
+use tfs_rust_core::creature::{
+    CreatureBase, CreatureKind, Monster, MonsterAiConfig, MonsterState, Outfit, Player,
+    PlayerEconomy, PlayerInventory, PlayerPersistBaseline, PlayerSkills, PlayerSocial,
+};
+use tfs_rust_core::event_dispatcher::NullEventDispatcher;
+use tfs_rust_core::game_world::GameWorld;
+use tfs_rust_core::ids::CreatureId;
+use tfs_rust_core::inventory::SLOTP_BACKPACK;
+use tfs_rust_core::map::{Map, SparseGrid};
+use tfs_rust_core::spawn::SpawnManager;
+use tfs_rust_core::tile::{Tile, TileBody};
+use tfs_rust_core::{Mechanics, load_mechanics};
 use tfs_rust_db::DbPool;
 use tfs_rust_db::player::PlayerRecord;
 
-use crate::config::ConfigManager;
-use crate::creature::{
-    CreatureBase, CreatureKind, Monster, MonsterAiConfig, Outfit, Player,
-    PlayerEconomy, PlayerInventory, PlayerPersistBaseline, PlayerSkills, PlayerSocial,
-};
-use crate::event_dispatcher::NullEventDispatcher;
-use crate::game_world::GameWorld;
-use crate::ids::CreatureId;
-use crate::inventory::SLOTP_BACKPACK;
-use crate::map::{Map, SparseGrid};
-use crate::spawn::SpawnManager;
-use crate::tile::{Tile, TileBody};
+use crate::clock::reset_harness_scenario_clock;
 
-#[cfg(test)]
-use crate::creature::Npc;
-#[cfg(test)]
-use tfs_rust_common::ConnId;
+pub fn test_runtime() -> &'static tokio::runtime::Runtime {
+    static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RT.get_or_init(|| tokio::runtime::Runtime::new().expect("tokio runtime for tests"))
+}
 
-pub fn test_config() -> ConfigManager {
+fn sim_config() -> ConfigManager {
     let path = std::env::temp_dir().join(format!(
-        "tfs_depot_test_config_{}_{}.lua",
+        "tfs_sim_config_{}_{}.lua",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -63,15 +68,10 @@ freePremium = false
     ConfigManager::load(&path).expect("load temp config.lua")
 }
 
-#[cfg(test)]
-pub fn test_player(name: &str, pos: Position) -> Player {
-    test_player_base(name, pos)
-}
-
 /// 772 human hero for chase parity sim — matches C++ `TKiteSimPlayer` + `human.mon` race data.
 /// C++ reference: `chase_kite_scenario.cc` `TKiteSimPlayer`; `runtime/mon/human.mon` `Defend=5`.
 pub fn sim_hero_player(name: &str, pos: Position) -> Player {
-    let mut p = test_player_base(name, pos);
+    let mut p = sim_player_base(name, pos);
     p.base.health = 150;
     p.base.max_health = 150;
     p.fist_defense = 5;
@@ -79,7 +79,7 @@ pub fn sim_hero_player(name: &str, pos: Position) -> Player {
     p
 }
 
-fn test_player_base(name: &str, pos: Position) -> Player {
+fn sim_player_base(name: &str, pos: Position) -> Player {
     Player {
         base: CreatureBase {
             name: name.into(),
@@ -140,9 +140,9 @@ fn test_player_base(name: &str, pos: Position) -> Player {
         account_type: 1,
         group_id: 1,
         set_max_speed: false,
-        sex: crate::creature::PlayerSex::Male,
+        sex: tfs_rust_core::creature::PlayerSex::Male,
         vocation_id: 0,
-        vocation_profile: crate::creature::vocation::VocationProfile::none_vocation(),
+        vocation_profile: tfs_rust_core::creature::vocation::VocationProfile::none_vocation(),
         level: 8,
         experience: 0,
         mana: 50,
@@ -228,72 +228,6 @@ fn test_player_base(name: &str, pos: Position) -> Player {
     }
 }
 
-/// Helper for PC-4 fight-mode tests — a minimal `Player` with default vitals.
-#[cfg(test)]
-#[allow(dead_code)] // fixture API; fight-mode tests often build Player via `test_player`
-pub fn minimal_player() -> Player {
-    test_player("test", Position::new(0, 0, 7))
-}
-
-/// Helper for PC-4 fight-mode tests — a minimal `CreatureBase` with default vitals.
-#[cfg(test)]
-pub fn minimal_creature_base() -> CreatureBase {
-    CreatureBase {
-        name: "test".into(),
-        position: Position::new(0, 0, 7),
-        direction: Direction::North,
-        health: 100,
-        max_health: 100,
-        outfit: Outfit::default(),
-        speed: 220,
-        base_speed: 220,
-        var_speed: 0,
-        skull: SkullType::None,
-        drunkenness: 0,
-        active_conditions: Vec::new(),
-        walk_queue: Default::default(),
-        walk_destinations: Default::default(),
-        last_step: None,
-        last_step_cost: 1,
-        last_step_ground_speed: 150,
-        next_wakeup: None,
-        last_step_server_ms: None,
-        earliest_walk_server_ms: 0,
-        earliest_spell_server_ms: 0,
-        earliest_multiuse_server_ms: 0,
-        cancel_next_walk: false,
-        force_update_follow_path: false,
-        walk_update_ticks: 0,
-        is_updating_path: false,
-        has_follow_path: false,
-        movement_blocked: false,
-        stairhop_blocked_until: None,
-        follow_target: None,
-        attack_target: None,
-        master: None,
-        master_is_player: false,
-        damage_map: Default::default(),
-        last_hit_by: None,
-        last_damage_type: CombatType::Physical,
-        poison_damage_origin: None,
-        fire_damage_origin: None,
-        energy_damage_origin: None,
-        earliest_attack_ms: 0,
-        latest_attack_round: 0,
-        earliest_defend_ms: 0,
-        last_defend_ms: 0,
-        learning_points: 0,
-        todo: Default::default(),
-        chase_mode: Default::default(),
-        last_auto_walk_armed_ms: u64::MAX,
-        drop_loot: true,
-        skill_loss: true,
-        is_dead: false,
-        logging_out: false,
-        logout_allowed: false,
-    }
-}
-
 fn minimal_player_record(name: &str) -> PlayerRecord {
     PlayerRecord {
         id: 1,
@@ -359,7 +293,7 @@ fn minimal_player_record(name: &str) -> PlayerRecord {
     }
 }
 
-pub fn bag_item_type(server_id: u16) -> ItemType {
+fn bag_item_type(server_id: u16) -> ItemType {
     let mut it = ItemType {
         group: ItemType::GROUP_CONTAINER,
         allow_pickupable: true,
@@ -372,7 +306,7 @@ pub fn bag_item_type(server_id: u16) -> ItemType {
     it
 }
 
-pub fn pickup_item_type(server_id: u16) -> ItemType {
+fn pickup_item_type(server_id: u16) -> ItemType {
     ItemType {
         allow_pickupable: true,
         moveable_override: Some(true),
@@ -381,10 +315,7 @@ pub fn pickup_item_type(server_id: u16) -> ItemType {
     }
 }
 
-/// Walkable synthetic ground for chase parity — OTB `ITEM_ATTR_SPEED` / 772 `WAYPOINTS`.
-///
-/// C++ mirror: `objects.srv` TypeID 102 (`grass`, `Waypoints=150`).
-pub fn synthetic_ground_item_type(server_id: u16, waypoint: u16) -> ItemType {
+fn synthetic_ground_item_type(server_id: u16, waypoint: u16) -> ItemType {
     ItemType {
         group: ItemType::GROUP_GROUND,
         allow_pickupable: false,
@@ -396,64 +327,6 @@ pub fn synthetic_ground_item_type(server_id: u16, waypoint: u16) -> ItemType {
 
 fn register_synthetic_ground(items: &mut HashMap<u16, ItemType>, waypoint: u16) {
     items.insert(waypoint, synthetic_ground_item_type(waypoint, waypoint));
-}
-
-pub(crate) fn test_runtime() -> &'static tokio::runtime::Runtime {
-    static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-    RT.get_or_init(|| tokio::runtime::Runtime::new().expect("tokio runtime for tests"))
-}
-
-#[cfg(test)]
-pub fn minimal_world() -> GameWorld {
-    let _guard = test_runtime().enter();
-    let mut items_map = HashMap::new();
-    items_map.insert(1987u16, bag_item_type(1987));
-    items_map.insert(2148u16, pickup_item_type(2148));
-    let items_db = Arc::new(ItemDatabase {
-        items: items_map,
-        client_to_server: HashMap::new(),
-    });
-
-    let mut map = Map {
-        width: 256,
-        height: 256,
-        grid: SparseGrid::new(),
-        towns: HashMap::new(),
-        waypoints: HashMap::new(),
-        house_tiles: Vec::new(),
-        refresh_snapshots: HashMap::new(),
-    };
-    map.towns.insert(
-        1,
-        TownData {
-            id: 1,
-            name: "Thais".into(),
-            temple_position: Position::new(100, 100, 7),
-        },
-    );
-
-    GameWorld::new(
-        map,
-        SlotMap::default(),
-        Box::new(NullEventDispatcher),
-        Rc::new(test_config()),
-        DbPool::lazy_for_tests().expect("lazy db pool"),
-        SpawnManager::from_zones(Vec::new()),
-        items_db,
-        Arc::new(MonsterDatabase {
-            monsters: HashMap::new(),
-        }),
-        Arc::new(NpcDatabase::new()),
-        Arc::new(GroupDatabase {
-            groups: HashMap::new(),
-        }),
-        Arc::new(VocationRegistry {
-            vocations: HashMap::new(),
-        }),
-        tfs_rust_net::Codec::from_version(tfs_rust_common::ProtocolVersion::V1098)
-            .expect("1098 codec"),
-        crate::formulas::Mechanics::for_version(tfs_rust_common::ProtocolVersion::V1098),
-    )
 }
 
 fn beat_driven_items_db(synthetic_waypoint: Option<u16>) -> ItemDatabase {
@@ -469,34 +342,31 @@ fn beat_driven_items_db(synthetic_waypoint: Option<u16>) -> ItemDatabase {
     }
 }
 
-/// 772 beat-driven profile (`LinearGo` + reverse terrain path) for idle/todo/monster sims.
-#[cfg(test)]
-pub fn beat_driven_world() -> GameWorld {
-    beat_driven_world_with_synthetic_ground(None)
+/// Headless / battery seed — `TFS_SIM_SEED` is read here, never inside `GameWorld` combat.
+fn sim_seed_from_env() -> Option<u32> {
+    let seed_str = std::env::var("TFS_SIM_SEED").ok()?;
+    seed_str.parse::<u64>().ok().map(|s| s as u32)
 }
 
-/// Synthetic chase arena — uniform walkable tiles with pinned waypoint cost.
-#[cfg(test)]
-pub fn beat_driven_world_with_synthetic_ground(waypoint: Option<u16>) -> GameWorld {
-    beat_driven_world_with_synthetic_ground_data(Path::new("/nonexistent"), waypoint)
-        .unwrap_or_else(|_| panic!("synthetic world without data dir failed"))
+pub fn seed_world_from_sim_env(world: &mut GameWorld) {
+    if let Some(seed) = sim_seed_from_env() {
+        world.seed_parity_rng(seed);
+    }
 }
 
-/// Pinned waypoint for unit-test arenas — matches kite sim synthetic grass (`chase_kite_scenario.cc`).
-#[cfg(test)]
-pub const TEST_SYNTHETIC_GROUND_WP: u16 = 150;
-
-/// 772 beat-driven world with synthetic terrain registered for `TShortway::FillMap`.
-#[cfg(test)]
-pub fn beat_driven_test_world() -> GameWorld {
-    let mut world = beat_driven_world_with_synthetic_ground(Some(TEST_SYNTHETIC_GROUND_WP));
-    world.server_ms = 0;
-    world.seed_parity_rng(42);
-    world
+pub fn load_items_db_for(data_dir: &Path) -> Result<ItemDatabase, String> {
+    let otb = data_dir.join("items/items.otb");
+    let xml = data_dir.join("items/items.xml");
+    if !otb.is_file() {
+        return Err(format!("items.otb not found: {}", otb.display()));
+    }
+    if !xml.is_file() {
+        return Err(format!("items.xml not found: {}", xml.display()));
+    }
+    let db = ItemDatabase::load(&otb, &xml).map_err(|e| e.to_string())?;
+    Ok(db)
 }
 
-/// Load item + monster databases from the data pack for chase sim spawn parity.
-/// C++ reference: `Monsters::loadMonster` — `monsters.cpp`.
 pub fn load_sim_content_dbs(
     data_dir: &Path,
     synthetic_ground_wp: Option<u16>,
@@ -513,18 +383,29 @@ pub fn load_sim_content_dbs(
     Ok((items_db, monsters_db))
 }
 
-pub(crate) fn init_beat_driven_world(
+fn monster_outfit_to_sim(o: &MonsterOutfit) -> Outfit {
+    Outfit {
+        look_type: o.look_type,
+        look_head: o.look_head,
+        look_body: o.look_body,
+        look_legs: o.look_legs,
+        look_feet: o.look_feet,
+        look_addons: o.look_addons,
+    }
+}
+
+pub fn init_beat_driven_world(
     map: Map,
-    items: SlotMap<crate::ids::ItemId, crate::item::Item>,
+    items: SlotMap<tfs_rust_core::ids::ItemId, tfs_rust_core::item::Item>,
     items_db: Arc<ItemDatabase>,
     monsters_db: Arc<MonsterDatabase>,
-    mechanics: crate::formulas::Mechanics,
+    mechanics: Mechanics,
 ) -> GameWorld {
     let mut world = GameWorld::new(
         map,
         items,
         Box::new(NullEventDispatcher),
-        Rc::new(test_config()),
+        Rc::new(sim_config()),
         DbPool::lazy_for_tests().expect("lazy db pool"),
         SpawnManager::from_zones(Vec::new()),
         items_db,
@@ -536,15 +417,14 @@ pub(crate) fn init_beat_driven_world(
         Arc::new(VocationRegistry {
             vocations: HashMap::new(),
         }),
-        tfs_rust_net::Codec::from_version(tfs_rust_common::ProtocolVersion::V772)
-            .expect("772 codec"),
+        tfs_rust_net::Codec::from_version(ProtocolVersion::V772).expect("772 codec"),
         mechanics,
     );
-    world.server_ms = 0;
+    reset_harness_scenario_clock();
+    seed_world_from_sim_env(&mut world);
     world
 }
 
-/// Synthetic beat-driven world with data-pack items + monsters (E0/E6 loot roll).
 pub fn beat_driven_world_with_synthetic_ground_data(
     data_dir: &Path,
     waypoint: Option<u16>,
@@ -580,9 +460,9 @@ pub fn beat_driven_world_with_synthetic_ground_data(
     );
 
     let mechanics = if data_dir.is_dir() {
-        crate::formulas::load_mechanics(data_dir, ProtocolVersion::V772)
+        load_mechanics(data_dir, ProtocolVersion::V772)
     } else {
-        crate::formulas::Mechanics::for_version(ProtocolVersion::V772)
+        Mechanics::for_version(ProtocolVersion::V772)
     };
 
     Ok(init_beat_driven_world(
@@ -592,6 +472,55 @@ pub fn beat_driven_world_with_synthetic_ground_data(
         monsters_db,
         mechanics,
     ))
+}
+
+/// Empty synthetic beat-driven world (no data-pack directory).
+pub fn beat_driven_world() -> GameWorld {
+    beat_driven_world_with_synthetic_ground(None)
+}
+
+/// Synthetic chase arena — uniform walkable tiles with pinned waypoint cost.
+pub fn beat_driven_world_with_synthetic_ground(waypoint: Option<u16>) -> GameWorld {
+    beat_driven_world_with_synthetic_ground_data(Path::new("/nonexistent"), waypoint)
+        .unwrap_or_else(|_| panic!("synthetic world without data dir failed"))
+}
+
+pub fn insert_player(world: &mut GameWorld, player: Player) -> CreatureId {
+    world.creatures.insert(CreatureKind::Player(player))
+}
+
+pub fn ensure_walkable_tile(map: &mut Map, pos: Position, ground_type: u16) {
+    map.insert_tile(
+        pos,
+        Tile::Normal(TileBody {
+            ground: Some(ground_type),
+            ground_item: None,
+            down_items: Vec::new(),
+            top_items: Vec::new(),
+            creatures: Vec::new(),
+            flags: 0,
+            zone: ZoneType::Normal,
+        }),
+    );
+}
+
+pub fn ensure_walkable_tile_if_absent(map: &mut Map, pos: Position) {
+    if map.get_tile(pos).is_none() {
+        ensure_walkable_tile(map, pos, 100);
+    }
+}
+
+pub fn lay_arena_tiles(map: &mut Map, cx: u16, cy: u16, radius: u16, z: u8, ground_type: u16) {
+    let r = radius as i32;
+    let cx = cx as i32;
+    let cy = cy as i32;
+    for dx in -r..=r {
+        for dy in -r..=r {
+            let x = (cx + dx) as u16;
+            let y = (cy + dy) as u16;
+            ensure_walkable_tile(map, Position::new(x, y, z), ground_type);
+        }
+    }
 }
 
 /// C++ `SyntheticGroundType` — `chase_kite_scenario.cc:113-121` (grass TypeID 102 = wp 150).
@@ -606,7 +535,6 @@ pub fn synthetic_ground_type_for_waypoints(default_wp: u16) -> u16 {
     }
 }
 
-/// Lay synthetic arena and return the pinned `min_wp` for pathfinding parity checks.
 pub fn lay_synthetic_arena(
     map: &mut Map,
     cx: u16,
@@ -617,72 +545,66 @@ pub fn lay_synthetic_arena(
 ) -> u32 {
     let ground_type = synthetic_ground_type_for_waypoints(waypoint);
     lay_arena_tiles(map, cx, cy, radius, z, ground_type);
-    // Uniform synthetic grass — pinned to scenario `default_wp` (`chase_kite_scenario.cc`).
     u32::from(waypoint)
 }
 
-pub(crate) fn load_items_db_for(data_dir: &Path) -> Result<ItemDatabase, String> {
-    let otb = data_dir.join("items/items.otb");
-    let xml = data_dir.join("items/items.xml");
-    if !otb.is_file() {
-        return Err(format!("items.otb not found: {}", otb.display()));
-    }
-    if !xml.is_file() {
-        return Err(format!("items.xml not found: {}", xml.display()));
-    }
-    let db = ItemDatabase::load(&otb, &xml).map_err(|e| e.to_string())?;
-    // OTB-only — do not overlay `objects.srv` (server / sim parity with production load).
-    Ok(db)
-}
-
-pub fn insert_player(world: &mut GameWorld, player: Player) -> CreatureId {
-    world.creatures.insert(CreatureKind::Player(player))
-}
-
-/// Walkable ground tile for walk / pathfinding tests.
-pub fn ensure_walkable_tile(map: &mut Map, pos: Position, ground_type: u16) {
-    map.insert_tile(
-        pos,
-        Tile::Normal(TileBody {
-            ground: Some(ground_type),
-
-            ground_item: None,
-            down_items: Vec::new(),
-            top_items: Vec::new(),
-            creatures: Vec::new(),
-            flags: 0,
-            zone: ZoneType::Normal,
-        }),
-    );
-}
-
-/// Insert a default walkable ground tile at `pos` only if no tile is present.
-///
-/// Harness `insert_*` helpers call this before `register_creature_at` so the
-/// "creatures stand on valid tiles" invariant (map audit #3) holds in test worlds
-/// that did not pre-populate the spawn position (e.g. `minimal_world`). Does NOT
-/// overwrite intentionally-placed tiles.
-pub fn ensure_walkable_tile_if_absent(map: &mut Map, pos: Position) {
-    if map.get_tile(pos).is_none() {
-        ensure_walkable_tile(map, pos, 100);
-    }
-}
-
-/// Lay a square arena of walkable tiles centered at `(cx, cy)` with inclusive radius.
-pub fn lay_arena_tiles(map: &mut Map, cx: u16, cy: u16, radius: u16, z: u8, ground_type: u16) {
-    let r = radius as i32;
-    let cx = cx as i32;
-    let cy = cy as i32;
-    for dx in -r..=r {
-        for dy in -r..=r {
-            let x = (cx + dx) as u16;
-            let y = (cy + dy) as u16;
-            ensure_walkable_tile(map, Position::new(x, y, z), ground_type);
-        }
+fn monster_base(name: &str, pos: Position, speed: i32, health: i32, max_health: i32) -> CreatureBase {
+    CreatureBase {
+        name: name.into(),
+        position: pos,
+        direction: Direction::North,
+        health,
+        max_health,
+        outfit: Outfit::default(),
+        speed,
+        base_speed: speed,
+        var_speed: 0,
+        skull: SkullType::None,
+        drunkenness: 0,
+        active_conditions: Vec::new(),
+        walk_queue: Default::default(),
+        walk_destinations: Default::default(),
+        last_step: None,
+        last_step_cost: 1,
+        last_step_ground_speed: 150,
+        next_wakeup: None,
+        last_step_server_ms: None,
+        earliest_walk_server_ms: 0,
+        earliest_spell_server_ms: 0,
+        earliest_multiuse_server_ms: 0,
+        cancel_next_walk: false,
+        force_update_follow_path: false,
+        walk_update_ticks: 0,
+        is_updating_path: false,
+        has_follow_path: false,
+        movement_blocked: false,
+        stairhop_blocked_until: None,
+        follow_target: None,
+        attack_target: None,
+        master: None,
+        master_is_player: false,
+        damage_map: Default::default(),
+        last_hit_by: None,
+        last_damage_type: CombatType::Physical,
+        poison_damage_origin: None,
+        fire_damage_origin: None,
+        energy_damage_origin: None,
+        earliest_attack_ms: 0,
+        latest_attack_round: 0,
+        earliest_defend_ms: 0,
+        last_defend_ms: 0,
+        learning_points: 0,
+        todo: Default::default(),
+        chase_mode: Default::default(),
+        last_auto_walk_armed_ms: u64::MAX,
+        drop_loot: true,
+        skill_loss: true,
+        is_dead: false,
+        logging_out: false,
+        logout_allowed: false,
     }
 }
 
-#[cfg(test)]
 pub fn insert_monster(world: &mut GameWorld, name: &str, pos: Position, speed: i32) -> CreatureId {
     insert_monster_with_config(world, name, pos, speed, MonsterAiConfig::default())
 }
@@ -694,182 +616,84 @@ pub fn insert_monster_with_config(
     speed: i32,
     config: MonsterAiConfig,
 ) -> CreatureId {
-    let base = CreatureBase {
-        name: name.into(),
-        position: pos,
-        direction: Direction::North,
-        health: 100,
-        max_health: 100,
-        outfit: Outfit::default(),
+    let cid = world
+        .creatures
+        .insert(CreatureKind::Monster(Monster::with_config(
+            monster_base(name, pos, speed, 100, 100),
+            pos,
+            config,
+        )));
+    world.assign_creature_wire_id(cid);
+    ensure_walkable_tile_if_absent(&mut world.map, pos);
+    world.map.register_creature_at(pos, cid);
+    cid
+}
+
+/// Spawn from parsed monster type — E0 combat snapshot + E6 loot roll at spawn.
+/// C++ reference: `TMonster::TMonster` — `crnonpl.cc:2050`.
+pub fn insert_monster_from_type(
+    world: &mut GameWorld,
+    mtype: &MonsterType,
+    display_name: &str,
+    pos: Position,
+    speed: i32,
+    config: MonsterAiConfig,
+    initial_state: MonsterState,
+) -> CreatureId {
+    let mut base = monster_base(
+        display_name,
+        pos,
         speed,
-        base_speed: speed,
-        var_speed: 0,
-        skull: SkullType::None,
-        drunkenness: 0,
-        active_conditions: Vec::new(),
-        walk_queue: Default::default(),
-        walk_destinations: Default::default(),
-        last_step: None,
-        last_step_cost: 1,
-        last_step_ground_speed: 150,
-        next_wakeup: None,
-        last_step_server_ms: None,
-        earliest_walk_server_ms: 0,
-        earliest_spell_server_ms: 0,
-        earliest_multiuse_server_ms: 0,
-        cancel_next_walk: false,
-        force_update_follow_path: false,
-        walk_update_ticks: 0,
-        is_updating_path: false,
-        has_follow_path: false,
-        movement_blocked: false,
-        stairhop_blocked_until: None,
-        follow_target: None,
-        attack_target: None,
-        master: None,
-        master_is_player: false,
-        damage_map: Default::default(),
-        last_hit_by: None,
-        last_damage_type: CombatType::Physical,
-        poison_damage_origin: None,
-        fire_damage_origin: None,
-        energy_damage_origin: None,
-        earliest_attack_ms: 0,
-        latest_attack_round: 0,
-        earliest_defend_ms: 0,
-        last_defend_ms: 0,
-        learning_points: 0,
-        todo: Default::default(),
-        chase_mode: Default::default(),
-        last_auto_walk_armed_ms: u64::MAX,
-        drop_loot: true,
-        skill_loss: true,
-        is_dead: false,
-        logging_out: false,
-        logout_allowed: false,
-    };
+        mtype.health_now as i32,
+        mtype.health_max as i32,
+    );
+    base.outfit = monster_outfit_to_sim(&mtype.outfit);
     let cid = world
         .creatures
         .insert(CreatureKind::Monster(Monster::with_config(
             base, pos, config,
         )));
-    crate::login_out::assign_creature_wire_id(world, cid);
+    world.assign_creature_wire_id(cid);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cid) {
+        m.experience = mtype.experience;
+        m.corpse_id = mtype.outfit.corpse_id;
+        m.blood = mtype.blood_type();
+        m.state = initial_state;
+        m.is_idle = true;
+    }
+    world.roll_monster_spawn_loot(cid, mtype);
+    world.recompute_monster_combat_from_equipment(cid);
     ensure_walkable_tile_if_absent(&mut world.map, pos);
     world.map.register_creature_at(pos, cid);
     cid
 }
 
-#[cfg(test)]
-pub fn insert_npc(world: &mut GameWorld, name: &str, pos: Position, speed: i32) -> CreatureId {
-    let base = CreatureBase {
-        name: name.into(),
-        position: pos,
-        direction: Direction::North,
-        health: 100,
-        max_health: 100,
-        outfit: Outfit::default(),
-        speed,
-        base_speed: speed,
-        var_speed: 0,
-        skull: SkullType::None,
-        drunkenness: 0,
-        active_conditions: Vec::new(),
-        walk_queue: Default::default(),
-        walk_destinations: Default::default(),
-        last_step: None,
-        last_step_cost: 1,
-        last_step_ground_speed: 150,
-        next_wakeup: None,
-        last_step_server_ms: None,
-        earliest_walk_server_ms: 0,
-        earliest_spell_server_ms: 0,
-        earliest_multiuse_server_ms: 0,
-        cancel_next_walk: false,
-        force_update_follow_path: false,
-        walk_update_ticks: 0,
-        is_updating_path: false,
-        has_follow_path: false,
-        movement_blocked: false,
-        stairhop_blocked_until: None,
-        follow_target: None,
-        attack_target: None,
-        master: None,
-        master_is_player: false,
-        damage_map: Default::default(),
-        last_hit_by: None,
-        last_damage_type: CombatType::Physical,
-        poison_damage_origin: None,
-        fire_damage_origin: None,
-        energy_damage_origin: None,
-        earliest_attack_ms: 0,
-        latest_attack_round: 0,
-        earliest_defend_ms: 0,
-        last_defend_ms: 0,
-        learning_points: 0,
-        todo: Default::default(),
-        chase_mode: Default::default(),
-        last_auto_walk_armed_ms: u64::MAX,
-        drop_loot: true,
-        skill_loss: true,
-        is_dead: false,
-        logging_out: false,
-        logout_allowed: false,
-    };
-    let cid = world
-        .creatures
-        .insert(CreatureKind::Npc(Npc::placeholder(base)));
-    crate::login_out::assign_creature_wire_id(world, cid);
-    ensure_walkable_tile_if_absent(&mut world.map, pos);
-    world.map.register_creature_at(pos, cid);
-    cid
-}
-
-/// Logged-in spectator with a connection mapping (for outgoing packet assertions).
-#[cfg(test)]
-pub fn insert_spectator_player(
+/// Harness-only player strike — fires E5 `damage_stimulus` on monsters.
+/// C++ reference: `TCreature::Damage` → `TMonster::DamageStimulus` — `crmain.cc:486`, `crnonpl.cc:2304`.
+pub fn sim_player_damage_monster(
     world: &mut GameWorld,
-    conn_id: ConnId,
-    player: Player,
-) -> CreatureId {
-    let pos = player.base.position;
-    let cid = insert_player(world, player);
-    world.register_conn_mapping(conn_id, cid);
-    ensure_walkable_tile_if_absent(&mut world.map, pos);
-    world.map.register_creature_at(pos, cid);
-    cid
-}
-
-/// Drain due and upcoming todos without a scenario wall — NPC dialogue timing tests.
-pub fn drain_todos_until_idle(world: &mut GameWorld) {
-    const MAX_ROUNDS: usize = 64;
-    for _ in 0..MAX_ROUNDS {
-        let Some(exec) = world.next_todo_execution_ms() else {
-            break;
-        };
-        if exec > world.server_ms() {
-            world.move_creatures(exec - world.server_ms());
-        } else {
-            world.move_creatures(0);
-        }
+    player_id: CreatureId,
+    monster_id: CreatureId,
+    amount: i32,
+) -> bool {
+    if amount <= 0 {
+        return false;
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tfs_rust_common::Position;
-
-    #[test]
-    fn synthetic_arena_min_wp_matches_default_wp() {
-        let mut world = beat_driven_world_with_synthetic_ground(Some(150));
-        let min_wp = lay_synthetic_arena(&mut world.map, 100, 100, 3, 7, 150);
-        assert_eq!(min_wp, 150);
-        let pos = Position::new(100, 100, 7);
-        assert!(world.map.is_walkable(pos));
-        assert_eq!(world.map.get_tile(pos).unwrap().body().ground, Some(102));
-        assert_eq!(
-            world.tile_ground_speed(world.map.get_tile(pos).unwrap().body()),
-            150
-        );
+    let armor = match world.creatures.get(monster_id) {
+        Some(CreatureKind::Monster(m)) => m.armor,
+        _ => return false,
+    };
+    let damage = amount.saturating_sub(armor);
+    if damage <= 0 {
+        return false;
     }
+    world.combat_execute_with_stimulus(
+        Some(player_id),
+        monster_id,
+        &CombatDamage {
+            primary: (CombatType::Physical, -damage),
+            secondary: (CombatType::Physical, 0),
+        },
+        &CombatParams::default(),
+    ) > 0
 }

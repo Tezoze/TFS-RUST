@@ -32,7 +32,7 @@ and one god-object (`GameWorld`) account for most of the mess.
 
 1. **Split `idle_stimulus.rs` (now 3,060 LOC) and `monster_ai.rs` (now 2,056 LOC).** ✅ Phase 1 done 2026-07-01 — inline tests extracted to `#[path]` sibling files; test pass count & clippy set byte-identical before/after. The remaining split into `monster_idle/` + `monster_ai/` module *directories* (per §1 recommendation) is Phase 4 work — **re-audited 2026-07-11**, see Phase 4 for revised split plans.
 2. **Tame the `GameWorld` god-object** — `impl GameWorld` is spread across **34 files**.
-3. **Move simulation/debug harness code out of the production `core` library.** ✅ Phase 2 done 2026-07-02 — `sim_harness`, `chase_debug`, and `sim_glibc_rand` sim parts gated behind `#[cfg(any(test, feature = "sim"))]` with no-op stubs for production. `chase_kite_sim` bin requires `--features sim`.
+3. **Move simulation/debug harness code out of the production `core` library.** ✅ Phase 2 quarantine 2026-07-02; **Phase 5 crate extract 2026-09-12** — `tfs-rust-sim` owns `chase_kite_sim` / scenario; core has zero `feature = "sim"`.
 4. **Fix `_772` naming-rule violations on core functions** (259 identifiers, 110 on `fn`s). ✅ Phase 3 done 2026-07-10 — all production `_772`-suffixed functions renamed to behavior-based names across core, content, lua, and net crates. Remaining `_772` identifiers are test fns, config, data constants, and local variables (all allowed exceptions).
 5. **Decompose oversized functions** (20+ functions over 120 lines, longest is 317).
 

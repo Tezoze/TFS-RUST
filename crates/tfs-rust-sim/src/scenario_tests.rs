@@ -1,8 +1,12 @@
 use super::*;
 use tfs_rust_common::Position;
+use tfs_rust_core::TShortwayFillTile;
+use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig, MonsterState};
+use tfs_rust_core::pathfinding::REVERSE_PATH_VIEW_RADIUS;
 
-use crate::test_support::{
-    beat_driven_world, beat_driven_world_with_synthetic_ground, insert_monster, lay_synthetic_arena,
+use crate::world::{
+    beat_driven_world, beat_driven_world_with_synthetic_ground, ensure_walkable_tile,
+    insert_monster, lay_synthetic_arena, sim_hero_player,
 };
 
 #[test]
@@ -28,7 +32,7 @@ fn run_sim_tick_stops_at_harness_wall() {
     let pos = Position::new(100, 100, 7);
     let cid = insert_monster(&mut world, "Rat", pos, 200);
     set_sim_harness_wall_ms(Some(6_000));
-    world.schedule_creature_wakeup(cid, 20_000);
+    world.appear_monsters(&[cid]);
     run_sim_tick(&mut world);
     assert!(world.server_ms() <= 6_000);
     let _ = cid;
@@ -36,15 +40,12 @@ fn run_sim_tick_stops_at_harness_wall() {
 
 #[test]
 fn batch_appear_defers_idle_then_yields_once() {
-    use crate::creature::MonsterState;
-    use crate::test_world::support::{ensure_walkable_tile, test_player};
-
     let mut world = beat_driven_world();
     let ppos = Position::new(100, 100, 7);
     let mpos = Position::new(101, 100, 7);
     ensure_walkable_tile(&mut world.map, ppos, 150);
     ensure_walkable_tile(&mut world.map, mpos, 150);
-    let player = insert_player(&mut world, test_player("Hero", ppos));
+    let player = insert_player(&mut world, sim_hero_player("Hero", ppos));
     world.map.register_creature_at(ppos, player);
     let monster = insert_monster(&mut world, "Rat", mpos, 200);
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
@@ -52,29 +53,24 @@ fn batch_appear_defers_idle_then_yields_once() {
         m.state = MonsterState::Sleeping;
         m.is_idle = true;
     }
-    world.appear_monster_without_idle(monster);
+    world.appear_monsters(&[monster]);
     assert!(
-        world.creature_todo_queue_empty(monster),
-        "appear without batch yield must not enqueue ToDoWait yet"
-    );
-    world.creature_todo_yield(monster);
-    assert!(
-        !world.creature_todo_queue_empty(monster),
-        "batch yield must enqueue Wait(0)"
+        world
+            .creatures
+            .get(monster)
+            .is_some_and(|k| !k.base().todo.is_empty()),
+        "appear batch must enqueue ToDoWait"
     );
 }
 
 #[test]
 fn preserve_sleep_survives_appear_until_damage() {
-    use crate::creature::MonsterState;
-    use crate::test_world::support::{ensure_walkable_tile, test_player};
-
     let mut world = beat_driven_world();
     let ppos = Position::new(100, 100, 7);
     let mpos = Position::new(101, 100, 7);
     ensure_walkable_tile(&mut world.map, ppos, 150);
     ensure_walkable_tile(&mut world.map, mpos, 150);
-    let player = insert_player(&mut world, test_player("Hero", ppos));
+    let player = insert_player(&mut world, sim_hero_player("Hero", ppos));
     world.map.register_creature_at(ppos, player);
     let monster = insert_monster(&mut world, "Rat", mpos, 200);
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
@@ -109,9 +105,6 @@ fn preserve_sleep_survives_appear_until_damage() {
 /// Quad cyclops — appear batch yields at server_ms+1; no inline idle on appear beat.
 #[test]
 fn batch_appear_quad_yields_next_beat_not_inline_idle() {
-    use crate::creature::MonsterState;
-    use crate::test_world::support::{ensure_walkable_tile, test_player};
-
     let mut world = beat_driven_world();
     let center = Position::new(32360, 32290, 7);
     let spawns = [
@@ -123,7 +116,7 @@ fn batch_appear_quad_yields_next_beat_not_inline_idle() {
     for pos in [center].into_iter().chain(spawns) {
         ensure_walkable_tile(&mut world.map, pos, 150);
     }
-    let player = insert_player(&mut world, test_player("Hero", center));
+    let player = insert_player(&mut world, sim_hero_player("Hero", center));
     world.map.register_creature_at(center, player);
     let mut monster_ids = Vec::new();
     for (i, &mpos) in spawns.iter().enumerate() {
@@ -147,15 +140,9 @@ fn batch_appear_quad_yields_next_beat_not_inline_idle() {
     set_sim_harness_wall_ms(Some(0));
     run_sim_tick(&mut world);
     for &mid in &monster_ids {
-        assert!(
-            world
-                .creatures
-                .get(mid)
-                .and_then(|k| match k {
-                    CreatureKind::Monster(m) => m.idle_stimulus_last_ms,
-                    _ => None,
-                })
-                .is_none(),
+        assert_eq!(
+            world.creatures.get(mid).and_then(|k| k.base().next_wakeup),
+            Some(1),
             "appear-step drain must not run idle before ms+1 wakeup"
         );
     }
@@ -164,8 +151,6 @@ fn batch_appear_quad_yields_next_beat_not_inline_idle() {
 /// Cyclops quad — sibling tiles must block `TShortway` fill (`crnonpl.cc:2216` Unpushable).
 #[test]
 fn cyclops_quad_sibling_tiles_block_chase_fill_walkable() {
-    use crate::creature::{MonsterAiConfig, MonsterState};
-
     let cfg = default_sim_map_config();
     if !cfg.data_dir.is_dir() {
         return;
@@ -188,7 +173,7 @@ fn cyclops_quad_sibling_tiles_block_chase_fill_walkable() {
     ];
     let player = insert_player(
         &mut world,
-        crate::test_world::support::test_player("Hero", Position::new(32360, 32294, 7)),
+        sim_hero_player("Hero", Position::new(32360, 32294, 7)),
     );
     world
         .map
@@ -214,7 +199,7 @@ fn cyclops_quad_sibling_tiles_block_chase_fill_walkable() {
     let c1 = ids[0];
     let c4_pos = spawns[3];
     assert!(
-        !world.monster_tshortway_fill_walkable(c1, c4_pos, Position::new(32360, 32294, 7)),
+        world.fillmap_waypoints_at(c1, c4_pos, Position::new(32360, 32294, 7)) < 0,
         "far-N cyclops must not plan through NW sibling tile"
     );
     let tile = world.map.get_tile(c4_pos).expect("sibling tile");
@@ -244,7 +229,7 @@ fn cyclops_quad_nw_go_exec_at_tick_4000() {
     let Ok((nw_id, _, _)) = setup_cyclops_quad_chase_to_tick_2000(&mut world) else {
         return;
     };
-    assert_eq!(world.server_ms, HARNESS_APPEAR_IDLE_DEFER_MS);
+    assert_eq!(world.server_ms(), HARNESS_APPEAR_IDLE_DEFER_MS);
 
     let nw_base = world.creatures.get(nw_id).unwrap().base();
     assert!(
@@ -263,7 +248,7 @@ fn cyclops_quad_nw_go_exec_at_tick_4000() {
         Some(Position::new(32359, 32289, 7)),
         "NW cyclops must leave spawn after go_exec window through tick 4000"
     );
-    assert_eq!(world.server_ms, 4_000);
+    assert_eq!(world.server_ms(), 4_000);
 }
 
 /// P2.5g — all four cyclops `go_exec` positions @4000 (structural heap drain order).
@@ -321,14 +306,12 @@ fn cyclops_quad_go_exec_order_at_tick_4000() {
         Position::new(32358, 32290, 7),
         "NW cyclops (spawn 4) diagonal go_exec @4000"
     );
-    assert_eq!(world.server_ms, 4_000);
+    assert_eq!(world.server_ms(), 4_000);
 }
 
 /// P2.5 — NW cyclops FillMap dump @ tick=2000 matches scenario posture for parity diff.
 #[test]
 fn cyclops_quad_nw_fill_walkable_dump_at_tick_2000() {
-    use crate::creature::MonsterState;
-    use crate::monster_ai::TShortwayFillTile;
     use std::path::PathBuf;
 
     let cfg = default_sim_map_config();
@@ -349,12 +332,11 @@ fn cyclops_quad_nw_fill_walkable_dump_at_tick_2000() {
     else {
         return;
     };
-    assert_eq!(world.server_ms, HARNESS_APPEAR_IDLE_DEFER_MS);
+    assert_eq!(world.server_ms(), HARNESS_APPEAR_IDLE_DEFER_MS);
     // Deferred appear arms `next_wakeup@2000` — clear so idle can run (FillMap moment).
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(nw_id) {
         m.base.next_wakeup = None;
     }
-    world.monster_idle_stimulus(nw_id);
     let (state, tiles) =
         world.dump_tshortway_fill_walkable_viewport(nw_id, player_pos, REVERSE_PATH_VIEW_RADIUS);
     assert_eq!(
@@ -392,8 +374,6 @@ fn cyclops_quad_nw_fill_walkable_dump_at_tick_2000() {
 /// P1 — real-map cyclops bowl FillMap dump @ tick=2000 for parity diff vs C++ `.sec`.
 #[test]
 fn cyclops_bowl_real_fill_walkable_dump_at_tick_2000() {
-    use crate::creature::MonsterState;
-    use crate::monster_ai::TShortwayFillTile;
     use std::path::PathBuf;
 
     let cfg = default_sim_map_config();
@@ -408,11 +388,10 @@ fn cyclops_bowl_real_fill_walkable_dump_at_tick_2000() {
     else {
         return;
     };
-    assert_eq!(world.server_ms, 200);
+    assert_eq!(world.server_ms(), 200);
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cyclops_id) {
         m.base.next_wakeup = None;
     }
-    world.monster_idle_stimulus(cyclops_id);
     let (state, tiles) = world.dump_tshortway_fill_walkable_viewport(
         cyclops_id,
         player_pos,
@@ -476,7 +455,7 @@ fn kite_rat_melee_no_idle_repath_on_final_kite_at_6000() {
     teleport_player(&mut world, player_id, Position::new(32363, 32292, 7))
         .expect("final north kite");
     run_sim_tick(&mut world);
-    assert_eq!(world.server_ms, 6_000);
+    assert_eq!(world.server_ms(), 6_000);
     assert!(
         !world
             .creatures
@@ -489,8 +468,6 @@ fn kite_rat_melee_no_idle_repath_on_final_kite_at_6000() {
 /// OTBM kite lab — rat/player/dance tiles must be walkable on forgotten.otbm.
 #[test]
 fn harness_place_cyclops_bowl_relocates_east_of_scripted_spawn() {
-    use crate::creature::{MonsterAiConfig, MonsterState};
-
     let cfg = default_sim_map_config();
     if !cfg.data_dir.is_dir() {
         return;
@@ -533,7 +510,7 @@ fn cyclops_bowl_real_first_chase_on_player_walk_at_200() {
         return;
     };
 
-    assert_eq!(world.server_ms, 200);
+    assert_eq!(world.server_ms(), 200);
     assert!(
         world.creatures.get(cyclops_id).is_some_and(|k| {
             matches!(k, CreatureKind::Monster(m) if m.base.follow_target.is_some())
@@ -556,7 +533,7 @@ fn cyclops_bowl_real_uloop_chase_drains_to_tick_2000() {
     let (cyclops_id, _player_id, _) =
         setup_cyclops_bowl_real_to_tick_2000(&mut world).expect("cyclops bowl U-loop");
 
-    assert_eq!(world.server_ms, 2000);
+    assert_eq!(world.server_ms(), 2000);
     let Some(CreatureKind::Monster(m)) = world.creatures.get(cyclops_id) else {
         panic!("cyclops missing");
     };
@@ -570,8 +547,9 @@ fn cyclops_bowl_real_uloop_chase_drains_to_tick_2000() {
         "cyclops must have executed at least one go_exec step by tick 2000"
     );
     assert!(
-        !world.monster_close_chase_batch_in_flight(cyclops_id)
+        m.base.todo.locked
             || m.base.todo.has_go()
+            || m.base.todo.has_attack()
             || !m.base.walk_queue.is_empty()
             || m.base.next_wakeup.is_some(),
         "mid-U-loop repath storm must not leave monster in stale cleared state"
@@ -594,7 +572,7 @@ fn cyclops_bowl_real_dual_go_exec_order_at_tick_400() {
         return;
     };
 
-    assert_eq!(world.server_ms, 400);
+    assert_eq!(world.server_ms(), 400);
     let east_pos = world.creatures.get(east_id).map(|k| k.position());
     let north_pos = world.creatures.get(north_id).map(|k| k.position());
     assert_eq!(

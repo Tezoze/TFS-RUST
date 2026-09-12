@@ -244,7 +244,7 @@ impl GameWorld {
     /// Roll `MonsterType.loot` once at spawn; skip summons (`Master != 0`).
     ///
     /// C++ reference: `TMonster::TMonster` — `crnonpl.cc:2050`.
-    pub(crate) fn roll_monster_spawn_loot(&mut self, monster_id: CreatureId, mtype: &MonsterType) {
+    pub fn roll_monster_spawn_loot(&mut self, monster_id: CreatureId, mtype: &MonsterType) {
         if self
             .creatures
             .get(monster_id)
@@ -335,7 +335,7 @@ impl GameWorld {
     /// Recompute melee/armor from spawn inventory — `CheckCombatValues` (`crcombat.cc:128`).
     ///
     /// Uses immutable `race_*` bases so repeated calls do not double-count equipped armor.
-    pub(crate) fn recompute_monster_combat_from_equipment(&mut self, monster_id: CreatureId) {
+    pub fn recompute_monster_combat_from_equipment(&mut self, monster_id: CreatureId) {
         let snapshot = self.creatures.get(monster_id).and_then(|k| {
             let CreatureKind::Monster(m) = k else {
                 return None;

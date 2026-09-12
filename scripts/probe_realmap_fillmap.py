@@ -38,7 +38,7 @@ def run_rust_dump() -> int:
         "cargo",
         "test",
         "-p",
-        "tfs-rust-core",
+        "tfs-rust-sim",
         "cyclops_bowl_real_fill_walkable_dump_at_tick_2000",
         "--",
         "--nocapture",

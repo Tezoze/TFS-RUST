@@ -18,7 +18,7 @@ use crate::monster_ai::{MonsterCombatCloseChaseEnqueue, MonsterEnqueueAttackResu
 use crate::test_world::support::{
     TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, dist_idle_monster_config,
     ensure_walkable_tile, insert_monster, insert_monster_with_config, insert_player,
-    insert_spectator_player, minimal_world, test_player,
+    insert_spectator_player, test_player,
 };
 
 /// Same-floor creature outside the 10-tile targeting box — `CanSeeFloor` awake without a target.
@@ -5214,7 +5214,7 @@ fn test_player_walk_while_attacking_re_arms_attack() {
     if let Some(k) = world.creatures.get_mut(player) {
         k.base_mut().earliest_walk_server_ms = 0;
     }
-    crate::sim_scenario::drain_todo_queue_once(&mut world);
+    world.move_creatures(0);
 
     // After the walk completes, the attack must be re-armed by `player_idle_stimulus`.
     let base = world.creatures.get(player).unwrap().base();

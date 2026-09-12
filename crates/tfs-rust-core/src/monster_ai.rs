@@ -1420,7 +1420,7 @@ impl GameWorld {
         false
     }
 
-    fn monster_path_search_params(
+    pub fn monster_path_search_params(
         &self,
         cid: CreatureId,
         follow_id: CreatureId,
@@ -1473,7 +1473,7 @@ impl GameWorld {
         fpp
     }
 
-    fn get_creature_path_to_with_fpp(
+    pub fn get_creature_path_to_with_fpp(
         &mut self,
         cid: CreatureId,
         target: Position,
@@ -1775,7 +1775,7 @@ impl GameWorld {
     ///
     /// Raw OTB speed `0` → `-1` (C++ invalid Waypoints / mountain Bank Unpass). Passable Clip borders
     /// used as sole OTBM ground should be patched to 150 offline (`build_passable_zero_speed_defaults`).
-    pub(crate) fn fillmap_terrain_waypoints_at(&self, pos: Position) -> i32 {
+    pub fn fillmap_terrain_waypoints_at(&self, pos: Position) -> i32 {
         let Some(tile) = self.map.get_tile(pos) else {
             return -1;
         };
@@ -1800,7 +1800,7 @@ impl GameWorld {
     }
 
     /// 772 `TShortway::FillMap` per-tile weight after `MovePossible(Execute=false)` (`cract.cc:89-103`).
-    pub(crate) fn fillmap_waypoints_at(
+    pub fn fillmap_waypoints_at(
         &self,
         cid: CreatureId,
         pos: Position,

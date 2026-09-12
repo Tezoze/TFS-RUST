@@ -265,7 +265,7 @@ impl GameWorld {
     /// (`DamageDone > 0`) and damage text / health bar notify, instead of deriving
     /// `damage_done` from the HP delta (which is 0 when mana absorbs everything).
     /// Returns 0 for immune / invulnerable / poff paths.
-    pub(crate) fn combat_execute_with_stimulus(
+    pub fn combat_execute_with_stimulus(
         &mut self,
         attacker: Option<CreatureId>,
         target: CreatureId,

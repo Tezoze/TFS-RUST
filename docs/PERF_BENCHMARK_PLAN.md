@@ -43,11 +43,7 @@ The threading invariant makes the single game thread the scaling limit, so the b
 can be saturated **without any network, DB, login cap, or anti-flood involvement** — and
 deterministically.
 
-`crates/tfs-rust-core/src/sim_harness.rs` already provides everything needed: world builders
-(`minimal_world:429`, `beat_driven_world:494`), entity insertion, a scenario clock
-(`set_sim_harness_wall_ms`), a seeded parity RNG (`world.seed_parity_rng(42)`), and a tick
-driver (`run_sim_tick:1907`). `crates/tfs-rust-core/src/bin/chase_kite_sim.rs` already drives
-it from a binary under `--features sim`.
+`crates/tfs-rust-sim` owns scenario builders, the wall clock, and `chase_kite_sim`. Core `test_support` stays as unit-test fixtures. Seed with `world.seed_parity_rng(42)`. Tick via `GameWorld::move_creatures` / sim `run_sim_tick`.
 
 Deliverable: a scaling sweep over synthetic populations (N monsters chasing, N players in
 combat, N spectators per broadcast), reporting beat wall time and per-subsystem µs from
