@@ -1,6 +1,6 @@
 # Performance measurement plan
 
-Status: Phase A–B done (core visibility + Criterion hot_paths). Tiers 2–4 not yet implemented.
+Status: Phase A–C done (core visibility + Criterion hot_paths + sim scale_sweep). Tiers 3–4 not yet implemented.
 
 Two distinct goals, deliberately separated because they want different instruments:
 
@@ -281,17 +281,17 @@ Tiers 1–2 first (engineering loop), Tier 3 spike early (riskiest assumption), 
 - [x] Verify: `rtk cargo bench -p tfs-rust-core --bench hot_paths -- --noplot --quick`; `rtk cargo clippy -p tfs-rust-core --all-targets -- -D warnings`
 
 ## Phase C — Tier 2 scaling sweep (`crates/tfs-rust-sim`)
-- [ ] `src/population.rs` — synthetic populations on top of `world.rs` helpers (no edits there):
+- [x] `src/population.rs` — synthetic populations on top of `world.rs` helpers (no edits there):
   - `spawn_monster_ring(world, mtype|name, n, center, radius)` via `insert_monster_from_type` / `insert_monster`, then `appear_monsters` batch so they acquire the hero as target (chase load → `path_us`)
   - `spawn_player_grid(world, n, center)` via `sim_hero_player` + `insert_player` + `register_conn_mapping(ConnId(i), cid)` so spectator fan-out fills `pending_outgoing` (pub) — sweep drains + byte-counts it per beat
   - `queue_random_walks(world, players, rng)` via `player_move_request` for the players axis
-- [ ] `src/sweep.rs` — `SweepAxis { Monsters, Players, Spectators }`, `SweepPoint { n, beats, warmup }`, `SweepResult { beat_wall_us p50/p95/p99/max, creatures/skills/todo/path µs percentiles, path_searches, outgoing_bytes_per_beat }` from `take_obs_window()`; serde/`ron` or hand-rolled JSON (match `chase_jsonl.rs` style — no new serde dep unless already transitive)
-- [ ] `src/bin/scale_sweep.rs` + `[[bin]]`: `--axis monsters|players|spectators --points 50,100,200,400,800 --beats 600 --warmup 100 --map synthetic|otbm --seed 42 --out results/sweep_<axis>.json`; `seed_parity_rng(seed)` once; synthetic arena via `beat_driven_world_for_kite_synthetic`, real map via `beat_driven_world_from_map` (`TFS_DATA_DIR`, `TFS_MAP_OTBM`)
-- [ ] `scripts/profile_sim.sh` — checks `cargo flamegraph` + `perf` (neither installed locally: `pacman -S perf`, `cargo install flamegraph`), sets `CARGO_PROFILE_RELEASE_DEBUG=true`, runs `cargo flamegraph -p tfs-rust-sim --bin scale_sweep -- <args>` → `results/flamegraph_<axis>_<n>.svg`
-- [ ] `scripts/bench/plot_sweep.py` (matplotlib, optional import) — N vs beat wall p99 + stacked subsystem µs
-- [ ] `docs/SIM_HARNESS.md` §3.3 one-line note: perf sweep uses `advance_beat`; parity scenarios do not
-- [ ] Tests (`src/sweep_tests.rs`): 50-monster synthetic point runs 20 beats, `beat_wall` histogram has 20 samples, `path_searches > 0`; players axis produces `outgoing_bytes_per_beat > 0`
-- [ ] Verify: `rtk cargo run -p tfs-rust-sim --release --bin scale_sweep -- --axis monsters --points 50,200 --beats 100`; `rtk cargo test -p tfs-rust-sim`
+- [x] `src/sweep.rs` — `SweepAxis { Monsters, Players, Spectators }`, `SweepPoint { n, beats, warmup }`, `SweepResult { beat_wall_us p50/p95/p99/max, creatures/skills/todo/path µs percentiles, path_searches, outgoing_bytes_per_beat }` from `take_obs_window()`; serde/`ron` or hand-rolled JSON (match `chase_jsonl.rs` style — no new serde dep unless already transitive)
+- [x] `src/bin/scale_sweep.rs` + `[[bin]]`: `--axis monsters|players|spectators --points 50,100,200,400,800 --beats 600 --warmup 100 --map synthetic|otbm --seed 42 --out results/sweep_<axis>.json`; `seed_parity_rng(seed)` once; synthetic arena via `beat_driven_world_for_kite_synthetic`, real map via `beat_driven_world_from_map` (`TFS_DATA_DIR`, `TFS_MAP_OTBM`)
+- [x] `scripts/profile_sim.sh` — checks `cargo flamegraph` + `perf` (neither installed locally: `pacman -S perf`, `cargo install flamegraph`), sets `CARGO_PROFILE_RELEASE_DEBUG=true`, runs `cargo flamegraph -p tfs-rust-sim --bin scale_sweep -- <args>` → `results/flamegraph_<axis>_<n>.svg`
+- [x] `scripts/bench/plot_sweep.py` (matplotlib, optional import) — N vs beat wall p99 + stacked subsystem µs
+- [x] `docs/SIM_HARNESS.md` §3.3 one-line note: perf sweep uses `advance_beat`; parity scenarios do not
+- [x] Tests (`src/sweep_tests.rs`): 50-monster synthetic point runs 20 beats, `beat_wall` histogram has 20 samples, `path_searches > 0`; players axis produces `outgoing_bytes_per_beat > 0`
+- [x] Verify: `rtk cargo test -p tfs-rust-sim --lib sweep_tests`; clippy `-p tfs-rust-sim -- --no-deps -D warnings`; `scale_sweep --axis monsters --points 50,200 --beats 100 --warmup 0` (not full crate test/clippy)
 
 ## Phase D — Tier 3 spike, then loadgen
 - [ ] **Spike** `rsa.rs`: `pub fn encrypt(block: &[u8; 128], n: &BigUint, e: &BigUint) -> Result<[u8; 128]>` (`num-bigint-dig` `modpow`, mirror of `decrypt` `rsa.rs:18`); `pub fn public_parts(&RsaPrivateKey) -> (BigUint, BigUint)`; round-trip unit test

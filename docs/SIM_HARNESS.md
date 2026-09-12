@@ -124,7 +124,7 @@ Headless runner builds a normal `GameWorld`, then:
 
 1. **Seed** `world.seed_parity_rng(seed)` once at scenario start, and again at documented resync points that mirror C++ `ResyncHarnessRng`. The **sim crate** reads `TFS_SIM_SEED` and calls the method. Core never reads the env var.
 2. **Place** creatures through public spawn/appear APIs (or a small public `place_creature_login` that is the real login-shaped path, not a cfg-gated `pub(crate)` fork). Hero fist attack/defend are `Player::fist_attack` / `fist_defense` (race data), set the same way login sets them.
-3. **Advance** time via public `MoveCreatures` APIs on `GameWorld` (clock + due-todo drain). Wall-ms clamp and `run_sim_tick` loops live in the sim crate as wrappers. Do **not** call `advance_beat` from scenarios — that is full `AdvanceGame` and would desync vs C++.
+3. **Advance** time via public `MoveCreatures` APIs on `GameWorld` (clock + due-todo drain). Wall-ms clamp and `run_sim_tick` loops live in the sim crate as wrappers. Do **not** call `advance_beat` from scenarios — that is full `AdvanceGame` and would desync vs C++. The perf scaling sweep (`scale_sweep`) is the exception: it drives `advance_beat` on purpose and is not a parity contract.
 4. **Observe** via `tracing::trace!(target: "chase", …)` already in core AI/combat/walk. The sim binary installs a subscriber that writes C++-schema JSONL. Production default log filter does not enable `chase`. No `SimObserver` trait, no `Option<&dyn …>` on hot paths.
 
 C++ keeps its own harness. Parity contract is **scenario file + seed + log schema**, not shared process globals.

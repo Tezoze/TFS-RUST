@@ -242,6 +242,7 @@ data/logs/*
 #############
 ## Local run artifacts (sim + server)
 #############
+/results/
 /log/*
 !/log/.gitignore
 /crates/tfs-rust-core/log/*

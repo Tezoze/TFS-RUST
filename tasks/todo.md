@@ -1,3 +1,14 @@
+# Perf Phase C — Tier 2 scaling sweep (2026-09-12)
+
+In-process `advance_beat` load in `tfs-rust-sim` (`docs/PERF_BENCHMARK_PLAN.md`). Do **not** grow `world.rs` / `scenario.rs` / `chase_kite_sim.rs`. Core stays Phase A (read-only obs). Beat wall µs is timed in the sweep: `advance_beat` does not call `record_beat`.
+
+- [x] `src/population.rs` — `spawn_hero` / `spawn_monster_ring` / `spawn_player_grid` / `queue_random_walks` on existing helpers
+- [x] `src/sweep.rs` — `SweepAxis` / `SweepPoint` / `SweepResult`; JSON via `format!` (no serde)
+- [x] `src/bin/scale_sweep.rs` + `[[bin]]` — `--axis` `--points` `--beats` `--warmup` `--map` `--seed` `--out`
+- [x] `scripts/profile_sim.sh`, `scripts/bench/plot_sweep.py`, `docs/SIM_HARNESS.md` §3.3 note, gitignore `results/`
+- [x] Tests: 50-monster / 20 beats (`beat_wall` samples == 20, `path_searches > 0`); players `outgoing_bytes_per_beat > 0`
+- [x] Verify: `rtk cargo test -p tfs-rust-sim --lib sweep_tests`; clippy `-p tfs-rust-sim -- --no-deps -D warnings`; `scale_sweep` release run (not full crate test/clippy)
+
 # Perf Phase B — Tier 1 microbenches (2026-09-12)
 
 Criterion hot_paths in `tfs-rust-core` (pub API only). CI `bench_gate` is non-blocking until 2026-09-26.

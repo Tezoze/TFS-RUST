@@ -18,3 +18,7 @@ tokio = { workspace = true }
 [[bin]]
 name = "chase_kite_sim"
 path = "src/bin/chase_kite_sim.rs"
+
+[[bin]]
+name = "scale_sweep"
+path = "src/bin/scale_sweep.rs"

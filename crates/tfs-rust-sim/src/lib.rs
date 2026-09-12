@@ -4,10 +4,14 @@
 
 pub mod chase_jsonl;
 pub mod clock;
+pub mod population;
 pub mod scenario;
+pub mod sweep;
 pub mod world;
 
 #[cfg(test)]
 mod fillmap_tests;
+#[cfg(test)]
+mod sweep_tests;
 
 pub use scenario::*;

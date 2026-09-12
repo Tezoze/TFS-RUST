@@ -1093,4 +1093,7 @@
 472. **`dot_tick_for_condition` is fire/energy only** (`condition.rs:309-320`; Phase B `benches/hot_paths.rs`): The pub helper maps `ConditionType::Fire` / `Energy` onto profiled DoT ticks. Poison decays in `process_skills` (`poison_factor_percent` is `pub(crate)`). Do not widen that for microbenches — bench fire+energy; poison stays behind the skills arm.
     *(2026-09-12)*
 
+473. **`advance_beat` does not fill `GameObs.beat_wall_ms`** (`game_world_tick.rs`; `obs.rs` `record_beat`; Phase C `sweep.rs`): `AdvanceGame` in `advance_beat` already times `wall_start`/`wall_ms` and records subsystem µs, but `record_beat` is only called from `game_loop.rs`. `obs` is `pub(crate)`, so `tfs-rust-sim` cannot inject wall samples. The scaling sweep wraps `advance_beat` in `Instant` and keeps its own beat-wall histogram; `take_obs_window()` is for creatures/skills/todo/path µs and `path_searches` only. Parity `.scenario` runs still must not call `advance_beat` (`docs/SIM_HARNESS.md` §3.3).
+    *(2026-09-12)*
+
 
