@@ -448,90 +448,88 @@ fn lower_expr(e: RawExpr, items: Option<&ItemDatabase>) -> ImportResult<Dialogue
                 format!("unknown expression identifier {other:?}"),
             )),
         },
-        RawExpr::Call { name, args, span } => {
-            match name.as_str() {
-                "count" => {
-                    if args.len() != 1 {
-                        return Err(ImportError::spanned(span, "Count expects 1 arg"));
-                    }
-                    let item = remap_item_lit_expr(
-                        lower_expr(args.into_iter().next().unwrap(), items)?,
-                        &span,
-                        items,
-                    )?;
-                    Ok(DialogueExpr::Count {
-                        item: Box::new(item),
-                    })
+        RawExpr::Call { name, args, span } => match name.as_str() {
+            "count" => {
+                if args.len() != 1 {
+                    return Err(ImportError::spanned(span, "Count expects 1 arg"));
                 }
-                "questvalue" => {
-                    if args.len() != 1 {
-                        return Err(ImportError::spanned(span, "QuestValue expects 1 arg"));
-                    }
-                    let a = args.into_iter().next().unwrap();
-                    let storage_id = match a {
-                        RawExpr::Lit(n, _) if n >= 0 => n as u32,
-                        other => {
-                            return Err(ImportError::spanned(
-                                span_of_expr(&other),
-                                "QuestValue id must be a literal",
-                            ));
-                        }
-                    };
-                    Ok(DialogueExpr::QuestValue { storage_id })
-                }
-                "random" => {
-                    if args.len() != 2 {
-                        return Err(ImportError::spanned(span, "Random expects 2 args"));
-                    }
-                    let mut it = args.into_iter();
-                    let lo = match it.next().unwrap() {
-                        RawExpr::Lit(n, _) => n,
-                        other => {
-                            return Err(ImportError::spanned(
-                                span_of_expr(&other),
-                                "Random lo must be literal",
-                            ));
-                        }
-                    };
-                    let hi = match it.next().unwrap() {
-                        RawExpr::Lit(n, _) => n,
-                        other => {
-                            return Err(ImportError::spanned(
-                                span_of_expr(&other),
-                                "Random hi must be literal",
-                            ));
-                        }
-                    };
-                    Ok(DialogueExpr::Random { lo, hi })
-                }
-                "spellknown" => {
-                    if args.len() != 1 {
-                        return Err(ImportError::spanned(span, "SpellKnown expects 1 arg"));
-                    }
-                    Ok(DialogueExpr::SpellKnown {
-                        spell: Box::new(lower_expr(args.into_iter().next().unwrap(), items)?),
-                    })
-                }
-                "spelllevel" => {
-                    if args.len() != 1 {
-                        return Err(ImportError::spanned(span, "SpellLevel expects 1 arg"));
-                    }
-                    Ok(DialogueExpr::SpellLevel {
-                        spell: Box::new(lower_expr(args.into_iter().next().unwrap(), items)?),
-                    })
-                }
-                "countmoney" => {
-                    if !args.is_empty() {
-                        return Err(ImportError::spanned(span, "CountMoney takes no args"));
-                    }
-                    Ok(DialogueExpr::CountMoney)
-                }
-                other => Err(ImportError::spanned(
-                    span,
-                    format!("unknown expression call {other:?}"),
-                )),
+                let item = remap_item_lit_expr(
+                    lower_expr(args.into_iter().next().unwrap(), items)?,
+                    &span,
+                    items,
+                )?;
+                Ok(DialogueExpr::Count {
+                    item: Box::new(item),
+                })
             }
-        }
+            "questvalue" => {
+                if args.len() != 1 {
+                    return Err(ImportError::spanned(span, "QuestValue expects 1 arg"));
+                }
+                let a = args.into_iter().next().unwrap();
+                let storage_id = match a {
+                    RawExpr::Lit(n, _) if n >= 0 => n as u32,
+                    other => {
+                        return Err(ImportError::spanned(
+                            span_of_expr(&other),
+                            "QuestValue id must be a literal",
+                        ));
+                    }
+                };
+                Ok(DialogueExpr::QuestValue { storage_id })
+            }
+            "random" => {
+                if args.len() != 2 {
+                    return Err(ImportError::spanned(span, "Random expects 2 args"));
+                }
+                let mut it = args.into_iter();
+                let lo = match it.next().unwrap() {
+                    RawExpr::Lit(n, _) => n,
+                    other => {
+                        return Err(ImportError::spanned(
+                            span_of_expr(&other),
+                            "Random lo must be literal",
+                        ));
+                    }
+                };
+                let hi = match it.next().unwrap() {
+                    RawExpr::Lit(n, _) => n,
+                    other => {
+                        return Err(ImportError::spanned(
+                            span_of_expr(&other),
+                            "Random hi must be literal",
+                        ));
+                    }
+                };
+                Ok(DialogueExpr::Random { lo, hi })
+            }
+            "spellknown" => {
+                if args.len() != 1 {
+                    return Err(ImportError::spanned(span, "SpellKnown expects 1 arg"));
+                }
+                Ok(DialogueExpr::SpellKnown {
+                    spell: Box::new(lower_expr(args.into_iter().next().unwrap(), items)?),
+                })
+            }
+            "spelllevel" => {
+                if args.len() != 1 {
+                    return Err(ImportError::spanned(span, "SpellLevel expects 1 arg"));
+                }
+                Ok(DialogueExpr::SpellLevel {
+                    spell: Box::new(lower_expr(args.into_iter().next().unwrap(), items)?),
+                })
+            }
+            "countmoney" => {
+                if !args.is_empty() {
+                    return Err(ImportError::spanned(span, "CountMoney takes no args"));
+                }
+                Ok(DialogueExpr::CountMoney)
+            }
+            other => Err(ImportError::spanned(
+                span,
+                format!("unknown expression call {other:?}"),
+            )),
+        },
         RawExpr::Binary {
             op,
             lhs,

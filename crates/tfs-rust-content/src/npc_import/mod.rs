@@ -264,33 +264,24 @@ Behaviour = {
             "String assignment"
         );
         assert!(
-            dialogue
-                .rules
+            dialogue.rules.iter().any(|r| r
+                .actions
                 .iter()
-                .any(|r| r
-                    .actions
-                    .iter()
-                    .any(|a| matches!(a, crate::npcs::DialogueAction::Bless { .. }))),
+                .any(|a| matches!(a, crate::npcs::DialogueAction::Bless { .. }))),
             "Bless"
         );
         assert!(
-            dialogue
-                .rules
+            dialogue.rules.iter().any(|r| r
+                .actions
                 .iter()
-                .any(|r| r
-                    .actions
-                    .iter()
-                    .any(|a| matches!(a, crate::npcs::DialogueAction::Town { .. }))),
+                .any(|a| matches!(a, crate::npcs::DialogueAction::Town { .. }))),
             "Town"
         );
         assert!(
-            dialogue
-                .rules
+            dialogue.rules.iter().any(|r| r
+                .actions
                 .iter()
-                .any(|r| r
-                    .actions
-                    .iter()
-                    .any(|a| matches!(a, crate::npcs::DialogueAction::Promote { .. }))),
+                .any(|a| matches!(a, crate::npcs::DialogueAction::Promote { .. }))),
             "Promote"
         );
     }

@@ -383,9 +383,7 @@ fn parse_action(table: &Table, span: &SourceSpan) -> Result<DialogueAction, mlua
         });
     }
     if let Ok(Value::Boolean(true)) = table.get::<Value>("promote") {
-        return Ok(DialogueAction::Promote {
-            span: span.clone(),
-        });
+        return Ok(DialogueAction::Promote { span: span.clone() });
     }
     if let Ok(Value::String(s)) = table.get::<Value>("setString") {
         return Ok(DialogueAction::SetString {
