@@ -607,7 +607,7 @@ mod tests {
     #[test]
     fn probe_rejects_immovable_unpass_wall() {
         use crate::item::Item;
-        use crate::sim_harness::{
+        use crate::test_support::{
             TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_monster,
         };
         use std::sync::Arc;
@@ -653,7 +653,7 @@ mod tests {
     /// `SearchSpawnField` must still block expansion or spiders leak into adjacent sewers.
     #[test]
     fn probe_rejects_bank_zero_waypoint_dirt_wall_ground() {
-        use crate::sim_harness::{
+        use crate::test_support::{
             TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, insert_monster,
         };
         use crate::tile::{Tile, TileBody};
@@ -678,7 +678,7 @@ mod tests {
 
         let open = Position::new(100, 100, 7);
         let wall = Position::new(101, 100, 7);
-        crate::sim_harness::ensure_walkable_tile(&mut world.map, open, TEST_SYNTHETIC_GROUND_WP);
+        crate::test_support::ensure_walkable_tile(&mut world.map, open, TEST_SYNTHETIC_GROUND_WP);
         world.map.insert_tile(
             wall,
             Tile::Normal(TileBody {
@@ -723,10 +723,10 @@ mod tests {
     #[test]
     fn classic772_spawn_skips_wall_home_picks_neighbor() {
         use crate::item::Item;
-        use crate::sim_harness::{
+        use crate::spawn::SpawnManager;
+        use crate::test_support::{
             TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_monster,
         };
-        use crate::spawn::SpawnManager;
         use std::sync::Arc;
         use tfs_rust_content::otb::ItemType;
         use tfs_rust_content::spawns::{SpawnEntry, SpawnZone};

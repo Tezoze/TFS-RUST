@@ -27,7 +27,7 @@ use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::item::Item;
 use crate::player::inventory::money::{ITEM_GOLD_COIN, ITEM_PLATINUM_COIN};
-use crate::sim_harness::{
+use crate::test_support::{
     ensure_walkable_tile, insert_player, minimal_creature_base, minimal_world, sim_hero_player,
 };
 use slotmap::Key;
@@ -325,7 +325,7 @@ fn greeting_farewell_trace() {
     ));
     // Drain reply waits + ChangeState to Idle.
     world.server_ms = world.server_ms.saturating_add(20_000);
-    crate::sim_harness::run_sim_tick(&mut world);
+    crate::sim_scenario::run_sim_tick(&mut world);
     assert!(matches!(
         world.creatures.get(npc),
         Some(CreatureKind::Npc(n))
@@ -466,19 +466,19 @@ fn remove_player_releases_focus_via_vanish() {
 // --- NPC-5: mutating actions ---
 
 fn stackable_coin(server_id: u16) -> ItemType {
-    let mut it = crate::sim_harness::pickup_item_type(server_id);
+    let mut it = crate::test_support::pickup_item_type(server_id);
     it.flags |= 1 << 7; // FLAG_STACKABLE
     it
 }
 
 fn fluid_container(server_id: u16) -> ItemType {
-    let mut it = crate::sim_harness::pickup_item_type(server_id);
+    let mut it = crate::test_support::pickup_item_type(server_id);
     it.group = 12; // `ItemType::GROUP_FLUID`
     it
 }
 
 fn rune_item_type(server_id: u16, charges: u32) -> ItemType {
-    let mut it = crate::sim_harness::pickup_item_type(server_id);
+    let mut it = crate::test_support::pickup_item_type(server_id);
     it.type_tag = 10; // `ItemTypes_t::ITEM_TYPE_RUNE`
     it.charges = charges;
     it
@@ -487,7 +487,7 @@ fn rune_item_type(server_id: u16, charges: u32) -> ItemType {
 fn npc5_world() -> GameWorld {
     let mut world = minimal_world();
     let mut items = HashMap::new();
-    items.insert(1987u16, crate::sim_harness::bag_item_type(1987));
+    items.insert(1987u16, crate::test_support::bag_item_type(1987));
     items.insert(ITEM_GOLD_COIN, stackable_coin(ITEM_GOLD_COIN));
     items.insert(ITEM_PLATINUM_COIN, stackable_coin(ITEM_PLATINUM_COIN));
     items.insert(2160u16, stackable_coin(2160));
@@ -957,7 +957,7 @@ fn reply_todo_schedules_wait_talk_chain() {
 
     // Jump past initial 1000 ms wait and drain.
     world.server_ms = 101_000;
-    crate::sim_harness::run_sim_tick(&mut world);
+    crate::sim_scenario::run_sim_tick(&mut world);
     // After first Wait+Talk, remaining trailing wait may still be present; speech text was queued.
 }
 
@@ -1627,7 +1627,7 @@ fn teach_spell_resolves_session_string() {
 #[test]
 fn npc_immune_to_combat_damage_and_conditions() {
     use crate::combat::{CombatDamage, CombatParams, apply_condition};
-    use crate::sim_harness::insert_npc;
+    use crate::test_support::insert_npc;
     use tfs_rust_common::enums::CombatType;
 
     let mut world = minimal_world();
@@ -1684,7 +1684,7 @@ fn npc_immune_to_combat_damage_and_conditions() {
 
 fn add_item_type(world: &mut GameWorld, server_id: u16, stackable: bool) {
     let mut items = HashMap::clone(&world.items_db.items);
-    let mut it = crate::sim_harness::pickup_item_type(server_id);
+    let mut it = crate::test_support::pickup_item_type(server_id);
     if stackable {
         it.flags |= 1 << 7; // ItemType::FLAG_STACKABLE
     }
@@ -2668,7 +2668,7 @@ fn place_furniture(world: &mut GameWorld, pos: Position) {
 /// NPC self-walk: `npc_move_possible` rejects a tile with furniture (blockPathFind AVOID).
 #[test]
 fn npc_self_walk_blocked_by_furniture() {
-    use crate::sim_harness::insert_npc;
+    use crate::test_support::insert_npc;
     let mut world = minimal_world();
     install_furniture_type(&mut world);
     let home = Position::new(100, 100, 7);

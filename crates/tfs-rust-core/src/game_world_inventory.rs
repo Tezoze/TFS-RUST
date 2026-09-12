@@ -1850,7 +1850,7 @@ fn dest_player_creature(dest: &tfs_rust_lua::LuaMoveDestination) -> Option<u64> 
 #[cfg(test)]
 mod look_tests {
     use super::*;
-    use crate::sim_harness::{insert_player, minimal_world, test_player};
+    use crate::test_support::{insert_player, minimal_world, test_player};
     use std::sync::Arc;
     use tfs_rust_common::Position;
     use tfs_rust_content::vocations::{VocationDef, VocationFormula, VocationRegistry};
@@ -1926,7 +1926,7 @@ mod look_tests {
         let mut target = test_player("Sorcerer Sample", pos);
         target.vocation_id = 1;
         target.level = 100;
-        // `test_player` defaults to `PlayerSex::Male` (sim_harness).
+        // `test_player` defaults to `PlayerSex::Male` (test_support).
         let target_cid = insert_player(&mut world, target);
         let msg = world.player_look_description(viewer_cid, target_cid);
         assert_eq!(
@@ -2225,7 +2225,9 @@ mod look_tests {
     #[test]
     fn add_item_full_backpack_hydrates_container_registry() {
         use crate::inventory::InventorySlot;
-        use crate::sim_harness::{ensure_walkable_tile, insert_player, minimal_world, test_player};
+        use crate::test_support::{
+            ensure_walkable_tile, insert_player, minimal_world, test_player,
+        };
         use slotmap::Key;
         use tfs_rust_common::{Position, ScriptContext};
 
@@ -2258,7 +2260,7 @@ mod look_tests {
 #[cfg(test)]
 mod add_health_tests {
     use super::*;
-    use crate::sim_harness::{insert_player, minimal_world, test_player};
+    use crate::test_support::{insert_player, minimal_world, test_player};
     use slotmap::Key;
     use tfs_rust_common::Position;
     use tfs_rust_content::item_abilities::STAT_MAXHITPOINTS;
@@ -2326,7 +2328,7 @@ mod add_health_tests {
     fn add_health_on_monster_kills_at_zero() {
         let mut world = minimal_world();
         let pos = Position::new(50, 50, 7);
-        let cid = crate::sim_harness::insert_monster(&mut world, "Demon", pos, 200);
+        let cid = crate::test_support::insert_monster(&mut world, "Demon", pos, 200);
         let id = cid.data().as_ffi();
         world.lua_script_player_add_health(id, -40).expect("hurt");
         assert_eq!(world.creatures.get(cid).unwrap().base().health, 60);

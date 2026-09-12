@@ -699,7 +699,7 @@ mod push_gate_a_tests {
     //! Phase P-A — 772 Gate A pushability predicate (`operate.cc:439` `CheckMoveObject`).
     use super::*;
     use crate::creature::MonsterAiConfig;
-    use crate::sim_harness::{
+    use crate::test_support::{
         beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player,
         test_player,
     };
@@ -909,7 +909,7 @@ mod push_phase_b_tests {
     //! adjacency re-check (P12). See `docs/772_PLAYER_PUSH_AUDIT.md` §4 P-B.
     use super::*;
     use crate::creature_todo::CreatureAction;
-    use crate::sim_harness::{
+    use crate::test_support::{
         beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player,
         test_player,
     };
@@ -1098,7 +1098,7 @@ mod push_phase_c_tests {
     //! Tests P3 (range cap), P5 (elevation-sum gate), P6 (dest AVOID), P9 (ThrowPossible),
     //! and PZ→non-PZ. See `docs/772_PLAYER_PUSH_AUDIT.md` §4 P-C.
     use super::*;
-    use crate::sim_harness::{
+    use crate::test_support::{
         beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player,
         test_player,
     };
@@ -1354,7 +1354,7 @@ mod push_phase_d_tests {
     //! See `docs/772_PLAYER_PUSH_AUDIT.md` §4 P-D.
     use super::*;
     use crate::creature::{CreatureBase, MonsterAiConfig, MonsterState, Npc, Outfit, Player};
-    use crate::sim_harness::{
+    use crate::test_support::{
         beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player,
         synthetic_ground_item_type, test_player,
     };
@@ -1753,7 +1753,7 @@ mod push_gm_bypass_tests {
     //! keeps Gate C (range cap, AVOID, PZ→non-PZ). See `docs/772_PLAYER_PUSH_AUDIT.md`.
     use super::*;
     use crate::creature::{CreatureBase, MonsterAiConfig, MonsterState, Npc, Outfit, Player};
-    use crate::sim_harness::{
+    use crate::test_support::{
         beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player,
         test_player,
     };
@@ -1964,7 +1964,7 @@ mod push_followup_d4_d8_tests {
     //! player-push entry. See `docs/772_PLAYER_PUSH_AUDIT_FOLLOWUP.md` §3 D4/D8.
     use super::*;
     use crate::creature::{CreatureKind, MonsterAiConfig, MonsterState};
-    use crate::sim_harness::{
+    use crate::test_support::{
         beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player,
         test_player,
     };
@@ -2167,7 +2167,7 @@ mod push_followup_d1_d2_d3_tests {
     //! See `docs/772_PLAYER_PUSH_AUDIT_FOLLOWUP.md` §3 D1/D2/D3.
     use super::*;
     use crate::creature::{CreatureKind, MonsterAiConfig, Player};
-    use crate::sim_harness::{
+    use crate::test_support::{
         beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player,
         synthetic_ground_item_type, test_player,
     };
@@ -2329,7 +2329,7 @@ mod push_hole_spectator_tests {
     //! of the final downstairs tile — not freeze the creature on the hole.
     use super::*;
     use crate::creature::MonsterAiConfig;
-    use crate::sim_harness::{
+    use crate::test_support::{
         beat_driven_world, ensure_walkable_tile, insert_monster_with_config,
         insert_spectator_player, synthetic_ground_item_type, test_player,
     };

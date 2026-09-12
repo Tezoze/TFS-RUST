@@ -386,7 +386,7 @@ mod tests {
     use super::*;
     use crate::container::Container;
     use crate::item::Item;
-    use crate::sim_harness::{
+    use crate::test_support::{
         beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
     };
     use crate::tile::flags as tile_flags;

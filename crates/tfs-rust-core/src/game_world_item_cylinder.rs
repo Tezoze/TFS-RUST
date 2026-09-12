@@ -886,7 +886,7 @@ mod detach_tile_flag_tests {
     use super::*;
     use crate::cylinder::{Cylinder, CylinderFlags};
     use crate::item::Item;
-    use crate::sim_harness::minimal_world;
+    use crate::test_support::minimal_world;
     use crate::tile::{Tile, flags};
     use tfs_rust_common::Position;
     use tfs_rust_content::otb::ItemType;
@@ -978,7 +978,7 @@ mod item_move_event_tests {
     use crate::event_dispatcher::{EventDispatcher, TileMoveEventItem};
     use crate::ids::ItemId;
     use crate::item::Item;
-    use crate::sim_harness::minimal_world;
+    use crate::test_support::minimal_world;
     use crate::tile::Tile;
     use std::sync::{Arc, Mutex};
     use tfs_rust_common::Position;

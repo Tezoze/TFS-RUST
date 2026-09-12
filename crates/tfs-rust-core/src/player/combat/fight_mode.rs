@@ -303,7 +303,7 @@ mod tests {
 
     /// Helper: build a minimal `GameWorld` with the given `WorldType` for PVP-gate tests.
     fn make_pvp_world(world_type: WorldType) -> GameWorld {
-        let mut world = crate::sim_harness::minimal_world();
+        let mut world = crate::test_support::minimal_world();
         world.pvp_config = PvpConfig {
             world_type,
             ..PvpConfig::defaults()
@@ -313,7 +313,7 @@ mod tests {
 
     fn insert_player(world: &mut GameWorld, name: &str) -> CreatureId {
         let pos = tfs_rust_common::Position::new(0, 0, 7);
-        let mut player = crate::sim_harness::test_player(name, pos);
+        let mut player = crate::test_support::test_player(name, pos);
         player.guid = name.len() as u32; // unique guid per player
         world.creatures.insert(CreatureKind::Player(player))
     }
@@ -357,7 +357,7 @@ mod tests {
         let m = world
             .creatures
             .insert(CreatureKind::Monster(crate::creature::Monster::new(
-                crate::sim_harness::minimal_creature_base(),
+                crate::test_support::minimal_creature_base(),
                 tfs_rust_common::Position::new(1, 1, 7),
             )));
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(a) {
@@ -504,10 +504,10 @@ mod tests {
         world.register_conn_mapping(conn, a);
         // Ensure a tile exists so the zone check path runs.
         let pos = tfs_rust_common::Position::new(0, 0, 7);
-        crate::sim_harness::ensure_walkable_tile(
+        crate::test_support::ensure_walkable_tile(
             &mut world.map,
             pos,
-            crate::sim_harness::TEST_SYNTHETIC_GROUND_WP,
+            crate::test_support::TEST_SYNTHETIC_GROUND_WP,
         );
         world.player_block_logout(a, 60, false);
         assert!(
@@ -546,7 +546,7 @@ mod tests {
         let monster = world
             .creatures
             .insert(CreatureKind::Monster(crate::creature::Monster::new(
-                crate::sim_harness::minimal_creature_base(),
+                crate::test_support::minimal_creature_base(),
                 tfs_rust_common::Position::new(1, 1, 7),
             )));
         let applied = world.combat_execute_with_stimulus(
@@ -593,24 +593,24 @@ mod tests {
         world.round_nr = 100;
         let player_pos = tfs_rust_common::Position::new(100, 100, 7);
         let monster_pos = tfs_rust_common::Position::new(102, 100, 7);
-        crate::sim_harness::ensure_walkable_tile(
+        crate::test_support::ensure_walkable_tile(
             &mut world.map,
             player_pos,
-            crate::sim_harness::TEST_SYNTHETIC_GROUND_WP,
+            crate::test_support::TEST_SYNTHETIC_GROUND_WP,
         );
-        crate::sim_harness::ensure_walkable_tile(
+        crate::test_support::ensure_walkable_tile(
             &mut world.map,
             monster_pos,
-            crate::sim_harness::TEST_SYNTHETIC_GROUND_WP,
+            crate::test_support::TEST_SYNTHETIC_GROUND_WP,
         );
-        let mut player = crate::sim_harness::test_player("alice", player_pos);
+        let mut player = crate::test_support::test_player("alice", player_pos);
         player.guid = 1;
         let player = world.creatures.insert(CreatureKind::Player(player));
         let conn = tfs_rust_common::ConnId(1);
         world.register_conn_mapping(conn, player);
         world.map.register_creature_at(player_pos, player);
 
-        let monster = crate::sim_harness::insert_monster(&mut world, "Rat", monster_pos, 100);
+        let monster = crate::test_support::insert_monster(&mut world, "Rat", monster_pos, 100);
         world.map.register_creature_at(monster_pos, monster);
         if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
             m.melee_skill = 10;
@@ -756,7 +756,7 @@ mod tests {
         world.map.insert_tile(
             pos,
             Tile::Normal(TileBody {
-                ground: Some(crate::sim_harness::TEST_SYNTHETIC_GROUND_WP),
+                ground: Some(crate::test_support::TEST_SYNTHETIC_GROUND_WP),
 
                 ground_item: None,
                 down_items: Vec::new(),

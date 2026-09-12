@@ -1428,7 +1428,7 @@ mod tests {
     use crate::container::Container;
     use crate::cylinder::Cylinder;
     use crate::item::Item;
-    use crate::sim_harness::{insert_player, minimal_world, test_player};
+    use crate::test_support::{insert_player, minimal_world, test_player};
     use crate::tile::{Tile, TileBody};
     use tfs_rust_common::{ConnId, Position};
 
@@ -1540,7 +1540,7 @@ mod tests {
         use std::sync::Arc;
         use tfs_rust_content::otb::ItemType;
 
-        let mut world = crate::sim_harness::beat_driven_test_world();
+        let mut world = crate::test_support::beat_driven_test_world();
         let mut db = (*world.items_db).clone();
         db.items.insert(
             1386,
@@ -1565,7 +1565,7 @@ mod tests {
         world.items_db = Arc::new(db);
 
         let pos = Position::new(90, 90, 7);
-        crate::sim_harness::ensure_walkable_tile(&mut world.map, pos, 100);
+        crate::test_support::ensure_walkable_tile(&mut world.map, pos, 100);
         let ladder = world.items.insert(Item::new_single(1386));
         world
             .internal_add_item_to_tile(pos, ladder, crate::cylinder::CylinderFlags::NO_LIMIT)
@@ -1585,7 +1585,7 @@ mod tests {
         use std::sync::Arc;
         use tfs_rust_content::otb::ItemType;
 
-        let mut world = crate::sim_harness::beat_driven_test_world();
+        let mut world = crate::test_support::beat_driven_test_world();
         let mut db = (*world.items_db).clone();
         db.items.insert(
             1947,
@@ -1612,7 +1612,7 @@ mod tests {
         world.items_db = Arc::new(db);
 
         let pos = Position::new(91, 91, 7);
-        crate::sim_harness::ensure_walkable_tile(&mut world.map, pos, 100);
+        crate::test_support::ensure_walkable_tile(&mut world.map, pos, 100);
         let paper = world.items.insert(Item::new_single(1947));
         world
             .internal_add_item_to_tile(pos, paper, crate::cylinder::CylinderFlags::NONE)

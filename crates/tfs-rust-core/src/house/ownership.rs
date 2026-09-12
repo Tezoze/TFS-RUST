@@ -407,7 +407,7 @@ pub(crate) fn add_to_container_front(world: &mut GameWorld, container: ItemId, i
 mod tests {
     use super::*;
     use crate::house::HouseManager;
-    use crate::sim_harness::{insert_player, minimal_world, test_player};
+    use crate::test_support::{insert_player, minimal_world, test_player};
     use crate::tile::{HouseTile, Tile, TileBody};
     use tfs_rust_common::Position;
     use tfs_rust_common::enums::ZoneType;

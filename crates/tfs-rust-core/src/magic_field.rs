@@ -289,7 +289,7 @@ mod tests {
     use crate::cylinder::CylinderFlags;
     use crate::game_world::GameWorld;
     use crate::item::Item;
-    use crate::sim_harness::{
+    use crate::test_support::{
         TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_monster,
         insert_player, test_player,
     };

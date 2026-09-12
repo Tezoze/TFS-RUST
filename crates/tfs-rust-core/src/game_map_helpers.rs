@@ -187,7 +187,7 @@ impl GameWorld {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sim_harness::minimal_world;
+    use crate::test_support::minimal_world;
 
     #[test]
     fn global_storage_roundtrip() {

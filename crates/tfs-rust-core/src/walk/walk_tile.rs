@@ -687,7 +687,7 @@ pub(crate) fn tile_query_add_player(
 mod pz_entry_lock_tests {
     use super::*;
     use crate::creature::CreatureKind;
-    use crate::sim_harness::{
+    use crate::test_support::{
         TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_player,
         test_player,
     };

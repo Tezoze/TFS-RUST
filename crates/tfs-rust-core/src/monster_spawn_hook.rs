@@ -41,7 +41,7 @@ impl GameWorld {
 mod tests {
     use super::*;
     use crate::event_dispatcher::EventDispatcher;
-    use crate::sim_harness::{insert_monster, minimal_world};
+    use crate::test_support::{insert_monster, minimal_world};
     use std::cell::Cell;
     use std::rc::Rc;
     use tfs_rust_common::Position;

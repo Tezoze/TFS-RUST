@@ -382,7 +382,7 @@ mod tests {
     use super::*;
     use crate::cylinder::Cylinder;
     use crate::item::Item;
-    use crate::sim_harness::{insert_player, minimal_world, test_player};
+    use crate::test_support::{insert_player, minimal_world, test_player};
     use crate::tile::{Tile, TileBody};
     use tfs_rust_common::ZoneType;
 

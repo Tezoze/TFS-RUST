@@ -684,7 +684,7 @@ mod tests {
     use crate::ids::{CreatureId, ItemId};
     use crate::inventory::{SLOTP_ARMOR, SLOTP_LEFT, SLOTP_RIGHT, WEAPON_SHIELD, WEAPON_SWORD};
     use crate::item::Item;
-    use crate::sim_harness::{bag_item_type, insert_monster, pickup_item_type};
+    use crate::test_support::{bag_item_type, insert_monster, pickup_item_type};
     use crate::test_world::support::{
         ensure_walkable_tile, insert_player, minimal_world, test_player,
     };

@@ -221,7 +221,7 @@ mod tests {
     use super::*;
     use crate::cylinder::CylinderFlags;
     use crate::item::Item;
-    use crate::sim_harness::minimal_world;
+    use crate::test_support::minimal_world;
     use crate::test_world::support::{insert_player, test_player};
     use crate::tile::{Tile, flags};
     use tfs_rust_content::otb::ItemType;

@@ -500,7 +500,7 @@ mod tests {
 
     fn world_with_doors(closed: u16, open: u16) -> crate::game_world::GameWorld {
         use std::sync::Arc;
-        let mut world = crate::sim_harness::minimal_world();
+        let mut world = crate::test_support::minimal_world();
         let mut db = (*world.items_db).clone();
         db.items.insert(closed, door_item_type(closed));
         db.items.insert(open, door_item_type(open));
@@ -661,7 +661,7 @@ mod tests {
         use std::sync::Arc;
         use tfs_rust_common::enums::ZoneType;
 
-        let mut world = crate::sim_harness::minimal_world();
+        let mut world = crate::test_support::minimal_world();
         let mut db = (*world.items_db).clone();
         db.items.insert(chair, chair_type(chair));
         world.items_db = Arc::new(db);

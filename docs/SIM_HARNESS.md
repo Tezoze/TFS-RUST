@@ -1,6 +1,6 @@
 # Simulation harness — current state and implementation plan
 
-**Status:** implementation plan (inventory 2026-09-10; Phase 0–2 done)
+**Status:** implementation plan (inventory 2026-09-10; Phase 0–3 done)
 **Related:** `docs/REFACTOR_AUDIT.md` Phase 2 (quarantine done; crate extract was the unfinished stretch);
 `tasks/lessons.md` §70, §100, §127, §232; `docs/772_PLAYER_COMBAT_AUDIT.md` (B4 / sim battery fragility);
 `tasks/todo.md` (Sim harness extract)
@@ -52,17 +52,17 @@ Shared scenarios, dual runners, diff tools. The weight problem is not here.
 
 | Artifact | Location | Actual problem |
 |----------|----------|----------------|
-| `sim_harness.rs` (~1932 lines) | `tfs-rust-core`, `cfg(any(test, feature = "sim"))` | **Two modules fused:** in-crate test fixtures **and** scenario/parity harness. `test_world.rs` re-exports the whole file; **~1,116 / 1,398** core `#[test]` fns import it. |
-| `chase_kite_sim` bin | `tfs-rust-core/src/bin/` | Correct idea, wrong crate. Relies on harness `pub` wrappers over `pub(crate)` world internals. JSONL via `chase_jsonl.rs` tracing layer (Phase 2). |
+| `test_support.rs` + `sim_scenario.rs` | `tfs-rust-core`, `cfg(any(test, feature = "sim"))` | **Phase 3 done.** Fixtures vs scenario/OTBM/wall-clock. `test_world` re-exports `test_support` only. |
+| `chase_kite_sim` bin | `tfs-rust-core/src/bin/` | Correct idea, wrong crate. Imports `sim_scenario` only. JSONL via `chase_jsonl.rs` tracing layer (Phase 2). |
 | `path_compare` bin | same `src/bin/` | **Clean** — public pathfinding only, no `sim` feature. Leave in core. |
 | `chase_debug` | **Phase 2 done.** Deleted. | Production AI/walk/combat emit `tracing::trace!(target: "chase", …)`. JSONL writer is `chase_kite_sim`’s `ChaseJsonlLayer`. |
 | `sim_glibc_rand` | Always: `GlibcRngState` + `DANCE_DIR_ORDER` | **Phase 1 done.** One per-world stream. Process-global `libc::rand`, `sim_glibc_rng_enabled`, and free `parity_*` `thread_rng` fallbacks are gone. |
 | `GameWorld::parity_random` | `game_world.rs` | Unconditional `self.parity_rng`. Seed via `seed_parity_rng`; harness reads `TFS_SIM_SEED`. |
 | `Player::fist_attack` / `fist_defense` | Always on `Player` | Race-data fist fallback (`human.mon` Attack=7 / Defend=5, `crcombat.cc:183`). Set in `login.rs`. Renamed from `sim_melee_*` (Phase 0). |
 | `Monster::harness_preserve_sleep` | Always on `Monster` | Genuine harness leak (appear-defer). |
-| `feature = "sim"` | `tfs-rust-core/Cargo.toml` | Cfg switch for `sim_harness` + optional `tracing-subscriber` for `chase_kite_sim`. Dropped in Phase 5. |
+| `feature = "sim"` | `tfs-rust-core/Cargo.toml` | Cfg switch for `test_support` / `sim_scenario` + optional `tracing-subscriber` for `chase_kite_sim`. Dropped in Phase 5. |
 
-Phase 2 (`docs/SIM_HARNESS.md`) replaced `chase_debug` with `target = "chase"` tracing; JSONL lives on the sim bin. The stretch — move to `tfs-rust-sim` — is Phase 5. Result until then: “off in the default binary, still in the architecture for `sim_harness`.”
+Phase 2 replaced `chase_debug` with `target = "chase"` tracing; Phase 3 split fixtures from scenario. The stretch — move `sim_scenario` to `tfs-rust-sim` — is Phase 5. Result until then: scenario code is off in the default binary, still in-tree under `feature = "sim"`.
 
 ### 2.3 What the battery validates well
 
@@ -131,7 +131,7 @@ C++ keeps its own harness. Parity contract is **scenario file + seed + log schem
 ### 3.4 RNG contract
 
 ```
-TFS_SIM_SEED=N          # read only by sim_harness / C++ runner / battery scripts
+TFS_SIM_SEED=N          # read only by test_support / C++ runner / battery scripts
   → seed_parity_rng(N) at the same scenario milestones
   → every combat/AI draw comes from that world's GlibcRngState only
   → no libc::srand / process-global rand()
@@ -140,7 +140,7 @@ TFS_SIM_SEED=N          # read only by sim_harness / C++ runner / battery script
 
 Unit tests that need determinism call `seed_parity_rng` explicitly. They do not require `feature = "sim"` or env vars.
 
-Free `parity_random` / `parity_rand_mod` `thread_rng` fallbacks are deleted (Phase 1). All live draws go through `GameWorld::parity_*` / `GlibcRngState`. Until Phase 5, `sim_harness.rs` (still in core) is the `TFS_SIM_SEED` env reader. `TFS_CHASE_PATH_*` is read only by `chase_kite_sim` (`chase_jsonl.rs`).
+Free `parity_random` / `parity_rand_mod` `thread_rng` fallbacks are deleted (Phase 1). All live draws go through `GameWorld::parity_*` / `GlibcRngState`. Until Phase 5, `test_support::sim_seed_from_env` (still in core) is the `TFS_SIM_SEED` env reader. `TFS_CHASE_PATH_*` is read only by `chase_kite_sim` (`chase_jsonl.rs`).
 
 ### 3.5 Observe via `tracing`, not a trait
 
@@ -227,14 +227,14 @@ Landed:
 - `GameWorld::init_sim_rng_from_env` / `resync_sim_glibc_rng` deleted
 - `sim_dance_choice` → `dance_choice`
 
-**Resync milestones (still in-core `sim_harness` until Phase 5):**
+**Resync milestones (still in-core until Phase 5):**
 
 | Milestone | Call site |
 |-----------|-----------|
-| World construction | `sim_harness::init_beat_driven_world` → `seed_world_from_sim_env` → `seed_parity_rng` |
-| After spawn loot / appear batch | `kite_monsters_appear_batch` → `seed_world_from_sim_env` (C++ `ResyncHarnessRng`) |
+| World construction | `test_support::init_beat_driven_world` → `seed_world_from_sim_env` → `seed_parity_rng` |
+| After spawn loot / appear batch | `sim_scenario::kite_monsters_appear_batch` → `seed_world_from_sim_env` (C++ `ResyncHarnessRng`) |
 
-`TFS_SIM_SEED` is read only by `sim_seed_from_env` in `sim_harness.rs` (and battery scripts / C++ runner). `GameWorld` never reads the env var.
+`TFS_SIM_SEED` is read only by `sim_seed_from_env` in `test_support.rs` (and battery scripts / C++ runner). `GameWorld` never reads the env var.
 
 **Exit:** `rg sim_glibc_rng_enabled|enable_sim_glibc_rng|init_sim_rng_from_env|resync_sim_glibc_rng` empty in core.
 
@@ -266,23 +266,19 @@ Event names unchanged (`branch`, `todo_go`, `shortway`, `go_exec`, `idle_stimulu
 
 ---
 
-### Phase 3 — Split `sim_harness.rs` inside core (precondition for extract)
+### Phase 3 — Split `sim_harness.rs` inside core (precondition for extract) — DONE 2026-09-12
 
 **Goal:** two files, still in `tfs-rust-core`. No new crate yet. Tests stay green.
 
-| Stay (`#[cfg(test)]`, re-exported by `test_world`) | Leave as scenario module (`cfg(any(test, feature = "sim"))` until Phase 5) |
-|---------------------------------------------------|--------------------------------------------------------------------------|
-| `minimal_world`, `beat_driven_world`, `beat_driven_test_world`, `beat_driven_world_with_synthetic_ground` | `SimMapConfig`, `default_sim_map_config`, `beat_driven_world_from_map`, `beat_driven_world_for_kite_synthetic` |
-| `test_config`, `test_player`, `minimal_player`, `insert_player` / `insert_monster*` / `insert_npc` / `insert_spectator` | OTBM audit (`audit_otbm_route_tiles`, `write_audit_route_json`, fill-walkable dump) |
-| Tile helpers (`ensure_walkable_tile`, `lay_arena_tiles`, synthetic ground types) | `kite_monsters_appear_batch`, `kite_monster_appear`, `harness_place_creature_login` wrapper, `teleport_player`, `walk_player_adjacent` |
-| `sim_player_damage_monster` if tests use it | `setup_cyclops_*`, `setup_kite_rat_*` presets |
-| Time helpers **once they are `GameWorld` methods** (Phase 4) | Wall clock (`set_sim_harness_wall_ms`), `run_sim_tick` loop, `HarnessScenarioClock` |
+Landed:
 
-Suggested names: `src/test_support.rs` (or keep growing `test_world.rs`) vs `src/sim_scenario.rs`.
+- `sim_harness.rs` deleted; fixtures are `test_support.rs` (`pub(crate)`), scenario/OTBM/wall-clock is `pub mod sim_scenario`
+- `test_world::support` re-exports `test_support` only (no scenario presets)
+- `chase_kite_sim` imports `tfs_rust_core::sim_scenario` only (re-exports insert/hero helpers the bin needs)
+- Clock TLS + `TFS_SIM_SEED` read live in `test_support` (`pub(crate)`) so beat-driven world init can reset without a module cycle; public `set_sim_harness_wall_ms` / `run_sim_tick` stay on `sim_scenario`
+- Fixture tests: `test_support::tests::synthetic_arena_min_wp_matches_default_wp`; appear/wall/OTBM tests: `sim_scenario_tests.rs`
 
-`sim_harness_tests.rs` splits with the code it tests: fixture tests stay; appear/wall/OTBM tests travel with the scenario module (and later the sim crate).
-
-**Exit:** `test_world` no longer `pub use crate::sim_harness::*`. Core tests compile without importing scenario presets. `chase_kite_sim` imports only the scenario module.
+**Exit (met):** `test_world` no longer `pub use crate::sim_harness::*`. Core tests compile without importing scenario presets. `chase_kite_sim` imports only the scenario module.
 
 **Verify:**
 

@@ -669,7 +669,7 @@ impl GameWorld {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sim_harness::{
+    use crate::test_support::{
         ensure_walkable_tile, insert_player, insert_spectator_player, minimal_world, test_player,
     };
     use tfs_rust_common::Position;

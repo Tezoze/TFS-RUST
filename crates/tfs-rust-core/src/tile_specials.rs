@@ -168,9 +168,10 @@ mod tests {
     use super::*;
     use crate::creature::CreatureKind;
     use crate::item::Item;
-    use crate::sim_harness::{
+    use crate::sim_scenario::walk_player_adjacent;
+    use crate::test_support::{
         beat_driven_test_world, ensure_walkable_tile, insert_player, insert_spectator_player,
-        test_player, walk_player_adjacent,
+        test_player,
     };
     use crate::tile::flags as tile_flags;
     use std::sync::Arc;

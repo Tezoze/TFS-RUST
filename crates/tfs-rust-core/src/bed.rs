@@ -307,7 +307,7 @@ fn unix_secs() -> u32 {
 mod tests {
     use super::*;
     use crate::item::Item;
-    use crate::sim_harness::{
+    use crate::test_support::{
         beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
     };
     use crate::tile::{HouseTile, Tile, TileBody};

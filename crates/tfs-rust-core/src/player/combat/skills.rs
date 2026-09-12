@@ -343,7 +343,7 @@ mod tests {
 
     fn bare_player() -> Player {
         // Minimal stub — only skills/vocation matter for increase tests.
-        crate::sim_harness::test_player("SkillTest", tfs_rust_common::Position::new(100, 100, 7))
+        crate::test_support::test_player("SkillTest", tfs_rust_common::Position::new(100, 100, 7))
     }
 
     #[test]

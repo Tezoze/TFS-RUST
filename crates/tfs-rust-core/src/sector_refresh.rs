@@ -232,7 +232,7 @@ impl GameWorld {
 mod tests {
     use super::*;
     use crate::item::Item;
-    use crate::sim_harness::{beat_driven_test_world, ensure_walkable_tile};
+    use crate::test_support::{beat_driven_test_world, ensure_walkable_tile};
     use crate::tile::flags as tile_flags;
     use tfs_rust_common::Position;
 

@@ -1075,4 +1075,7 @@
 466. **Chase JSONL is a `tracing` subscriber, not an AI env check** (`docs/SIM_HARNESS.md` Phase 2; `chase_jsonl.rs`; `target = "chase"`): Core deleted `chase_debug.rs`. Production sites emit `tracing::trace!(target: "chase", event = "…", …)`; production default filter is `info` so TRACE is off. `TFS_CHASE_PATH_DEBUG` / `TFS_CHASE_PATH_LOG` are sim-bin install flags (`--log` wins), not reads inside monster think. JSONL schema (0/1 bools, nested `from`/`dest`, derived `via`/`cheb`/`diag`) stays in the bin layer so Python diffs do not change. **`appear_face_target_for_debug` still mutates facing** — keep it behind `tracing::enabled!(target: "chase", TRACE)` so unit tests without a chase subscriber do not rotate. Cargo auto-discovers `src/bin/*.rs` as binaries; sibling modules need `autobins = false` plus explicit `[[bin]]`.
     *(2026-09-12)*
 
+467. **Sim harness Phase 3: fixtures vs scenario, no glob re-export** (`docs/SIM_HARNESS.md`; `test_support.rs`; `sim_scenario.rs`; `test_world.rs`): `test_world::support` must not `pub use` the whole scenario module — unit tests stay on world/insert/tile fixtures; OTBM/appear/wall-clock live in `sim_scenario`. Clock TLS stays in `test_support` as `pub(crate)` so `init_beat_driven_world` can reset it without `test_support` ↔ `sim_scenario` cycle; public `set_sim_harness_wall_ms` / `run_sim_tick` wrap those helpers. `TFS_SIM_SEED` reader is `test_support::sim_seed_from_env`. Crate extract is still Phase 5 (`pub(crate)` `server_ms` / todo drain).
+    *(2026-09-12)*
+
 

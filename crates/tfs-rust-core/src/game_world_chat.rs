@@ -1939,7 +1939,7 @@ mod apply_spec_tests {
     #[test]
     fn e8_lua_add_condition_drunk_stacks_cycle() {
         use crate::condition::DRINK_DRUNK_INTERVAL;
-        use crate::sim_harness::{
+        use crate::test_support::{
             beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
         };
         use slotmap::Key;
@@ -1987,7 +1987,7 @@ mod apply_spec_tests {
 
     #[test]
     fn spell_exhaust_delay_uses_cooldown_or_world_default() {
-        use crate::sim_harness::beat_driven_test_world;
+        use crate::test_support::beat_driven_test_world;
         use tfs_rust_common::enums::WorldType;
 
         let mut world = beat_driven_test_world();
@@ -2004,7 +2004,7 @@ mod apply_spec_tests {
 
     #[test]
     fn player_say_spell_applies_earliest_spell_time() {
-        use crate::sim_harness::{
+        use crate::test_support::{
             TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
             insert_spectator_player, test_player,
         };
@@ -2074,7 +2074,7 @@ mod apply_spec_tests {
 
     #[test]
     fn player_say_spell_group_cooldown_blocks_same_group() {
-        use crate::sim_harness::{
+        use crate::test_support::{
             TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_player,
             test_player,
         };
@@ -2134,7 +2134,7 @@ mod apply_spec_tests {
 
     #[test]
     fn aggressive_spell_does_not_pz_lock_without_player_target() {
-        use crate::sim_harness::{
+        use crate::test_support::{
             TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_player,
             test_player,
         };
@@ -2186,7 +2186,7 @@ mod apply_spec_tests {
 
     #[test]
     fn rune_exhaust_cst_false_only_multiuse() {
-        use crate::sim_harness::{
+        use crate::test_support::{
             TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_player,
             test_player,
         };
@@ -2214,7 +2214,7 @@ mod apply_spec_tests {
 
     #[test]
     fn rune_exhaust_cst_true_bumps_spell_clock() {
-        use crate::sim_harness::{
+        use crate::test_support::{
             TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_player,
             test_player,
         };
@@ -2240,7 +2240,7 @@ mod apply_spec_tests {
 
     #[test]
     fn player_say_spell_premium_blocks_non_premium() {
-        use crate::sim_harness::{
+        use crate::test_support::{
             TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
             insert_spectator_player, test_player,
         };
@@ -2281,7 +2281,7 @@ mod apply_spec_tests {
 
     #[test]
     fn player_say_spell_premium_allows_premium_account() {
-        use crate::sim_harness::{
+        use crate::test_support::{
             TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
             insert_spectator_player, test_player,
         };
@@ -2322,7 +2322,7 @@ mod apply_spec_tests {
 
     #[test]
     fn player_say_spell_learn_spells_blocks_unknown() {
-        use crate::sim_harness::{
+        use crate::test_support::{
             TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
             insert_spectator_player, test_player,
         };
@@ -2366,7 +2366,7 @@ mod apply_spec_tests {
 
     #[test]
     fn player_say_spell_learn_spells_allows_taught_name() {
-        use crate::sim_harness::{
+        use crate::test_support::{
             TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
             insert_spectator_player, test_player,
         };
@@ -2413,7 +2413,7 @@ mod apply_spec_tests {
 
     #[test]
     fn open_private_channel_sends_tell_window_without_owned_channel() {
-        use crate::sim_harness::{
+        use crate::test_support::{
             TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
             insert_spectator_player, test_player,
         };
@@ -2436,7 +2436,7 @@ mod apply_spec_tests {
 
     #[test]
     fn player_speak_to_delivers_private_message_case_insensitive() {
-        use crate::sim_harness::{
+        use crate::test_support::{
             TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
             insert_spectator_player, test_player,
         };
@@ -2464,7 +2464,7 @@ mod apply_spec_tests {
     #[test]
     fn trade_channel_two_minute_gate() {
         use crate::chat::ChatChannel;
-        use crate::sim_harness::{
+        use crate::test_support::{
             TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
             insert_spectator_player, test_player,
         };
@@ -2497,7 +2497,7 @@ mod apply_spec_tests {
 
     #[test]
     fn private_channel_create_without_premium_cancels() {
-        use crate::sim_harness::{
+        use crate::test_support::{
             TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
             insert_spectator_player, test_player,
         };
@@ -2523,7 +2523,7 @@ mod apply_spec_tests {
 
     #[test]
     fn say_range_excludes_viewer_outside_7x5() {
-        use crate::sim_harness::{
+        use crate::test_support::{
             TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
             insert_spectator_player, test_player,
         };

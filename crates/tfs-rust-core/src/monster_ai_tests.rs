@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn fillmap_terrain_reads_grass_bank_waypoints() {
-    use crate::sim_harness::{beat_driven_world_for_kite_synthetic, default_sim_map_config};
+    use crate::sim_scenario::{beat_driven_world_for_kite_synthetic, default_sim_map_config};
 
     let cfg = default_sim_map_config();
     if !cfg.data_dir.is_dir() {
@@ -29,10 +29,8 @@ fn fillmap_terrain_reads_grass_bank_waypoints() {
 #[test]
 fn fillmap_movepossible_blocks_unpass_under_grass() {
     use crate::creature::{MonsterAiConfig, MonsterState};
-    use crate::sim_harness::{
-        beat_driven_world_for_kite_synthetic, default_sim_map_config, insert_monster_from_type,
-        insert_player,
-    };
+    use crate::sim_scenario::{beat_driven_world_for_kite_synthetic, default_sim_map_config};
+    use crate::test_support::{insert_monster_from_type, insert_player};
 
     let cfg = default_sim_map_config();
     if !cfg.data_dir.is_dir() {
@@ -119,7 +117,9 @@ fn monsterhome_in_range_axis_box_and_z() {
 #[test]
 fn chase_leash_skipped_when_attacking_bounded_when_roaming() {
     use crate::creature::{MonsterAiConfig, MonsterState};
-    use crate::sim_harness::{beat_driven_world, ensure_walkable_tile, insert_monster_with_config};
+    use crate::test_support::{
+        beat_driven_world, ensure_walkable_tile, insert_monster_with_config,
+    };
 
     let mut world = beat_driven_world();
     // Global despawn radius is large (50); the per-home radius is small (3).
@@ -156,7 +156,9 @@ fn chase_leash_skipped_when_attacking_bounded_when_roaming() {
 #[test]
 fn roam_leash_falls_back_to_despawn_radius_when_home_unset() {
     use crate::creature::{MonsterAiConfig, MonsterState};
-    use crate::sim_harness::{beat_driven_world, ensure_walkable_tile, insert_monster_with_config};
+    use crate::test_support::{
+        beat_driven_world, ensure_walkable_tile, insert_monster_with_config,
+    };
 
     let mut world = beat_driven_world();
     world.monster_world_config.despawn_radius = 50;

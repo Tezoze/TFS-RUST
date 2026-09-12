@@ -50,7 +50,7 @@ fn seed_idle_chase_queue_for_test(world: &mut GameWorld, monster: CreatureId) {
 fn fillmap_reads_otb_bank_waypoints_from_data_pack() {
     use std::path::Path;
 
-    use crate::sim_harness::beat_driven_world_with_synthetic_ground_data;
+    use crate::test_support::beat_driven_world_with_synthetic_ground_data;
 
     let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data");
     if !data.is_dir() {
@@ -89,7 +89,7 @@ fn fillmap_mountain_rock_soil_blocked_clip_grass_defaults() {
     use std::path::Path;
 
     use crate::pathfinding::DEFAULT_TERRAIN_WAYPOINTS;
-    use crate::sim_harness::beat_driven_world_with_synthetic_ground_data;
+    use crate::test_support::beat_driven_world_with_synthetic_ground_data;
 
     let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data");
     if !data.is_dir() {
@@ -1265,10 +1265,8 @@ fn test_772_idle_no_greedy_step_on_path_fail() {
 fn cyclops_quad_far_n_path_avoids_nw_sibling_when_last() {
     use crate::creature::MonsterState;
     use crate::pathfinding::REVERSE_PATH_VIEW_RADIUS;
-    use crate::sim_harness::{
-        beat_driven_world_for_kite_synthetic, default_sim_map_config, insert_monster_from_type,
-        insert_player,
-    };
+    use crate::sim_scenario::{beat_driven_world_for_kite_synthetic, default_sim_map_config};
+    use crate::test_support::{insert_monster_from_type, insert_player};
 
     let cfg = default_sim_map_config();
     if !cfg.data_dir.is_dir() {
@@ -1356,10 +1354,8 @@ fn cyclops_quad_nw_and_far_n_shortway_match_live_ref() {
     use crate::pathfinding::{
         CHASE_PATH_MAX_STEPS, REVERSE_PATH_VIEW_RADIUS, truncate_tshortway_go_queue,
     };
-    use crate::sim_harness::{
-        beat_driven_world_for_kite_synthetic, default_sim_map_config, insert_monster_from_type,
-        insert_player,
-    };
+    use crate::sim_scenario::{beat_driven_world_for_kite_synthetic, default_sim_map_config};
+    use crate::test_support::{insert_monster_from_type, insert_player};
     use tfs_rust_common::enums::Direction;
 
     fn steps_to_tiles(start: Position, steps: &[Direction]) -> Vec<Position> {
@@ -1471,7 +1467,7 @@ fn cyclops_quad_nw_and_far_n_shortway_match_live_ref() {
 #[test]
 fn test_772_attack_blocked_across_z_levels() {
     use crate::creature::MonsterState;
-    use crate::sim_harness::{
+    use crate::test_support::{
         beat_driven_test_world, ensure_walkable_tile, insert_monster, insert_player, test_player,
     };
 
@@ -1522,7 +1518,7 @@ fn test_772_attack_blocked_across_z_levels() {
 #[test]
 fn test_772_attack_clears_dest_in_protection_zone() {
     use crate::creature::MonsterState;
-    use crate::sim_harness::{
+    use crate::test_support::{
         beat_driven_test_world, ensure_walkable_tile, insert_monster, insert_player, test_player,
     };
     use crate::tile::{Tile, TileBody};

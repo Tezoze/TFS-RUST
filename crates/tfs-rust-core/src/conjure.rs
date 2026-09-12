@@ -231,7 +231,7 @@ mod tests {
     use super::*;
     use crate::cylinder::Cylinder;
     use crate::item::Item;
-    use crate::sim_harness::{
+    use crate::test_support::{
         ensure_walkable_tile_if_absent, insert_player, minimal_world, pickup_item_type, test_player,
     };
     use std::sync::Arc;

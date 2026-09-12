@@ -574,7 +574,7 @@ pub async fn login_player(
 mod tests {
     use super::*;
     use crate::game_state::GameState;
-    use crate::sim_harness::{insert_player, minimal_world, test_player};
+    use crate::test_support::{insert_player, minimal_world, test_player};
     use slotmap::Key;
     use tfs_rust_common::{Position, ScriptContext};
 

@@ -379,7 +379,7 @@ fn set_monster_life_end(world: &mut GameWorld, id_bits: u64, life_end_round: u32
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sim_harness::{TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, lay_arena_tiles};
+    use crate::test_support::{TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, lay_arena_tiles};
     use std::collections::HashMap;
     use std::sync::Arc;
     use tfs_rust_content::monsters::{

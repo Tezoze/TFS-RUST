@@ -716,7 +716,7 @@ impl GameWorld {
 mod tests {
     use super::*;
     use crate::creature::CreatureKind;
-    use crate::sim_harness::{ensure_walkable_tile, insert_player, minimal_world, test_player};
+    use crate::test_support::{ensure_walkable_tile, insert_player, minimal_world, test_player};
     use tfs_rust_common::{ConnId, Position};
 
     fn two_players() -> (GameWorld, CreatureId, CreatureId) {

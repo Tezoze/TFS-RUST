@@ -1,7 +1,7 @@
 //! Minimal `GameWorld` builder for unit tests (never touches the database).
 #[cfg(test)]
 pub mod support {
-    pub use crate::sim_harness::*;
+    pub use crate::test_support::*;
 
     use std::collections::HashMap;
 

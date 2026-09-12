@@ -348,7 +348,7 @@ mod tests {
     use crate::creature::{CreatureKind, MonsterAiConfig};
     use crate::inventory::{InventorySlot, WEAPON_SHIELD, WEAPON_SWORD};
     use crate::item::Item;
-    use crate::sim_harness::{
+    use crate::test_support::{
         beat_driven_test_world, ensure_walkable_tile, insert_monster_with_config,
         insert_spectator_player, minimal_world, sim_hero_player,
     };
@@ -557,12 +557,12 @@ mod tests {
         ensure_walkable_tile(
             &mut world.map,
             pos,
-            crate::sim_harness::TEST_SYNTHETIC_GROUND_WP,
+            crate::test_support::TEST_SYNTHETIC_GROUND_WP,
         );
         ensure_walkable_tile(
             &mut world.map,
             adjacent_pos(pos),
-            crate::sim_harness::TEST_SYNTHETIC_GROUND_WP,
+            crate::test_support::TEST_SYNTHETIC_GROUND_WP,
         );
         let conn = ConnId(1);
         let mut player = sim_hero_player("Hero", pos);
@@ -618,12 +618,12 @@ mod tests {
         ensure_walkable_tile(
             &mut world.map,
             pos,
-            crate::sim_harness::TEST_SYNTHETIC_GROUND_WP,
+            crate::test_support::TEST_SYNTHETIC_GROUND_WP,
         );
         ensure_walkable_tile(
             &mut world.map,
             adjacent_pos(pos),
-            crate::sim_harness::TEST_SYNTHETIC_GROUND_WP,
+            crate::test_support::TEST_SYNTHETIC_GROUND_WP,
         );
         let conn = ConnId(1);
         let mut player = sim_hero_player("Hero", pos);

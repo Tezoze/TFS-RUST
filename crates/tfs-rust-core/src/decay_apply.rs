@@ -569,7 +569,7 @@ mod tests {
     use super::*;
     use crate::creature::CreatureKind;
     use crate::item::Item;
-    use crate::sim_harness::minimal_world;
+    use crate::test_support::minimal_world;
     use crate::tile::Tile;
     use tfs_rust_common::Position;
     use tfs_rust_content::otb::ItemType;

@@ -492,7 +492,7 @@ mod tests {
     use super::*;
     use crate::inventory::InventorySlot;
     use crate::item_attributes::DecayState;
-    use crate::sim_harness::{insert_player, minimal_world, test_player};
+    use crate::test_support::{insert_player, minimal_world, test_player};
     use tfs_rust_common::Position;
     use tfs_rust_content::otb::ItemType;
 

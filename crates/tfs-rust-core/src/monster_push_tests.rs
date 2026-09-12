@@ -1,7 +1,7 @@
 use super::*;
 use crate::creature::{CreatureKind, MonsterAiConfig, MonsterState};
 use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
-use crate::sim_harness::{
+use crate::test_support::{
     beat_driven_world, ensure_walkable_tile, insert_monster_with_config, insert_player, test_player,
 };
 use tfs_rust_common::enums::Direction;
@@ -193,7 +193,7 @@ fn can_kick_boxes_inherits_from_master() {
 fn kicker_paths_through_pushable_bear_not_stall() {
     use crate::creature::ChaseMode;
     use crate::monster_ai::MonsterCombatCloseChaseEnqueue;
-    use crate::sim_harness::{TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world};
+    use crate::test_support::{TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world};
 
     let mut world = beat_driven_test_world();
     // 1-wide corridor: cyclops(100,100) → bear(101,100) → player(103,100).
@@ -824,7 +824,7 @@ fn f3_player_tile_clears_target() {
 /// might pick a different target or sleep.
 #[test]
 fn f3_kick_kill_reengages_same_target() {
-    use crate::sim_harness::{TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world};
+    use crate::test_support::{TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world};
 
     let mut world = beat_driven_test_world();
     let now = std::time::Instant::now();
@@ -1267,7 +1267,7 @@ fn kicked_monster_walk_queue_cleared_by_adjacency_check() {
 /// kick direction (`NotifyTurn`, `cract.cc:1566–1581`).
 #[test]
 fn kick_applies_notify_go_dest_floor_speed_and_facing() {
-    use crate::sim_harness::{TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world};
+    use crate::test_support::{TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world};
     use crate::walk::{get_step_duration_ms_with_direction, ground_speed_for_tile_body};
 
     let mut world = beat_driven_test_world();
@@ -1370,7 +1370,7 @@ fn kick_applies_notify_go_dest_floor_speed_and_facing() {
 /// ```
 #[test]
 fn fast_kicker_steps_onto_vacated_tiles_three_pushes() {
-    use crate::sim_harness::{TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world};
+    use crate::test_support::{TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world};
     use crate::walk::{get_step_duration_ms_with_direction, ground_speed_for_tile_body};
 
     let mut world = beat_driven_test_world();
@@ -1521,7 +1521,7 @@ fn fast_kicker_steps_onto_vacated_tiles_three_pushes() {
 #[test]
 fn d5_hard_block_does_not_kick_boxes() {
     use crate::item::Item;
-    use crate::sim_harness::synthetic_ground_item_type;
+    use crate::test_support::synthetic_ground_item_type;
     use tfs_rust_content::otb::ItemType;
 
     let mut world = beat_driven_world();

@@ -1,19 +1,9 @@
 use super::*;
 use tfs_rust_common::Position;
 
-#[test]
-fn synthetic_arena_min_wp_matches_default_wp() {
-    let mut world = beat_driven_world_with_synthetic_ground(Some(150));
-    let min_wp = lay_synthetic_arena(&mut world.map, 100, 100, 3, 7, 150);
-    assert_eq!(min_wp, 150);
-    let pos = Position::new(100, 100, 7);
-    assert!(world.map.is_walkable(pos));
-    assert_eq!(world.map.get_tile(pos).unwrap().body().ground, Some(102));
-    assert_eq!(
-        world.tile_ground_speed(world.map.get_tile(pos).unwrap().body()),
-        150
-    );
-}
+use crate::test_support::{
+    beat_driven_world, beat_driven_world_with_synthetic_ground, insert_monster, lay_synthetic_arena,
+};
 
 #[test]
 fn move_creatures_clamps_to_harness_wall() {
@@ -134,7 +124,6 @@ fn batch_appear_quad_yields_next_beat_not_inline_idle() {
 #[test]
 fn cyclops_quad_sibling_tiles_block_chase_fill_walkable() {
     use crate::creature::{MonsterAiConfig, MonsterState};
-    use crate::pathfinding::REVERSE_PATH_VIEW_RADIUS;
 
     let cfg = default_sim_map_config();
     if !cfg.data_dir.is_dir() {

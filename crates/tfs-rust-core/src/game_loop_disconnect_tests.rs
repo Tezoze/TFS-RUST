@@ -7,7 +7,7 @@ use tfs_rust_common::game_packet::GamePacket;
 use tfs_rust_common::{ConnId, GameCommand, Position};
 
 use crate::creature::CreatureKind;
-use crate::sim_harness::{
+use crate::test_support::{
     TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, insert_monster, insert_player, test_player,
 };
 use crate::test_world::support::ensure_walkable_tile;

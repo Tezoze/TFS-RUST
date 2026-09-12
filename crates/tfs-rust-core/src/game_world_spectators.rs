@@ -917,7 +917,7 @@ impl GameWorld {
 #[cfg(test)]
 mod spectator_fanout_grid_tests {
     use super::*;
-    use crate::sim_harness::{insert_spectator_player, minimal_world, test_player};
+    use crate::test_support::{insert_spectator_player, minimal_world, test_player};
     use slotmap::Key;
     use std::collections::HashSet;
     use tfs_rust_common::{ConnId, Position};
@@ -1220,7 +1220,9 @@ mod creature_can_see_tests {
 mod known_set_can_see_tests {
     use super::*;
     use crate::login_out::creature_wire_id;
-    use crate::sim_harness::{insert_monster, insert_spectator_player, minimal_world, test_player};
+    use crate::test_support::{
+        insert_monster, insert_spectator_player, minimal_world, test_player,
+    };
     use std::collections::HashSet;
     use tfs_rust_common::{ConnId, Position};
     use tfs_rust_net::creature_known::check_creature_known;

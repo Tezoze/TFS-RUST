@@ -25,7 +25,7 @@ use crate::inventory::{InventorySlot, SLOTP_NECKLACE};
 use crate::item::Item;
 use crate::lua_event_dispatcher::LuaEventDispatcher;
 use crate::lua_scope::register_lua_mutation_hooks;
-use crate::sim_harness::{
+use crate::test_support::{
     bag_item_type, insert_monster, insert_player, pickup_item_type, test_player,
 };
 use crate::test_world::support::{ensure_walkable_tile, minimal_world};

@@ -701,7 +701,7 @@ mod tests {
     #[test]
     fn physical_block_armor_reduces_spell_damage() {
         use crate::creature::MonsterAiConfig;
-        use crate::sim_harness::{insert_monster_with_config, minimal_world, sim_hero_player};
+        use crate::test_support::{insert_monster_with_config, minimal_world, sim_hero_player};
         use slotmap::Key;
         use tfs_rust_lua::CombatExecuteRequest;
 

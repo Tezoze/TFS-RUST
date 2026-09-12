@@ -689,7 +689,7 @@ mod tests {
     use tfs_rust_common::WorldType;
 
     fn make_pvp_world(world_type: WorldType) -> GameWorld {
-        let mut world = crate::sim_harness::minimal_world();
+        let mut world = crate::test_support::minimal_world();
         world.pvp_config = PvpConfig {
             world_type,
             ..PvpConfig::defaults()
@@ -699,7 +699,7 @@ mod tests {
 
     fn insert_player(world: &mut GameWorld, name: &str) -> CreatureId {
         let pos = tfs_rust_common::Position::new(0, 0, 7);
-        let mut player = crate::sim_harness::test_player(name, pos);
+        let mut player = crate::test_support::test_player(name, pos);
         player.guid = (name.as_bytes().iter().map(|&b| b as u32).sum::<u32>())
             .wrapping_add(name.len() as u32);
         world.creatures.insert(CreatureKind::Player(player))
@@ -949,7 +949,7 @@ mod tests {
         if let Some(k) = world.creatures.get_mut(b) {
             k.base_mut().position = pos;
         }
-        crate::sim_harness::ensure_walkable_tile(&mut world.map, pos, 100);
+        crate::test_support::ensure_walkable_tile(&mut world.map, pos, 100);
         if let Some(tile) = world.map.get_tile_mut(pos) {
             tile.body_mut().creatures = vec![a, b];
         }

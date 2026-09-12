@@ -326,7 +326,7 @@ fn classic_772_looktype_range(sex: PlayerSex, premium: bool) -> (u16, u16) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sim_harness::{beat_driven_test_world, insert_spectator_player, test_player};
+    use crate::test_support::{beat_driven_test_world, insert_spectator_player, test_player};
     use tfs_rust_common::{Position, ProtocolVersion};
     use tfs_rust_content::outfits::{Outfit, OutfitDatabase};
     use tfs_rust_net::NetworkMessage;

@@ -343,7 +343,7 @@ mod tests {
     use crate::creature::CreatureKind;
     use crate::inventory::InventorySlot;
     use crate::item::Item;
-    use crate::sim_harness::{minimal_world, sim_hero_player};
+    use crate::test_support::{minimal_world, sim_hero_player};
     use tfs_rust_common::Position;
     use tfs_rust_content::otb::ItemType;
 

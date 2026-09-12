@@ -4731,7 +4731,7 @@ fn test_772_acquire_skips_invisible_player_without_see_invisible() {
 #[test]
 fn test_772_spell_blocked_across_z_levels() {
     use crate::creature::{MonsterAiConfig, MonsterSpell, SpellImpact, SpellShape};
-    use crate::sim_harness::{
+    use crate::test_support::{
         beat_driven_test_world, ensure_walkable_tile, insert_monster_with_config,
     };
 
@@ -5214,7 +5214,7 @@ fn test_player_walk_while_attacking_re_arms_attack() {
     if let Some(k) = world.creatures.get_mut(player) {
         k.base_mut().earliest_walk_server_ms = 0;
     }
-    crate::sim_harness::drain_todo_queue_once(&mut world);
+    crate::sim_scenario::drain_todo_queue_once(&mut world);
 
     // After the walk completes, the attack must be re-armed by `player_idle_stimulus`.
     let base = world.creatures.get(player).unwrap().base();

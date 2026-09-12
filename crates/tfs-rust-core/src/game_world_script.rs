@@ -1872,7 +1872,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
 #[cfg(test)]
 mod e5_e6_e7_script_tests {
     use super::*;
-    use crate::sim_harness::{insert_monster, insert_player, minimal_world, test_player};
+    use crate::test_support::{insert_monster, insert_player, minimal_world, test_player};
     use crate::tile::{HouseTile, Tile, TileBody};
     use slotmap::Key;
     use tfs_rust_common::Position;

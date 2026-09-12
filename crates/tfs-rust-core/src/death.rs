@@ -339,7 +339,7 @@ mod tests {
     use super::*;
     use crate::event_dispatcher::NullEventDispatcher;
     use crate::formulas::{MechanicsProfile, StepSpeedModel};
-    use crate::sim_harness::{insert_monster, insert_player, minimal_world, test_player};
+    use crate::test_support::{insert_monster, insert_player, minimal_world, test_player};
     use tfs_rust_common::Position;
     use tfs_rust_common::enums::WorldType;
 

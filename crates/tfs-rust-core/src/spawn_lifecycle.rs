@@ -1722,7 +1722,7 @@ mod tests {
     }
 
     fn stackable_gold_type() -> ItemType {
-        let mut it = crate::sim_harness::pickup_item_type(2148);
+        let mut it = crate::test_support::pickup_item_type(2148);
         it.flags |= 1 << 7;
         it
     }
@@ -1736,7 +1736,7 @@ mod tests {
         monsters.insert("rat".into(), gold_loot_rat());
         world.monsters_db = Arc::new(MonsterDatabase { monsters });
         let mut items = HashMap::new();
-        items.insert(1987u16, crate::sim_harness::bag_item_type(1987));
+        items.insert(1987u16, crate::test_support::bag_item_type(1987));
         items.insert(2148u16, stackable_gold_type());
         world.items_db = Arc::new(ItemDatabase {
             items,

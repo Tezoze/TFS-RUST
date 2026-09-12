@@ -194,7 +194,7 @@ fn unix_i64() -> i64 {
 mod tests {
     use super::*;
     use crate::creature::CreatureKind;
-    use crate::sim_harness::{minimal_world, test_player};
+    use crate::test_support::{minimal_world, test_player};
     use tfs_rust_common::Position;
 
     #[test]

@@ -353,7 +353,7 @@ fn send_text(world: &mut GameWorld, cid: CreatureId, class: u8, text: &str) {
 mod tests {
     use super::*;
     use crate::item::Item;
-    use crate::sim_harness::{insert_player, minimal_world, pickup_item_type, test_player};
+    use crate::test_support::{insert_player, minimal_world, pickup_item_type, test_player};
     use std::sync::Arc;
 
     fn workspace_data() -> std::path::PathBuf {

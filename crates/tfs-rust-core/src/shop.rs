@@ -553,7 +553,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::sim_harness::{
+    use crate::test_support::{
         ensure_walkable_tile, insert_npc, insert_player, minimal_world, pickup_item_type,
         test_player,
     };

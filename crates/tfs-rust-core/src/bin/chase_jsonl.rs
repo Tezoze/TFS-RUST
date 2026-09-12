@@ -26,8 +26,7 @@ pub fn truncate(path: &Path) -> Result<(), String> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
     {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("create {}: {e}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
     }
     std::fs::write(path, "").map_err(|e| format!("truncate {}: {e}", path.display()))
 }
@@ -373,9 +372,10 @@ fn serialize(f: &Collected) -> Option<String> {
             let from_y = f.from_y?;
             let dest_x = f.dest_x?;
             let dest_y = f.dest_y?;
-            let via = f.via.as_deref().unwrap_or_else(|| {
-                todo_go_via(from_x, from_y, dest_x, dest_y)
-            });
+            let via = f
+                .via
+                .as_deref()
+                .unwrap_or_else(|| todo_go_via(from_x, from_y, dest_x, dest_y));
             let cheb = f
                 .cheb
                 .unwrap_or_else(|| chebyshev(from_x, from_y, dest_x, dest_y));

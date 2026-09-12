@@ -799,7 +799,7 @@ impl GameWorld {
 mod tests {
     use super::*;
     use crate::container::Container;
-    use crate::sim_harness::{ensure_walkable_tile, insert_player, minimal_world, test_player};
+    use crate::test_support::{ensure_walkable_tile, insert_player, minimal_world, test_player};
     use slotmap::Key;
     use tfs_rust_common::ConnId;
 

@@ -488,7 +488,7 @@ mod tests {
     #[test]
     fn dead_connection_map_presence_until_logout_possible() {
         use crate::game_world_lifecycle::LogoutPossible;
-        use crate::sim_harness::insert_monster;
+        use crate::test_support::insert_monster;
 
         let mut world = beat_driven_test_world();
         let ppos = Position::new(100, 100, 7);
@@ -565,7 +565,7 @@ mod tests {
     /// Relog TakeOver while deferred logout body is combat-locked (`connections.cc:231-252`).
     #[test]
     fn relog_takeover_while_combat_locked_logging_out() {
-        use crate::sim_harness::insert_monster;
+        use crate::test_support::insert_monster;
 
         let mut world = beat_driven_test_world();
         let ppos = Position::new(100, 100, 7);

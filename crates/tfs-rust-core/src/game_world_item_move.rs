@@ -1009,7 +1009,7 @@ impl GameWorld {
 mod tests {
     use super::*;
     use crate::item::Item;
-    use crate::sim_harness::{ensure_walkable_tile, minimal_world};
+    use crate::test_support::{ensure_walkable_tile, minimal_world};
     use crate::tile::{Tile, TileBody, flags as tilestate};
     use tfs_rust_common::enums::ZoneType;
 
@@ -1139,7 +1139,7 @@ mod tests {
     #[test]
     fn throw_empty_vial_from_hand_onto_tile() {
         use crate::inventory::InventorySlot;
-        use crate::sim_harness::{insert_player, test_player};
+        use crate::test_support::{insert_player, test_player};
         use tfs_rust_content::otb::ItemType;
 
         let mut world = minimal_world();
@@ -1219,7 +1219,7 @@ mod tests {
     /// Message is 772 `OUTOFRANGE`: `"Destination is out of range."` (`sending.cc:297`).
     #[test]
     fn non_takeable_table_cannot_throw_beyond_two_tiles() {
-        use crate::sim_harness::{insert_player, test_player};
+        use crate::test_support::{insert_player, test_player};
 
         let mut world = minimal_world();
         const TABLE: u16 = 1622;
@@ -1253,7 +1253,7 @@ mod tests {
 
     #[test]
     fn non_takeable_table_can_throw_two_tiles() {
-        use crate::sim_harness::{insert_player, test_player};
+        use crate::test_support::{insert_player, test_player};
 
         let mut world = minimal_world();
         const TABLE: u16 = 1622;
@@ -1288,7 +1288,7 @@ mod tests {
     /// 772 TAKE objects have no throw-distance cap (`operate.cc:489` only gates `!TAKE`).
     #[test]
     fn takeable_item_can_throw_beyond_two_tiles() {
-        use crate::sim_harness::{insert_player, test_player};
+        use crate::test_support::{insert_player, test_player};
 
         let mut world = minimal_world();
         const GOLD: u16 = 2148;

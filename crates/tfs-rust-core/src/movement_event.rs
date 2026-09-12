@@ -94,7 +94,7 @@ mod tests {
     use super::*;
     use crate::cylinder::{Cylinder, CylinderFlags};
     use crate::item::Item;
-    use crate::sim_harness::{ensure_walkable_tile, minimal_world};
+    use crate::test_support::{ensure_walkable_tile, minimal_world};
     use std::sync::Arc;
     use tfs_rust_common::Position;
     use tfs_rust_content::otb::ItemType;

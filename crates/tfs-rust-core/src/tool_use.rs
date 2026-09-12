@@ -927,7 +927,7 @@ mod tests {
     use crate::cylinder::Cylinder;
     use crate::ids::CreatureId;
     use crate::item::Item;
-    use crate::sim_harness::{insert_player, minimal_world, pickup_item_type, test_player};
+    use crate::test_support::{insert_player, minimal_world, pickup_item_type, test_player};
     use crate::tile::{Tile, TileBody};
     use std::sync::Arc;
     use tfs_rust_common::enums::ZoneType;

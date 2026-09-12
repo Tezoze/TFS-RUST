@@ -1310,7 +1310,7 @@ mod tests {
     fn test_defend_fight_mode_player_following_is_defensive() {
         use crate::creature::CreatureKind;
         use crate::ids::CreatureId;
-        use crate::sim_harness::sim_hero_player;
+        use crate::test_support::sim_hero_player;
         use tfs_rust_common::Position;
 
         let dummy = CreatureId::default();

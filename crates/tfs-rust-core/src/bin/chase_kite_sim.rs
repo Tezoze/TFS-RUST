@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use tfs_rust_common::Position;
 use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig, MonsterState};
-use tfs_rust_core::sim_harness::{
+use tfs_rust_core::sim_scenario::{
     SimMapConfig, audit_otbm_route_tiles, beat_driven_world_for_kite_synthetic,
     beat_driven_world_from_map, default_sim_map_config, drain_todo_queue_once,
     harness_place_creature_login, insert_monster_from_type, insert_monster_with_config,
@@ -868,7 +868,7 @@ sim_tick
     /// P2 — OTBM route audit for real-map cyclops control scenario.
     #[test]
     fn audit_route_kite_cyclops_one_real() {
-        use tfs_rust_core::sim_harness::{audit_otbm_route_tiles, default_sim_map_config};
+        use tfs_rust_core::sim_scenario::{audit_otbm_route_tiles, default_sim_map_config};
 
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -945,10 +945,7 @@ sim_tick
         assert!(go.contains("\"id\":42"), "id: {go}");
         assert!(go.contains("\"diag\":1"), "diag: {go}");
         let atk = lines.next().expect("attack_enqueue line");
-        assert!(
-            atk.contains("\"needs_close_step\":1"),
-            "bool as 0/1: {atk}"
-        );
+        assert!(atk.contains("\"needs_close_step\":1"), "bool as 0/1: {atk}");
         assert!(!atk.contains("true"), "must not emit JSON true: {atk}");
     }
 }

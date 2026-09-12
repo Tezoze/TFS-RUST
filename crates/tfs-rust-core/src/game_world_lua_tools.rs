@@ -332,7 +332,7 @@ impl GameWorld {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sim_harness::{
+    use crate::test_support::{
         ensure_walkable_tile, insert_player, minimal_world, pickup_item_type, test_player,
     };
     use crate::tile::{Tile, TileBody};

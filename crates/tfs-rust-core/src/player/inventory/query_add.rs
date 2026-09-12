@@ -932,7 +932,7 @@ mod tests {
     use super::*;
     use crate::inventory::{SLOTP_HAND, WEAPON_SWORD, WEAPON_WAND};
     use crate::item::Item;
-    use crate::sim_harness::{beat_driven_test_world, insert_player, test_player};
+    use crate::test_support::{beat_driven_test_world, insert_player, test_player};
     use slotmap::SlotMap;
     use std::sync::Arc;
     use tfs_rust_common::Position;

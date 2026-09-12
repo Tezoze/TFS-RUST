@@ -87,7 +87,7 @@ mod tests {
     use super::*;
     use crate::combat::{CombatDamage, CombatParams};
     use crate::inventory::InventorySlot;
-    use crate::sim_harness::{insert_player, minimal_world, test_player};
+    use crate::test_support::{insert_player, minimal_world, test_player};
     use tfs_rust_common::Position;
     use tfs_rust_content::item_abilities::combat_absorb_index;
     use tfs_rust_content::otb::ItemType;

@@ -68,7 +68,7 @@ mod tests {
     use super::*;
     use crate::cylinder::Cylinder;
     use crate::item::Item;
-    use crate::sim_harness::{ensure_walkable_tile, minimal_world};
+    use crate::test_support::{ensure_walkable_tile, minimal_world};
     use crate::tile::{Tile, TileBody};
     use crate::tool_use::{MoveItemPolicyTables, load_from_data_dir};
     use std::path::PathBuf;

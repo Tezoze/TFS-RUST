@@ -878,7 +878,7 @@ mod set_attack_dest_tests {
     use tfs_rust_common::Position;
 
     use crate::login_out::creature_wire_id;
-    use crate::sim_harness::{
+    use crate::test_support::{
         TEST_SYNTHETIC_GROUND_WP, ensure_walkable_tile, insert_monster, insert_npc, insert_player,
         test_player,
     };
@@ -888,7 +888,7 @@ mod set_attack_dest_tests {
     #[test]
     fn set_attack_dest_retarget_preserves_attack_exhaust() {
         // 772 clears `LatestAttackTime`, not `EarliestAttackTime` (`crcombat.cc:438`).
-        let mut world = crate::sim_harness::beat_driven_test_world();
+        let mut world = crate::test_support::beat_driven_test_world();
         let ppos = Position::new(100, 100, 7);
         let m1 = Position::new(101, 100, 7);
         let m2 = Position::new(100, 101, 7);
@@ -932,7 +932,7 @@ mod set_attack_dest_tests {
     #[test]
     fn delayed_stop_attack_schedules_latest_attack_round() {
         // `StopAttack(60)` → `LatestAttackTime = RoundNr + 60` (`crcombat.cc:520`).
-        let mut world = crate::sim_harness::beat_driven_test_world();
+        let mut world = crate::test_support::beat_driven_test_world();
         let ppos = Position::new(100, 100, 7);
         let mpos = Position::new(101, 100, 7);
         ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
@@ -959,7 +959,7 @@ mod set_attack_dest_tests {
     #[test]
     fn attack_expires_delayed_stop_when_round_passes() {
         // `LatestAttackTime != 0 && LatestAttackTime < RoundNr` → `StopAttack(0)` (`crcombat.cc:551`).
-        let mut world = crate::sim_harness::beat_driven_test_world();
+        let mut world = crate::test_support::beat_driven_test_world();
         let ppos = Position::new(100, 100, 7);
         let mpos = Position::new(101, 100, 7);
         ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
@@ -987,7 +987,7 @@ mod set_attack_dest_tests {
     #[test]
     fn delayed_stop_not_expired_at_exact_deadline_round() {
         // Condition is `LatestAttackTime < RoundNr`, not `<=` (`crcombat.cc:551`).
-        let mut world = crate::sim_harness::beat_driven_test_world();
+        let mut world = crate::test_support::beat_driven_test_world();
         let ppos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
         let player = insert_player(&mut world, test_player("Hero", ppos));
@@ -1012,7 +1012,7 @@ mod set_attack_dest_tests {
 
     #[test]
     fn set_attack_dest_clears_latest_attack_round() {
-        let mut world = crate::sim_harness::beat_driven_test_world();
+        let mut world = crate::test_support::beat_driven_test_world();
         let ppos = Position::new(100, 100, 7);
         let mpos = Position::new(101, 100, 7);
         ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
@@ -1046,7 +1046,7 @@ mod set_attack_dest_tests {
 
     #[test]
     fn delayed_stop_skipped_while_following() {
-        let mut world = crate::sim_harness::beat_driven_test_world();
+        let mut world = crate::test_support::beat_driven_test_world();
         let ppos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
         let player = insert_player(&mut world, test_player("Hero", ppos));
@@ -1076,7 +1076,7 @@ mod set_attack_dest_tests {
     #[test]
     fn following_adjacent_does_not_strike() {
         // `Attack()` early-returns when Following (`crcombat.cc:532-534`) — chase only.
-        let mut world = crate::sim_harness::beat_driven_test_world();
+        let mut world = crate::test_support::beat_driven_test_world();
         let ppos = Position::new(100, 100, 7);
         let mpos = Position::new(101, 100, 7);
         ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
@@ -1100,7 +1100,7 @@ mod set_attack_dest_tests {
     #[test]
     fn vocation_without_allow_pvp_cannot_attack_player() {
         // `PROFESSION_NONE` / `!allowPvp` → ATTACKNOTALLOWED (`crcombat.cc:396-401`).
-        let mut world = crate::sim_harness::beat_driven_test_world();
+        let mut world = crate::test_support::beat_driven_test_world();
         let apos = Position::new(100, 100, 7);
         let bpos = Position::new(101, 100, 7);
         ensure_walkable_tile(&mut world.map, apos, TEST_SYNTHETIC_GROUND_WP);
@@ -1129,7 +1129,7 @@ mod set_attack_dest_tests {
     #[test]
     fn nopvp_peaceful_blocks_player_vs_player() {
         // NON_PVP + both peaceful → ATTACKNOTALLOWED (`crcombat.cc:409-414`).
-        let mut world = crate::sim_harness::beat_driven_test_world();
+        let mut world = crate::test_support::beat_driven_test_world();
         world.pvp_config.world_type = tfs_rust_common::WorldType::NoPvp;
         let apos = Position::new(100, 100, 7);
         let bpos = Position::new(101, 100, 7);
@@ -1162,7 +1162,7 @@ mod set_attack_dest_tests {
 
     #[test]
     fn vocation_with_allow_pvp_can_attack_player() {
-        let mut world = crate::sim_harness::beat_driven_test_world();
+        let mut world = crate::test_support::beat_driven_test_world();
         let apos = Position::new(100, 100, 7);
         let bpos = Position::new(101, 100, 7);
         ensure_walkable_tile(&mut world.map, apos, TEST_SYNTHETIC_GROUND_WP);
@@ -1187,7 +1187,7 @@ mod set_attack_dest_tests {
     fn gm_cannot_attack_player_flag_blocks_pvp() {
         // Access groups: `IgnoreProtectionZone` bypasses vocation/PZ, but
         // `CannotAttackPlayer` still denies PvP (TFS `Combat::canDoCombat`).
-        let mut world = crate::sim_harness::beat_driven_test_world();
+        let mut world = crate::test_support::beat_driven_test_world();
         let mut flags = std::collections::HashMap::new();
         flags.insert("cannotattackplayer".into(), true);
         flags.insert("ignoreprotectionzone".into(), true);
@@ -1237,7 +1237,7 @@ mod set_attack_dest_tests {
     fn attack_not_allowed_sends_clear_target_even_without_prior_dest() {
         // 772 `StopAttack(0)` always `SendClearTarget` (`crcombat.cc:513-518`). The client paints
         // the red square on click; dest is never armed on NPC `ATTACKNOTALLOWED`.
-        let mut world = crate::sim_harness::beat_driven_test_world();
+        let mut world = crate::test_support::beat_driven_test_world();
         let ppos = Position::new(100, 100, 7);
         let npos = Position::new(101, 100, 7);
         ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
