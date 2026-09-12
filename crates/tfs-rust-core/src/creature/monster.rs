@@ -215,8 +215,6 @@ pub struct Monster {
     pub pushable: bool,
     pub is_hostile: bool,
     pub is_idle: bool,
-    /// E6 harness — keep `Sleeping` posture until `player_damage` when scenario sets `monster_state sleeping`.
-    pub harness_preserve_sleep: bool,
     /// 772 combat/lifecycle posture — `enums.hh` `STATE`; 1098 ignores.
     pub state: MonsterState,
     /// Last `(state, chase_mode)` emitted to chase JSONL — harness dedupe only.
@@ -327,7 +325,6 @@ impl Monster {
             pushable: config.pushable,
             is_hostile: config.is_hostile,
             is_idle: true,
-            harness_preserve_sleep: false,
             state: MonsterState::Sleeping,
             last_combat_trace: None,
             idle_stimulus_last_ms: None,

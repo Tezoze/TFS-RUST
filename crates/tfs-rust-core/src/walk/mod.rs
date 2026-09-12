@@ -476,10 +476,10 @@ fn internal_creature_turn_broadcast_only(world: &mut GameWorld, cid: CreatureId,
 impl GameWorld {
     /// Drain the global ToDoQueue for entries due at or before [`Self::server_ms`].
     ///
-    /// C++ `MoveCreatures` (`crmain.cc:1144`) drains unconditionally
-    /// (`while ToDoQueue.Entries > 0 && top.Key <= ServerMilliseconds`). The `+1` re-insertion clamp
-    /// (`ToDoStart`, audit Finding 17) guarantees a re-armed creature lands strictly in the future,
-    /// so this cannot spin within a beat — no per-beat cap is needed (audit Finding 10).
+    /// Called from [`Self::move_creatures`] (C++ `MoveCreatures`, `crmain.cc:1142`) and from
+    /// [`Self::advance_beat`] after the lag guard. The `+1` re-insertion clamp (`ToDoStart`,
+    /// audit Finding 17) guarantees a re-armed creature lands strictly in the future, so this
+    /// cannot spin within a beat — no per-beat cap is needed (audit Finding 10).
     pub fn drain_todo_queue(&mut self) {
         // Safety valve only: the `+1` clamp makes same-beat re-entry impossible, so this bound is
         // never reached in correct operation. If it ever trips it indicates a re-arm at
@@ -2365,7 +2365,7 @@ impl GameWorld {
         // TFS `StepInField` after walk lands — `movement.cpp:658` / tile fields.
         self.apply_magic_fields_under_creature(cid, final_pos);
         // Teleport pads run *after* walk self/spectator packets (`on_walk` /
-        // `try_creature_walk_step`). Emitting 0x64 here crashes official 772
+        // `try_walk`). Emitting 0x64 here crashes official 772
         // (remove/map-refresh before NotifyGo). TFS `postAddNotification` is
         // after `sendCreatureMove`; 772 `CollisionEvent` is after NotifyCreature.
 
@@ -2419,17 +2419,12 @@ impl GameWorld {
         Ok((segments, pending_turn))
     }
 
-    /// One walk step for push / auxiliary callers (discards segment payloads).
-    /// Emits any pending chain turn `0x6B` immediately — push callers don't have
-    /// a separate move-packet emission phase, so the deferred turn is flushed here.
-    #[cfg(any(test, feature = "sim"))]
-    pub(crate) fn try_creature_walk_step(
-        &mut self,
-        cid: CreatureId,
-        direction: Direction,
-        now: Instant,
-    ) -> bool {
-        match self.internal_move_creature_step(cid, direction, now) {
+    /// One walk step — C++ `Game::internalMoveCreature` (`game.cpp` ~797) / `TCreature::Move`.
+    ///
+    /// Production player input uses [`Self::player_move_request`] (ToDo `Go`). This is the
+    /// synchronous step used by `on_walk` execution and headless kite `Move()`.
+    pub fn try_walk(&mut self, cid: CreatureId, direction: Direction) -> bool {
+        match self.internal_move_creature_step(cid, direction, Instant::now()) {
             Ok((_segments, pending_turn)) => {
                 if let Some(pt) = pending_turn {
                     internal_creature_turn_with_broadcast(self, pt.cid, pt.dir);

@@ -135,6 +135,7 @@ impl GameWorld {
         let _ = self.container_registry.close_all_for_player(id);
 
         self.deferred_turn_broadcast.remove(&id);
+        self.sleep_until_damage.remove(&id);
         self.stop_event_walk(id);
         self.creatures.remove(id);
     }

@@ -139,19 +139,15 @@ pub(crate) fn spiral_free_field_positions(center: Position, distance: i32) -> Ve
 }
 
 /// C++ `SearchLoginField` (`info.cc:861`) — spiral login probe up to `distance`.
-#[cfg(any(test, feature = "sim"))]
 pub(crate) fn search_login_field(
     center: Position,
     distance: i32,
     mut login_possible: impl FnMut(Position) -> bool,
 ) -> Option<Position> {
     let distance = distance.max(0);
-    for pos in spiral_free_field_positions(center, distance) {
-        if login_possible(pos) {
-            return Some(pos);
-        }
-    }
-    None
+    spiral_free_field_positions(center, distance)
+        .into_iter()
+        .find(|&pos| login_possible(pos))
 }
 
 /// C++ `SearchSpawnField` (`info.cc:911`).
@@ -464,9 +460,8 @@ impl GameWorld {
         }
     }
 
-    /// Harness `TCreature::SetOnMap` — `SearchLoginField(dist=1)` (`cract.cc:311`, `info.cc:861`).
-    #[cfg(any(test, feature = "sim"))]
-    pub(crate) fn harness_place_creature_login(
+    /// C++ `TCreature::SetOnMap` — `SearchLoginField(dist=1)` (`cract.cc:311`, `info.cc:861`).
+    pub fn place_creature_login(
         &mut self,
         cid: CreatureId,
         requested: Position,

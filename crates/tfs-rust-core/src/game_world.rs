@@ -211,6 +211,9 @@ pub struct GameWorld {
     /// Nesting depth for [`crate::monster_events::GameWorld::monster_notify_creature_enter_viewport`]
     /// (login fan-out). Suppresses synchronous chase acquire on idle-wake while > 0.
     pub(crate) monster_viewport_notify_depth: u32,
+    /// Monsters that stay `Sleeping` until first `DamageStimulus`. Empty in production.
+    /// Set via [`Self::preserve_monster_sleep_until_damage`] (appear path), not a `Monster` field.
+    pub(crate) sleep_until_damage: HashSet<CreatureId>,
     /// Per-world glibc `rand()` stream — sole production RNG for combat / AI / spawn.
     pub(crate) parity_rng: crate::sim_glibc_rand::GlibcRngState,
     /// 772 `RoundNr` — incremented each `Other` subsystem tick (`main.cc:350`).
@@ -494,6 +497,7 @@ impl GameWorld {
             chat_config,
             pvp_config,
             monster_viewport_notify_depth: 0,
+            sleep_until_damage: HashSet::new(),
             parity_rng: crate::sim_glibc_rand::GlibcRngState::default(),
             round_nr: 0,
             next_minute_round: 30,
@@ -562,7 +566,7 @@ impl GameWorld {
     /// Millisecond clock for chase JSONL — matches C++ `ServerMilliseconds` in `chase_path_debug.cc`.
     #[inline]
     pub fn chase_trace_tick(&self) -> u64 {
-        self.server_ms
+        self.server_ms()
     }
 
     /// Deterministic parity stream for unit tests, live production, and the headless harness.

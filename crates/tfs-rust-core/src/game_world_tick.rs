@@ -102,12 +102,11 @@ impl GameWorld {
         let other_us = t0.elapsed().as_micros();
 
         // C++ `AdvanceGame` calls `MoveCreatures(Delay)` only when `Delay < 1000` (`main.cc:445-453`).
-        // `MoveCreatures` itself always drains once invoked (`crmain.cc:1144`).
+        // `MoveCreatures` itself always drains once invoked (`crmain.cc:1142`).
         let todo_len_before = self.todo_queue.len();
         let t0 = Instant::now();
         if delay_ms < LAG_SKIP_MOVEMENT_MS {
-            self.server_ms = self.server_ms.saturating_add(delay_ms);
-            self.drain_todo_queue();
+            self.move_creatures(delay_ms);
             self.lag = false;
         } else {
             self.lag = true;
@@ -158,6 +157,26 @@ impl GameWorld {
             );
         }
     }
+
+    /// Logical `ServerMilliseconds` — C++ `time.cc` / `common.hh`.
+    #[inline]
+    pub fn server_ms(&self) -> u64 {
+        self.server_ms
+    }
+
+    /// Next ToDo heap wakeup, if any — C++ `ToDoQueue.Entry->at(1).Key`.
+    #[inline]
+    pub fn next_todo_execution_ms(&self) -> Option<u64> {
+        self.todo_queue.peek().map(|e| e.execution_time)
+    }
+
+    /// C++ `MoveCreatures` (`crmain.cc:1142`): advance `ServerMilliseconds` and drain due todos.
+    ///
+    /// No lag guard and no subsystem firing — those belong to [`Self::advance_beat`] / `AdvanceGame`.
+    pub fn move_creatures(&mut self, delay_ms: u64) {
+        self.server_ms = self.server_ms.saturating_add(delay_ms);
+        self.drain_todo_queue();
+    }
 }
 
 #[cfg(test)]
@@ -170,7 +189,8 @@ mod tests {
         world.server_ms = 500;
         world.advance_beat(1000);
         assert_eq!(
-            world.server_ms, 500,
+            world.server_ms(),
+            500,
             "server_ms must not advance under lag guard"
         );
         assert!(world.lag);
@@ -208,7 +228,8 @@ mod tests {
         world.advance_beat(2000);
 
         assert_eq!(
-            world.server_ms, 100,
+            world.server_ms(),
+            100,
             "movement clock must stay frozen under lag guard"
         );
         assert!(world.lag);
@@ -265,5 +286,34 @@ mod tests {
         world.run_other_subsystems(200);
         assert_eq!(world.round_nr, 1);
         assert_eq!(world.spawns.last_check, Some(1));
+    }
+
+    #[test]
+    fn move_creatures_advances_clock_and_drains_due_todos() {
+        use tfs_rust_common::Position;
+
+        use crate::test_world::support::{ensure_walkable_tile, insert_monster};
+
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let cid = insert_monster(&mut world, "Rat", pos, 200);
+        world.schedule_creature_wakeup(cid, 50);
+        world.move_creatures(50);
+        assert_eq!(world.server_ms(), 50);
+        assert!(
+            world
+                .next_todo_execution_ms()
+                .is_none_or(|t| t > world.server_ms()),
+            "due todos must be drained; remaining entries are strictly in the future"
+        );
+    }
+
+    #[test]
+    fn move_creatures_has_no_lag_guard() {
+        let mut world = beat_driven_test_world();
+        world.move_creatures(1000);
+        assert_eq!(world.server_ms(), 1000);
+        assert!(!world.lag);
     }
 }

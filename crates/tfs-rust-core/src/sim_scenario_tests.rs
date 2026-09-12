@@ -9,18 +9,17 @@ use crate::test_support::{
 fn move_creatures_clamps_to_harness_wall() {
     let mut world = beat_driven_world();
     set_sim_harness_wall_ms(Some(2_000));
-    world.server_ms = 500;
+    world.move_creatures(500);
     move_creatures(&mut world, 5_000);
-    assert_eq!(world.server_ms, 2_000);
+    assert_eq!(world.server_ms(), 2_000);
 }
 
 #[test]
 fn move_creatures_explicit_ignores_wall() {
     let mut world = beat_driven_world();
     set_sim_harness_wall_ms(Some(2_000));
-    world.server_ms = 0;
     move_creatures_explicit(&mut world, 2_000);
-    assert_eq!(world.server_ms, 2_000);
+    assert_eq!(world.server_ms(), 2_000);
 }
 
 #[test]
@@ -31,7 +30,7 @@ fn run_sim_tick_stops_at_harness_wall() {
     set_sim_harness_wall_ms(Some(6_000));
     world.schedule_creature_wakeup(cid, 20_000);
     run_sim_tick(&mut world);
-    assert!(world.server_ms <= 6_000);
+    assert!(world.server_ms() <= 6_000);
     let _ = cid;
 }
 
@@ -53,7 +52,7 @@ fn batch_appear_defers_idle_then_yields_once() {
         m.state = MonsterState::Sleeping;
         m.is_idle = true;
     }
-    appear_monster_without_idle(&mut world, monster);
+    world.appear_monster_without_idle(monster);
     assert!(
         world.creature_todo_queue_empty(monster),
         "appear without batch yield must not enqueue ToDoWait yet"
@@ -62,6 +61,48 @@ fn batch_appear_defers_idle_then_yields_once() {
     assert!(
         !world.creature_todo_queue_empty(monster),
         "batch yield must enqueue Wait(0)"
+    );
+}
+
+#[test]
+fn preserve_sleep_survives_appear_until_damage() {
+    use crate::creature::MonsterState;
+    use crate::test_world::support::{ensure_walkable_tile, test_player};
+
+    let mut world = beat_driven_world();
+    let ppos = Position::new(100, 100, 7);
+    let mpos = Position::new(101, 100, 7);
+    ensure_walkable_tile(&mut world.map, ppos, 150);
+    ensure_walkable_tile(&mut world.map, mpos, 150);
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+    let monster = insert_monster(&mut world, "Rat", mpos, 200);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.is_hostile = true;
+        m.state = MonsterState::Sleeping;
+        m.is_idle = true;
+    }
+    world.preserve_monster_sleep_until_damage(monster);
+    kite_monsters_appear_batch(&mut world, &[monster]);
+    assert!(
+        world.creatures.get(monster).is_some_and(|k| {
+            matches!(
+                k,
+                CreatureKind::Monster(m)
+                    if m.state == MonsterState::Sleeping && m.is_idle
+            )
+        }),
+        "explicit sleep must survive appear batch"
+    );
+    assert!(sim_player_damage_monster(&mut world, player, monster, 5));
+    assert!(
+        world.creatures.get(monster).is_some_and(|k| {
+            matches!(
+                k,
+                CreatureKind::Monster(m) if m.state != MonsterState::Sleeping
+            )
+        }),
+        "first damage must leave Sleeping"
     );
 }
 
@@ -473,7 +514,7 @@ fn harness_place_cyclops_bowl_relocates_east_of_scripted_spawn() {
         config,
         MonsterState::Sleeping,
     );
-    let placed = harness_place_creature_login(&mut world, cid, requested);
+    let placed = place_creature_login(&mut world, cid, requested);
     assert_eq!(placed, Some(expected));
     assert_eq!(world.creatures.get(cid).unwrap().position(), expected);
 }

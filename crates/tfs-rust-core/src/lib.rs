@@ -75,6 +75,7 @@ mod mail_delivery;
 pub mod map;
 pub mod matrix_area;
 mod monster_ai;
+mod monster_appear;
 mod monster_distance_step;
 mod monster_events;
 mod monster_push;

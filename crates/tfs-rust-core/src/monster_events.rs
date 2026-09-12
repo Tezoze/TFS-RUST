@@ -18,16 +18,7 @@ use crate::monster_ai::{MAP_MAX_VIEWPORT, MonsterEnqueueAttackResult, chebyshev}
 impl GameWorld {
     pub fn monster_on_creature_appear_self(&mut self, cid: CreatureId) {
         self.monster_update_target_list(cid);
-        let keep_sleeping = self.creatures.get(cid).is_some_and(|k| {
-            matches!(
-                k,
-                CreatureKind::Monster(m)
-                    if m.harness_preserve_sleep
-                        && m.state == MonsterState::Sleeping
-                        && m.is_idle
-            )
-        });
-        if !keep_sleeping {
+        if !self.monster_sleeps_until_damage(cid) {
             self.monster_update_idle_status(cid);
         }
         // 772: `TMonster::IdleStimulus` `Strategy[]` acquires targets (`crnonpl.cc:2468`).

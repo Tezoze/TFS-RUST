@@ -14,8 +14,8 @@ use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig, MonsterState};
 use tfs_rust_core::sim_scenario::{
     SimMapConfig, audit_otbm_route_tiles, beat_driven_world_for_kite_synthetic,
     beat_driven_world_from_map, default_sim_map_config, drain_todo_queue_once,
-    harness_place_creature_login, insert_monster_from_type, insert_monster_with_config,
-    insert_player, kite_monsters_appear_batch, move_creatures_explicit, run_sim_tick,
+    insert_monster_from_type, insert_monster_with_config, insert_player,
+    kite_monsters_appear_batch, move_creatures_explicit, place_creature_login, run_sim_tick,
     set_sim_harness_segment_ms, set_sim_harness_wall_ms, sim_hero_player,
     sim_player_damage_monster, teleport_player, validate_positions_walkable, walk_player_adjacent,
     write_audit_route_json,
@@ -439,7 +439,7 @@ fn spawn_entities(
         };
 
         monster_ids.push(monster_id);
-        if harness_place_creature_login(world, monster_id, monster_pos).is_none() {
+        if place_creature_login(world, monster_id, monster_pos).is_none() {
             return Err(format!(
                 "harness spawn: cannot place monster at [{},{},{}]",
                 monster_pos.x, monster_pos.y, monster_pos.z
@@ -448,9 +448,7 @@ fn spawn_entities(
         if scenario.monster_state_explicit
             && scenario.monster_initial_state == MonsterState::Sleeping
         {
-            if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster_id) {
-                m.harness_preserve_sleep = true;
-            }
+            world.preserve_monster_sleep_until_damage(monster_id);
         }
     }
 

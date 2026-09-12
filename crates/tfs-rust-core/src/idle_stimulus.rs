@@ -914,6 +914,7 @@ impl GameWorld {
         if damage <= 0 || attacker_id == victim_id {
             return;
         }
+        self.clear_sleep_until_damage(victim_id);
         let snapshot = {
             let Some(CreatureKind::Monster(m)) = self.creatures.get(victim_id) else {
                 return;
@@ -1004,6 +1005,9 @@ impl GameWorld {
             |k| matches!(k, CreatureKind::Monster(m) if m.state == MonsterState::Sleeping),
         );
         if !sleeping {
+            return;
+        }
+        if self.monster_sleeps_until_damage(monster_id) {
             return;
         }
         if moved_id == monster_id {

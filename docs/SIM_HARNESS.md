@@ -1,6 +1,6 @@
 # Simulation harness — current state and implementation plan
 
-**Status:** implementation plan (inventory 2026-09-10; Phase 0–3 done)
+**Status:** implementation plan (inventory 2026-09-10; Phase 0–4 done)
 **Related:** `docs/REFACTOR_AUDIT.md` Phase 2 (quarantine done; crate extract was the unfinished stretch);
 `tasks/lessons.md` §70, §100, §127, §232; `docs/772_PLAYER_COMBAT_AUDIT.md` (B4 / sim battery fragility);
 `tasks/todo.md` (Sim harness extract)
@@ -59,7 +59,7 @@ Shared scenarios, dual runners, diff tools. The weight problem is not here.
 | `sim_glibc_rand` | Always: `GlibcRngState` + `DANCE_DIR_ORDER` | **Phase 1 done.** One per-world stream. Process-global `libc::rand`, `sim_glibc_rng_enabled`, and free `parity_*` `thread_rng` fallbacks are gone. |
 | `GameWorld::parity_random` | `game_world.rs` | Unconditional `self.parity_rng`. Seed via `seed_parity_rng`; harness reads `TFS_SIM_SEED`. |
 | `Player::fist_attack` / `fist_defense` | Always on `Player` | Race-data fist fallback (`human.mon` Attack=7 / Defend=5, `crcombat.cc:183`). Set in `login.rs`. Renamed from `sim_melee_*` (Phase 0). |
-| `Monster::harness_preserve_sleep` | Always on `Monster` | Genuine harness leak (appear-defer). |
+| `Monster::harness_preserve_sleep` | **Phase 4 done.** | Replaced by `GameWorld::sleep_until_damage` + `preserve_monster_sleep_until_damage`. |
 | `feature = "sim"` | `tfs-rust-core/Cargo.toml` | Cfg switch for `test_support` / `sim_scenario` + optional `tracing-subscriber` for `chase_kite_sim`. Dropped in Phase 5. |
 
 Phase 2 replaced `chase_debug` with `target = "chase"` tracing; Phase 3 split fixtures from scenario. The stretch — move `sim_scenario` to `tfs-rust-sim` — is Phase 5. Result until then: scenario code is off in the default binary, still in-tree under `feature = "sim"`.
@@ -94,7 +94,7 @@ Core must not:
 
 - Import harness / scenario modules
 - Branch on “sim mode” or read `TFS_SIM_SEED` inside combat / `GameWorld`
-- Carry harness fields (`harness_preserve_sleep`, `sim_*` names)
+- Carry harness fields (`sim_*` names)
 - Own a chase JSONL writer
 
 Core **does**:
@@ -180,7 +180,7 @@ It reimplements C++ `MoveCreatures` / `DrainTodoQueue` by writing `GameWorld.ser
 
 Worse: **~80% of core unit tests** import the same file via `test_world::support`. A crate extract that takes `sim_harness.rs` wholesale breaks them, because they cannot depend on a downstream crate for `pub(crate)` helpers.
 
-So the crate move is the **last** win. First: one RNG stream, tracing instead of `chase_debug`, split fixtures from scenarios, then a public `MoveCreatures` surface. After that the scenario half has almost nothing private left to reach.
+So the crate move is the **last** win. Phase 0–4 landed RNG, tracing, the fixture/scenario split, and the public `MoveCreatures` / `try_walk` / `place_creature_login` / appear-batch surface. Remaining Phase 5 internals: `test_support` spawn/damage helpers (`assign_creature_wire_id`, `roll_monster_spawn_loot`, `combat_execute_with_stimulus`) and `creatures` SlotMap access.
 
 ---
 
@@ -289,35 +289,28 @@ Landed:
 
 ---
 
-### Phase 4 — Public `MoveCreatures` surface; drop cfg-gated `pub(crate)` hooks
+### Phase 4 — Public `MoveCreatures` surface; drop cfg-gated `pub(crate)` hooks — DONE 2026-09-12
 
 **Goal:** scenario code (still in-tree) no longer writes `pub(crate)` fields. C++ contract stays `MoveCreatures`, not `AdvanceGame`.
 
-Promote on `GameWorld` (always compiled, small):
+Landed:
 
-```rust
-pub fn server_ms(&self) -> u64;
-/// C++ `MoveCreatures` (`crmain.cc:1106`): advance `ServerMilliseconds`, tick counter, drain due todos.
-pub fn move_creatures(&mut self, delay_ms: u64);
-pub fn next_todo_execution_ms(&self) -> Option<u64>;
+- `GameWorld::{server_ms, move_creatures, next_todo_execution_ms}` always compiled (`game_world_tick.rs`). Cite `crmain.cc:1142` (not 1106). `advance_beat` calls `move_creatures` after the lag guard. No `tick_counter` bump (not in C++).
+- Scenario `run_sim_tick` / wall clamp wrap those methods only — no `server_ms` / `todo_queue` field writes.
+- `try_walk` public (C++ `TCreature::Move` / `internalMoveCreature`); kite `player_walk` stays sync, not `player_move_request`.
+- `place_creature_login` public; `search_login_field` un-gated `pub(crate)`.
+- `Monster::harness_preserve_sleep` deleted. `preserve_monster_sleep_until_damage` + `appear_monsters` / `appear_monster` in `monster_appear.rs`.
+- Remaining helpers (`combat_execute_with_stimulus`, `creature_todo_yield`, …) stay `pub(crate)` — appear batch folded yield internally.
+
+**Exit (met):** `rg harness_preserve_sleep` empty. Scenario clock uses public `MoveCreatures` APIs.
+
+**Verify:**
+
 ```
-
-Scenario `run_sim_tick` / wall clamp become wrappers in the scenario module using only those methods.
-
-Then delete or un-gate:
-
-| Hook | Action |
-|------|--------|
-| `try_creature_walk_step` (`walk/mod.rs`, cfg-gated) | Use the production walk entry the live player uses, or a public `try_walk` if that **is** the production path |
-| `harness_place_creature_login` (`spawn_placement.rs`) | Promote to public `place_creature_login` **if** it is login-shaped and reusable; otherwise scenario uses public login/spawn |
-| `Monster::harness_preserve_sleep` | Appear-batch parameter / method on the public appear path, not a domain field |
-| Direct `server_ms` / `todo_queue` writes from scenario code | Gone |
-
-Do **not** blindly `pub` the remaining `pub(crate)` helpers (`combat_execute_with_stimulus`, `creature_todo_yield`, …). Either the scenario stops needing them (drive appear/combat through public events) or a **named** public method is added with a C++ citation — no kitchen-sink `pub use`.
-
-**Exit:** scenario module compiles against `pub` `GameWorld` APIs only (treat as a dry-run for the crate). `rg harness_preserve_sleep` empty.
-
-**Verify:** battery + `cargo test -p tfs-rust-core`.
+/home/jessec/.local/bin/rtk cargo test -p tfs-rust-core --lib game_world_tick
+/home/jessec/.local/bin/rtk cargo test -p tfs-rust-core --lib sim_scenario
+python3 scripts/run_sim_battery.py
+```
 
 ---
 
