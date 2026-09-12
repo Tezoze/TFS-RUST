@@ -23,7 +23,8 @@
 use std::collections::VecDeque;
 use std::time::Instant;
 
-use crate::chase_debug;
+use slotmap::Key;
+
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
@@ -65,17 +66,17 @@ pub(crate) fn trace_creature_todo(world: &GameWorld, cid: CreatureId, event: &st
         follow,
         "idle_todo"
     );
-    if chase_debug::chase_path_debug_enabled() {
-        chase_debug::log_todo_label(
-            world.chase_trace_tick(),
-            cid,
-            name,
-            event,
-            action_queue_len,
-            action_locked,
-            walk_queue_len,
-        );
-    }
+    tracing::trace!(
+        target: "chase",
+        event = "todo_label",
+        tick = world.chase_trace_tick(),
+        id = cid.data().as_ffi(),
+        name,
+        label = event,
+        queue_len = action_queue_len,
+        locked = action_locked,
+        walk_queue_len,
+    );
 }
 
 /// Resolved-at-enqueue object identity for `Use`/`Move`/`Turn` actions.
@@ -277,15 +278,15 @@ impl GameWorld {
             action_queue_len = queue_len,
             "idle_todo: enqueue_wait"
         );
-        if chase_debug::chase_path_debug_enabled() {
-            chase_debug::log_todo_wait(
-                self.chase_trace_tick(),
-                cid,
-                name.as_str(),
-                delay_ms,
-                "enqueue",
-            );
-        }
+        tracing::trace!(
+            target: "chase",
+            event = "todo_wait",
+            tick = self.chase_trace_tick(),
+            id = cid.data().as_ffi(),
+            name = name.as_str(),
+            delay_ms,
+            phase = "enqueue",
+        );
         true
     }
 
@@ -771,21 +772,48 @@ impl GameWorld {
         {
             return;
         }
-        if chase_debug::chase_path_debug_enabled()
+        if tracing::enabled!(target: "chase", tracing::Level::TRACE)
             && let Some((from, dest, must_reach, max_steps)) =
                 self.idle_todo_go_trace_contract(cid, todo_via)
             && let Some(k) = self.creatures.get(cid)
         {
-            chase_debug::log_todo_go_aligned(
-                self.chase_trace_tick(),
-                cid,
-                k.base().name.as_str(),
-                from,
-                dest,
-                must_reach,
-                max_steps,
-                todo_via.filter(|v| *v != "roam"),
-            );
+            match todo_via.filter(|v| *v != "roam") {
+                Some(arm) => {
+                    tracing::trace!(
+                        target: "chase",
+                        event = "todo_go",
+                        tick = self.chase_trace_tick(),
+                        id = cid.data().as_ffi(),
+                        name = k.base().name.as_str(),
+                        from_x = from.x,
+                        from_y = from.y,
+                        from_z = from.z,
+                        dest_x = dest.x,
+                        dest_y = dest.y,
+                        dest_z = dest.z,
+                        must = must_reach,
+                        max = max_steps,
+                        arm,
+                    );
+                }
+                None => {
+                    tracing::trace!(
+                        target: "chase",
+                        event = "todo_go",
+                        tick = self.chase_trace_tick(),
+                        id = cid.data().as_ffi(),
+                        name = k.base().name.as_str(),
+                        from_x = from.x,
+                        from_y = from.y,
+                        from_z = from.z,
+                        dest_x = dest.x,
+                        dest_y = dest.y,
+                        dest_z = dest.z,
+                        must = must_reach,
+                        max = max_steps,
+                    );
+                }
+            }
         }
         let _ = self.todo_start_go_delay(cid, true);
     }
@@ -858,7 +886,7 @@ impl GameWorld {
         if let Some(ms) = wait_after_ms {
             self.enqueue_creature_wait(cid, ms);
         }
-        if chase_debug::chase_path_debug_enabled()
+        if tracing::enabled!(target: "chase", tracing::Level::TRACE)
             && let Some(k) = self.creatures.get(cid)
         {
             let follow_id = k.base().follow_target;
@@ -870,27 +898,60 @@ impl GameWorld {
             {
                 let arm = todo_via.filter(|v| *v != "roam");
                 if is_dance || is_flee || follow_id.is_some() {
-                    chase_debug::log_todo_go_aligned(
-                        self.chase_trace_tick(),
-                        cid,
-                        k.base().name.as_str(),
-                        from,
-                        dest,
-                        must_reach,
-                        max_steps,
-                        arm,
-                    );
+                    match arm {
+                        Some(arm) => {
+                            tracing::trace!(
+                                target: "chase",
+                                event = "todo_go",
+                                tick = self.chase_trace_tick(),
+                                id = cid.data().as_ffi(),
+                                name = k.base().name.as_str(),
+                                from_x = from.x,
+                                from_y = from.y,
+                                from_z = from.z,
+                                dest_x = dest.x,
+                                dest_y = dest.y,
+                                dest_z = dest.z,
+                                must = must_reach,
+                                max = max_steps,
+                                arm,
+                            );
+                        }
+                        None => {
+                            tracing::trace!(
+                                target: "chase",
+                                event = "todo_go",
+                                tick = self.chase_trace_tick(),
+                                id = cid.data().as_ffi(),
+                                name = k.base().name.as_str(),
+                                from_x = from.x,
+                                from_y = from.y,
+                                from_z = from.z,
+                                dest_x = dest.x,
+                                dest_y = dest.y,
+                                dest_z = dest.z,
+                                must = must_reach,
+                                max = max_steps,
+                            );
+                        }
+                    }
                 } else if todo_via == Some("roam") {
-                    chase_debug::log_todo_go(
-                        self.chase_trace_tick(),
-                        cid,
-                        k.base().name.as_str(),
-                        "enter",
-                        from,
-                        from,
-                        false,
-                        1,
-                        Some("roam"),
+                    tracing::trace!(
+                        target: "chase",
+                        event = "todo_go",
+                        tick = self.chase_trace_tick(),
+                        id = cid.data().as_ffi(),
+                        name = k.base().name.as_str(),
+                        via = "enter",
+                        from_x = from.x,
+                        from_y = from.y,
+                        from_z = from.z,
+                        dest_x = from.x,
+                        dest_y = from.y,
+                        dest_z = from.z,
+                        must = false,
+                        max = 1,
+                        arm = "roam",
                     );
                 }
             }

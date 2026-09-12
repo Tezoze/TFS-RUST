@@ -9,7 +9,6 @@
 use slotmap::Key;
 use tfs_rust_common::Position;
 
-use crate::chase_debug;
 use crate::creature::{ChaseMode, CreatureKind, MonsterState};
 use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
 use crate::game_world::{GameWorld, creature_can_see};
@@ -211,12 +210,14 @@ impl GameWorld {
                 self.creatures.get(creature_id).map(|k| k.position()),
             ) {
                 let cheb = chebyshev(m.base.position, target_pos);
-                chase_debug::log_creature_move_stimulus(
-                    self.chase_trace_tick(),
-                    monster_id,
-                    m.base.name.as_str(),
-                    creature_id.data().as_ffi(),
-                    "move_stimulus",
+                tracing::trace!(
+                    target: "chase",
+                    event = "creature_move_stimulus",
+                    tick = self.chase_trace_tick(),
+                    id = monster_id.data().as_ffi(),
+                    name = m.base.name.as_str(),
+                    mover_id = creature_id.data().as_ffi(),
+                    kind = "move_stimulus",
                     cheb,
                 );
             }
@@ -375,12 +376,14 @@ impl GameWorld {
             self.creatures.get(target_id).map(|k| k.position()),
         ) {
             let cheb = chebyshev(m.base.position, target_pos);
-            chase_debug::log_creature_move_stimulus(
-                self.chase_trace_tick(),
-                monster_id,
-                m.base.name.as_str(),
-                target_id.data().as_ffi(),
-                "close_flee_clear",
+            tracing::trace!(
+                target: "chase",
+                event = "creature_move_stimulus",
+                tick = self.chase_trace_tick(),
+                id = monster_id.data().as_ffi(),
+                name = m.base.name.as_str(),
+                mover_id = target_id.data().as_ffi(),
+                kind = "close_flee_clear",
                 cheb,
             );
         }
@@ -457,16 +460,19 @@ impl GameWorld {
         if !self.enqueue_creature_wait(monster_id, 200) {
             return;
         }
-        chase_debug::log_creature_move_stimulus(
-            self.chase_trace_tick(),
-            monster_id,
-            self.creatures
+        tracing::trace!(
+            target: "chase",
+            event = "creature_move_stimulus",
+            tick = self.chase_trace_tick(),
+            id = monster_id.data().as_ffi(),
+            name = self
+                .creatures
                 .get(monster_id)
                 .map(|k| k.base().name.as_str())
                 .unwrap_or("?"),
-            target_id.data().as_ffi(),
-            "combat_move_rearm",
-            chebyshev(pos, target_pos),
+            mover_id = target_id.data().as_ffi(),
+            kind = "combat_move_rearm",
+            cheb = chebyshev(pos, target_pos),
         );
         match self.monster_enqueue_todo_attack_actions(monster_id) {
             MonsterEnqueueAttackResult::Enqueued => {

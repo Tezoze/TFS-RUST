@@ -17,7 +17,6 @@ use slotmap::Key;
 use tfs_rust_common::Position;
 use tfs_rust_common::enums::{CombatType, Direction, ZoneType};
 
-use crate::chase_debug;
 use crate::combat::math::req_skill_tries;
 use crate::combat::{CombatDamage, CombatParams, FightMode, weapon_damage};
 use crate::creature::{ChaseMode, CreatureKind, MonsterState};
@@ -605,22 +604,22 @@ impl GameWorld {
             m.state = MonsterState::Attacking;
         }
 
-        if chase_debug::chase_path_debug_enabled()
-            && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
-        {
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
             let earliest = m.base.earliest_attack_ms;
-            chase_debug::log_melee_hit(
-                self.chase_trace_tick(),
-                cid,
-                m.base.name.as_str(),
-                target_id.data().as_ffi(),
-                attack_roll,
-                defense_roll,
-                armor_value,
-                dmg,
+            tracing::trace!(
+                target: "chase",
+                event = "melee_hit",
+                tick = self.chase_trace_tick(),
+                id = cid.data().as_ffi(),
+                name = m.base.name.as_str(),
+                target_id = target_id.data().as_ffi(),
+                attack = attack_roll,
+                defense = defense_roll,
+                armor = armor_value,
+                damage = dmg,
                 hp_before,
-                _hp_after,
-                earliest,
+                hp_after = _hp_after,
+                earliest_attack_ms = earliest,
             );
         }
     }
@@ -759,19 +758,22 @@ impl GameWorld {
                 base.has_follow_path = false;
                 base.force_update_follow_path = false;
             }
-            if chase_debug::chase_path_debug_enabled()
-                && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
-            {
-                chase_debug::log_branch(
-                    self.chase_trace_tick(),
-                    cid,
-                    m.base.name.as_str(),
-                    "roam",
-                    pos,
-                    dest,
-                    true,
-                    i32::MAX,
-                    None,
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
+                tracing::trace!(
+                    target: "chase",
+                    event = "branch",
+                    tick = self.chase_trace_tick(),
+                    id = cid.data().as_ffi(),
+                    name = m.base.name.as_str(),
+                    branch = "roam",
+                    from_x = pos.x,
+                    from_y = pos.y,
+                    from_z = pos.z,
+                    dest_x = dest.x,
+                    dest_y = dest.y,
+                    dest_z = dest.z,
+                    must = true,
+                    max = i32::MAX,
                 );
             }
             return true;
@@ -817,20 +819,23 @@ impl GameWorld {
             base.has_follow_path = true;
             base.force_update_follow_path = false;
         }
-        if chase_debug::chase_path_debug_enabled()
-            && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
-        {
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
             let branch = if m.is_fleeing() { "flee" } else { "dist_flee" };
-            chase_debug::log_branch(
-                self.chase_trace_tick(),
-                cid,
-                m.base.name.as_str(),
+            tracing::trace!(
+                target: "chase",
+                event = "branch",
+                tick = self.chase_trace_tick(),
+                id = cid.data().as_ffi(),
+                name = m.base.name.as_str(),
                 branch,
-                pos,
-                dest,
-                true,
-                i32::MAX,
-                None,
+                from_x = pos.x,
+                from_y = pos.y,
+                from_z = pos.z,
+                dest_x = dest.x,
+                dest_y = dest.y,
+                dest_z = dest.z,
+                must = true,
+                max = i32::MAX,
             );
         }
         true
@@ -961,18 +966,22 @@ impl GameWorld {
             }
             return MonsterCombatCloseChaseEnqueue::Skipped;
         }
-        if chase_debug::chase_path_debug_enabled()
-            && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
-        {
-            chase_debug::log_todo_go_aligned(
-                self.chase_trace_tick(),
-                cid,
-                m.base.name.as_str(),
-                pos,
-                target_pos,
-                false,
-                CHASE_PATH_MAX_STEPS as i32,
-                Some("attack_close_chase"),
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
+            tracing::trace!(
+                target: "chase",
+                event = "todo_go",
+                tick = self.chase_trace_tick(),
+                id = cid.data().as_ffi(),
+                name = m.base.name.as_str(),
+                from_x = pos.x,
+                from_y = pos.y,
+                from_z = pos.z,
+                dest_x = target_pos.x,
+                dest_y = target_pos.y,
+                dest_z = target_pos.z,
+                must = false,
+                max = CHASE_PATH_MAX_STEPS as i32,
+                arm = "attack_close_chase",
             );
         }
         MonsterCombatCloseChaseEnqueue::Queued
@@ -1172,24 +1181,27 @@ impl GameWorld {
         {
             m.state = MonsterState::Attacking;
         }
-        if chase_debug::chase_path_debug_enabled()
-            && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
-        {
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
             let branch = if target_distance > 1 {
                 "dist_dance"
             } else {
                 "melee_dance"
             };
-            chase_debug::log_branch(
-                self.chase_trace_tick(),
-                cid,
-                m.base.name.as_str(),
+            tracing::trace!(
+                target: "chase",
+                event = "branch",
+                tick = self.chase_trace_tick(),
+                id = cid.data().as_ffi(),
+                name = m.base.name.as_str(),
                 branch,
-                pos,
-                dest,
-                true,
-                i32::MAX,
-                None,
+                from_x = pos.x,
+                from_y = pos.y,
+                from_z = pos.z,
+                dest_x = dest.x,
+                dest_y = dest.y,
+                dest_z = dest.z,
+                must = true,
+                max = i32::MAX,
             );
         }
         true
@@ -1221,20 +1233,46 @@ impl GameWorld {
             dist >= 3,
             "monster_idle_master_follow is for Manhattan ≥ 3 only (got {dist})"
         );
-        if chase_debug::chase_path_debug_enabled()
-            && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
-        {
-            chase_debug::log_branch(
-                self.chase_trace_tick(),
-                cid,
-                m.base.name.as_str(),
-                "master_follow",
-                pos,
-                target_pos,
-                false,
-                CHASE_PATH_MAX_STEPS as i32,
-                repath_reason,
-            );
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
+            match repath_reason {
+                Some(reason) => {
+                    tracing::trace!(
+                        target: "chase",
+                        event = "branch",
+                        tick = self.chase_trace_tick(),
+                        id = cid.data().as_ffi(),
+                        name = m.base.name.as_str(),
+                        branch = "master_follow",
+                        from_x = pos.x,
+                        from_y = pos.y,
+                        from_z = pos.z,
+                        dest_x = target_pos.x,
+                        dest_y = target_pos.y,
+                        dest_z = target_pos.z,
+                        must = false,
+                        max = CHASE_PATH_MAX_STEPS as i32,
+                        reason,
+                    );
+                }
+                None => {
+                    tracing::trace!(
+                        target: "chase",
+                        event = "branch",
+                        tick = self.chase_trace_tick(),
+                        id = cid.data().as_ffi(),
+                        name = m.base.name.as_str(),
+                        branch = "master_follow",
+                        from_x = pos.x,
+                        from_y = pos.y,
+                        from_z = pos.z,
+                        dest_x = target_pos.x,
+                        dest_y = target_pos.y,
+                        dest_z = target_pos.z,
+                        must = false,
+                        max = CHASE_PATH_MAX_STEPS as i32,
+                    );
+                }
+            }
         }
         self.monster_idle_chase_repath(cid, repath_reason, CHASE_PATH_MAX_STEPS, false)
     }
@@ -1275,7 +1313,7 @@ impl GameWorld {
             steps = crate::pathfinding::truncate_tshortway_go_queue(
                 pos, target_pos, steps, max_steps, must_reach,
             );
-            if chase_debug::chase_path_debug_enabled()
+            if tracing::enabled!(target: "chase", tracing::Level::TRACE)
                 && let Some(k) = self.creatures.get(cid)
             {
                 let name = k.base().name.clone();
@@ -1293,18 +1331,29 @@ impl GameWorld {
                             .map(|t| self.tile_ground_speed(t.body()))
                             .unwrap_or(0)
                     });
-                chase_debug::log_shortway(
-                    self.chase_trace_tick(),
-                    cid,
-                    name.as_str(),
-                    pos,
-                    target_pos,
-                    10,
+                let steps_json: String = path_positions
+                    .iter()
+                    .map(|p| format!("{{\"x\":{},\"y\":{},\"z\":{}}}", p.x, p.y, p.z))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                tracing::trace!(
+                    target: "chase",
+                    event = "shortway",
+                    tick = self.chase_trace_tick(),
+                    id = cid.data().as_ffi(),
+                    name = name.as_str(),
+                    start_x = pos.x,
+                    start_y = pos.y,
+                    start_z = pos.z,
+                    dest_x = target_pos.x,
+                    dest_y = target_pos.y,
+                    dest_z = target_pos.z,
+                    visible = 10,
                     min_wp,
-                    must_reach,
-                    max_steps as i32,
-                    true,
-                    &path_positions,
+                    must = must_reach,
+                    max = max_steps as i32,
+                    ok = true,
+                    steps = steps_json.as_str(),
                 );
             }
             // Path reachable but MaxSteps/adjacent trim yielded no Go — C++ still returns true.
@@ -1338,28 +1387,34 @@ impl GameWorld {
             // 772 idle executor owns `Go` enqueue via `monster_idle_prepare_and_enqueue_go`.
             return true;
         }
-        if chase_debug::chase_path_debug_enabled()
+        if tracing::enabled!(target: "chase", tracing::Level::TRACE)
             && let Some(k) = self.creatures.get(cid)
         {
             let name = k.base().name.clone();
-            chase_debug::log_shortway(
-                self.chase_trace_tick(),
-                cid,
-                name.as_str(),
-                pos,
-                target_pos,
-                10,
-                scan_min_terrain_waypoints(&self.map, pos, REVERSE_PATH_VIEW_RADIUS, |p| {
+            tracing::trace!(
+                target: "chase",
+                event = "shortway",
+                tick = self.chase_trace_tick(),
+                id = cid.data().as_ffi(),
+                name = name.as_str(),
+                start_x = pos.x,
+                start_y = pos.y,
+                start_z = pos.z,
+                dest_x = target_pos.x,
+                dest_y = target_pos.y,
+                dest_z = target_pos.z,
+                visible = 10,
+                min_wp = scan_min_terrain_waypoints(&self.map, pos, REVERSE_PATH_VIEW_RADIUS, |p| {
                     self.map
                         .get_tile(p)
                         .filter(|_| self.map.is_walkable(p))
                         .map(|t| self.tile_ground_speed(t.body()))
                         .unwrap_or(0)
                 }),
-                false,
-                CHASE_PATH_MAX_STEPS as i32,
-                false,
-                &[],
+                must = false,
+                max = CHASE_PATH_MAX_STEPS as i32,
+                ok = false,
+                steps = "",
             );
         }
         false
@@ -1551,15 +1606,15 @@ impl GameWorld {
         let new_dir = compute_look_toward_target(pos, target_pos, current);
         if new_dir != current {
             creature_turn_with_broadcast(self, cid, new_dir);
-            if chase_debug::chase_path_debug_enabled()
-                && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
-            {
-                chase_debug::log_rotate(
-                    self.chase_trace_tick(),
-                    cid,
-                    m.base.name.as_str(),
-                    new_dir as u8,
-                    Some(target_id.data().as_ffi()),
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
+                tracing::trace!(
+                    target: "chase",
+                    event = "rotate",
+                    tick = self.chase_trace_tick(),
+                    id = cid.data().as_ffi(),
+                    name = m.base.name.as_str(),
+                    dir = new_dir as u8,
+                    target_id = target_id.data().as_ffi(),
                 );
             }
         }

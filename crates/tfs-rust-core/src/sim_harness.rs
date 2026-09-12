@@ -1398,7 +1398,7 @@ fn harness_acquire_chase_target_without_idle(
 
 /// Chase JSONL rotate @ tick 0 — harness-only; bypasses `walk_timer_idle` gate on appear.
 fn appear_face_target_for_debug(world: &mut GameWorld, cid: CreatureId) {
-    if !crate::chase_debug::chase_path_debug_enabled() {
+    if !tracing::enabled!(target: "chase", tracing::Level::TRACE) {
         return;
     }
     let (pos, target_id, current) = match world.creatures.get(cid) {
@@ -1416,12 +1416,14 @@ fn appear_face_target_for_debug(world: &mut GameWorld, cid: CreatureId) {
     if new_dir != current {
         creature_turn_with_broadcast(world, cid, new_dir);
         if let Some(CreatureKind::Monster(m)) = world.creatures.get(cid) {
-            crate::chase_debug::log_rotate(
-                world.chase_trace_tick(),
-                cid,
-                m.base.name.as_str(),
-                new_dir as u8,
-                Some(target_id.data().as_ffi()),
+            tracing::trace!(
+                target: "chase",
+                event = "rotate",
+                tick = world.chase_trace_tick(),
+                id = cid.data().as_ffi(),
+                name = m.base.name.as_str(),
+                dir = new_dir as u8,
+                target_id = target_id.data().as_ffi(),
             );
         }
     }
@@ -1471,21 +1473,6 @@ pub fn kite_monster_appear(world: &mut GameWorld, monster_id: CreatureId) {
         }
     }
     world.monster_on_creature_appear_self(monster_id);
-}
-
-/// Truncate chase JSONL at scenario start — C++ `ChasePathResetLog`.
-pub fn reset_chase_path_log() {
-    crate::chase_debug::chase_path_reset_log();
-}
-
-/// Enable chase JSONL from `chase_kite_sim --log` (no process `set_var`).
-pub fn enable_chase_path_log(path: Option<std::path::PathBuf>) {
-    crate::chase_debug::enable_chase_path_log(path);
-}
-
-/// Harness `player_walk` JSONL — C++ `ChasePathLogHarnessPlayerStep`.
-pub fn log_harness_player_step(tick: u64, step: u32, pos: tfs_rust_common::Position) {
-    crate::chase_debug::log_harness_player_step(tick, step, pos);
 }
 
 /// Cyclops quad spawn layout — `kite_cyclops_quad_chase.scenario` (spawn order = idle drain order).

@@ -15,7 +15,6 @@ use tfs_rust_common::enums::{
 };
 use tfs_rust_common::game_packet::ThrowPayload;
 
-use crate::chase_debug;
 use crate::combat::math::spell_damage;
 use crate::combat::{CombatDamage, CombatParams, disc_offsets};
 use crate::condition::{ActiveCondition, ConditionData};
@@ -959,18 +958,18 @@ impl GameWorld {
             }
         }
 
-        if chase_debug::chase_path_debug_enabled() {
-            chase_debug::log_damage_stimulus(
-                self.chase_trace_tick(),
-                victim_id,
-                name.as_str(),
-                Self::monster_state_trace_str(old_state),
-                Self::monster_state_trace_str(new_state),
-                attacker_id.data().as_ffi(),
-                damage,
-                has_target,
-            );
-        }
+        tracing::trace!(
+            target: "chase",
+            event = "damage_stimulus",
+            tick = self.chase_trace_tick(),
+            id = victim_id.data().as_ffi(),
+            name = name.as_str(),
+            old_state = Self::monster_state_trace_str(old_state),
+            new_state = Self::monster_state_trace_str(new_state),
+            attacker_id = attacker_id.data().as_ffi(),
+            damage,
+            had_target = has_target,
+        );
 
         if state_changed || was_sleeping {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(victim_id) {
@@ -1767,7 +1766,7 @@ impl GameWorld {
         target_id: CreatureId,
         spell: &MonsterSpell,
     ) {
-        if chase_debug::chase_path_debug_enabled()
+        if tracing::enabled!(target: "chase", tracing::Level::TRACE)
             && let Some(CreatureKind::Monster(m)) = self.creatures.get(caster_id)
         {
             let spell_label = match &spell.impact {
@@ -1788,14 +1787,16 @@ impl GameWorld {
                 SpellShape::Destination => "destination",
                 SpellShape::Angle => "angle",
             };
-            chase_debug::log_spell_cast(
-                self.chase_trace_tick(),
-                caster_id,
-                m.base.name.as_str(),
-                &spell_label,
-                target_id.data().as_ffi(),
+            tracing::trace!(
+                target: "chase",
+                event = "spell_cast",
+                tick = self.chase_trace_tick(),
+                id = caster_id.data().as_ffi(),
+                name = m.base.name.as_str(),
+                spell = spell_label.as_str(),
+                target_id = target_id.data().as_ffi(),
                 shape,
-                spell.range,
+                range = spell.range,
             );
         }
         let profile = self.mechanics.profile;
@@ -2320,10 +2321,14 @@ impl GameWorld {
             return;
         }
         self.obs.record_idle_pass();
-        if chase_debug::chase_path_debug_enabled()
-            && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
-        {
-            chase_debug::log_idle_stimulus(self.chase_trace_tick(), cid, &m.base.name);
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
+            tracing::trace!(
+                target: "chase",
+                event = "idle_stimulus",
+                tick = self.chase_trace_tick(),
+                id = cid.data().as_ffi(),
+                name = m.base.name.as_str(),
+            );
         }
         if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
             m.idle_stimulus_last_ms = Some(self.server_ms);
@@ -2459,7 +2464,7 @@ impl GameWorld {
         else {
             return;
         };
-        if chase_debug::chase_path_debug_enabled() {
+        if tracing::enabled!(target: "chase", tracing::Level::TRACE) {
             let target_pos = self
                 .creatures
                 .get(chase_id)
@@ -2469,18 +2474,79 @@ impl GameWorld {
             let los_clear = self.monster_sight_clear(pos, target_pos);
             let state_str = format!("{state:?}");
             let chase_mode_str = format!("{chase_mode:?}");
-            chase_debug::log_parked(
-                self.chase_trace_tick(),
-                cid,
-                name.as_str(),
-                pos,
-                &state_str,
+            match (
                 follow_target.map(|id| id.data().as_ffi()),
                 attack_target.map(|id| id.data().as_ffi()),
-                &chase_mode_str,
-                cheb,
-                los_clear,
-            );
+            ) {
+                (Some(follow_target), Some(attack_target)) => {
+                    tracing::trace!(
+                        target: "chase",
+                        event = "parked",
+                        tick = self.chase_trace_tick(),
+                        id = cid.data().as_ffi(),
+                        name = name.as_str(),
+                        pos_x = pos.x,
+                        pos_y = pos.y,
+                        pos_z = pos.z,
+                        state = state_str.as_str(),
+                        chase_mode = chase_mode_str.as_str(),
+                        cheb,
+                        los_clear,
+                        follow_target,
+                        attack_target,
+                    );
+                }
+                (Some(follow_target), None) => {
+                    tracing::trace!(
+                        target: "chase",
+                        event = "parked",
+                        tick = self.chase_trace_tick(),
+                        id = cid.data().as_ffi(),
+                        name = name.as_str(),
+                        pos_x = pos.x,
+                        pos_y = pos.y,
+                        pos_z = pos.z,
+                        state = state_str.as_str(),
+                        chase_mode = chase_mode_str.as_str(),
+                        cheb,
+                        los_clear,
+                        follow_target,
+                    );
+                }
+                (None, Some(attack_target)) => {
+                    tracing::trace!(
+                        target: "chase",
+                        event = "parked",
+                        tick = self.chase_trace_tick(),
+                        id = cid.data().as_ffi(),
+                        name = name.as_str(),
+                        pos_x = pos.x,
+                        pos_y = pos.y,
+                        pos_z = pos.z,
+                        state = state_str.as_str(),
+                        chase_mode = chase_mode_str.as_str(),
+                        cheb,
+                        los_clear,
+                        attack_target,
+                    );
+                }
+                (None, None) => {
+                    tracing::trace!(
+                        target: "chase",
+                        event = "parked",
+                        tick = self.chase_trace_tick(),
+                        id = cid.data().as_ffi(),
+                        name = name.as_str(),
+                        pos_x = pos.x,
+                        pos_y = pos.y,
+                        pos_z = pos.z,
+                        state = state_str.as_str(),
+                        chase_mode = chase_mode_str.as_str(),
+                        cheb,
+                        los_clear,
+                    );
+                }
+            }
         }
         // `ToDoWait(1000)+ToDoStart` fallback when idle arms produced nothing (`crnonpl.cc:2861`).
         self.idle_enqueue_wait_and_start(cid, MONSTER_IDLE_WAIT_MS);
@@ -2710,17 +2776,32 @@ impl GameWorld {
                 m.base.attack_target.map(|id| id.data().as_ffi()),
             ))
         });
-        if chase_debug::chase_path_debug_enabled()
-            && let Some((name, state, mode, attack_target)) = combat_log
-        {
-            chase_debug::log_combat_state(
-                self.chase_trace_tick(),
-                cid,
-                name.as_str(),
-                state,
-                mode,
-                attack_target,
-            );
+        if let Some((name, state, mode, attack_target)) = combat_log {
+            match attack_target {
+                Some(attack_target) => {
+                    tracing::trace!(
+                        target: "chase",
+                        event = "combat_state",
+                        tick = self.chase_trace_tick(),
+                        id = cid.data().as_ffi(),
+                        name = name.as_str(),
+                        monster_state = state,
+                        chase_mode = mode,
+                        attack_target,
+                    );
+                }
+                None => {
+                    tracing::trace!(
+                        target: "chase",
+                        event = "combat_state",
+                        tick = self.chase_trace_tick(),
+                        id = cid.data().as_ffi(),
+                        name = name.as_str(),
+                        monster_state = state,
+                        chase_mode = mode,
+                    );
+                }
+            }
         }
     }
 
@@ -2782,17 +2863,17 @@ impl GameWorld {
             }
         };
         if self.enqueue_creature_attack(cid) {
-            if chase_debug::chase_path_debug_enabled()
-                && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
-            {
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
                 let wait_ms = if weapon_distance != 1 { 100 } else { 0 };
-                chase_debug::log_attack_enqueue(
-                    self.chase_trace_tick(),
-                    cid,
-                    m.base.name.as_str(),
+                tracing::trace!(
+                    target: "chase",
+                    event = "attack_enqueue",
+                    tick = self.chase_trace_tick(),
+                    id = cid.data().as_ffi(),
+                    name = m.base.name.as_str(),
                     wait_ms,
-                    needs_close_step && !already_has_close_go && !skip_idle_melee_chase,
-                    close_label,
+                    needs_close_step = needs_close_step && !already_has_close_go && !skip_idle_melee_chase,
+                    close_chase = close_label,
                 );
             }
             // C++ `ToDoStart` always arms `NextWakeup` for the head todo entry when the list is
@@ -2898,15 +2979,15 @@ impl GameWorld {
         } else if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().direction = new_dir;
         }
-        if chase_debug::chase_path_debug_enabled()
-            && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
-        {
-            chase_debug::log_rotate(
-                self.chase_trace_tick(),
-                cid,
-                m.base.name.as_str(),
-                new_dir as u8,
-                Some(target_id.data().as_ffi()),
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
+            tracing::trace!(
+                target: "chase",
+                event = "rotate",
+                tick = self.chase_trace_tick(),
+                id = cid.data().as_ffi(),
+                name = m.base.name.as_str(),
+                dir = new_dir as u8,
+                target_id = target_id.data().as_ffi(),
             );
         }
     }
@@ -3195,23 +3276,51 @@ impl GameWorld {
         max_steps: i32,
         reason: Option<&str>,
     ) {
-        if !chase_debug::chase_path_debug_enabled() {
+        if !tracing::enabled!(target: "chase", tracing::Level::TRACE) {
             return;
         }
         let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
             return;
         };
-        chase_debug::log_branch(
-            self.chase_trace_tick(),
-            cid,
-            m.base.name.as_str(),
-            branch,
-            m.base.position,
-            dest,
-            must,
-            max_steps,
-            reason,
-        );
+        match reason {
+            Some(reason) => {
+                tracing::trace!(
+                    target: "chase",
+                    event = "branch",
+                    tick = self.chase_trace_tick(),
+                    id = cid.data().as_ffi(),
+                    name = m.base.name.as_str(),
+                    branch,
+                    from_x = m.base.position.x,
+                    from_y = m.base.position.y,
+                    from_z = m.base.position.z,
+                    dest_x = dest.x,
+                    dest_y = dest.y,
+                    dest_z = dest.z,
+                    must,
+                    max = max_steps,
+                    reason,
+                );
+            }
+            None => {
+                tracing::trace!(
+                    target: "chase",
+                    event = "branch",
+                    tick = self.chase_trace_tick(),
+                    id = cid.data().as_ffi(),
+                    name = m.base.name.as_str(),
+                    branch,
+                    from_x = m.base.position.x,
+                    from_y = m.base.position.y,
+                    from_z = m.base.position.z,
+                    dest_x = dest.x,
+                    dest_y = dest.y,
+                    dest_z = dest.z,
+                    must,
+                    max = max_steps,
+                );
+            }
+        }
     }
 
     /// Execute one classified walk arm — returns outcome without enqueuing `Go`.
@@ -3267,19 +3376,22 @@ impl GameWorld {
                     return MonsterIdleWalkOutcome::Hold;
                 }
                 if monster_master_follow_wait_only_band(dist) {
-                    if chase_debug::chase_path_debug_enabled()
-                        && let Some(CreatureKind::Monster(m)) = self.creatures.get(cid)
-                    {
-                        chase_debug::log_branch(
-                            self.chase_trace_tick(),
-                            cid,
-                            m.base.name.as_str(),
-                            "master_follow_wait",
-                            pos,
-                            target_pos,
-                            false,
-                            0,
-                            None,
+                    if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
+                        tracing::trace!(
+                            target: "chase",
+                            event = "branch",
+                            tick = self.chase_trace_tick(),
+                            id = cid.data().as_ffi(),
+                            name = m.base.name.as_str(),
+                            branch = "master_follow_wait",
+                            from_x = pos.x,
+                            from_y = pos.y,
+                            from_z = pos.z,
+                            dest_x = target_pos.x,
+                            dest_y = target_pos.y,
+                            dest_z = target_pos.z,
+                            must = false,
+                            max = 0,
                         );
                     }
                     return MonsterIdleWalkOutcome::QueuedWait;

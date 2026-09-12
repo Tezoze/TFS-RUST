@@ -3,6 +3,8 @@
 //! C++ reference: `tibia-game-master` `chase_kite_scenario.cc`; `crmain.cc` `MoveCreatures`;
 //! `operate.cc` `NotifyAllCreatures`.
 
+mod chase_jsonl;
+
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -12,11 +14,11 @@ use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig, MonsterState};
 use tfs_rust_core::sim_harness::{
     SimMapConfig, audit_otbm_route_tiles, beat_driven_world_for_kite_synthetic,
     beat_driven_world_from_map, default_sim_map_config, drain_todo_queue_once,
-    enable_chase_path_log, harness_place_creature_login, insert_monster_from_type,
-    insert_monster_with_config, insert_player, kite_monsters_appear_batch, log_harness_player_step,
-    move_creatures_explicit, reset_chase_path_log, run_sim_tick, set_sim_harness_segment_ms,
-    set_sim_harness_wall_ms, sim_hero_player, sim_player_damage_monster, teleport_player,
-    validate_positions_walkable, walk_player_adjacent, write_audit_route_json,
+    harness_place_creature_login, insert_monster_from_type, insert_monster_with_config,
+    insert_player, kite_monsters_appear_batch, move_creatures_explicit, run_sim_tick,
+    set_sim_harness_segment_ms, set_sim_harness_wall_ms, sim_hero_player,
+    sim_player_damage_monster, teleport_player, validate_positions_walkable, walk_player_adjacent,
+    write_audit_route_json,
 };
 
 #[derive(Debug, Clone)]
@@ -518,7 +520,15 @@ fn execute_step(
             walk_player_adjacent(world, handles.player_id, pos)?;
             let step = handles.player_walk_step;
             handles.player_walk_step = handles.player_walk_step.saturating_add(1);
-            log_harness_player_step(world.chase_trace_tick(), step, pos);
+            tracing::trace!(
+                target: "chase",
+                event = "harness_player_step",
+                tick = world.chase_trace_tick(),
+                step,
+                pos_x = pos.x,
+                pos_y = pos.y,
+                pos_z = pos.z,
+            );
             run_sim_tick(world);
         }
         ScenarioStep::SimTick => run_sim_tick(world),
@@ -688,8 +698,7 @@ fn run_main() -> Result<(), String> {
         }
     }
 
-    enable_chase_path_log(log_path);
-    reset_chase_path_log();
+    chase_jsonl::install(log_path)?;
 
     let input = fs::read_to_string(&scenario_path)
         .map_err(|e| format!("read {}: {e}", scenario_path.display()))?;
@@ -883,5 +892,63 @@ sim_tick
         assert!(start.exists, "player_start must exist on OTBM");
         assert!(start.walkable, "player_start must be walkable");
         assert_eq!(start.wp, 150, "player_start gravel wp");
+    }
+
+    #[test]
+    fn chase_jsonl_round_trip_go_exec() {
+        use tracing_subscriber::layer::SubscriberExt;
+
+        let path = std::env::temp_dir().join(format!(
+            "chase_jsonl_rt_{}_{}.jsonl",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = fs::remove_file(&path);
+        chase_jsonl::truncate(&path).expect("truncate");
+        let layer = chase_jsonl::ChaseJsonlLayer::new(path.clone());
+        let subscriber = tracing_subscriber::registry().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::trace!(
+                target: "chase",
+                event = "go_exec",
+                tick = 1000u64,
+                id = 42u64,
+                name = "rat",
+                from_x = 32369u16,
+                from_y = 32241u16,
+                from_z = 7u8,
+                to_x = 32370u16,
+                to_y = 32242u16,
+                to_z = 7u8,
+            );
+            tracing::trace!(
+                target: "chase",
+                event = "attack_enqueue",
+                tick = 2000u64,
+                id = 7u64,
+                name = "cyclops",
+                wait_ms = 0u32,
+                needs_close_step = true,
+                close_chase = "queued",
+            );
+        });
+        let body = fs::read_to_string(&path).expect("read jsonl");
+        let _ = fs::remove_file(&path);
+        let mut lines = body.lines().filter(|l| !l.is_empty());
+        let go = lines.next().expect("go_exec line");
+        assert!(go.contains("\"src\":\"rust\""), "src rust: {go}");
+        assert!(go.contains("\"evt\":\"go_exec\""), "evt: {go}");
+        assert!(go.contains("\"tick\":1000"), "tick: {go}");
+        assert!(go.contains("\"id\":42"), "id: {go}");
+        assert!(go.contains("\"diag\":1"), "diag: {go}");
+        let atk = lines.next().expect("attack_enqueue line");
+        assert!(
+            atk.contains("\"needs_close_step\":1"),
+            "bool as 0/1: {atk}"
+        );
+        assert!(!atk.contains("true"), "must not emit JSON true: {atk}");
     }
 }

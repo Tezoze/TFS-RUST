@@ -1,6 +1,6 @@
 # Simulation harness — current state and implementation plan
 
-**Status:** implementation plan (inventory 2026-09-10)
+**Status:** implementation plan (inventory 2026-09-10; Phase 0–2 done)
 **Related:** `docs/REFACTOR_AUDIT.md` Phase 2 (quarantine done; crate extract was the unfinished stretch);
 `tasks/lessons.md` §70, §100, §127, §232; `docs/772_PLAYER_COMBAT_AUDIT.md` (B4 / sim battery fragility);
 `tasks/todo.md` (Sim harness extract)
@@ -53,16 +53,16 @@ Shared scenarios, dual runners, diff tools. The weight problem is not here.
 | Artifact | Location | Actual problem |
 |----------|----------|----------------|
 | `sim_harness.rs` (~1932 lines) | `tfs-rust-core`, `cfg(any(test, feature = "sim"))` | **Two modules fused:** in-crate test fixtures **and** scenario/parity harness. `test_world.rs` re-exports the whole file; **~1,116 / 1,398** core `#[test]` fns import it. |
-| `chase_kite_sim` bin | `tfs-rust-core/src/bin/` | Correct idea, wrong crate. Relies on harness `pub` wrappers over `pub(crate)` world internals. |
+| `chase_kite_sim` bin | `tfs-rust-core/src/bin/` | Correct idea, wrong crate. Relies on harness `pub` wrappers over `pub(crate)` world internals. JSONL via `chase_jsonl.rs` tracing layer (Phase 2). |
 | `path_compare` bin | same `src/bin/` | **Clean** — public pathfinding only, no `sim` feature. Leave in core. |
-| `chase_debug` | Always compiled: stubs in prod, JSONL under `sim`/`test` | 52 production call sites in 6 files. Stubs are free at runtime; the module + `cfg` still couple core to the harness. |
+| `chase_debug` | **Phase 2 done.** Deleted. | Production AI/walk/combat emit `tracing::trace!(target: "chase", …)`. JSONL writer is `chase_kite_sim`’s `ChaseJsonlLayer`. |
 | `sim_glibc_rand` | Always: `GlibcRngState` + `DANCE_DIR_ORDER` | **Phase 1 done.** One per-world stream. Process-global `libc::rand`, `sim_glibc_rng_enabled`, and free `parity_*` `thread_rng` fallbacks are gone. |
 | `GameWorld::parity_random` | `game_world.rs` | Unconditional `self.parity_rng`. Seed via `seed_parity_rng`; harness reads `TFS_SIM_SEED`. |
 | `Player::fist_attack` / `fist_defense` | Always on `Player` | Race-data fist fallback (`human.mon` Attack=7 / Defend=5, `crcombat.cc:183`). Set in `login.rs`. Renamed from `sim_melee_*` (Phase 0). |
 | `Monster::harness_preserve_sleep` | Always on `Monster` | Genuine harness leak (appear-defer). |
-| `feature = "sim"` | `tfs-rust-core/Cargo.toml` | Empty feature used only as a cfg switch. 80 `cfg(any(test, feature = "sim"))` sites in 9 files. |
+| `feature = "sim"` | `tfs-rust-core/Cargo.toml` | Cfg switch for `sim_harness` + optional `tracing-subscriber` for `chase_kite_sim`. Dropped in Phase 5. |
 
-Phase 2 (`REFACTOR_AUDIT`) cfg-quarantined this so **default production builds compile stubs**. The stretch — move to `tfs-rust-sim` — was never done. Result: “off in the binary, still in the architecture.”
+Phase 2 (`docs/SIM_HARNESS.md`) replaced `chase_debug` with `target = "chase"` tracing; JSONL lives on the sim bin. The stretch — move to `tfs-rust-sim` — is Phase 5. Result until then: “off in the default binary, still in the architecture for `sim_harness`.”
 
 ### 2.3 What the battery validates well
 
@@ -140,7 +140,7 @@ TFS_SIM_SEED=N          # read only by sim_harness / C++ runner / battery script
 
 Unit tests that need determinism call `seed_parity_rng` explicitly. They do not require `feature = "sim"` or env vars.
 
-Free `parity_random` / `parity_rand_mod` `thread_rng` fallbacks are deleted (Phase 1). All live draws go through `GameWorld::parity_*` / `GlibcRngState`. Until Phase 5, `sim_harness.rs` (still in core) is the env reader.
+Free `parity_random` / `parity_rand_mod` `thread_rng` fallbacks are deleted (Phase 1). All live draws go through `GameWorld::parity_*` / `GlibcRngState`. Until Phase 5, `sim_harness.rs` (still in core) is the `TFS_SIM_SEED` env reader. `TFS_CHASE_PATH_*` is read only by `chase_kite_sim` (`chase_jsonl.rs`).
 
 ### 3.5 Observe via `tracing`, not a trait
 
@@ -248,28 +248,21 @@ python3 scripts/run_sim_battery.py
 
 ---
 
-### Phase 2 — Replace `chase_debug` with `target = "chase"` tracing
+### Phase 2 — Replace `chase_debug` with `target = "chase"` tracing — DONE 2026-09-12
 
 **Goal:** delete `chase_debug.rs` (~790 lines, 41 cfg attributes). Production files keep a one-line `tracing::trace!(target: "chase", event = "…", …)` at each of the 52 sites.
 
-| File (call sites today) | Count |
-|-------------------------|-------|
-| `idle_stimulus.rs` | 18 |
-| `monster_ai.rs` | 18 |
-| `creature_todo.rs` | 9 |
-| `monster_events.rs` | 3 |
-| `walk/mod.rs` | 2 |
-| `game_world_lifecycle.rs` | 2 |
+Landed:
 
-JSONL writer moves into `chase_kite_sim` (still in core this phase) as a `tracing` layer that emits the **existing** event names (`branch`, `todo_go`, `shortway`, `go_exec`, `idle_stimulus`, `todo_wait`, `rotate`, `creature_move_stimulus`, `todo_label`, `parked`, `combat_state`, `attack_enqueue`, `melee_hit`, `ranged_hit`, `spell_cast`, `damage_stimulus`, `creature_death`, `harness_player_step`, `fill_map`, `rng_trace`, `rng_resync`) so Python diffs do not change.
+- `chase_debug.rs` deleted; `lib.rs` has no `mod chase_debug`
+- Call sites emit `tracing::trace!(target: "chase", …)` in `idle_stimulus.rs`, `monster_ai.rs`, `creature_todo.rs`, `monster_events.rs`, `walk/mod.rs`, `creature_death_defer.rs` (not `game_world_lifecycle.rs` — inventory was stale)
+- JSONL writer is `crates/tfs-rust-core/src/bin/chase_jsonl.rs` (`ChaseJsonlLayer`); `chase_kite_sim` always installs it (`--log` / `TFS_CHASE_PATH_LOG` / default path)
+- `TFS_CHASE_PATH_DEBUG` is no longer read inside AI; expensive prep and `appear_face_target_for_debug` gate on `tracing::enabled!(target: "chase", TRACE)`
+- Round-trip test: `chase_jsonl_round_trip_go_exec` on the sim bin
 
-`TFS_CHASE_PATH_DEBUG=1` / `TFS_CHASE_PATH_LOG` become subscriber install flags on the sim bin (and optionally on a test helper), not env checks inside AI.
+Event names unchanged (`branch`, `todo_go`, `shortway`, `go_exec`, `idle_stimulus`, `todo_wait`, `rotate`, `creature_move_stimulus`, `todo_label`, `parked`, `combat_state`, `attack_enqueue`, `melee_hit`, `ranged_hit`, `spell_cast`, `damage_stimulus`, `creature_death`, `harness_player_step`, `fill_map`, `rng_trace`, `rng_resync`). No `SimObserver` trait.
 
-**Do not** add `Option<&dyn SimObserver>` to `GameWorld` or monster think.
-
-**Exit:** `rg chase_debug` empty. `lib.rs` no longer `mod chase_debug`. Battery JSONL comparable (schema-stable; re-baseline only if field names were stub-divergent).
-
-**Verify:** same battery + a single scenario diff against C++.
+**Exit (met):** `rg chase_debug` empty in `crates/tfs-rust-core/src`. Battery JSONL schema-stable (C++ lockstep needs the game binary; Rust scenarios emit comparable lines).
 
 ---
 

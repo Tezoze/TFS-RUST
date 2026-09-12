@@ -30,6 +30,7 @@
 use std::time::Instant;
 
 use rand::rng;
+use slotmap::Key;
 use tfs_rust_common::Position;
 use tfs_rust_common::enums::{ConditionType, Direction};
 use tfs_rust_content::items::ItemDatabase;
@@ -39,7 +40,6 @@ use tfs_rust_net::map_description::{
 };
 use tfs_rust_net::outgoing_extra::send_text_message_simple;
 
-use crate::chase_debug;
 use crate::combat::uniform_random;
 use crate::creature::{CreatureKind, NpcActivity};
 use crate::creature_todo::{CreatureAction, trace_creature_todo};
@@ -2314,19 +2314,21 @@ impl GameWorld {
             // `EarliestWalkTime` ToDo delay for walk step gating.
         }
 
-        if chase_debug::chase_path_debug_enabled()
-            && self
-                .creatures
-                .get(cid)
-                .is_some_and(|k| matches!(k, CreatureKind::Monster(_)))
-            && let Some(k) = self.creatures.get(cid)
+        if let Some(k) = self.creatures.get(cid)
+            && matches!(k, CreatureKind::Monster(_))
         {
-            chase_debug::log_go_exec(
-                self.chase_trace_tick(),
-                cid,
-                k.base().name.as_str(),
-                old_pos,
-                final_pos,
+            tracing::trace!(
+                target: "chase",
+                event = "go_exec",
+                tick = self.chase_trace_tick(),
+                id = cid.data().as_ffi(),
+                name = k.base().name.as_str(),
+                from_x = old_pos.x,
+                from_y = old_pos.y,
+                from_z = old_pos.z,
+                to_x = final_pos.x,
+                to_y = final_pos.y,
+                to_z = final_pos.z,
             );
         }
 

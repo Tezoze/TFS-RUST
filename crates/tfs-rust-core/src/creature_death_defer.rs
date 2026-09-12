@@ -146,22 +146,22 @@ impl GameWorld {
             self.drop_monster_corpse(pos, corpse_id, blood, &inventory);
         }
 
-        if crate::chase_debug::chase_path_debug_enabled()
-            && let Some(CreatureKind::Monster(m)) = self.creatures.get(victim)
-        {
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get(victim) {
             let killer_id = m
                 .base
                 .damage_map
                 .most_dangerous(self.round_nr, self.mechanics.profile.exp_attribution_rounds)
                 .map(|id| id.data().as_ffi())
                 .unwrap_or(0);
-            crate::chase_debug::log_creature_death(
-                self.chase_trace_tick(),
-                victim,
-                &m.base.name,
+            tracing::trace!(
+                target: "chase",
+                event = "creature_death",
+                tick = self.chase_trace_tick(),
+                id = victim.data().as_ffi(),
+                name = m.base.name.as_str(),
                 killer_id,
-                m.experience,
-                m.corpse_id,
+                experience = m.experience,
+                corpse_id = m.corpse_id,
             );
         }
 

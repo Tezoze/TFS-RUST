@@ -2,6 +2,7 @@
 name = "tfs-rust-core"
 version = "0.1.0"
 edition = "2024"
+autobins = false
 
 [dependencies]
 tokio = { workspace = true }
@@ -20,13 +21,14 @@ bitflags = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 rustc-hash = "2"
 smallvec = { version = "1", features = ["union"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
 
 [features]
 default = []
-# Enables simulation/diagnostic modules (`sim_harness`, `chase_debug` real impl).
+# Enables simulation/diagnostic modules (`sim_harness`) and `chase_kite_sim`.
 # Tests auto-enable via `cfg(test)`; production builds exclude this.
 # Sim binaries (`chase_kite_sim`) require `--features sim`. Dropped in Phase 5.
-sim = []
+sim = ["dep:tracing-subscriber"]
 
 [dev-dependencies]
 proptest = "1.11"
