@@ -1,3 +1,16 @@
+# Perf Phase D — Tier 3 loadgen (2026-09-12)
+
+Wire loadgen against the Rust 772 server (`docs/PERF_BENCHMARK_PLAN.md`). RSA encrypt in `tfs-rust-net`; new `tools/loadgen` (bin `tfs-loadgen`) reuses net + common, **no** `tfs-rust-core`. Open-loop intended-time latency. Spike one-bot walk N/S before swarm/scenarios.
+
+- [x] `rsa.rs`: `encrypt` (`m^e mod n`) + `public_parts`; round-trip + `parse_first_client_packet` encode test
+- [x] `tools/loadgen` workspace member, bins `tfs-loadgen` / `tfs-loadgen-echo`; modules encode/session/inbound/scheduler/latency/scenario/roles/ramp
+- [x] One-bot 7171→char list→7172→XTEA walk N/S (OS=1, account `1` / `Test`)
+- [x] Inbound: self `0x0A`, map pos `0x64` header, raw `0x6C`/`0x6D`, `0x83`; ping reply; hdrhistogram walk/spell
+- [x] Login ramp ≤ 8/s (cap 8); `SAY` ≥ 2500 ms; walk period default 200 ms
+- [x] `tfs-loadgen-echo` ceiling; `scripts/bench/proxy_log_to_frames.py` (raw/first-packet hex, not 1098 decrypt)
+- [x] `bench/scenarios/*.ron` + `mixed_300.ron`; per-bot seeded RNG
+- [x] Verify: `rtk cargo test -p tfs-rust-net` rsa; `rtk cargo test -p tfs-loadgen`; clippy `-p tfs-rust-net -p tfs-loadgen --all-targets -- --no-deps -D warnings`
+
 # Perf Phase C — Tier 2 scaling sweep (2026-09-12)
 
 In-process `advance_beat` load in `tfs-rust-sim` (`docs/PERF_BENCHMARK_PLAN.md`). Do **not** grow `world.rs` / `scenario.rs` / `chase_kite_sim.rs`. Core stays Phase A (read-only obs). Beat wall µs is timed in the sweep: `advance_beat` does not call `record_beat`.

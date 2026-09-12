@@ -1,6 +1,6 @@
 # Performance measurement plan
 
-Status: Phase A–C done (core visibility + Criterion hot_paths + sim scale_sweep). Tiers 3–4 not yet implemented.
+Status: Phase A–D done (core visibility + Criterion hot_paths + sim scale_sweep + 772 loadgen). Tier 4 not yet implemented.
 
 Two distinct goals, deliberately separated because they want different instruments:
 
@@ -294,14 +294,14 @@ Tiers 1–2 first (engineering loop), Tier 3 spike early (riskiest assumption), 
 - [x] Verify: `rtk cargo test -p tfs-rust-sim --lib sweep_tests`; clippy `-p tfs-rust-sim -- --no-deps -D warnings`; `scale_sweep --axis monsters --points 50,200 --beats 100 --warmup 0` (not full crate test/clippy)
 
 ## Phase D — Tier 3 spike, then loadgen
-- [ ] **Spike** `rsa.rs`: `pub fn encrypt(block: &[u8; 128], n: &BigUint, e: &BigUint) -> Result<[u8; 128]>` (`num-bigint-dig` `modpow`, mirror of `decrypt` `rsa.rs:18`); `pub fn public_parts(&RsaPrivateKey) -> (BigUint, BigUint)`; round-trip unit test
-- [ ] **Spike** one bot (`tools/loadgen`, minimal): login 7171 → `0x01` + OS + ver + 12 skip + RSA[`0x00`, xtea key ×4 LE, u32 account, string pw] (`game_first_packet.rs:176/293`) → framed reply, parse `0x64` char list (772: **no Adler**, `protocol_version.rs:79`) → game 7172 → `0x0A` + OS + ver + RSA[`0x00`, key, gm u8, u32 acc, string char, string pw] (`game_first_packet.rs:346/390`) → XTEA loop (`xtea_tfs::{expand_key, encrypt, decrypt}`, `read_sized_payload`, `encrypt_xtea_game_frame`) → walk N/S. Must work against **both** Rust and TVP before anything below
-- [ ] `tools/loadgen` workspace member (bin `tfs-loadgen`): deps `tfs-rust-net`, `tfs-rust-common`, `tokio`, `clap`, `hdrhistogram`, `ron`, `rand`; **no** `tfs-rust-core`
-- [ ] Inbound parse: self id from `self_appear` `0x0A`, own pos from `MAP_DESCRIPTION` `0x64` header, `0x6D` creature move / `0x6C` remove (raw bytes — no named server consts exist, `codec/v772.rs:339`); all else length-framed + counted
-- [ ] Open-loop scheduler (intended-time latency, `CLOCK_MONOTONIC`), `hdrhistogram`; correlation: walk-ack = `0x6D` for self id; spell/rune = `MAGIC_EFFECT` `0x83` at target tile; JSON per run
-- [ ] Validation: null-echo ceiling bin; byte diff vs `tools/packet-proxy` text hex log (`logger.rs:42`) — small converter `scripts/bench/proxy_log_to_frames.py`
-- [ ] `bench/scenarios/*.ron` — walker, melee, caster, rune, aoe_rune, noise; `mixed_300.ron`; per-bot seeded RNG; frozen before publication
-- [ ] Respect server gates: login cap `MAX_CONCURRENT_LOGIN_LOADS = 8` (`login.rs:348`) → ramp ≤ 8/s; `RecordTalk` 2.5 s window (`chat_talk.rs:100`); `earliest_walk_server_ms`
+- [x] **Spike** `rsa.rs`: `pub fn encrypt(block: &[u8; 128], n: &BigUint, e: &BigUint) -> Result<[u8; 128]>` (`num-bigint-dig` `modpow`, mirror of `decrypt` `rsa.rs:18`); `pub fn public_parts(&RsaPrivateKey) -> (BigUint, BigUint)`; round-trip unit test
+- [x] **Spike** one bot (`tools/loadgen`, minimal): login 7171 → `0x01` + OS + ver + 12 skip + RSA[`0x00`, xtea key ×4 LE, u32 account, string pw] (`game_first_packet.rs:176/293`) → framed reply, parse `0x64` char list (772: **no Adler**, `protocol_version.rs:79`) → game 7172 → `0x0A` + OS + ver + RSA[`0x00`, key, gm u8, u32 acc, string char, string pw] (`game_first_packet.rs:346/390`) → XTEA loop (`xtea_tfs::{expand_key, encrypt, decrypt}`, `read_sized_payload`, `encrypt_xtea_game_frame`) → walk N/S. Must work against **both** Rust and TVP before anything below
+- [x] `tools/loadgen` workspace member (bin `tfs-loadgen`): deps `tfs-rust-net`, `tfs-rust-common`, `tokio`, `clap`, `hdrhistogram`, `ron`, `rand`; **no** `tfs-rust-core`
+- [x] Inbound parse: self id from `self_appear` `0x0A`, own pos from `MAP_DESCRIPTION` `0x64` header, `0x6D` creature move / `0x6C` remove (raw bytes — no named server consts exist, `codec/v772.rs:339`); all else length-framed + counted
+- [x] Open-loop scheduler (intended-time latency, `CLOCK_MONOTONIC`), `hdrhistogram`; correlation: walk-ack = `0x6D` for self id; spell/rune = `MAGIC_EFFECT` `0x83` at target tile; JSON per run
+- [x] Validation: null-echo ceiling bin; byte diff vs `tools/packet-proxy` text hex log (`logger.rs:42`) — small converter `scripts/bench/proxy_log_to_frames.py`
+- [x] `bench/scenarios/*.ron` — walker, melee, caster, rune, aoe_rune, noise; `mixed_300.ron`; per-bot seeded RNG; frozen before publication
+- [x] Respect server gates: login cap `MAX_CONCURRENT_LOGIN_LOADS = 8` (`login.rs:348`) → ramp ≤ 8/s; `RecordTalk` 2.5 s window (`chat_talk.rs:100`); `earliest_walk_server_ms`
 
 ## Phase E — Tier 4 (plan tasks 9–16, unchanged order)
 - [ ] Bulk account/char seeding (extend `scripts/seed_test_account.sql` → generator; Rust `schema.sql` + TVP `schema.sql`)

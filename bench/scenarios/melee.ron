@@ -1,0 +1,12 @@
+(
+    name: "melee",
+    bots: 1,
+    duration_s: 60,
+    warmup_s: 5,
+    seed: 42,
+    walk_period_ms: 200,
+    say_period_ms: 2500,
+    roles: [
+        (kind: Melee, weight: 1.0),
+    ],
+)

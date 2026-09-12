@@ -1,0 +1,20 @@
+(
+    name: "mixed_300",
+    bots: 300,
+    duration_s: 120,
+    warmup_s: 30,
+    seed: 42,
+    walk_period_ms: 200,
+    say_period_ms: 2500,
+    roles: [
+        (kind: Walker, weight: 0.40),
+        (kind: Melee, weight: 0.20),
+        (kind: Caster, weight: 0.15),
+        (kind: Rune, weight: 0.10),
+        (kind: AoeRune, weight: 0.05),
+        (kind: Noise, weight: 0.10),
+    ],
+    spell_words: "exori vis",
+    rune_sprite_id: 3155,
+    rune_slot: 10,
+)

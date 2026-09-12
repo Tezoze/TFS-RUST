@@ -17,6 +17,7 @@ members = [
     "crates/tfs-rust-core",
     "crates/tfs-rust-sim",
     "tools/packet-proxy",
+    "tools/loadgen",
 ]
 resolver = "2"
 

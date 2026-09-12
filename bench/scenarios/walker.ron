@@ -1,0 +1,12 @@
+(
+    name: "walker",
+    bots: 1,
+    duration_s: 60,
+    warmup_s: 5,
+    seed: 42,
+    walk_period_ms: 200,
+    say_period_ms: 2500,
+    roles: [
+        (kind: Walker, weight: 1.0),
+    ],
+)

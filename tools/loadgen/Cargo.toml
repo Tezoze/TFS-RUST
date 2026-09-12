@@ -1,0 +1,30 @@
+[package]
+name = "tfs-loadgen"
+version = "0.1.0"
+edition = "2024"
+description = "Open-loop 772 client loadgen (Tier 3). Does not depend on tfs-rust-core."
+autobins = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "tfs-loadgen"
+path = "src/main.rs"
+
+[[bin]]
+name = "tfs-loadgen-echo"
+path = "src/bin/null_echo.rs"
+
+[dependencies]
+tfs-rust-net = { workspace = true }
+tfs-rust-common = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+ron = { workspace = true }
+rsa = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+hdrhistogram = "7"
+rand = "0.10"
+serde = { version = "1", features = ["derive"] }
+num-bigint-dig = { workspace = true }
