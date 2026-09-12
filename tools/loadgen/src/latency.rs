@@ -31,7 +31,12 @@ impl LatencySet {
     }
 
     /// Record an intended send. FIFO per correlation type.
-    pub fn on_send(&mut self, kind: Correlate, intended: Instant, tile: Option<tfs_rust_common::Position>) {
+    pub fn on_send(
+        &mut self,
+        kind: Correlate,
+        intended: Instant,
+        tile: Option<tfs_rust_common::Position>,
+    ) {
         match kind {
             Correlate::Walk => self.outstanding_walk.push(intended),
             Correlate::SpellRune => {
@@ -50,11 +55,7 @@ impl LatencySet {
     }
 
     pub fn on_magic_effect(&mut self, now: Instant, pos: tfs_rust_common::Position) {
-        if let Some(idx) = self
-            .outstanding_spell
-            .iter()
-            .position(|(_, p)| *p == pos)
-        {
+        if let Some(idx) = self.outstanding_spell.iter().position(|(_, p)| *p == pos) {
             let (intended, _) = self.outstanding_spell.remove(idx);
             record(&mut self.spell, now.saturating_duration_since(intended));
         }
@@ -131,26 +132,44 @@ impl HistSummary {
 pub struct RunReport {
     pub bots: usize,
     pub duration_s: u64,
+    pub warmup_s: u64,
     pub walk: HistSummary,
     pub spell_rune: HistSummary,
     pub bytes_in: u64,
     pub bytes_out: u64,
     pub outstanding_at_end: u64,
     pub sends: u64,
+    pub magic_effects: u64,
+    pub animated_texts: u64,
+    pub damage_sum: u64,
+    pub damage_samples: u64,
+    pub distance_shoots: u64,
+    pub creature_health: u64,
+    pub other_creature_moves: u64,
+    pub unique_creatures: u64,
 }
 
 impl RunReport {
     pub fn to_json(&self) -> String {
         format!(
-            "{{\n  \"bots\": {},\n  \"duration_s\": {},\n  \"walk\": {},\n  \"spell_rune\": {},\n  \"bytes_in\": {},\n  \"bytes_out\": {},\n  \"outstanding_at_end\": {},\n  \"sends\": {}\n}}\n",
+            "{{\n  \"bots\": {},\n  \"duration_s\": {},\n  \"warmup_s\": {},\n  \"walk\": {},\n  \"spell_rune\": {},\n  \"bytes_in\": {},\n  \"bytes_out\": {},\n  \"outstanding_at_end\": {},\n  \"sends\": {},\n  \"magic_effects\": {},\n  \"animated_texts\": {},\n  \"damage_sum\": {},\n  \"damage_samples\": {},\n  \"distance_shoots\": {},\n  \"creature_health\": {},\n  \"other_creature_moves\": {},\n  \"unique_creatures\": {}\n}}\n",
             self.bots,
             self.duration_s,
+            self.warmup_s,
             self.walk.json_object(),
             self.spell_rune.json_object(),
             self.bytes_in,
             self.bytes_out,
             self.outstanding_at_end,
-            self.sends
+            self.sends,
+            self.magic_effects,
+            self.animated_texts,
+            self.damage_sum,
+            self.damage_samples,
+            self.distance_shoots,
+            self.creature_health,
+            self.other_creature_moves,
+            self.unique_creatures
         )
     }
 }

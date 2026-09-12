@@ -2,6 +2,7 @@
 # Integrated server: OTBM + DB + game loop + login/game ports (7171 / 7172).
 # Usage from repo root:
 #   ./scripts/run_server.sh
+#   ./scripts/run_server.sh --release
 #
 # MariaDB: if DATABASE_URL is **unset**, the binary builds a URL from `config.lua` (mysqlHost, mysqlUser,
 # mysqlPass, mysqlDatabase, mysqlPort) — same as TFS C++. Set DATABASE_URL only to override, e.g. Docker:
@@ -15,6 +16,12 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+RELEASE_ARGS=()
+if [[ "${1:-}" == "--release" ]]; then
+  RELEASE_ARGS=(--release)
+  shift
+fi
 
 if [[ -n "${DATABASE_URL:-}" ]]; then
   echo "run_server: using DATABASE_URL from environment" >&2
@@ -30,4 +37,4 @@ else
 fi
 sleep 0.25
 
-exec cargo run --bin tfs-rust
+exec cargo run --bin tfs-rust "${RELEASE_ARGS[@]}"

@@ -1,8 +1,11 @@
-//! Minimal 772 inbound: self id, own pos, move/remove, magic effect, ping.
+//! Minimal 772 inbound: self id, own pos, move/remove, combat effects, ping.
 //!
 //! C++ reference: `codec/v772.rs` self-appear `0x0A`; `map_description.rs` `0x64` header
-//! and `0x6D` move; `v772.rs` `0x6C` remove (no named server consts). Unknown opcodes
-//! discard the rest of the decrypted payload (length-framed at TCP, counted here).
+//! and `0x6D` move; `v772.rs` `0x6C` remove (no named server consts). Combat counters
+//! (`0x83`/`0x84`/`0x85`/`0x8C`) feed the Tier 4 content-equivalence gate. Unknown
+//! opcodes discard the rest of the decrypted payload (length-framed at TCP, counted here).
+
+use std::collections::HashSet;
 
 use tfs_rust_common::Position;
 
@@ -16,6 +19,12 @@ const OP_REMOVE: u8 = 0x6C;
 const OP_MOVE: u8 = 0x6D;
 /// `MAGIC_EFFECT`.
 const OP_MAGIC_EFFECT: u8 = 0x83;
+/// `ANIMATED_TEXT` — `v772.rs` `encode_animated_text` (pos + color + string).
+const OP_ANIMATED_TEXT: u8 = 0x84;
+/// `DISTANCE_SHOOT` — `v772.rs` `encode_distance_shoot`.
+const OP_DISTANCE_SHOOT: u8 = 0x85;
+/// `CREATURE_HEALTH` — `v772.rs` `encode_creature_health`.
+const OP_CREATURE_HEALTH: u8 = 0x8C;
 const OP_PING: u8 = 0x1D;
 const OP_PING_BACK: u8 = 0x1E;
 
@@ -34,9 +43,42 @@ pub struct InboundState {
     pub last_other_creature_id: Option<u32>,
     pub bytes_in: u64,
     pub bytes_discarded: u64,
+    pub magic_effects: u64,
+    pub animated_texts: u64,
+    pub damage_sum: u64,
+    pub damage_samples: u64,
+    pub distance_shoots: u64,
+    pub creature_health: u64,
+    pub other_creature_moves: u64,
+    pub seen_creatures: HashSet<u32>,
 }
 
 impl InboundState {
+    pub fn unique_creatures(&self) -> u64 {
+        self.seen_creatures.len() as u64
+    }
+
+    pub fn add_counters(&mut self, other: &InboundState) {
+        self.bytes_in += other.bytes_in;
+        self.bytes_discarded += other.bytes_discarded;
+        self.magic_effects += other.magic_effects;
+        self.animated_texts += other.animated_texts;
+        self.damage_sum += other.damage_sum;
+        self.damage_samples += other.damage_samples;
+        self.distance_shoots += other.distance_shoots;
+        self.creature_health += other.creature_health;
+        self.other_creature_moves += other.other_creature_moves;
+        self.seen_creatures.extend(&other.seen_creatures);
+    }
+
+    fn note_creature(&mut self, id: u32) {
+        if self.self_id == Some(id) {
+            return;
+        }
+        self.seen_creatures.insert(id);
+        self.last_other_creature_id = Some(id);
+    }
+
     /// Parse one decrypted inner payload. Returns events in order.
     pub fn feed(&mut self, payload: &[u8]) -> Vec<InboundEvent> {
         self.bytes_in += payload.len() as u64;
@@ -78,7 +120,8 @@ impl InboundState {
                             self.pos = Some(new_pos);
                             events.push(InboundEvent::WalkAck);
                         } else if let Some(cid) = id {
-                            self.last_other_creature_id = Some(cid);
+                            self.note_creature(cid);
+                            self.other_creature_moves += 1;
                             events.push(InboundEvent::OtherCreature { id: cid });
                         }
                     }
@@ -97,7 +140,39 @@ impl InboundState {
                     let pos = read_pos(payload, i);
                     i += 5;
                     i += 1; // effect id
+                    self.magic_effects += 1;
                     events.push(InboundEvent::MagicEffect { pos });
+                }
+                OP_ANIMATED_TEXT => match parse_animated_text(payload, &mut i) {
+                    None => {
+                        self.discard_rest(payload, i.saturating_sub(1));
+                        break;
+                    }
+                    Some(text) => {
+                        self.animated_texts += 1;
+                        if let Some(n) = parse_damage_text(&text) {
+                            self.damage_sum += n;
+                            self.damage_samples += 1;
+                        }
+                    }
+                },
+                OP_DISTANCE_SHOOT => {
+                    if payload.len().saturating_sub(i) < 11 {
+                        self.discard_rest(payload, i.saturating_sub(1));
+                        break;
+                    }
+                    i += 11;
+                    self.distance_shoots += 1;
+                }
+                OP_CREATURE_HEALTH => {
+                    if payload.len().saturating_sub(i) < 5 {
+                        self.discard_rest(payload, i.saturating_sub(1));
+                        break;
+                    }
+                    let id = u32::from_le_bytes(payload[i..i + 4].try_into().unwrap_or([0; 4]));
+                    i += 5; // id + health percent
+                    self.creature_health += 1;
+                    self.note_creature(id);
                 }
                 OP_PING | OP_PING_BACK => {
                     events.push(InboundEvent::Ping(op));
@@ -161,6 +236,35 @@ fn parse_move(buf: &[u8], i: &mut usize) -> Option<(Option<u32>, Option<Position
     let new_pos = read_pos(buf, *i);
     *i += 5;
     Some((id, old_pos, new_pos))
+}
+
+/// `0x84`: pos + color + u16-prefixed string (`v772.rs` `encode_animated_text`).
+fn parse_animated_text(buf: &[u8], i: &mut usize) -> Option<String> {
+    if buf.len().saturating_sub(*i) < 8 {
+        return None;
+    }
+    *i += 5; // pos
+    *i += 1; // color
+    let len = u16::from_le_bytes([buf[*i], buf[*i + 1]]) as usize;
+    *i += 2;
+    if buf.len().saturating_sub(*i) < len {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&buf[*i..*i + len]).into_owned();
+    *i += len;
+    Some(text)
+}
+
+fn parse_damage_text(text: &str) -> Option<u64> {
+    let t = text.trim();
+    let digits = t
+        .strip_prefix('+')
+        .or_else(|| t.strip_prefix('-'))
+        .unwrap_or(t);
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
 }
 
 fn parse_remove(buf: &[u8], i: &mut usize) -> Option<()> {
@@ -248,6 +352,8 @@ mod tests {
         let ev = s.feed(&p);
         assert_eq!(ev, vec![InboundEvent::OtherCreature { id: 77 }]);
         assert_eq!(s.last_other_creature_id, Some(77));
+        assert_eq!(s.other_creature_moves, 1);
+        assert_eq!(s.unique_creatures(), 1);
     }
 
     #[test]
@@ -269,6 +375,48 @@ mod tests {
                 InboundEvent::Ping(OP_PING_BACK),
             ]
         );
+        assert_eq!(s.magic_effects, 1);
+    }
+
+    #[test]
+    fn combat_bundle_counts_damage_and_health() {
+        let mut s = InboundState {
+            self_id: Some(1),
+            ..InboundState::default()
+        };
+        let mut p = vec![OP_MAGIC_EFFECT];
+        p.extend_from_slice(&10u16.to_le_bytes());
+        p.extend_from_slice(&10u16.to_le_bytes());
+        p.push(7);
+        p.push(2);
+        p.push(OP_ANIMATED_TEXT);
+        p.extend_from_slice(&10u16.to_le_bytes());
+        p.extend_from_slice(&10u16.to_le_bytes());
+        p.push(7);
+        p.push(180);
+        p.extend_from_slice(&2u16.to_le_bytes());
+        p.extend_from_slice(b"42");
+        p.push(OP_DISTANCE_SHOOT);
+        p.extend_from_slice(&[0u8; 11]);
+        p.push(OP_CREATURE_HEALTH);
+        p.extend_from_slice(&77u32.to_le_bytes());
+        p.push(50);
+        let ev = s.feed(&p);
+        assert_eq!(ev.len(), 1);
+        assert_eq!(s.magic_effects, 1);
+        assert_eq!(s.animated_texts, 1);
+        assert_eq!(s.damage_sum, 42);
+        assert_eq!(s.damage_samples, 1);
+        assert_eq!(s.distance_shoots, 1);
+        assert_eq!(s.creature_health, 1);
+        assert_eq!(s.unique_creatures(), 1);
+    }
+
+    #[test]
+    fn parse_damage_text_strips_sign() {
+        assert_eq!(parse_damage_text("42"), Some(42));
+        assert_eq!(parse_damage_text("-7"), Some(7));
+        assert_eq!(parse_damage_text("You see"), None);
     }
 
     #[test]

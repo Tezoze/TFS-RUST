@@ -51,6 +51,7 @@ pub struct BotOutcome {
     pub bytes_in: u64,
     pub bytes_out: u64,
     pub sends: u64,
+    pub inbound: InboundState,
 }
 
 pub fn load_rsa_pem(explicit: Option<&Path>) -> Result<RsaPrivateKey> {
@@ -76,9 +77,7 @@ fn resolve_pem_path(explicit: Option<&Path>) -> Result<PathBuf> {
             return Ok(p);
         }
     }
-    Err(anyhow!(
-        "RSA PEM not found (pass --rsa or set TFS_RSA_PEM)"
-    ))
+    Err(anyhow!("RSA PEM not found (pass --rsa or set TFS_RSA_PEM)"))
 }
 
 pub async fn run_bot(
@@ -151,22 +150,21 @@ pub async fn run_bot(
 
     let start = Instant::now();
     let warmup = Duration::from_secs(cfg.scenario.warmup_s);
+    let record_from = start + warmup;
     let mut ol = OpenLoop::new();
     if let Some(nwalk) = cfg.walk_count {
         ol.schedule_walk_ns(
-            start + warmup,
+            start,
             nwalk,
             Duration::from_millis(cfg.scenario.walk_period_ms.max(1)),
         );
     } else {
-        fill_schedule(
-            &mut ol,
-            cfg.role,
-            &cfg.scenario,
-            start + warmup,
-            &mut rng,
-            cfg.bounce_ns,
-        );
+        let mut sched = cfg.scenario.clone();
+        sched.duration_s = cfg
+            .scenario
+            .warmup_s
+            .saturating_add(cfg.scenario.duration_s);
+        fill_schedule(&mut ol, cfg.role, &sched, start, &mut rng, cfg.bounce_ns);
     }
     let run_end = start + warmup + Duration::from_secs(cfg.scenario.duration_s.max(1));
 
@@ -175,10 +173,7 @@ pub async fn run_bot(
         if now >= run_end && ol.is_empty() {
             break;
         }
-        let until_action = ol
-            .next_intended()
-            .unwrap_or(run_end)
-            .min(run_end);
+        let until_action = ol.next_intended().unwrap_or(run_end).min(run_end);
         let sleep = until_action.saturating_duration_since(now);
 
         tokio::select! {
@@ -226,7 +221,9 @@ pub async fn run_bot(
                     };
                     bytes_out += write_game(&mut writer, &payload, &round, &caps).await?;
                     sends += 1;
-                    if let Some((kind, tile)) = corr {
+                    if act.intended >= record_from
+                        && let Some((kind, tile)) = corr
+                    {
                         latency.on_send(kind, act.intended, tile);
                     }
                 }
@@ -239,6 +236,7 @@ pub async fn run_bot(
         bytes_in: inbound.bytes_in,
         bytes_out,
         sends,
+        inbound,
     })
 }
 

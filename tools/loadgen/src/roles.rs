@@ -20,7 +20,8 @@ pub fn bot_seed(scenario_seed: u64, bot_index: usize) -> u64 {
     scenario_seed.wrapping_add(bot_index as u64)
 }
 
-/// Pre-schedule open-loop actions for `duration_s` (warmup is discarded by the session clock).
+/// Pre-schedule open-loop actions for `duration_s` wall time from `start`.
+/// Session records latency only after `warmup_s`; pass warmup+measure as `duration_s`.
 pub fn fill_schedule(
     ol: &mut OpenLoop,
     role: RoleKind,

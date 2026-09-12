@@ -184,8 +184,8 @@ pip-log.txt
 #############
 # Local 10.98 data tree (reference / side-by-side — not part of the Rust server repo)
 data1098/
-# Local C++ reference trees — excluded per-clone (see reference/README.md).
-# Only reference/README.md is tracked; large imported source trees stay local.
+# Local Canary fork (GPL) — reference only, do not vendor
+canary-bots-with-cast-main/
 # Legacy root paths (pre reference/ reorg)
 gameserver/
 tibia-game-master/
@@ -243,6 +243,7 @@ data/logs/*
 ## Local run artifacts (sim + server)
 #############
 /results/
+/scripts/generated/
 /log/*
 !/log/.gitignore
 /crates/tfs-rust-core/log/*
@@ -260,5 +261,6 @@ __pycache__/
 /target/
 **/*.rs.bk
 Cargo.lock
+.tmp/
 # Added by code-review-graph
 .code-review-graph/

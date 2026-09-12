@@ -1,4 +1,5 @@
 -- Test account for local dev — matches login: account `1` / password `1`, character `Test`.
+-- Bulk 772 loadgen accounts: `python3 scripts/seed_bench_accounts.py --count 600`.
 -- Password is SHA1 hex of plain text `1` (TFS `transformToSHA1` / `tfs_rust_db::sha1_password_hex`).
 -- First successful login upgrades this row to bcrypt (`legacySha1Enabled` in config.lua).
 -- Temple spawn: Thais (town_id 1) on the default Forgotten Server map.

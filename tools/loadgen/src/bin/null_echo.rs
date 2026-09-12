@@ -19,8 +19,6 @@ async fn main() -> Result<()> {
     eprintln!("tfs-loadgen-echo listening on {}", args.listen);
     loop {
         let (mut sock, _) = listener.accept().await?;
-        tokio::spawn(async move {
-            while let Ok(Some(_)) = read_sized_payload(&mut sock).await {}
-        });
+        tokio::spawn(async move { while let Ok(Some(_)) = read_sized_payload(&mut sock).await {} });
     }
 }

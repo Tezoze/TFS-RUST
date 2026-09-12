@@ -1,6 +1,6 @@
 # Performance measurement plan
 
-Status: Phase A–D done (core visibility + Criterion hot_paths + sim scale_sweep + 772 loadgen). Tier 4 not yet implemented.
+Status: Phase A–E harness done (core visibility + Criterion hot_paths + sim scale_sweep + 772 loadgen + Tier 4 orchestrator). Publication A/B runs are pinned-host, not CI.
 
 Two distinct goals, deliberately separated because they want different instruments:
 
@@ -134,6 +134,10 @@ Weighted role mix over the bot population, seeded per-bot RNG for reproducibilit
 Baseline scenario `bench/scenarios/mixed_300.ron` is the 300-player mixed workload; each role
 is also runnable in isolation to attribute cost. **Scenario files are versioned and frozen
 before a publication run** — the headline number is meaningless if the mix drifts.
+
+Richer swarm behaviour (authored 772 waypoint loops, phase desync, clustered
+hunt spawn) is a follow-on that must stay open-loop: `docs/LOADGEN_SWARM.md`.
+It is not a port of Canary in-process bots.
 
 ---
 
@@ -304,11 +308,11 @@ Tiers 1–2 first (engineering loop), Tier 3 spike early (riskiest assumption), 
 - [x] Respect server gates: login cap `MAX_CONCURRENT_LOGIN_LOADS = 8` (`login.rs:348`) → ramp ≤ 8/s; `RecordTalk` 2.5 s window (`chat_talk.rs:100`); `earliest_walk_server_ms`
 
 ## Phase E — Tier 4 (plan tasks 9–16, unchanged order)
-- [ ] Bulk account/char seeding (extend `scripts/seed_test_account.sql` → generator; Rust `schema.sql` + TVP `schema.sql`)
-- [ ] `scripts/build_tvp.sh` / `scripts/run_tvp.sh`
-- [ ] Content-equivalence gate at 5 bots (damage numbers, creature counts, packets/action)
-- [ ] `scripts/bench/sample_proc.py`, `run_comparison.py`, `plot_results.py`
-- [ ] `docs/PERF_BENCHMARK_METHODOLOGY.md`
-- [ ] Execute: load curve, steady state, overload, soak
+- [x] Bulk account/char seeding (extend `scripts/seed_test_account.sql` → generator; Rust `schema.sql` + TVP `schema.sql`)
+- [x] `scripts/build_tvp.sh` / `scripts/run_tvp.sh`
+- [x] Content-equivalence gate at 5 bots (damage numbers, creature counts, packets/action)
+- [x] `scripts/bench/sample_proc.py`, `run_comparison.py`, `plot_results.py`
+- [x] `docs/PERF_BENCHMARK_METHODOLOGY.md`
+- [x] Orchestrator modes: load-curve, steady, overload, soak, equivalence (pinned-host execute; not CI)
 
 Verify every phase: `rtk cargo check --workspace`, `rtk cargo clippy --workspace --all-targets -- -D warnings`, `rtk cargo test -p tfs-rust-core -p tfs-rust-sim`, `python3 scripts/run_sim_battery.py` (Tier 2 must not move parity JSONL).

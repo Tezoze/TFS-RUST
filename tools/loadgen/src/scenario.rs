@@ -81,7 +81,10 @@ impl Scenario {
             .with_context(|| format!("read scenario {}", path.display()))?;
         let s: Self = ron::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
         anyhow::ensure!(!s.roles.is_empty(), "scenario has no roles");
-        anyhow::ensure!(s.say_period_ms >= RECORD_TALK_WINDOW_MS, "say_period_ms must be >= {RECORD_TALK_WINDOW_MS} (RecordTalk window)");
+        anyhow::ensure!(
+            s.say_period_ms >= RECORD_TALK_WINDOW_MS,
+            "say_period_ms must be >= {RECORD_TALK_WINDOW_MS} (RecordTalk window)"
+        );
         Ok(s)
     }
 
@@ -119,7 +122,10 @@ impl Scenario {
                 return r.kind;
             }
         }
-        self.roles.last().map(|r| r.kind).unwrap_or(RoleKind::Walker)
+        self.roles
+            .last()
+            .map(|r| r.kind)
+            .unwrap_or(RoleKind::Walker)
     }
 }
 
@@ -131,9 +137,7 @@ pub struct BotRng {
 
 impl BotRng {
     pub fn new(seed: u64) -> Self {
-        Self {
-            state: seed | 1,
-        }
+        Self { state: seed | 1 }
     }
 
     pub fn next_u64(&mut self) -> u64 {
