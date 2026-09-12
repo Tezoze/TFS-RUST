@@ -158,6 +158,23 @@ impl GameWorld {
         }
     }
 
+    /// Read-only OBS-1 window (beat histograms / subsystem µs).
+    #[inline]
+    pub fn obs(&self) -> &crate::obs::GameObs {
+        &self.obs
+    }
+
+    /// Snapshot the current OBS-1 window and start a new one.
+    ///
+    /// Preserves `commands_processed_total` on the replacement window, matching
+    /// `GameObs::reset_window` (cumulative since world creation).
+    pub fn take_obs_window(&mut self) -> crate::obs::GameObs {
+        let total = self.obs.commands_processed_total;
+        let window = std::mem::take(&mut self.obs);
+        self.obs.commands_processed_total = total;
+        window
+    }
+
     /// Logical `ServerMilliseconds` — C++ `time.cc` / `common.hh`.
     #[inline]
     pub fn server_ms(&self) -> u64 {
@@ -315,5 +332,19 @@ mod tests {
         world.move_creatures(1000);
         assert_eq!(world.server_ms(), 1000);
         assert!(!world.lag);
+    }
+
+    #[test]
+    fn take_obs_window_preserves_commands_processed_total() {
+        let mut world = beat_driven_test_world();
+        world.obs.record_commands_processed(7);
+        world.advance_beat(50);
+        assert!(world.obs().creatures_us.samples() >= 1);
+        let snapshot = world.take_obs_window();
+        assert_eq!(snapshot.commands_processed_total, 7);
+        assert!(snapshot.creatures_us.samples() >= 1);
+        assert_eq!(world.obs().commands_processed_total, 7);
+        assert_eq!(world.obs().creatures_us.samples(), 0);
+        assert_eq!(world.obs().beats, 0);
     }
 }

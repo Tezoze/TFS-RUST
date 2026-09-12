@@ -1090,4 +1090,7 @@
 471. **Do not replace C++ `rand()` with Rust TYPE_3** (`utils.cc` `random`; `crnonpl.cc` dance `%5`): Lockstep extra stand `go_exec` is real, but the fix is not a custom LCG in the decompile so C++ follows `GlibcRngState`. Corpus is `rand()` / `random()`. TYPE_3 is Rust’s model of old ANSI `srand`/`rand`; modern host `rand()` can differ (lesson 465). Measure both; change Rust only if the original 772 `rand()` is proven to be that LCG. A TYPE_3 override in chase-scenario was added then reverted.
     *(2026-09-12)*
 
+472. **`dot_tick_for_condition` is fire/energy only** (`condition.rs:309-320`; Phase B `benches/hot_paths.rs`): The pub helper maps `ConditionType::Fire` / `Energy` onto profiled DoT ticks. Poison decays in `process_skills` (`poison_factor_percent` is `pub(crate)`). Do not widen that for microbenches — bench fire+energy; poison stays behind the skills arm.
+    *(2026-09-12)*
+
 

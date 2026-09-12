@@ -1,6 +1,6 @@
 # Performance measurement plan
 
-Status: planned (not yet implemented)
+Status: Phase A–B done (core visibility + Criterion hot_paths). Tiers 2–4 not yet implemented.
 
 Two distinct goals, deliberately separated because they want different instruments:
 
@@ -15,7 +15,7 @@ the next.
 | Tier | Instrument | Cost | Answers |
 |---|---|---|---|
 | 1 | Microbenches over hot paths | ~1 day | Did this commit slow down pathfinding / spectators / conditions? |
-| 2 | `sim_harness` in-process load | ~2 days | How does the game thread scale with creature and player count? |
+| 2 | `tfs-rust-sim` in-process load | ~2 days | How does the game thread scale with creature and player count? |
 | 3 | Wire loadgen vs Rust only | ~1 week | What does the network + serialization + broadcast layer cost? |
 | 4 | A/B vs TVP | ~1 week on top | How do we compare to the C++ reference? |
 
@@ -26,9 +26,11 @@ Tiers 1–2 run in CI. Tiers 3–4 are manual, pinned-host runs.
 ## Tier 1 — Microbenches (regression gate)
 
 No benchmark harness exists in the workspace today: no `criterion`, `divan`, `iai`, or
-`[[bench]]` in any `Cargo.toml`, and no `benches/` directory. Add Divan or Criterion to
-`tfs-rust-core` and cover the paths that `GameObs` already identifies as hot
-(`crates/tfs-rust-core/src/obs.rs:100-152` tracks exactly these):
+`[[bench]]` in any `Cargo.toml`, and no `benches/` directory. Add Criterion
+(`default-features = false`) to `tfs-rust-core` and cover the paths that `GameObs` already
+identifies as hot (`crates/tfs-rust-core/src/obs.rs:100-152` tracks exactly these). Benches
+compile as an external crate, so they reach **pub API only** — `pathfinding::get_path_matching`
+and `SparseGrid::collect_spectators` already qualify; `todo_queue` must become `pub mod`:
 
 - pathfinding (`path_us` is the largest subsystem histogram under chase load)
 - spectator set resolution
@@ -37,13 +39,15 @@ No benchmark harness exists in the workspace today: no `criterion`, `divan`, `ia
 
 Wire into CI as a threshold check, not a chart. Cheap, deterministic, per-commit.
 
-## Tier 2 — In-process load via `sim_harness`
+## Tier 2 — In-process load via `tfs-rust-sim`
 
 The threading invariant makes the single game thread the scaling limit, so the bottleneck
 can be saturated **without any network, DB, login cap, or anti-flood involvement** — and
 deterministically.
 
-`crates/tfs-rust-sim` owns scenario builders, the wall clock, and `chase_kite_sim`. Core `test_support` stays as unit-test fixtures. Seed with `world.seed_parity_rng(42)`. Tick via `GameWorld::move_creatures` / sim `run_sim_tick`.
+`crates/tfs-rust-sim` owns scenario builders, the wall clock, and `chase_kite_sim`. Core `test_support` stays as unit-test fixtures. Seed with `world.seed_parity_rng(42)`. Tick via `GameWorld::advance_beat(beat_ms)` — the full `AdvanceGame` beat that production runs and that `GameObs::record_subsystems` feeds. (Parity `.scenario` runs keep `move_creatures` per `docs/SIM_HARNESS.md` §3.3; the load sweep is not a parity contract.) New code goes in focused sim modules (`population.rs`, `sweep.rs`, bin `scale_sweep`), not into `world.rs` / `scenario.rs`.
+
+Core prerequisite (Phase A): `pub mod obs` / `pub mod todo_queue`; read-only `GameWorld::obs()` / `take_obs_window()`. Nothing else in core changes.
 
 Deliverable: a scaling sweep over synthetic populations (N monsters chasing, N players in
 combat, N spectators per broadcast), reporting beat wall time and per-subsystem µs from
@@ -241,31 +245,70 @@ it claims to. Document whatever residual delta survives that check.
 
 ## Sub-agent split
 
-Per `.cursor/rules/TFS-subagents.mdc`: microbench suite, RSA encrypt + session driver, scenario
-engine, orchestrator/sampler, and TVP build scripts each go to a `generalPurpose` sub-agent;
-verification runs go to `shell`. Parent integrates and owns `tasks/todo.md` and
-`tasks/lessons.md`.
+Per `.cursor/rules/TFS-subagents.mdc`: sub-agents are **research only** (C++/wire tracing,
+codebase citations, read-only `cargo test` verification). The parent writes every file —
+microbench suite, RSA encrypt + session driver, scenario engine, orchestrator/sampler, TVP
+build scripts — and owns `tasks/todo.md` and `tasks/lessons.md`.
 
-## Task list
+# Perf benchmark suite — `docs/PERF_BENCHMARK_PLAN.md` (2026-09-12)
 
-Ordered so that the riskiest assumption is tested early. The old ordering gated the first real
-number on both the TVP build and content alignment — the two most likely things to go wrong.
+Tiers 1–2 first (engineering loop), Tier 3 spike early (riskiest assumption), Tier 4 last. Sim harness is now `crates/tfs-rust-sim` (depends on core, never the reverse) — Tier 2 lives there, not in core.
 
-| # | Tier | Task |
-|---|---|------|
-| 1 | 3 | **Spike:** client-side raw RSA encrypt in `crates/tfs-rust-net/src/rsa.rs` (round-trip unit test) plus one bot that logs in and walks against **both** servers. Nothing else proceeds until this works on TVP. |
-| 2 | 1 | Add a bench harness to `tfs-rust-core` covering pathfinding, spectator resolution, condition ticks, ToDo heap; wire a threshold check into `.github/workflows/ci.yml` |
-| 3 | 2 | `sim_harness` scaling sweep binary: N monsters / N players / N spectators, reporting `GameObs` beat wall and subsystem µs |
-| 4 | 2 | `scripts/profile_sim.sh` — `cargo flamegraph` over the sim binary for the optimization loop |
-| 5 | 3 | Flesh out `tools/loadgen` as a workspace member: full session driver, XTEA frame loop, minimal inbound parse (self id/position, `0x6C`/`0x6D`) |
-| 6 | 3 | Open-loop action scheduler + `hdrhistogram` latency for walk-ack and spell/rune effect, with per-action-type correlation rules; JSON per run |
-| 7 | 3 | Loadgen validation: null-echo ceiling test, and byte-stream diff against a real client capture recorded through `tools/packet-proxy` |
-| 8 | 3 | Scenario engine plus `bench/scenarios/*.ron`: walker, melee, caster, rune, AoE rune, noise; weighted mix, seeded per-bot RNG, frozen/versioned files |
-| 9 | 4 | Bulk account/character seeding for both the Rust MariaDB schema and TVP's `schema.sql` |
-| 10 | 4 | `scripts/build_tvp.sh` and `scripts/run_tvp.sh` (CMake Release, config + DB setup for `reference/tvp-772/gameserver`) |
-| 11 | 4 | Content equivalence gate: shared OTBM, converted spawns, matching monster set, plus the low-load outcome-equivalence assertions; document residual deltas |
-| 12 | 4 | `scripts/bench/sample_proc.py`: 1 Hz CPU, RSS/PSS, threads, per-thread CPU, ctx switches, io, bytes/packets sent |
-| 13 | 4 | `scripts/bench/run_comparison.py`: ramp schedule, warmup, alternating A/B runs, repetitions, results layout |
-| 14 | 4 | `scripts/bench/plot_results.py`: load curves and steady-state time series |
-| 15 | 4 | `docs/PERF_BENCHMARK_METHODOLOGY.md`: fairness controls, hardware disclosure, coordinated-omission handling, known deltas |
-| 16 | 4 | Execute the full comparison: load curve, steady state, overload, soak. Capture publishable numbers. |
+**Crate placement (No god files):** Tier 1 → `crates/tfs-rust-core/benches/` (external crate, **pub API only**). Tier 2 → `tfs-rust-sim` new modules `population.rs` + `sweep.rs` + bin `scale_sweep` (`autobins = false` → explicit `[[bin]]`); do **not** grow `world.rs` (705) / `scenario.rs` (862) / `chase_kite_sim.rs` (954). Tier 3 → `tools/loadgen`. Tier 4 → `scripts/bench/`.
+
+**Sub-agents:** research only (`TFS-subagents.mdc`); parent writes every file. Plan §"Sub-agent split" is superseded.
+
+**Decisions (defaults; flag if you disagree):**
+- Tier 1 harness = Criterion (`default-features = false`, no plotters/rayon). CI gate = median vs cached `main` baseline, fail at +25% (runner noise). Fallback if it flaps: `iai-callgrind` instruction counts.
+- Tier 2 sweep drives **`advance_beat(50)`** (full `AdvanceGame`, `MechanicsProfile.beat_ms = 50`, `formulas.rs:578`) — that is what production runs and what `record_subsystems` feeds. Parity `.scenario` runs keep `move_creatures` per `docs/SIM_HARNESS.md` §3.3; the sweep is not a parity contract.
+- Core API widening is limited to read-only obs access + `ToDoQueue` visibility. No new `impl GameWorld` clusters.
+
+## Phase A — core visibility (prereq, ≤ 40 lines)
+- [x] `lib.rs`: `mod obs` → `pub mod obs`; `mod todo_queue` → `pub mod todo_queue`
+- [x] `obs.rs`: un-gate `FixedHistogram::{samples, max}` (drop `#[cfg(test)]`); keep `reset` test-only
+- [x] `GameWorld::obs(&self) -> &GameObs` + `GameWorld::take_obs_window(&mut self) -> GameObs` (`std::mem::take`, preserves `commands_processed_total` like `reset_window`) — put next to `advance_beat` in `game_world_tick.rs`, not `game_world.rs`
+- [x] Verify: `rtk cargo check -p tfs-rust-core`, existing `obs` tests
+
+## Phase B — Tier 1 microbenches (`crates/tfs-rust-core`)
+- [x] `Cargo.toml`: `[dev-dependencies] criterion = { version = "0.5", default-features = false }`; `[[bench]] name = "hot_paths" harness = false`
+- [x] `benches/hot_paths.rs` — one file, four groups, synthetic fixtures built from pub types (`Map`, `SparseGrid`, `Tile::Normal`/`TileBody`, ~15-line arena helper; mirror `path_compare.rs` for params):
+  - `pathfinding` — `pathfinding::get_path_matching` on arena r=16/32/64, straight + obstacle wall; params via `monster_path_search_params`-equivalent literal (`monster_ai.rs:1423`)
+  - `spectators` — `SparseGrid::collect_spectators` (`map/grid.rs:201`) with 1k / 10k registered creatures, 18×14 view box (`range_x=8, range_y=6`)
+  - `condition_tick` — `condition::dot_tick_for_condition` (`condition.rs:309`) fire/energy cycles (poison is not this fn; no API widen)
+  - `todo_heap` — `ToDoQueue::insert` N same-key (synchronized-due) then `pop` drain, N=1k/10k (`todo_queue.rs:37/73`)
+- [x] `scripts/bench/check_regression.py` — stdlib only; walk `target/criterion/**/new/estimates.json` median vs sibling `main/`, fail > +25%, print table; skip if no `main/` baseline
+- [x] `.github/workflows/ci.yml` new job `bench_gate`: `actions/cache` `target/criterion` keyed `bench-${{ github.base_ref || github.ref_name }}`; main push → `cargo bench -p tfs-rust-core --bench hot_paths -- --noplot --save-baseline main`; PR → `--baseline main` + `check_regression.py`. Non-blocking (`continue-on-error`) until 2026-09-26, then required.
+- [x] Verify: `rtk cargo bench -p tfs-rust-core --bench hot_paths -- --noplot --quick`; `rtk cargo clippy -p tfs-rust-core --all-targets -- -D warnings`
+
+## Phase C — Tier 2 scaling sweep (`crates/tfs-rust-sim`)
+- [ ] `src/population.rs` — synthetic populations on top of `world.rs` helpers (no edits there):
+  - `spawn_monster_ring(world, mtype|name, n, center, radius)` via `insert_monster_from_type` / `insert_monster`, then `appear_monsters` batch so they acquire the hero as target (chase load → `path_us`)
+  - `spawn_player_grid(world, n, center)` via `sim_hero_player` + `insert_player` + `register_conn_mapping(ConnId(i), cid)` so spectator fan-out fills `pending_outgoing` (pub) — sweep drains + byte-counts it per beat
+  - `queue_random_walks(world, players, rng)` via `player_move_request` for the players axis
+- [ ] `src/sweep.rs` — `SweepAxis { Monsters, Players, Spectators }`, `SweepPoint { n, beats, warmup }`, `SweepResult { beat_wall_us p50/p95/p99/max, creatures/skills/todo/path µs percentiles, path_searches, outgoing_bytes_per_beat }` from `take_obs_window()`; serde/`ron` or hand-rolled JSON (match `chase_jsonl.rs` style — no new serde dep unless already transitive)
+- [ ] `src/bin/scale_sweep.rs` + `[[bin]]`: `--axis monsters|players|spectators --points 50,100,200,400,800 --beats 600 --warmup 100 --map synthetic|otbm --seed 42 --out results/sweep_<axis>.json`; `seed_parity_rng(seed)` once; synthetic arena via `beat_driven_world_for_kite_synthetic`, real map via `beat_driven_world_from_map` (`TFS_DATA_DIR`, `TFS_MAP_OTBM`)
+- [ ] `scripts/profile_sim.sh` — checks `cargo flamegraph` + `perf` (neither installed locally: `pacman -S perf`, `cargo install flamegraph`), sets `CARGO_PROFILE_RELEASE_DEBUG=true`, runs `cargo flamegraph -p tfs-rust-sim --bin scale_sweep -- <args>` → `results/flamegraph_<axis>_<n>.svg`
+- [ ] `scripts/bench/plot_sweep.py` (matplotlib, optional import) — N vs beat wall p99 + stacked subsystem µs
+- [ ] `docs/SIM_HARNESS.md` §3.3 one-line note: perf sweep uses `advance_beat`; parity scenarios do not
+- [ ] Tests (`src/sweep_tests.rs`): 50-monster synthetic point runs 20 beats, `beat_wall` histogram has 20 samples, `path_searches > 0`; players axis produces `outgoing_bytes_per_beat > 0`
+- [ ] Verify: `rtk cargo run -p tfs-rust-sim --release --bin scale_sweep -- --axis monsters --points 50,200 --beats 100`; `rtk cargo test -p tfs-rust-sim`
+
+## Phase D — Tier 3 spike, then loadgen
+- [ ] **Spike** `rsa.rs`: `pub fn encrypt(block: &[u8; 128], n: &BigUint, e: &BigUint) -> Result<[u8; 128]>` (`num-bigint-dig` `modpow`, mirror of `decrypt` `rsa.rs:18`); `pub fn public_parts(&RsaPrivateKey) -> (BigUint, BigUint)`; round-trip unit test
+- [ ] **Spike** one bot (`tools/loadgen`, minimal): login 7171 → `0x01` + OS + ver + 12 skip + RSA[`0x00`, xtea key ×4 LE, u32 account, string pw] (`game_first_packet.rs:176/293`) → framed reply, parse `0x64` char list (772: **no Adler**, `protocol_version.rs:79`) → game 7172 → `0x0A` + OS + ver + RSA[`0x00`, key, gm u8, u32 acc, string char, string pw] (`game_first_packet.rs:346/390`) → XTEA loop (`xtea_tfs::{expand_key, encrypt, decrypt}`, `read_sized_payload`, `encrypt_xtea_game_frame`) → walk N/S. Must work against **both** Rust and TVP before anything below
+- [ ] `tools/loadgen` workspace member (bin `tfs-loadgen`): deps `tfs-rust-net`, `tfs-rust-common`, `tokio`, `clap`, `hdrhistogram`, `ron`, `rand`; **no** `tfs-rust-core`
+- [ ] Inbound parse: self id from `self_appear` `0x0A`, own pos from `MAP_DESCRIPTION` `0x64` header, `0x6D` creature move / `0x6C` remove (raw bytes — no named server consts exist, `codec/v772.rs:339`); all else length-framed + counted
+- [ ] Open-loop scheduler (intended-time latency, `CLOCK_MONOTONIC`), `hdrhistogram`; correlation: walk-ack = `0x6D` for self id; spell/rune = `MAGIC_EFFECT` `0x83` at target tile; JSON per run
+- [ ] Validation: null-echo ceiling bin; byte diff vs `tools/packet-proxy` text hex log (`logger.rs:42`) — small converter `scripts/bench/proxy_log_to_frames.py`
+- [ ] `bench/scenarios/*.ron` — walker, melee, caster, rune, aoe_rune, noise; `mixed_300.ron`; per-bot seeded RNG; frozen before publication
+- [ ] Respect server gates: login cap `MAX_CONCURRENT_LOGIN_LOADS = 8` (`login.rs:348`) → ramp ≤ 8/s; `RecordTalk` 2.5 s window (`chat_talk.rs:100`); `earliest_walk_server_ms`
+
+## Phase E — Tier 4 (plan tasks 9–16, unchanged order)
+- [ ] Bulk account/char seeding (extend `scripts/seed_test_account.sql` → generator; Rust `schema.sql` + TVP `schema.sql`)
+- [ ] `scripts/build_tvp.sh` / `scripts/run_tvp.sh`
+- [ ] Content-equivalence gate at 5 bots (damage numbers, creature counts, packets/action)
+- [ ] `scripts/bench/sample_proc.py`, `run_comparison.py`, `plot_results.py`
+- [ ] `docs/PERF_BENCHMARK_METHODOLOGY.md`
+- [ ] Execute: load curve, steady state, overload, soak
+
+Verify every phase: `rtk cargo check --workspace`, `rtk cargo clippy --workspace --all-targets -- -D warnings`, `rtk cargo test -p tfs-rust-core -p tfs-rust-sim`, `python3 scripts/run_sim_battery.py` (Tier 2 must not move parity JSONL).

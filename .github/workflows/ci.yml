@@ -45,3 +45,36 @@ jobs:
         # Workspace must be repo root so `.luarc.json` `library: ["./lua-defs"]` resolves.
         # `--check=data/lib` makes the workspace `data/lib` and every engine global looks undefined.
         "${RUNNER_TEMP}/bin/lua-language-server" --check=. --configpath=.luarc.json --checklevel=Warning
+
+  # Criterion hot_paths gate. Non-blocking until 2026-09-26 (two weeks after 2026-09-12);
+  # then drop continue-on-error so the job is required.
+  bench_gate:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache Criterion baselines
+      uses: actions/cache@v4
+      with:
+        path: target/criterion
+        key: bench-${{ github.base_ref || github.ref_name }}
+
+    - name: Run microbenches (save baseline)
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: cargo bench -p tfs-rust-core --bench hot_paths -- --noplot --save-baseline main
+
+    - name: Run microbenches (compare to main)
+      if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+      run: |
+        set -euo pipefail
+        if find target/criterion -type d -name main 2>/dev/null | grep -q .; then
+          cargo bench -p tfs-rust-core --bench hot_paths -- --noplot --baseline main
+        else
+          echo "No cached 'main' baseline; running without --baseline"
+          cargo bench -p tfs-rust-core --bench hot_paths -- --noplot
+        fi
+        python3 scripts/bench/check_regression.py

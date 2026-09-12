@@ -75,12 +75,10 @@ impl FixedHistogram {
         }
     }
 
-    #[cfg(test)]
     pub fn samples(&self) -> u64 {
         self.samples
     }
 
-    #[cfg(test)]
     pub fn max(&self) -> u64 {
         self.max
     }

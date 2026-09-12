@@ -1,3 +1,22 @@
+# Perf Phase B — Tier 1 microbenches (2026-09-12)
+
+Criterion hot_paths in `tfs-rust-core` (pub API only). CI `bench_gate` is non-blocking until 2026-09-26.
+
+- [x] `criterion` 0.5 (`default-features = false`, `cargo_bench_support`) + `[[bench]] name = "hot_paths"`
+- [x] `benches/hot_paths.rs` — pathfinding / spectators / condition_tick (fire+energy) / todo_heap
+- [x] `scripts/bench/check_regression.py` — +25% vs `main/` median; skip if no baseline
+- [x] `.github/workflows/ci.yml` `bench_gate` (`continue-on-error`)
+- [x] Verify: `rtk cargo bench -p tfs-rust-core --bench hot_paths -- --noplot --quick`; clippy `--all-targets`
+
+# Perf Phase A — core visibility (2026-09-12)
+
+Prereq for `docs/PERF_BENCHMARK_PLAN.md` Tiers 1–2. Widen pub API only; no new `GameWorld` clusters.
+
+- [x] `lib.rs`: `pub mod obs`; `pub mod todo_queue`
+- [x] `obs.rs`: un-gate `FixedHistogram::{samples, max}`; keep `reset` test-only
+- [x] `GameWorld::obs()` + `take_obs_window()` next to `advance_beat` in `game_world_tick.rs` (`mem::take`, preserve `commands_processed_total`)
+- [x] Verify: `rtk cargo check -p tfs-rust-core`; existing `obs` tests + `take_obs_window` contract test
+
 # Lockstep TYPE_3 dance RNG (2026-09-12) — REVERTED
 
 Do **not** replace decompile `rand()` with Rust TYPE_3. Corpus is `rand()` / `random()`. Measure rolls; if original 772 `rand` was TYPE_3, change Rust, not C++.
