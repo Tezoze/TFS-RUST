@@ -1,3 +1,20 @@
+# Lockstep TYPE_3 dance RNG (2026-09-12) — REVERTED
+
+Do **not** replace decompile `rand()` with Rust TYPE_3. Corpus is `rand()` / `random()`. Measure rolls; if original 772 `rand` was TYPE_3, change Rust, not C++.
+
+- [x] Reverted `HarnessType3Srand` / `HarnessRand` from `utils.cc` / combat / idle
+- [x] Chase-scenario `srand(TFS_SIM_SEED)` restored
+- [ ] Dance `rng_trace` is observational only (`rand()%5` then log)
+
+# Lockstep glue — appear / player_walk / death (2026-09-12)
+
+C++ `chase_kite_scenario.cc` vs Rust `chase_kite_sim` / `appear_monsters`. Drivers only — do not drop `go_exec` from lockstep, do not inline live `Death()` from `Damage()`.
+
+- [x] Appear: `SpawnMonsterAppear` is `Target = player`, `Rotate`, `ToDoYield` — no `updateTargetList`, no `is_updating_path`
+- [x] Walk: `player_walk` is `MoveCreatures(ms)` + `Move()` + `DrainTodoQueue` — no `MoveCreatures(0)` between advance and step
+- [x] Death: after harness `player_damage*`, `finalize_pending()` so JSONL matches C++ `Damage()` death log; live still defers to `ProcessCreatures`
+- [ ] Verify: targeted tests only (not full clippy/`cargo test`); real-map stand / kite / kill if you want lockstep (skip cyclops quad unwalkable tile)
+
 # Arrow mid auto-walk skip (2026-09-11)
 
 772 `LaunchGame` runs `ReceiveData` (`CGoDirection` / `ToDoClear`) before `AdvanceGame`. The command arm was pre-advancing a due Tokio beat so the next auto-walk `TDGo` landed (`0x6D`) before the arrow could cancel the path — client skip/glitch.

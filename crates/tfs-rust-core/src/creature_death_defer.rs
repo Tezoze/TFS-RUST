@@ -89,7 +89,11 @@ impl GameWorld {
     }
 
     /// 772 `LoggingOut && LogoutPossible == 0` → destructor / logout remove (`crmain.cc:1113-1125`).
-    pub(crate) fn finalize_pending(&mut self) {
+    ///
+    /// Live game calls this from [`Self::process_creatures`]. The MoveCreatures-only kite
+    /// harness also calls it after `player_damage*` so JSONL `creature_death` matches C++
+    /// `Damage()` (which runs `Death()` inline). Do **not** call this from `Damage` itself.
+    pub fn finalize_pending(&mut self) {
         self.scratch_creature_ids.clear();
         for (cid, k) in self.creatures.iter() {
             if k.base().logging_out {

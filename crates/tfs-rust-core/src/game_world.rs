@@ -573,6 +573,7 @@ impl GameWorld {
     /// Callers (sim bin / test fixture) pass the seed; this method never reads `TFS_SIM_SEED`.
     pub fn seed_parity_rng(&mut self, seed: u32) {
         self.parity_rng = crate::sim_glibc_rand::GlibcRngState::seed(seed);
+        tracing::trace!(target: "chase", event = "rng_resync", seed = u64::from(seed));
     }
 
     /// Inclusive random on the per-world glibc stream.
@@ -593,7 +594,17 @@ impl GameWorld {
 
     /// Dance sidestep roll — `%5` on the unified glibc stream.
     pub(crate) fn dance_choice(&mut self) -> u32 {
-        self.parity_rand_mod(5)
+        let value = self.parity_rand_mod(5);
+        if tracing::enabled!(target: "chase", tracing::Level::TRACE) {
+            tracing::trace!(
+                target: "chase",
+                event = "rng_trace",
+                site = "dance",
+                value,
+                call_index = self.parity_rng.draw_count(),
+            );
+        }
+        value
     }
 
     pub(crate) fn tile_ground_speed(&self, body: &crate::tile::TileBody) -> u32 {

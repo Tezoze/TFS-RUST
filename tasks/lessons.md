@@ -1084,4 +1084,10 @@
 469. **Sim harness Phase 5: `tfs-rust-sim` crate, zero core `sim` cfg** (`docs/SIM_HARNESS.md`; `crates/tfs-rust-sim`): Scenario/OTBM/wall-clock, `chase_kite_sim`, and chase JSONL live downstream of `tfs-rust-core`. Core never reads `TFS_SIM_SEED` (sim crate calls `seed_parity_rng`). `test_support` is `#[cfg(test)]` only. Production spawn/damage methods used by the harness (`assign_creature_wire_id`, `roll_monster_spawn_loot`, `combat_execute_with_stimulus`) are `pub` on `GameWorld` — not `headless_*` forks. Core unit tests must not import scenario helpers; OTBM FillMap tests moved with the sim crate. Scripts: `cargo run -p tfs-rust-sim --bin chase_kite_sim` (no `--features sim`).
     *(2026-09-12)*
 
+470. **Lockstep glue is driver order, not JSONL edits** (`chase_kite_scenario.cc`; `monster_appear.rs`; `chase_kite_sim.rs`): C++ `SpawnMonsterAppear` is `Target = player` + `Rotate` + `ToDoYield` — not `updateTargetList` / `is_updating_path`. C++ `player_walk` is `MoveCreatures(ms)` + `Move()` + `DrainTodoQueue` — no `MoveCreatures(0)` between advance and the step. C++ `Damage()` logs `creature_death` inline; live Rust still defers destructor to `ProcessCreatures`. The MoveCreatures-only harness calls `finalize_pending()` after `player_damage*` so the JSONL matches. Do not drop `go_exec` from lockstep or rewrite `.scenario` to hide extra walks.
+    *(2026-09-12)*
+
+471. **Do not replace C++ `rand()` with Rust TYPE_3** (`utils.cc` `random`; `crnonpl.cc` dance `%5`): Lockstep extra stand `go_exec` is real, but the fix is not a custom LCG in the decompile so C++ follows `GlibcRngState`. Corpus is `rand()` / `random()`. TYPE_3 is Rust’s model of old ANSI `srand`/`rand`; modern host `rand()` can differ (lesson 465). Measure both; change Rust only if the original 772 `rand()` is proven to be that LCG. A TYPE_3 override in chase-scenario was added then reverted.
+    *(2026-09-12)*
+
 

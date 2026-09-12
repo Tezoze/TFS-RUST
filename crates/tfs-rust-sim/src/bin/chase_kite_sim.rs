@@ -12,12 +12,11 @@ use tfs_rust_core::creature::{CreatureKind, MonsterAiConfig, MonsterState};
 use tfs_rust_sim::chase_jsonl;
 use tfs_rust_sim::{
     SimMapConfig, audit_otbm_route_tiles, beat_driven_world_for_kite_synthetic,
-    beat_driven_world_from_map, default_sim_map_config, drain_todo_queue_once,
-    insert_monster_from_type, insert_monster_with_config, insert_player,
-    kite_monsters_appear_batch, move_creatures_explicit, place_creature_login, run_sim_tick,
-    set_sim_harness_segment_ms, set_sim_harness_wall_ms, sim_hero_player,
-    sim_player_damage_monster, teleport_player, validate_positions_walkable, walk_player_adjacent,
-    write_audit_route_json,
+    beat_driven_world_from_map, default_sim_map_config, insert_monster_from_type,
+    insert_monster_with_config, insert_player, kite_monsters_appear_batch, move_creatures_explicit,
+    place_creature_login, run_sim_tick, set_sim_harness_segment_ms, set_sim_harness_wall_ms,
+    sim_hero_player, sim_player_damage_monster, teleport_player, validate_positions_walkable,
+    walk_player_adjacent, write_audit_route_json,
 };
 
 #[derive(Debug, Clone)]
@@ -512,9 +511,10 @@ fn execute_step(
         }
         ScenarioStep::PlayerWalk(x, y, ms) => {
             let pos = Position::new(*x, *y, scenario.z);
+            // C++ `player_walk`: `MoveCreatures(ms)` then `Move()` then `DrainTodoQueue`.
+            // Do not `MoveCreatures(0)` between advance and the step.
             clock.advance(world, *ms);
             set_sim_harness_segment_ms(Some(*ms));
-            drain_todo_queue_once(world);
             walk_player_adjacent(world, handles.player_id, pos)?;
             let step = handles.player_walk_step;
             handles.player_walk_step = handles.player_walk_step.saturating_add(1);
@@ -536,6 +536,8 @@ fn execute_step(
                     sim_player_damage_monster(world, handles.player_id, monster_id, *amount);
                 }
             }
+            // C++ `Damage()` runs `Death()` inline; live Rust defers to ProcessCreatures.
+            world.finalize_pending();
             run_sim_tick(world);
         }
         ScenarioStep::PlayerDamageMonster(idx, amount) => {
@@ -547,6 +549,7 @@ fn execute_step(
             if world.creatures.contains_key(monster_id) {
                 sim_player_damage_monster(world, handles.player_id, monster_id, *amount);
             }
+            world.finalize_pending();
             run_sim_tick(world);
         }
     }
@@ -823,7 +826,7 @@ sim_tick
         assert_eq!(s.name, "kite_hunter_dist_chase");
         assert_eq!(s.monsters[0].label, "hunter");
         assert!(!s.monster_target_distance_from_scenario);
-        assert!(s.arena_synthetic);
+        assert!(!s.arena_synthetic);
     }
 
     #[test]

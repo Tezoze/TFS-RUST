@@ -49,6 +49,8 @@ def run_battery(*, synthetic: bool, skip_cpp: bool, extended: bool) -> int:
         cmd = [sys.executable, str(RUN), str(scenario)]
         if synthetic:
             cmd.append("--synthetic")
+        else:
+            cmd.append("--real-map")
         if skip_cpp:
             cmd.append("--skip-cpp")
         cmd.extend(["--monster", monster])
@@ -61,10 +63,16 @@ def run_battery(*, synthetic: bool, skip_cpp: bool, extended: bool) -> int:
 
         cip_log = LOG_DIR / f"chase_path_cip_{slug}.log"
         rust_log = LOG_DIR / f"chase_path_rust_{slug}.log"
-        if (LOG_DIR / "chase_path_cip.log").is_file():
-            (LOG_DIR / "chase_path_cip.log").replace(cip_log)
-        if (LOG_DIR / "chase_path_rust.log").is_file():
-            (LOG_DIR / "chase_path_rust.log").replace(rust_log)
+        default_cip = LOG_DIR / (
+            "chase_path_cip.log" if synthetic else "chase_path_cip_realmap.log"
+        )
+        default_rust = LOG_DIR / (
+            "chase_path_rust.log" if synthetic else "chase_path_rust_realmap.log"
+        )
+        if default_cip.is_file():
+            default_cip.replace(cip_log)
+        if default_rust.is_file():
+            default_rust.replace(rust_log)
 
         summary_path = LOG_DIR / f"summary_{slug}.txt"
         sum_cmd = [
@@ -101,7 +109,11 @@ def run_battery(*, synthetic: bool, skip_cpp: bool, extended: bool) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run full chase sim battery")
-    parser.add_argument("--synthetic", action="store_true")
+    parser.add_argument(
+        "--synthetic",
+        action="store_true",
+        help="Overlay uniform grass (old kite-lab mode). Default is --real-map OTBM/.sec.",
+    )
     parser.add_argument("--skip-cpp", action="store_true")
     parser.add_argument(
         "--extended",

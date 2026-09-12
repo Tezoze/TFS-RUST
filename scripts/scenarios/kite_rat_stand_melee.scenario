@@ -1,8 +1,7 @@
 name kite_rat_stand_melee
 z 7
 default_wp 150
-arena_synthetic 1
-
+# Real OTBM / .sec kite lab (no grass overlay). C++: TFS_KITE_NO_WILD=1.
 # Rat adjacent to standing player — exercises E2 melee + E3 ATTACKING tail (no kite)
 arena 32360 32290 16
 

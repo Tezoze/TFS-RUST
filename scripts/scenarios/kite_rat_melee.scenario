@@ -1,9 +1,7 @@
 name kite_rat_melee
 z 7
 default_wp 150
-arena_synthetic 1
-
-# Shared synthetic arena — uniform grass wp=150 on both stacks
+# Real OTBM / .sec kite lab (no grass overlay). C++: TFS_KITE_NO_WILD=1.
 arena 32360 32290 16
 
 player_start 32360 32290

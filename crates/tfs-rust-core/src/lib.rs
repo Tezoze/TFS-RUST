@@ -198,8 +198,8 @@ pub use item_attributes::{
 pub use lua_command::LuaCommand;
 pub use lua_event_dispatcher::LuaEventDispatcher;
 pub use map::Map;
-pub use monster_ai::TShortwayFillTile;
 pub use matrix_area::MatrixArea;
+pub use monster_ai::TShortwayFillTile;
 pub use party::{Party, PartyShield, split_shared_experience};
 pub use pathfinding::{
     CREATURE_ON_TILE_PATH_COST, FindPathParams, MAP_NORMAL_WALK_COST, get_path_matching,

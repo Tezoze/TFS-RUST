@@ -1,8 +1,7 @@
 name kite_hunter_dist_flee
 z 7
 default_wp 150
-arena_synthetic 1
-
+# Real OTBM / .sec kite lab (no grass overlay). C++: TFS_KITE_NO_WILD=1.
 # Hunter at cheb=6 — player charges in to trigger dist_flee (cheb < 4)
 arena 32360 32290 16
 

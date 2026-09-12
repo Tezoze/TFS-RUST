@@ -1,8 +1,7 @@
 name kite_cyclops_quad_chase
 z 7
 default_wp 150
-arena_synthetic 1
-
+# Real OTBM / .sec kite lab (no grass overlay). C++: TFS_KITE_NO_WILD=1.
 # Four cyclops around player — multi-monster chase parity
 # Spawn order matches C++ idle drain order (§23).
 arena 32360 32290 16

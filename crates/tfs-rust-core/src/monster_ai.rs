@@ -1800,12 +1800,7 @@ impl GameWorld {
     }
 
     /// 772 `TShortway::FillMap` per-tile weight after `MovePossible(Execute=false)` (`cract.cc:89-103`).
-    pub fn fillmap_waypoints_at(
-        &self,
-        cid: CreatureId,
-        pos: Position,
-        target: Position,
-    ) -> i32 {
+    pub fn fillmap_waypoints_at(&self, cid: CreatureId, pos: Position, target: Position) -> i32 {
         let wp = self.fillmap_terrain_waypoints_at(pos);
         if wp <= 0 || !self.monster_tshortway_fill_walkable(cid, pos, target) {
             return -1;

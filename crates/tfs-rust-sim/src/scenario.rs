@@ -369,7 +369,7 @@ pub fn place_creature_login(
     world.place_creature_login(cid, requested)
 }
 
-/// Wake monsters, acquire targets, then batch `ToDoYield` — `chase_kite_scenario.cc` `SpawnMonsterAppear`.
+/// `Target = player`, `Rotate`, batch `ToDoYield` — `chase_kite_scenario.cc` `SpawnMonsterAppear`.
 pub fn kite_monsters_appear_batch(world: &mut GameWorld, monster_ids: &[CreatureId]) {
     // C++ `EnsureMonstersSpawned` → `ResyncHarnessRng()` after spawn loot (`chase_kite_scenario.cc:537`).
     seed_world_from_sim_env(world);
@@ -537,7 +537,6 @@ pub fn setup_cyclops_bowl_real_first_shortway(
 
     set_sim_harness_wall_ms(Some(200));
     move_creatures_explicit(world, 200);
-    run_sim_tick(world);
     walk_player_adjacent(world, player_id, Position::new(32450, 32065, z))?;
     run_sim_tick(world);
 
@@ -595,7 +594,6 @@ pub fn setup_cyclops_bowl_real_to_tick_2000(
         let delta = target_wall.saturating_sub(wall);
         set_sim_harness_wall_ms(Some(target_wall));
         move_creatures_explicit(world, delta);
-        run_sim_tick(world);
         walk_player_adjacent(world, player_id, Position::new(x, y, z))?;
         run_sim_tick(world);
         wall = target_wall;
@@ -664,16 +662,12 @@ pub fn setup_cyclops_bowl_real_dual_to_tick_400(
 
     set_sim_harness_wall_ms(Some(200));
     move_creatures_explicit(world, 200);
-    drain_todo_queue_once(world);
     walk_player_adjacent(world, player_id, Position::new(32450, 32065, z))?;
     run_sim_tick(world);
 
     set_sim_harness_wall_ms(Some(400));
     move_creatures_explicit(world, 200);
-    drain_todo_queue_once(world);
     walk_player_adjacent(world, player_id, Position::new(32450, 32066, z))?;
-    run_sim_tick(world);
-    drain_todo_queue_once(world);
     run_sim_tick(world);
 
     Ok((monster_ids[0], monster_ids[1], player_id))
@@ -752,8 +746,8 @@ pub fn write_fill_walkable_dump_json(
     target: Position,
     path: &Path,
 ) -> std::io::Result<()> {
-    use tfs_rust_core::TShortwayFillTile;
     use std::io::Write;
+    use tfs_rust_core::TShortwayFillTile;
 
     let (state, tiles) =
         world.dump_tshortway_fill_walkable_viewport(cid, target, REVERSE_PATH_VIEW_RADIUS);

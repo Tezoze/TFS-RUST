@@ -13,6 +13,7 @@ use tfs_rust_common::enums::Direction;
 #[derive(Debug, Clone)]
 pub struct GlibcRngState {
     next: Cell<u32>,
+    draws: Cell<u64>,
 }
 
 impl Default for GlibcRngState {
@@ -26,7 +27,12 @@ impl GlibcRngState {
     pub fn seed(seed: u32) -> Self {
         Self {
             next: Cell::new(seed),
+            draws: Cell::new(0),
         }
+    }
+
+    pub fn draw_count(&self) -> u64 {
+        self.draws.get()
     }
 
     /// One glibc `rand()` draw — TYPE_3: `(next/65536) % 32768`.
@@ -37,6 +43,7 @@ impl GlibcRngState {
             .wrapping_mul(1_103_515_245)
             .wrapping_add(12_345);
         self.next.set(n);
+        self.draws.set(self.draws.get().saturating_add(1));
         ((n / 65_536) % 32_768) as i32
     }
 
@@ -128,6 +135,7 @@ mod tests {
         assert_eq!(rng.rand_mod(5), 4);
         assert_eq!(rng.rand_mod(5), 3);
         assert_eq!(rng.rand_mod(5), 3);
+        assert_eq!(rng.draw_count(), 3);
     }
 
     #[test]

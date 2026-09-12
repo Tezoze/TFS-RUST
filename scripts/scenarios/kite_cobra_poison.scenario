@@ -1,8 +1,7 @@
 name kite_cobra_poison
 z 7
 default_wp 150
-arena_synthetic 1
-
+# Real OTBM / .sec kite lab (no grass overlay). C++: TFS_KITE_NO_WILD=1.
 # Cobra at cheb=5 — exercises E4 spell_cast (poisoncondition range=5)
 arena 32360 32290 16
 

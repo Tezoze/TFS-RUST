@@ -26,8 +26,8 @@ use tfs_rust_db::player::PlayerRecord;
 
 use crate::config::ConfigManager;
 use crate::creature::{
-    CreatureBase, CreatureKind, Monster, MonsterAiConfig, Outfit, Player,
-    PlayerEconomy, PlayerInventory, PlayerPersistBaseline, PlayerSkills, PlayerSocial,
+    CreatureBase, CreatureKind, Monster, MonsterAiConfig, Outfit, Player, PlayerEconomy,
+    PlayerInventory, PlayerPersistBaseline, PlayerSkills, PlayerSocial,
 };
 use crate::event_dispatcher::NullEventDispatcher;
 use crate::game_world::GameWorld;

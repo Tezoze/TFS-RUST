@@ -1,8 +1,7 @@
 name kite_rat_kill
 z 7
 default_wp 150
-arena_synthetic 1
-
+# Real OTBM / .sec kite lab (no grass overlay). C++: TFS_KITE_NO_WILD=1.
 # Rat from data pack (20 HP) — E6 creature_death + race XP/corpse
 arena 32360 32290 16
 

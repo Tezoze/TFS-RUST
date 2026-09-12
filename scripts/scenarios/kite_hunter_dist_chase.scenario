@@ -1,8 +1,7 @@
 name kite_hunter_dist_chase
 z 7
 default_wp 150
-arena_synthetic 1
-
+# Real OTBM / .sec kite lab (no grass overlay). C++: TFS_KITE_NO_WILD=1.
 # Hunter at cheb=7 — dist_chase + spell_cast while player kites east
 arena 32360 32290 16
 

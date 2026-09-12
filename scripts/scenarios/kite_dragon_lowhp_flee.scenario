@@ -1,8 +1,7 @@
 name kite_dragon_lowhp_flee
 z 7
 default_wp 150
-arena_synthetic 1
-
+# Real OTBM / .sec kite lab (no grass overlay). C++: TFS_KITE_NO_WILD=1.
 # Dragon runonhealth=300 — player_damage 725 → 300 HP → flee branch
 arena 32360 32290 16
 

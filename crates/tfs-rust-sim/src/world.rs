@@ -548,7 +548,13 @@ pub fn lay_synthetic_arena(
     u32::from(waypoint)
 }
 
-fn monster_base(name: &str, pos: Position, speed: i32, health: i32, max_health: i32) -> CreatureBase {
+fn monster_base(
+    name: &str,
+    pos: Position,
+    speed: i32,
+    health: i32,
+    max_health: i32,
+) -> CreatureBase {
     CreatureBase {
         name: name.into(),
         position: pos,

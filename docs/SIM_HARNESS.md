@@ -43,7 +43,8 @@ scripts/run_kite_scenario.py  ──►  C++ chase_kite_scenario
         │                     ──►  Rust chase_kite_sim (`tfs-rust-sim`)
         ▼
 log/chase_path_{cip,rust}_*.log  →  summarize_chase_gaps.py
-scripts/run_sim_battery.py / run_realmap_sim_battery.py
+scripts/run_sim_battery.py (default: --real-map OTBM/.sec, TFS_KITE_NO_WILD)
+scripts/run_realmap_sim_battery.py (cyclops bowl controls)
 ```
 
 Shared scenarios, dual runners, diff tools. The weight problem is not here.

@@ -6,7 +6,7 @@ use tfs_rust_core::pathfinding::REVERSE_PATH_VIEW_RADIUS;
 
 use crate::world::{
     beat_driven_world, beat_driven_world_with_synthetic_ground, ensure_walkable_tile,
-    insert_monster, lay_synthetic_arena, sim_hero_player,
+    insert_monster, lay_synthetic_arena, sim_hero_player, sim_player_damage_monster,
 };
 
 #[test]
@@ -61,6 +61,15 @@ fn batch_appear_defers_idle_then_yields_once() {
             .is_some_and(|k| !k.base().todo.is_empty()),
         "appear batch must enqueue ToDoWait"
     );
+    let base = world.creatures.get(monster).unwrap().base();
+    assert!(
+        base.follow_target == Some(player),
+        "SpawnMonsterAppear assigns Target = player"
+    );
+    assert!(
+        !base.is_updating_path,
+        "appear must not force a chase repath (C++ only sets Target)"
+    );
 }
 
 #[test]
@@ -99,6 +108,33 @@ fn preserve_sleep_survives_appear_until_damage() {
             )
         }),
         "first damage must leave Sleeping"
+    );
+}
+
+#[test]
+fn harness_damage_finalizes_death_like_cpp_damage() {
+    let mut world = beat_driven_world();
+    let ppos = Position::new(100, 100, 7);
+    let mpos = Position::new(101, 100, 7);
+    ensure_walkable_tile(&mut world.map, ppos, 150);
+    ensure_walkable_tile(&mut world.map, mpos, 150);
+    let player = insert_player(&mut world, sim_hero_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+    let monster = insert_monster(&mut world, "Rat", mpos, 200);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.base.health = 1;
+        m.base.max_health = 1;
+        m.armor = 0;
+    }
+    assert!(sim_player_damage_monster(&mut world, player, monster, 50));
+    assert!(
+        world.creatures.contains_key(monster),
+        "body stays until finalize_pending (live ProcessCreatures)"
+    );
+    world.finalize_pending();
+    assert!(
+        !world.creatures.contains_key(monster),
+        "kite harness flushes death after Damage like C++ destructor"
     );
 }
 
