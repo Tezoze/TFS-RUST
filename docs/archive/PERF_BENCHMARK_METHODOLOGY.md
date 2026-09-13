@@ -1,5 +1,8 @@
 # Performance benchmark methodology (Tier 4)
 
+> **Archived 2026-09-13.** Superseded by [`docs/BENCHMARK.md`](../BENCHMARK.md).
+> Kept for history; do not update.
+
 Status: harness ready (Phase E). Publication numbers come from a **pinned-host**
 run of `scripts/bench/run_comparison.py`, not from CI.
 

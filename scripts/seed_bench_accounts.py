@@ -11,6 +11,10 @@ south (then other neighbors) of unique NPC stands, then spawn-center tiles,
 with a Chebyshev gap so login does not stack the Thais temple spectator set.
 `--stack-temple` restores the old single-tile seed (32369,32241,7).
 
+Bench defaults: vocation 1 (sorcerer), premium 365 days, `player_spells`
+Energy Strike, sudden-death rune (2268) in ammo slot 10, great-fireball
+(2304) in left-hand slot 6.
+
 Login uses the saved `posx`/`posy`/`posz` first (Rust `place_player_on_login`;
 TVP `SetOnMap`). Unplaceable tiles fall back to town_id 1 temple.
 
@@ -36,6 +40,12 @@ ROOT = Path(__file__).resolve().parents[1]
 SHA1_ONE = "356a192b7913b04c54574d18c28d46e6395428ab"
 THAIS_X, THAIS_Y, THAIS_Z = 32369, 32241, 7
 DEFAULT_SPAWNS = ROOT / "data" / "world" / "spawns.xml"
+# CONST_SLOT_AMMO / CONST_SLOT_LEFT — loadgen Rune uses ammo, AoeRune uses left.
+SLOT_AMMO = 10
+SLOT_LEFT = 6
+SD_RUNE_ID = 2268
+GFB_RUNE_ID = 2304
+ENERGY_STRIKE = "Energy Strike"
 # One step off the NPC tile (often blocked). Prefer south (in front of dir=2).
 _NPC_NUDGE = ((0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (-1, 1), (1, -1), (-1, -1))
 
@@ -169,6 +179,41 @@ def scatter_positions(
     return chosen[:count]
 
 
+def _gear_sql(
+    ids: list[int],
+    *,
+    rune_id: int,
+    rune_count: int,
+    aoe_rune_id: int,
+    aoe_rune_count: int,
+    spell_name: str,
+) -> list[str]:
+    """`player_items` + `player_spells` using player.id == accounts.id."""
+    lines: list[str] = []
+    item_rows: list[str] = []
+    spell_rows: list[str] = []
+    for pid in ids:
+        sid = 101
+        if rune_id > 0 and rune_count > 0:
+            item_rows.append(f"({pid}, {SLOT_AMMO}, {sid}, {rune_id}, {rune_count}, X'')")
+            sid += 1
+        if aoe_rune_id > 0 and aoe_rune_count > 0:
+            item_rows.append(
+                f"({pid}, {SLOT_LEFT}, {sid}, {aoe_rune_id}, {aoe_rune_count}, X'')"
+            )
+        if spell_name:
+            spell_rows.append(f"({pid}, {_sql_str(spell_name)})")
+    if item_rows:
+        lines.append(
+            "INSERT INTO `player_items` (`player_id`, `pid`, `sid`, `itemtype`, `count`, `attributes`) VALUES"
+        )
+        lines.append(",\n".join(item_rows) + ";")
+    if spell_rows:
+        lines.append("INSERT INTO `player_spells` (`player_id`, `name`) VALUES")
+        lines.append(",\n".join(spell_rows) + ";")
+    return lines
+
+
 def rust_sql(
     *,
     count: int,
@@ -181,6 +226,12 @@ def rust_sql(
     mana: int,
     maglevel: int,
     positions: list[tuple[int, int, int]],
+    premium_secs: int = 0,
+    rune_id: int = SD_RUNE_ID,
+    rune_count: int = 100,
+    aoe_rune_id: int = GFB_RUNE_ID,
+    aoe_rune_count: int = 100,
+    spell_name: str = ENERGY_STRIKE,
 ) -> str:
     if len(positions) != count:
         raise ValueError(f"positions length {len(positions)} != count {count}")
@@ -202,9 +253,10 @@ def rust_sql(
         "DELETE FROM `accounts` WHERE `id` IN (" + ",".join(str(i) for i in ids) + ");"
     )
     acc_rows = []
+    prem = f"UNIX_TIMESTAMP()+{int(premium_secs)}" if premium_secs > 0 else "0"
     for acc_id in ids:
         acc_rows.append(
-            f"({acc_id}, {_sql_str(str(acc_id))}, {_sql_str(password_hex)}, 1, 0, '', UNIX_TIMESTAMP())"
+            f"({acc_id}, {_sql_str(str(acc_id))}, {_sql_str(password_hex)}, 1, {prem}, '', UNIX_TIMESTAMP())"
         )
     lines.append(
         "INSERT INTO `accounts` (`id`, `name`, `password`, `type`, `premium_ends_at`, `email`, `creation`) VALUES"
@@ -218,6 +270,7 @@ def rust_sql(
             "("
             + ", ".join(
                 [
+                    str(acc_id),
                     _sql_str(name),
                     "1",
                     str(acc_id),
@@ -249,7 +302,7 @@ def rust_sql(
         )
     lines.append(
         "INSERT INTO `players` ("
-        "`name`, `group_id`, `account_id`, `level`, `vocation`, "
+        "`id`, `name`, `group_id`, `account_id`, `level`, `vocation`, "
         "`health`, `healthmax`, `experience`, "
         "`lookbody`, `lookfeet`, `lookhead`, `looklegs`, `looktype`, `lookaddons`, "
         "`direction`, `maglevel`, `mana`, `manamax`, "
@@ -257,6 +310,16 @@ def rust_sql(
         ") VALUES"
     )
     lines.append(",\n".join(pl_rows) + ";")
+    lines.extend(
+        _gear_sql(
+            ids,
+            rune_id=rune_id,
+            rune_count=rune_count,
+            aoe_rune_id=aoe_rune_id,
+            aoe_rune_count=aoe_rune_count,
+            spell_name=spell_name,
+        )
+    )
     lines.append("SET FOREIGN_KEY_CHECKS=1;")
     return "\n".join(lines) + "\n"
 
@@ -273,6 +336,12 @@ def tvp_sql(
     mana: int,
     maglevel: int,
     positions: list[tuple[int, int, int]],
+    premium_secs: int = 0,
+    rune_id: int = SD_RUNE_ID,
+    rune_count: int = 100,
+    aoe_rune_id: int = GFB_RUNE_ID,
+    aoe_rune_count: int = 100,
+    spell_name: str = ENERGY_STRIKE,
 ) -> str:
     if len(positions) != count:
         raise ValueError(f"positions length {len(positions)} != count {count}")
@@ -294,9 +363,10 @@ def tvp_sql(
         "DELETE FROM `accounts` WHERE `id` IN (" + ",".join(str(i) for i in ids) + ");"
     )
     acc_rows = []
+    prem = f"UNIX_TIMESTAMP()+{int(premium_secs)}" if premium_secs > 0 else "0"
     for acc_id in ids:
         acc_rows.append(
-            f"({acc_id}, {_sql_str(password_hex)}, 1, 0, '', UNIX_TIMESTAMP(), 0)"
+            f"({acc_id}, {_sql_str(password_hex)}, 1, {prem}, '', UNIX_TIMESTAMP(), 0)"
         )
     lines.append(
         "INSERT INTO `accounts` (`id`, `password`, `type`, `premium_ends_at`, `email`, `creation`, `failed_bid_count`) VALUES"
@@ -310,6 +380,7 @@ def tvp_sql(
             "("
             + ", ".join(
                 [
+                    str(acc_id),
                     _sql_str(name),
                     "1",
                     str(acc_id),
@@ -341,7 +412,7 @@ def tvp_sql(
         )
     lines.append(
         "INSERT INTO `players` ("
-        "`name`, `group_id`, `account_id`, `level`, `vocation`, "
+        "`id`, `name`, `group_id`, `account_id`, `level`, `vocation`, "
         "`health`, `healthmax`, `experience`, "
         "`lookbody`, `lookfeet`, `lookhead`, `looklegs`, `looktype`, "
         "`maglevel`, `mana`, `manamax`, `manaspent`, "
@@ -349,6 +420,16 @@ def tvp_sql(
         ") VALUES"
     )
     lines.append(",\n".join(pl_rows) + ";")
+    lines.extend(
+        _gear_sql(
+            ids,
+            rune_id=rune_id,
+            rune_count=rune_count,
+            aoe_rune_id=aoe_rune_id,
+            aoe_rune_count=aoe_rune_count,
+            spell_name=spell_name,
+        )
+    )
     lines.append("SET FOREIGN_KEY_CHECKS=1;")
     return "\n".join(lines) + "\n"
 
@@ -410,30 +491,37 @@ def self_test() -> int:
         password_hex=SHA1_ONE,
         char_base="Test",
         level=50,
-        vocation=0,
+        vocation=1,
         health=1000,
         mana=1000,
         maglevel=20,
         positions=pos[:2],
+        premium_secs=365 * 24 * 3600,
     )
     assert "INSERT INTO `accounts`" in rust
     assert "'Test'" in rust and "'Test1'" in rust
     assert ", 1," in rust  # account id 1
     assert str(pos[0][0]) in rust and str(pos[1][0]) in rust
+    assert "player_items" in rust and "2268" in rust and "2304" in rust
+    assert "Energy Strike" in rust
+    assert "UNIX_TIMESTAMP()+" in rust
     tvp = tvp_sql(
         count=2,
         start_id=1,
         password_hex=SHA1_ONE,
         char_base="Test",
         level=50,
-        vocation=0,
+        vocation=1,
         health=1000,
         mana=1000,
         maglevel=20,
         positions=pos[:2],
+        premium_secs=365 * 24 * 3600,
     )
     assert "failed_bid_count" in tvp
     assert "`name`" not in tvp.split("INSERT INTO `accounts`")[1].split("VALUES")[0]
+    assert "player_items" in tvp and "2268" in tvp
+    assert "Energy Strike" in tvp
     print("seed_bench_accounts: self-test ok")
     return 0
 
@@ -445,10 +533,26 @@ def main() -> int:
     parser.add_argument("--password", default="1", help="plaintext password (SHA1 stored)")
     parser.add_argument("--character", default="Test", help="base character name")
     parser.add_argument("--level", type=int, default=50)
-    parser.add_argument("--vocation", type=int, default=0)
+    parser.add_argument("--vocation", type=int, default=1, help="1 = sorcerer (Energy Strike)")
     parser.add_argument("--health", type=int, default=1000)
     parser.add_argument("--mana", type=int, default=1000)
     parser.add_argument("--maglevel", type=int, default=20)
+    parser.add_argument(
+        "--premium-days",
+        type=int,
+        default=365,
+        help="accounts.premium_ends_at = now + days (Energy Strike is premium); 0 = none",
+    )
+    parser.add_argument("--rune-id", type=int, default=SD_RUNE_ID, help="SD rune server id in ammo slot 10")
+    parser.add_argument("--rune-count", type=int, default=100)
+    parser.add_argument(
+        "--aoe-rune-id",
+        type=int,
+        default=GFB_RUNE_ID,
+        help="GFB rune server id in left-hand slot 6",
+    )
+    parser.add_argument("--aoe-rune-count", type=int, default=100)
+    parser.add_argument("--spell-name", default=ENERGY_STRIKE, help="player_spells row (needLearnSpells)")
     parser.add_argument(
         "--spawns",
         type=Path,
@@ -513,6 +617,12 @@ def main() -> int:
         mana=args.mana,
         maglevel=args.maglevel,
         positions=positions,
+        premium_secs=max(0, args.premium_days) * 24 * 3600,
+        rune_id=args.rune_id,
+        rune_count=args.rune_count,
+        aoe_rune_id=args.aoe_rune_id,
+        aoe_rune_count=args.aoe_rune_count,
+        spell_name=args.spell_name,
     )
     rust = rust_sql(**kwargs)
     tvp = tvp_sql(**kwargs)

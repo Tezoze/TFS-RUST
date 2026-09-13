@@ -48,6 +48,15 @@ pub struct Scenario {
     pub rune_sprite_id: u16,
     #[serde(default = "default_rune_slot")]
     pub rune_slot: u16,
+    /// Sudden Death server id — client look id is resolved from `TFS_ITEMS_OTB`.
+    #[serde(default = "default_rune_server")]
+    pub rune_server_id: u16,
+    /// Great Fireball server id (area rune; `needTarget` is false on both packs).
+    #[serde(default = "default_aoe_rune_server")]
+    pub aoe_rune_server_id: u16,
+    /// Left-hand slot for the AoE rune so mixed bots can hold SD in ammo (10).
+    #[serde(default = "default_aoe_rune_slot")]
+    pub aoe_rune_slot: u16,
 }
 
 fn default_bots() -> usize {
@@ -73,6 +82,15 @@ fn default_rune_sprite() -> u16 {
 }
 fn default_rune_slot() -> u16 {
     10
+}
+fn default_rune_server() -> u16 {
+    2268
+}
+fn default_aoe_rune_server() -> u16 {
+    2304
+}
+fn default_aoe_rune_slot() -> u16 {
+    6
 }
 
 impl Scenario {
@@ -104,6 +122,9 @@ impl Scenario {
             spell_words: default_spell(),
             rune_sprite_id: default_rune_sprite(),
             rune_slot: default_rune_slot(),
+            rune_server_id: default_rune_server(),
+            aoe_rune_server_id: default_aoe_rune_server(),
+            aoe_rune_slot: default_aoe_rune_slot(),
         }
     }
 

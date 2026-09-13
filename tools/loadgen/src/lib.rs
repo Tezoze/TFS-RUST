@@ -6,6 +6,7 @@
 
 pub mod encode;
 pub mod inbound;
+pub mod item_extra;
 pub mod latency;
 pub mod ramp;
 pub mod roles;

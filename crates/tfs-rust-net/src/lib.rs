@@ -10,6 +10,7 @@ pub mod game_frame;
 pub mod game_parse;
 pub mod item_encode;
 pub mod map_description;
+pub mod map_skip;
 pub mod message;
 pub mod outbound;
 pub mod outgoing;

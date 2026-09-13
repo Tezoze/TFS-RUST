@@ -8,6 +8,7 @@ use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use tfs_loadgen::encode::wrap_tcp_frame;
 use tfs_loadgen::inbound::InboundState;
+use tfs_loadgen::item_extra::shared_item_extra;
 use tfs_loadgen::latency::{LatencySet, RunReport};
 use tfs_loadgen::ramp::LoginGate;
 use tfs_loadgen::roles::bot_seed;
@@ -96,6 +97,7 @@ async fn main() -> Result<()> {
     let gate = Arc::new(LoginGate::phase_d_default());
     let caps = v772_caps();
     let bounce_ns = args.walk_ns || args.beats.is_some();
+    let item_extra = shared_item_extra();
 
     let mut set = JoinSet::new();
     for i in 0..bots {
@@ -117,6 +119,7 @@ async fn main() -> Result<()> {
             role,
             bounce_ns,
             walk_count: args.beats,
+            item_extra: Arc::clone(&item_extra),
         };
         let key = Arc::clone(&key);
         let gate = Arc::clone(&gate);
@@ -157,6 +160,8 @@ async fn main() -> Result<()> {
         creature_health: inbound.creature_health,
         other_creature_moves: inbound.other_creature_moves,
         unique_creatures: inbound.unique_creatures(),
+        bytes_discarded: inbound.bytes_discarded,
+        skip_failures: inbound.skip_failures,
     };
     let json = report.to_json();
     print!("{json}");

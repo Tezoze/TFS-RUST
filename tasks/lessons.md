@@ -1096,4 +1096,10 @@
 473. **`advance_beat` does not fill `GameObs.beat_wall_ms`** (`game_world_tick.rs`; `obs.rs` `record_beat`; Phase C `sweep.rs`): `AdvanceGame` in `advance_beat` already times `wall_start`/`wall_ms` and records subsystem µs, but `record_beat` is only called from `game_loop.rs`. `obs` is `pub(crate)`, so `tfs-rust-sim` cannot inject wall samples. The scaling sweep wraps `advance_beat` in `Instant` and keeps its own beat-wall histogram; `take_obs_window()` is for creatures/skills/todo/path µs and `path_searches` only. Parity `.scenario` runs still must not call `advance_beat` (`docs/SIM_HARNESS.md` §3.3).
     *(2026-09-12)*
 
+474. **Loadgen must skip 772 map bodies, not `break` the payload** (`tools/loadgen/src/inbound.rs`; `crates/tfs-rust-net/src/map_skip.rs`): Login/walk frames are often `0x64`/`0x65`–`0x68` map bytes plus a later `0x83` in the **same** decrypted `NetworkMessage`. Discarding the remainder after the map header zeroes TVP `magic_effects` while rust still counts split frames. Skip with the OTClient skip-counter; 772 extra item bytes come from OTB stackable/splash/fluid (`TFS_ITEMS_OTB`), not a “small next byte” heuristic (ground ids ~100 collide). TVP login then emits `0xB4` text (and `0xB5` cancel-walk on blocked steps) **before** the teleport `0x83` in that same payload — those must be length-skipped too.
+    *(2026-09-13)*
+
+475. **TVP melee/say frames carry opcodes the loadgen did not skip** (`inbound.rs`; `protocolgame.cpp` `sendCreatureSquare` `0x86`, `sendCancelTarget` `0xA3`, `sendCreatureSay` `0xAA`, plus `0x8E`/`0x8F`/`0x90`/`0x91`): unknown-op `discard_rest` dropped the rest of the payload, so walk-acks after a square and effects after a say were counted as `bytes_discarded`. Length-skip those. Rune/caster roles also need seeded SD/GFB + sorcerer + `player_spells` Energy Strike; `rune_sprite_id` 3155 is stone floor on TVP OTB — resolve client id from server id 2268/2304.
+    *(2026-09-13)*
+
 

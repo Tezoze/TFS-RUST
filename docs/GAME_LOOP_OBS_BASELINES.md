@@ -102,5 +102,5 @@ Captured **2026-07-19** live (`/tmp/tfs_obs.log` + earlier session). Values are 
 - Writer age is not yet exposed; `output_queued_bytes_max` / `output_full` / `output_slow_shed` are.
 - Corpse `duration` in `items.xml` is seconds (~1200s/stage for dead rat) — wait for stages; blood/poison fields are much shorter.
 - Do **not** start TODO-2 overload caps until a denser load-test still shows synchronized all-due ToDo as the bottleneck. That decision is blocked on release-build numbers — the debug capture above cannot settle it either way.
-- Benchmark scope beyond these live captures (microbenches, `sim_harness` scaling sweep, wire loadgen, TVP A/B) is planned in [`PERF_BENCHMARK_PLAN.md`](PERF_BENCHMARK_PLAN.md), tiered cheapest-first.
+- Benchmark scope beyond these live captures (microbenches, `sim_harness` scaling sweep, wire loadgen, TVP A/B) is specified in [`BENCHMARK.md`](BENCHMARK.md), tiered cheapest-first.
 - Audit: [`GAME_LOOP_DECAY_IDLE_TODO_PERFORMANCE_AUDIT.md`](GAME_LOOP_DECAY_IDLE_TODO_PERFORMANCE_AUDIT.md).

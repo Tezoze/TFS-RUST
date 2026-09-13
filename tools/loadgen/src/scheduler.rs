@@ -18,8 +18,11 @@ pub enum ActionKind {
     UseItemEx {
         from: Position,
         from_sprite: u16,
-        to: Position,
+        /// Server item id; 0 means use `from_sprite` as-is.
+        from_server_id: u16,
         to_sprite: u16,
+        /// If true, dest is `last_other_creature_pos` (else self pos) at send time.
+        target_other: bool,
     },
     LookAt(Position),
 }
@@ -28,7 +31,7 @@ impl ActionKind {
     pub fn correlate(&self) -> Option<(Correlate, Option<Position>)> {
         match self {
             Self::Walk(_) => Some((Correlate::Walk, None)),
-            Self::UseItemEx { to, .. } => Some((Correlate::SpellRune, Some(*to))),
+            Self::UseItemEx { .. } => Some((Correlate::SpellRune, None)),
             Self::Say(_) => Some((Correlate::SpellRune, None)),
             Self::Attack(_) | Self::LookAt(_) => None,
         }

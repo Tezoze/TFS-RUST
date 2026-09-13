@@ -147,12 +147,14 @@ pub struct RunReport {
     pub creature_health: u64,
     pub other_creature_moves: u64,
     pub unique_creatures: u64,
+    pub bytes_discarded: u64,
+    pub skip_failures: u64,
 }
 
 impl RunReport {
     pub fn to_json(&self) -> String {
         format!(
-            "{{\n  \"bots\": {},\n  \"duration_s\": {},\n  \"warmup_s\": {},\n  \"walk\": {},\n  \"spell_rune\": {},\n  \"bytes_in\": {},\n  \"bytes_out\": {},\n  \"outstanding_at_end\": {},\n  \"sends\": {},\n  \"magic_effects\": {},\n  \"animated_texts\": {},\n  \"damage_sum\": {},\n  \"damage_samples\": {},\n  \"distance_shoots\": {},\n  \"creature_health\": {},\n  \"other_creature_moves\": {},\n  \"unique_creatures\": {}\n}}\n",
+            "{{\n  \"bots\": {},\n  \"duration_s\": {},\n  \"warmup_s\": {},\n  \"walk\": {},\n  \"spell_rune\": {},\n  \"bytes_in\": {},\n  \"bytes_out\": {},\n  \"outstanding_at_end\": {},\n  \"sends\": {},\n  \"magic_effects\": {},\n  \"animated_texts\": {},\n  \"damage_sum\": {},\n  \"damage_samples\": {},\n  \"distance_shoots\": {},\n  \"creature_health\": {},\n  \"other_creature_moves\": {},\n  \"unique_creatures\": {},\n  \"bytes_discarded\": {},\n  \"skip_failures\": {}\n}}\n",
             self.bots,
             self.duration_s,
             self.warmup_s,
@@ -169,7 +171,9 @@ impl RunReport {
             self.distance_shoots,
             self.creature_health,
             self.other_creature_moves,
-            self.unique_creatures
+            self.unique_creatures,
+            self.bytes_discarded,
+            self.skip_failures
         )
     }
 }

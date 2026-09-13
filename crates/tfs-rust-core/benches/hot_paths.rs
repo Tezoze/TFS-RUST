@@ -1,4 +1,4 @@
-//! Criterion microbenches for game-thread hot paths (PERF_BENCHMARK_PLAN Phase B).
+//! Criterion microbenches for game-thread hot paths (`docs/BENCHMARK.md` Tier 1).
 //!
 //! Pub API only — benches compile as an external crate.
 //!

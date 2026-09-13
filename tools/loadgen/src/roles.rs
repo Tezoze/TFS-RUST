@@ -74,20 +74,25 @@ pub fn fill_schedule(
             }
             RoleKind::Rune | RoleKind::AoeRune => {
                 if t.saturating_duration_since(last_say) >= say_p {
-                    let from = inventory_pos(scenario.rune_slot);
-                    // `to` is filled with live pos at send (0,0,0 placeholder).
-                    let to = if role == RoleKind::AoeRune {
-                        Position::new(2, 2, 7)
+                    let aoe = role == RoleKind::AoeRune;
+                    let slot = if aoe {
+                        scenario.aoe_rune_slot
                     } else {
-                        Position::new(0, 0, 0)
+                        scenario.rune_slot
+                    };
+                    let server_id = if aoe {
+                        scenario.aoe_rune_server_id
+                    } else {
+                        scenario.rune_server_id
                     };
                     ol.push(ScheduledAction {
                         intended: t,
                         kind: ActionKind::UseItemEx {
-                            from,
+                            from: inventory_pos(slot),
                             from_sprite: scenario.rune_sprite_id,
-                            to,
+                            from_server_id: server_id,
                             to_sprite: 0,
+                            target_other: true,
                         },
                     });
                     last_say = t;
@@ -135,6 +140,9 @@ mod tests {
             spell_words: "exori vis".into(),
             rune_sprite_id: 3155,
             rune_slot: 10,
+            rune_server_id: 2268,
+            aoe_rune_server_id: 2304,
+            aoe_rune_slot: 6,
         };
         let mut ol = OpenLoop::new();
         let mut rng = BotRng::new(1);

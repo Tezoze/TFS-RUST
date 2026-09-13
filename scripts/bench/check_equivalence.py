@@ -24,6 +24,7 @@ THRESH_DAMAGE = 0.20
 THRESH_CREATURES = 0.15
 THRESH_PACKETS = 0.25
 THRESH_MAGIC = 0.25
+THRESH_DISCARD = 0.25
 ROLES = ("walker", "melee", "caster", "rune", "aoe_rune", "noise")
 
 
@@ -38,6 +39,13 @@ def packets_per_action(report: dict) -> float:
     if sends <= 0:
         return 0.0
     return float(report.get("bytes_in") or 0) / sends
+
+
+def discarded_ratio(report: dict) -> float:
+    bytes_in = float(report.get("bytes_in") or 0)
+    if bytes_in <= 0:
+        return 0.0
+    return float(report.get("bytes_discarded") or 0) / bytes_in
 
 
 def compare_pair(rust: dict, tvp: dict, *, label: str) -> list[str]:
@@ -79,6 +87,13 @@ def compare_pair(rust: dict, tvp: dict, *, label: str) -> list[str]:
         float(tvp.get("sends") or 0),
         THRESH_PACKETS,
     )
+    check(
+        "bytes_discarded_per_in",
+        discarded_ratio(rust),
+        discarded_ratio(tvp),
+        THRESH_DISCARD,
+        skip_zero=True,
+    )
     return fails
 
 
@@ -108,6 +123,7 @@ def self_test() -> int:
         "damage_sum": 1000,
         "unique_creatures": 20,
         "magic_effects": 50,
+        "bytes_discarded": 0,
     }
     close = dict(ok)
     close["damage_sum"] = 1100
@@ -116,6 +132,9 @@ def self_test() -> int:
     bad = dict(ok)
     bad["damage_sum"] = 5000
     assert compare_pair(ok, bad, label="bad")
+    discard_bad = dict(ok)
+    discard_bad["bytes_discarded"] = 5000
+    assert compare_pair(ok, discard_bad, label="discard")
     print("check_equivalence: self-test ok")
     return 0
 

@@ -1,5 +1,8 @@
 # Loadgen swarm — richer bots without breaking the A/B contract
 
+> **Archived 2026-09-13.** Superseded by [`docs/BENCHMARK.md`](../BENCHMARK.md)
+> §4.3 and §8. Kept for history; do not update.
+
 Status: design (not implemented). Publication still uses frozen
 `bench/scenarios/mixed_300.ron` and `docs/PERF_BENCHMARK_METHODOLOGY.md`.
 

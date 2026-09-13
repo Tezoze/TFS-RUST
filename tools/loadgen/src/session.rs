@@ -23,6 +23,7 @@ use crate::encode::{
     encode_look_at, encode_ping_reply, encode_say, encode_use_item_ex, encode_walk, wrap_tcp_frame,
 };
 use crate::inbound::{InboundEvent, InboundState};
+use crate::item_extra::ItemExtraBits;
 use crate::latency::LatencySet;
 use crate::ramp::LoginGate;
 use crate::roles::{bot_seed, fill_schedule};
@@ -44,6 +45,7 @@ pub struct BotConfig {
     pub role: RoleKind,
     pub bounce_ns: bool,
     pub walk_count: Option<u32>,
+    pub item_extra: Arc<ItemExtraBits>,
 }
 
 pub struct BotOutcome {
@@ -144,9 +146,11 @@ pub async fn run_bot(
     let mut bytes_out = gframe.len() as u64;
 
     let (mut reader, mut writer) = game.into_split();
-    let mut inbound = InboundState::default();
+    let mut inbound = InboundState::new(Arc::clone(&cfg.item_extra));
     let mut latency = LatencySet::new()?;
     let mut sends = 0u64;
+    let dump_inbound = cfg.index == 0 && std::env::var_os("TFS_LOADGEN_DUMP_INBOUND").is_some();
+    let mut dumps = 0u8;
 
     let start = Instant::now();
     let warmup = Duration::from_secs(cfg.scenario.warmup_s);
@@ -183,6 +187,17 @@ pub async fn run_bot(
                 };
                 match decrypt_xtea_game_body(&mut body, &round, &caps) {
                     Ok(plain) => {
+                        if dump_inbound && dumps < 8 {
+                            let path = format!("results/loadgen-in-{dumps}.bin");
+                            let _ = std::fs::create_dir_all("results");
+                            let _ = std::fs::write(&path, plain);
+                            eprintln!(
+                                "dump {path} len={} first={:#04x}",
+                                plain.len(),
+                                plain.first().copied().unwrap_or(0)
+                            );
+                            dumps += 1;
+                        }
                         let evs = inbound.feed(plain);
                         let t = Instant::now();
                         for ev in evs {
@@ -214,7 +229,11 @@ pub async fn run_bot(
                     let payload = materialize(&act.kind, &inbound);
                     let corr = match &act.kind {
                         ActionKind::Walk(_) => act.kind.correlate(),
-                        ActionKind::UseItemEx { .. } | ActionKind::Say(_) => {
+                        ActionKind::UseItemEx { .. } => Some((
+                            crate::latency::Correlate::SpellRune,
+                            Some(use_item_dest(&inbound)),
+                        )),
+                        ActionKind::Say(_) => {
                             Some((crate::latency::Correlate::SpellRune, inbound.pos))
                         }
                         _ => None,
@@ -251,26 +270,28 @@ fn materialize(kind: &ActionKind, inbound: &InboundState) -> Vec<u8> {
         ActionKind::UseItemEx {
             from,
             from_sprite,
-            to,
+            from_server_id,
             to_sprite,
+            ..
         } => {
-            let dest = if to.x == 0 && to.y == 0 {
-                inbound.pos.unwrap_or(*to)
-            } else if to.x == 2 && to.y == 2 {
-                inbound
-                    .pos
-                    .map(|p| Position::new(p.x.saturating_add(2), p.y.saturating_add(2), p.z))
-                    .unwrap_or(*to)
-            } else {
-                *to
-            };
-            encode_use_item_ex(*from, *from_sprite, 0, dest, *to_sprite, 0)
+            let sprite = inbound
+                .client_id_for(*from_server_id)
+                .unwrap_or(*from_sprite);
+            let dest = use_item_dest(inbound);
+            encode_use_item_ex(*from, sprite, 0, dest, *to_sprite, 0)
         }
         ActionKind::LookAt(_) => {
             let pos = inbound.pos.unwrap_or(Position::new(0, 0, 7));
             encode_look_at(pos, 0, 0)
         }
     }
+}
+
+fn use_item_dest(inbound: &InboundState) -> Position {
+    inbound
+        .last_other_creature_pos
+        .or(inbound.pos)
+        .unwrap_or(Position::new(0, 0, 7))
 }
 
 async fn write_game<W: AsyncWriteExt + Unpin>(

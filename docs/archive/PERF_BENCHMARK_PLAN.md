@@ -1,5 +1,8 @@
 # Performance measurement plan
 
+> **Archived 2026-09-13.** Superseded by [`docs/BENCHMARK.md`](../BENCHMARK.md).
+> Kept for history; do not update.
+
 Status: Phase A–E harness done (core visibility + Criterion hot_paths + sim scale_sweep + 772 loadgen + Tier 4 orchestrator). Publication A/B runs are pinned-host, not CI.
 
 Two distinct goals, deliberately separated because they want different instruments:

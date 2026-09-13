@@ -274,11 +274,22 @@ def loadgen_cmd(
     return cmd
 
 
-def run_loadgen(cmd: list[str], *, timeout: float, dry: bool) -> int:
+def items_otb_for(server: str) -> Path:
+    if server == "tvp":
+        tvp = Path(os.environ.get("TFS_TVP_772_DIR", str(ROOT / "reference" / "tvp-772")))
+        return tvp / "gameserver" / "data" / "items" / "items.otb"
+    return ROOT / "data" / "items" / "items.otb"
+
+
+def run_loadgen(cmd: list[str], *, timeout: float, dry: bool, server: str) -> int:
     print("loadgen:", " ".join(cmd), file=sys.stderr)
     if dry:
         return 0
-    return subprocess.run(cmd, cwd=ROOT, timeout=timeout, check=False).returncode
+    env = os.environ.copy()
+    otb = items_otb_for(server)
+    if otb.is_file():
+        env["TFS_ITEMS_OTB"] = str(otb)
+    return subprocess.run(cmd, cwd=ROOT, timeout=timeout, check=False, env=env).returncode
 
 
 def cell_dir(root: Path, server: str, bots: int, rep: int) -> Path:
@@ -315,6 +326,7 @@ def run_cell(
             ),
             timeout=wall + 60,
             dry=True,
+            server=server,
         )
         return
 
@@ -336,6 +348,7 @@ def run_cell(
             ),
             timeout=wall + 120,
             dry=False,
+            server=server,
         )
         (dest / "loadgen_exit.txt").write_text(f"{rc}\n", encoding="utf-8")
         if rc != 0:
