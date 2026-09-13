@@ -6,11 +6,15 @@
 //!
 //! Map bodies (`0x64` / `0x65`–`0x68` / `0xBE`/`0xBF`) are skipped with the client
 //! skip-counter so a later `0x83` in the same decrypted payload is counted. Login
-//! trailers (`0x78`/`0x79`/`0xA0`/`0xA1`/`0x82`/`0x8D`/`0xA2`/`0xB4`/`0xB5`) are
-//! length-skipped for the same reason. TVP also emits `0x86` square, `0x8E`
-//! outfit, `0x8F` speed, `0x90`/`0x91` skull/shield, `0xA3` cancel-target, and
-//! `0xAA` creature-say in the same payload as later `0x6D`/`0x83` — those must
-//! be length-skipped too. Unknown opcodes still discard the rest.
+//! trailers (`0x78`/`0x79`/`0xA0`/`0xA1`/`0x82`/`0x8D`/`0xA2`/`0xB4`) are
+//! length-skipped for the same reason. `0xB5` cancel-walk is parsed (direction
+//! byte) and emitted so latency can retire a rejected walk. TVP also emits
+//! `0x86` square, `0x8E` outfit, `0x8F` speed, `0x90`/`0x91` skull/shield,
+//! `0xA3` cancel-target, and `0xAA` creature-say in the same payload as later
+//! `0x6D`/`0x83` — those must be length-skipped too. Fight modes `0xA7` (three
+//! body bytes, TVP `sendFightModes`) and VIP `0xD3`/`0xD4` (`u32` guid) are
+//! skipped the same way. Unknown opcodes still discard the rest and are
+//! counted (`unknown_opcodes` / `unknown_opcode_first`).
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -75,6 +79,15 @@ const OP_CREATURE_SHIELD: u8 = 0x91;
 const OP_CANCEL_TARGET: u8 = 0xA3;
 /// TVP `sendCreatureSay` / `sendToChannel` / `sendPrivateMessage` (`0xAA`).
 const OP_CREATURE_SAY: u8 = 0xAA;
+/// TVP `sendFightModes` (`protocolgame.cpp` ~1684): fight + chase + secure.
+/// 772 body is 3 bytes; do not skip Rust's extra pvp byte (own frame).
+const OP_FIGHT_MODES: u8 = 0xA7;
+/// TVP `sendUpdatedVIPStatus` online (`protocolgame.cpp` ~2010): `u32` guid.
+const OP_VIP_STATUS: u8 = 0xD3;
+/// TVP `sendUpdatedVIPStatus` logout (`protocolgame.cpp` ~2016): `u32` guid.
+const OP_VIP_LOGOUT: u8 = 0xD4;
+/// 772 fight-mode body after `0xA7` (not the 1098/Rust extra pvp byte).
+const FIGHT_MODES_772_LEN: usize = 3;
 /// `TALKTYPE_RVR_CHANNEL` — `sendToChannel` writes `u32` time, not `u16` id.
 const SPEAK_RVR_CHANNEL: u8 = 6;
 /// 772 `AddPlayerStats` after opcode (`v772.rs` `encode_player_stats`).
@@ -85,9 +98,16 @@ const PLAYER_SKILLS_LEN: usize = 14;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InboundEvent {
     WalkAck,
-    MagicEffect { pos: Position },
+    /// Server rejected the current walk (`0xB5`); not a latency sample.
+    CancelWalk,
+    MagicEffect {
+        pos: Position,
+    },
     Ping(u8),
-    OtherCreature { id: u32, pos: Position },
+    OtherCreature {
+        id: u32,
+        pos: Position,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -108,6 +128,9 @@ pub struct InboundState {
     pub seen_creatures: HashSet<u32>,
     item_extra: Arc<ItemExtraBits>,
     pub skip_failures: u64,
+    pub unknown_opcodes: u64,
+    /// First unknown server opcode byte this session, if any.
+    pub unknown_opcode_first: Option<u8>,
 }
 
 impl Default for InboundState {
@@ -135,6 +158,8 @@ impl InboundState {
             seen_creatures: HashSet::new(),
             item_extra,
             skip_failures: 0,
+            unknown_opcodes: 0,
+            unknown_opcode_first: None,
         }
     }
 
@@ -153,7 +178,18 @@ impl InboundState {
         self.creature_health += other.creature_health;
         self.other_creature_moves += other.other_creature_moves;
         self.skip_failures += other.skip_failures;
+        self.unknown_opcodes += other.unknown_opcodes;
+        if self.unknown_opcode_first.is_none() {
+            self.unknown_opcode_first = other.unknown_opcode_first;
+        }
         self.seen_creatures.extend(&other.seen_creatures);
+    }
+
+    fn note_unknown(&mut self, op: u8) {
+        self.unknown_opcodes += 1;
+        if self.unknown_opcode_first.is_none() {
+            self.unknown_opcode_first = Some(op);
+        }
     }
 
     fn note_creature(&mut self, id: u32, pos: Option<Position>) {
@@ -281,7 +317,10 @@ impl InboundState {
                         } else if let Some(cid) = id {
                             self.note_creature(cid, Some(new_pos));
                             self.other_creature_moves += 1;
-                            events.push(InboundEvent::OtherCreature { id: cid, pos: new_pos });
+                            events.push(InboundEvent::OtherCreature {
+                                id: cid,
+                                pos: new_pos,
+                            });
                         }
                     }
                 },
@@ -402,6 +441,7 @@ impl InboundState {
                         self.discard_rest(payload, i.saturating_sub(1));
                         break;
                     }
+                    events.push(InboundEvent::CancelWalk);
                 }
                 OP_CREATURE_SQUARE => {
                     if !take(payload, &mut i, 5) {
@@ -434,7 +474,20 @@ impl InboundState {
                         break;
                     }
                 }
+                OP_FIGHT_MODES => {
+                    if !take(payload, &mut i, FIGHT_MODES_772_LEN) {
+                        self.discard_rest(payload, i.saturating_sub(1));
+                        break;
+                    }
+                }
+                OP_VIP_STATUS | OP_VIP_LOGOUT => {
+                    if !take(payload, &mut i, 4) {
+                        self.discard_rest(payload, i.saturating_sub(1));
+                        break;
+                    }
+                }
                 _ => {
+                    self.note_unknown(op);
                     self.discard_rest(payload, i.saturating_sub(1));
                     break;
                 }
@@ -756,7 +809,13 @@ mod tests {
         p.extend_from_slice(&5u16.to_le_bytes());
         p.push(7);
         let ev = s.feed(&p);
-        assert_eq!(ev, vec![InboundEvent::OtherCreature { id: 77, pos: Position::new(5, 5, 7) }]);
+        assert_eq!(
+            ev,
+            vec![InboundEvent::OtherCreature {
+                id: 77,
+                pos: Position::new(5, 5, 7)
+            }]
+        );
         assert_eq!(s.last_other_creature_id, Some(77));
         assert_eq!(s.last_other_creature_pos, Some(Position::new(5, 5, 7)));
         assert_eq!(s.other_creature_moves, 1);
@@ -859,7 +918,16 @@ mod tests {
         p.extend_from_slice(&magic_effect_bytes(Position::new(1, 2, 7), 11));
         let ev = s.feed(&p);
         assert_eq!(s.magic_effects, 1);
-        assert_eq!(ev.len(), 1);
+        assert_eq!(
+            ev,
+            vec![
+                InboundEvent::CancelWalk,
+                InboundEvent::MagicEffect {
+                    pos: Position::new(1, 2, 7)
+                },
+            ]
+        );
+        assert_eq!(s.bytes_discarded, 0);
     }
 
     fn creature_say_say(name: &str, pos: Position, text: &str) -> Vec<u8> {
@@ -937,5 +1005,42 @@ mod tests {
         assert_eq!(s.magic_effects, 1);
         assert_eq!(ev.len(), 1);
         assert_eq!(s.bytes_discarded, 0);
+    }
+
+    #[test]
+    fn fight_modes_then_magic_effect() {
+        let mut s = InboundState::default();
+        let mut p = vec![OP_FIGHT_MODES, 1, 0, 0];
+        p.extend_from_slice(&magic_effect_bytes(Position::new(1, 2, 7), 11));
+        let ev = s.feed(&p);
+        assert_eq!(s.magic_effects, 1);
+        assert_eq!(ev.len(), 1);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.unknown_opcodes, 0);
+    }
+
+    #[test]
+    fn vip_status_then_magic_effect() {
+        let mut s = InboundState::default();
+        let mut p = vec![OP_VIP_STATUS];
+        p.extend_from_slice(&42u32.to_le_bytes());
+        p.extend_from_slice(&magic_effect_bytes(Position::new(1, 2, 7), 11));
+        let ev = s.feed(&p);
+        assert_eq!(s.magic_effects, 1);
+        assert_eq!(ev.len(), 1);
+        assert_eq!(s.bytes_discarded, 0);
+    }
+
+    #[test]
+    fn unknown_opcode_discards_rest_and_counts() {
+        let mut s = InboundState::default();
+        let mut p = vec![0x15, 1, 2, 3];
+        p.extend_from_slice(&magic_effect_bytes(Position::new(1, 2, 7), 11));
+        let ev = s.feed(&p);
+        assert!(ev.is_empty());
+        assert_eq!(s.magic_effects, 0);
+        assert_eq!(s.unknown_opcodes, 1);
+        assert_eq!(s.unknown_opcode_first, Some(0x15));
+        assert!(s.bytes_discarded > 0);
     }
 }

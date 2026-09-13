@@ -65,6 +65,26 @@ fn resolve_pem_path() -> anyhow::Result<PathBuf> {
 /// `TFS_CONFIG` (default `config.lua`),
 /// `TFS_LOGIN_ADDR` / `TFS_GAME_ADDR` / `TFS_PUBLIC_IP` / `TFS_GAME_PORT` / `TFS_SERVER_NAME` / `TFS_MOTD` / `TFS_MOTD_NUM`.
 pub async fn run() -> anyhow::Result<()> {
+    let io_handle = tokio::runtime::Handle::current();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    std::thread::Builder::new()
+        .name("game".into())
+        .spawn(move || {
+            let result = (|| -> anyhow::Result<()> {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .context("game-thread tokio runtime")?;
+                let local = LocalSet::new();
+                rt.block_on(local.run_until(run_on_game_thread(io_handle)))
+            })();
+            let _ = tx.send(result);
+        })
+        .context("spawn named game thread")?;
+    rx.await.context("game thread channel")?
+}
+
+async fn run_on_game_thread(io_handle: tokio::runtime::Handle) -> anyhow::Result<()> {
     register_lua_mutation_hooks();
     let pem_path = resolve_pem_path()?;
     info!(path = %pem_path.display(), "RSA PEM");
@@ -774,88 +794,79 @@ pub async fn run() -> anyhow::Result<()> {
         send_bytes: net_send_bytes,
     };
 
-    // `GameWorld` holds `ConfigManager` → mlua `Lua` (not `Send`); drive the simulation on a `LocalSet`.
+    // `GameWorld` holds `ConfigManager` → mlua `Lua` (not `Send`); this future
+    // already runs on the named `game` OS thread's `LocalSet`.
     // SIGINT → `GameCommand::Shutdown`; SIGTERM → `ScheduleClose { minutes: 6 }` (`main.cc:90-94`).
     const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
-    let local = LocalSet::new();
-    local
-        .run_until(async move {
-            let force_exit = tokio::spawn(async move {
-                match wait_for_shutdown_signal().await {
-                    Ok(ShutdownSignal::Interrupt) => {
-                        if shutdown_cmd_tx.send(GameCommand::Shutdown).is_err() {
-                            tracing::warn!("could not send Shutdown — game command channel closed");
-                        } else {
-                            tracing::info!(
-                                "shutdown signal: requested graceful exit (flush runs on game thread)"
-                            );
-                        }
-                    }
-                    Ok(ShutdownSignal::Terminate) => {
-                        if shutdown_cmd_tx
-                            .send(GameCommand::ScheduleClose { minutes: 6 })
-                            .is_err()
-                        {
-                            tracing::warn!(
-                                "could not send ScheduleClose — game command channel closed"
-                            );
-                        } else {
-                            tracing::info!(
-                                "SIGTERM: CloseGame + reboot in 6 minutes (`main.cc:90-94`)"
-                            );
-                        }
-                        return;
-                    }
-                    Err(e) => {
-                        tracing::error!(?e, "wait_for_shutdown_signal");
-                        return;
-                    }
-                }
-                tokio::select! {
-                    second = wait_for_shutdown_signal() => {
-                        match second {
-                            Ok(_) => tracing::error!(
-                                "second Ctrl+C — forcing process exit (game thread may be wedged)"
-                            ),
-                            Err(e) => tracing::error!(?e, "second wait_for_shutdown_signal"),
-                        }
-                        std::process::exit(1);
-                    }
-                    _ = tokio::time::sleep(GRACEFUL_SHUTDOWN_TIMEOUT) => {
-                        tracing::error!(
-                            timeout_secs = GRACEFUL_SHUTDOWN_TIMEOUT.as_secs(),
-                            "graceful shutdown timed out — forcing process exit"
-                        );
-                        std::process::exit(1);
-                    }
-                }
-            });
-            let game_jh = tokio::task::spawn_local(async move {
-                // Phase 7: both eras run on the single unified beat loop.
-                let loop_result =
-                    run_game_loop(world, game_rx, ctrl_rx, cmd_tx, Some(out_for_loop)).await;
-                if let Err(e) = loop_result {
-                    tracing::error!(?e, "game loop exited with error");
+    let force_exit = io_handle.spawn(async move {
+        match wait_for_shutdown_signal().await {
+            Ok(ShutdownSignal::Interrupt) => {
+                if shutdown_cmd_tx.send(GameCommand::Shutdown).is_err() {
+                    tracing::warn!("could not send Shutdown — game command channel closed");
                 } else {
-                    tracing::info!("game loop finished");
+                    tracing::info!(
+                        "shutdown signal: requested graceful exit (flush runs on game thread)"
+                    );
                 }
-            });
-            let mut login_server = Server::from_listener(login_listener);
-            let login_jh = tokio::spawn(async move {
-                login_server.accept_loop_with_login(login_cfg).await;
-            });
-            let mut game_server = Server::from_listener(game_listener);
-            let game_accept_jh = tokio::spawn(async move {
-                game_server.accept_loop_with_game(game_cfg).await;
-            });
-            if let Err(e) = game_jh.await {
-                tracing::error!(?e, "game loop task join error");
             }
-            force_exit.abort();
-            login_jh.abort();
-            game_accept_jh.abort();
-        })
-        .await;
+            Ok(ShutdownSignal::Terminate) => {
+                if shutdown_cmd_tx
+                    .send(GameCommand::ScheduleClose { minutes: 6 })
+                    .is_err()
+                {
+                    tracing::warn!("could not send ScheduleClose — game command channel closed");
+                } else {
+                    tracing::info!("SIGTERM: CloseGame + reboot in 6 minutes (`main.cc:90-94`)");
+                }
+                return;
+            }
+            Err(e) => {
+                tracing::error!(?e, "wait_for_shutdown_signal");
+                return;
+            }
+        }
+        tokio::select! {
+            second = wait_for_shutdown_signal() => {
+                match second {
+                    Ok(_) => tracing::error!(
+                        "second Ctrl+C — forcing process exit (game thread may be wedged)"
+                    ),
+                    Err(e) => tracing::error!(?e, "second wait_for_shutdown_signal"),
+                }
+                std::process::exit(1);
+            }
+            _ = tokio::time::sleep(GRACEFUL_SHUTDOWN_TIMEOUT) => {
+                tracing::error!(
+                    timeout_secs = GRACEFUL_SHUTDOWN_TIMEOUT.as_secs(),
+                    "graceful shutdown timed out — forcing process exit"
+                );
+                std::process::exit(1);
+            }
+        }
+    });
+    let game_jh = tokio::task::spawn_local(async move {
+        // Phase 7: both eras run on the single unified beat loop.
+        let loop_result = run_game_loop(world, game_rx, ctrl_rx, cmd_tx, Some(out_for_loop)).await;
+        if let Err(e) = loop_result {
+            tracing::error!(?e, "game loop exited with error");
+        } else {
+            tracing::info!("game loop finished");
+        }
+    });
+    let mut login_server = Server::from_listener(login_listener);
+    let login_jh = io_handle.spawn(async move {
+        login_server.accept_loop_with_login(login_cfg).await;
+    });
+    let mut game_server = Server::from_listener(game_listener);
+    let game_accept_jh = io_handle.spawn(async move {
+        game_server.accept_loop_with_game(game_cfg).await;
+    });
+    if let Err(e) = game_jh.await {
+        tracing::error!(?e, "game loop task join error");
+    }
+    force_exit.abort();
+    login_jh.abort();
+    game_accept_jh.abort();
 
     Ok(())
 }

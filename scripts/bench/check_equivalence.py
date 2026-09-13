@@ -25,6 +25,8 @@ THRESH_CREATURES = 0.15
 THRESH_PACKETS = 0.25
 THRESH_MAGIC = 0.25
 THRESH_DISCARD = 0.25
+THRESH_WALK_REJECT = 0.25
+THRESH_DROP = 0.25
 ROLES = ("walker", "melee", "caster", "rune", "aoe_rune", "noise")
 
 
@@ -48,6 +50,21 @@ def discarded_ratio(report: dict) -> float:
     return float(report.get("bytes_discarded") or 0) / bytes_in
 
 
+def walk_rejection_rate(report: dict) -> float:
+    walk = report.get("walk") or {}
+    samples = float(walk.get("samples") or 0)
+    if samples <= 0:
+        return 0.0
+    return float(walk.get("rejections") or 0) / samples
+
+
+def drop_rate(report: dict) -> float:
+    bots = float(report.get("bots") or 0)
+    if bots <= 0:
+        return 0.0
+    return float(report.get("disconnects") or 0) / bots
+
+
 def compare_pair(rust: dict, tvp: dict, *, label: str) -> list[str]:
     fails: list[str] = []
 
@@ -60,11 +77,21 @@ def compare_pair(rust: dict, tvp: dict, *, label: str) -> list[str]:
                 f"{label}: {name} rust={a} tvp={b} rel_delta={d:.3f} > {thresh:.2f}"
             )
 
-    check("damage_sum", float(rust.get("damage_sum") or 0), float(tvp.get("damage_sum") or 0), THRESH_DAMAGE, skip_zero=True)
+    rust_creatures = float(rust.get("unique_creatures") or 0)
+    tvp_creatures = float(tvp.get("unique_creatures") or 0)
+    # Field / step 0x84 is not combat when neither side saw a creature.
+    if rust_creatures != 0 or tvp_creatures != 0:
+        check(
+            "damage_sum",
+            float(rust.get("damage_sum") or 0),
+            float(tvp.get("damage_sum") or 0),
+            THRESH_DAMAGE,
+            skip_zero=True,
+        )
     check(
         "unique_creatures",
-        float(rust.get("unique_creatures") or 0),
-        float(tvp.get("unique_creatures") or 0),
+        rust_creatures,
+        tvp_creatures,
         THRESH_CREATURES,
         skip_zero=True,
     )
@@ -92,6 +119,27 @@ def compare_pair(rust: dict, tvp: dict, *, label: str) -> list[str]:
         discarded_ratio(rust),
         discarded_ratio(tvp),
         THRESH_DISCARD,
+        skip_zero=True,
+    )
+    check(
+        "walk_rejections_per_sample",
+        walk_rejection_rate(rust),
+        walk_rejection_rate(tvp),
+        THRESH_WALK_REJECT,
+        skip_zero=True,
+    )
+    check(
+        "disconnects_per_bot",
+        drop_rate(rust),
+        drop_rate(tvp),
+        THRESH_DROP,
+        skip_zero=True,
+    )
+    check(
+        "reconnects",
+        float(rust.get("reconnects") or 0),
+        float(tvp.get("reconnects") or 0),
+        THRESH_DROP,
         skip_zero=True,
     )
     return fails
@@ -124,10 +172,15 @@ def self_test() -> int:
         "unique_creatures": 20,
         "magic_effects": 50,
         "bytes_discarded": 0,
+        "walk": {"samples": 100, "rejections": 10},
+        "bots": 5,
+        "disconnects": 0,
+        "reconnects": 0,
     }
     close = dict(ok)
     close["damage_sum"] = 1100
     close["bytes_in"] = 10500
+    close["walk"] = {"samples": 100, "rejections": 12}
     assert not compare_pair(ok, close, label="ok")
     bad = dict(ok)
     bad["damage_sum"] = 5000
@@ -135,6 +188,36 @@ def self_test() -> int:
     discard_bad = dict(ok)
     discard_bad["bytes_discarded"] = 5000
     assert compare_pair(ok, discard_bad, label="discard")
+    reject_bad = dict(ok)
+    reject_bad["walk"] = {"samples": 100, "rejections": 40}
+    assert compare_pair(ok, reject_bad, label="reject")
+    drop_bad = dict(ok)
+    drop_bad["disconnects"] = 3
+    assert compare_pair(ok, drop_bad, label="drop")
+    reconnect_bad = dict(ok)
+    reconnect_bad["reconnects"] = 5
+    assert compare_pair(ok, reconnect_bad, label="reconnect")
+    both_zero_drop = dict(ok)
+    other_zero_drop = dict(ok)
+    other_zero_drop["bots"] = 8
+    assert not compare_pair(both_zero_drop, other_zero_drop, label="drop-zero")
+    both_zero = dict(ok)
+    both_zero["walk"] = {"samples": 80, "rejections": 0}
+    other_zero = dict(ok)
+    other_zero["walk"] = {"samples": 100, "rejections": 0}
+    assert not compare_pair(both_zero, other_zero, label="reject-zero")
+    field_noise = dict(ok)
+    field_noise["unique_creatures"] = 0
+    field_noise["damage_sum"] = 11
+    field_tvp = dict(field_noise)
+    field_tvp["damage_sum"] = 0
+    assert not compare_pair(field_noise, field_tvp, label="field-noise")
+    me_bad = dict(field_noise)
+    me_bad["magic_effects"] = 34
+    me_tvp = dict(field_noise)
+    me_tvp["magic_effects"] = 0
+    me_tvp["damage_sum"] = 0
+    assert compare_pair(me_bad, me_tvp, label="me-zero")
     print("check_equivalence: self-test ok")
     return 0
 

@@ -18,6 +18,7 @@ pub struct LatencySet {
     spell: Histogram<u64>,
     outstanding_walk: Vec<Instant>,
     outstanding_spell: Vec<(Instant, tfs_rust_common::Position)>,
+    walk_rejections: u64,
 }
 
 impl LatencySet {
@@ -27,6 +28,7 @@ impl LatencySet {
             spell: Histogram::new(SIGFIGS).map_err(|e| anyhow!("spell histogram: {e}"))?,
             outstanding_walk: Vec::new(),
             outstanding_spell: Vec::new(),
+            walk_rejections: 0,
         })
     }
 
@@ -48,9 +50,23 @@ impl LatencySet {
     }
 
     pub fn on_walk_ack(&mut self, now: Instant) {
-        if let Some(intended) = self.outstanding_walk.first().copied() {
-            self.outstanding_walk.remove(0);
+        if let Some(intended) = self.pop_walk_head() {
             record(&mut self.walk, now.saturating_duration_since(intended));
+        }
+    }
+
+    /// Retire the oldest outstanding walk as a rejection (`0xB5`), not a sample.
+    pub fn on_walk_cancel(&mut self) {
+        if self.pop_walk_head().is_some() {
+            self.walk_rejections += 1;
+        }
+    }
+
+    fn pop_walk_head(&mut self) -> Option<Instant> {
+        if self.outstanding_walk.is_empty() {
+            None
+        } else {
+            Some(self.outstanding_walk.remove(0))
         }
     }
 
@@ -76,11 +92,14 @@ impl LatencySet {
             .extend_from_slice(&other.outstanding_walk);
         self.outstanding_spell
             .extend_from_slice(&other.outstanding_spell);
+        self.walk_rejections += other.walk_rejections;
         Ok(())
     }
 
     pub fn walk_summary(&self) -> HistSummary {
-        HistSummary::from_hist(&self.walk)
+        let mut s = HistSummary::from_hist(&self.walk);
+        s.rejections = self.walk_rejections;
+        s
     }
 
     pub fn spell_summary(&self) -> HistSummary {
@@ -99,6 +118,7 @@ pub struct HistSummary {
     pub p50_us: u64,
     pub p95_us: u64,
     pub p99_us: u64,
+    pub rejections: u64,
 }
 
 impl HistSummary {
@@ -110,6 +130,7 @@ impl HistSummary {
                 p50_us: 0,
                 p95_us: 0,
                 p99_us: 0,
+                rejections: 0,
             };
         }
         Self {
@@ -117,13 +138,14 @@ impl HistSummary {
             p50_us: h.value_at_quantile(0.50),
             p95_us: h.value_at_quantile(0.95),
             p99_us: h.value_at_quantile(0.99),
+            rejections: 0,
         }
     }
 
     fn json_object(self) -> String {
         format!(
-            "{{\"samples\":{},\"p50_us\":{},\"p95_us\":{},\"p99_us\":{}}}",
-            self.samples, self.p50_us, self.p95_us, self.p99_us
+            "{{\"samples\":{},\"p50_us\":{},\"p95_us\":{},\"p99_us\":{},\"rejections\":{}}}",
+            self.samples, self.p50_us, self.p95_us, self.p99_us, self.rejections
         )
     }
 }
@@ -149,12 +171,25 @@ pub struct RunReport {
     pub unique_creatures: u64,
     pub bytes_discarded: u64,
     pub skip_failures: u64,
+    pub unknown_opcodes: u64,
+    pub unknown_opcode_first: Option<u8>,
+    /// Game sessions that dropped before the measurement window ended.
+    pub disconnects: u64,
+    /// Always 0: loadgen does not auto-reconnect during a run.
+    pub reconnects: u64,
+}
+
+fn unknown_opcode_json(first: Option<u8>) -> String {
+    match first {
+        Some(op) => op.to_string(),
+        None => "null".to_string(),
+    }
 }
 
 impl RunReport {
     pub fn to_json(&self) -> String {
         format!(
-            "{{\n  \"bots\": {},\n  \"duration_s\": {},\n  \"warmup_s\": {},\n  \"walk\": {},\n  \"spell_rune\": {},\n  \"bytes_in\": {},\n  \"bytes_out\": {},\n  \"outstanding_at_end\": {},\n  \"sends\": {},\n  \"magic_effects\": {},\n  \"animated_texts\": {},\n  \"damage_sum\": {},\n  \"damage_samples\": {},\n  \"distance_shoots\": {},\n  \"creature_health\": {},\n  \"other_creature_moves\": {},\n  \"unique_creatures\": {},\n  \"bytes_discarded\": {},\n  \"skip_failures\": {}\n}}\n",
+            "{{\n  \"bots\": {},\n  \"duration_s\": {},\n  \"warmup_s\": {},\n  \"walk\": {},\n  \"spell_rune\": {},\n  \"bytes_in\": {},\n  \"bytes_out\": {},\n  \"outstanding_at_end\": {},\n  \"sends\": {},\n  \"magic_effects\": {},\n  \"animated_texts\": {},\n  \"damage_sum\": {},\n  \"damage_samples\": {},\n  \"distance_shoots\": {},\n  \"creature_health\": {},\n  \"other_creature_moves\": {},\n  \"unique_creatures\": {},\n  \"bytes_discarded\": {},\n  \"skip_failures\": {},\n  \"unknown_opcodes\": {},\n  \"unknown_opcode_first\": {},\n  \"disconnects\": {},\n  \"reconnects\": {}\n}}\n",
             self.bots,
             self.duration_s,
             self.warmup_s,
@@ -173,7 +208,11 @@ impl RunReport {
             self.other_creature_moves,
             self.unique_creatures,
             self.bytes_discarded,
-            self.skip_failures
+            self.skip_failures,
+            self.unknown_opcodes,
+            unknown_opcode_json(self.unknown_opcode_first),
+            self.disconnects,
+            self.reconnects
         )
     }
 }
@@ -203,5 +242,85 @@ mod tests {
         set.on_magic_effect(t0 + Duration::from_millis(5), tile);
         assert_eq!(set.spell_summary().samples, 1);
         assert_eq!(set.outstanding_count(), 0);
+    }
+
+    #[test]
+    fn cancel_then_ack_one_sample_one_rejection() {
+        let mut set = LatencySet::new().expect("hist");
+        let t0 = Instant::now();
+        set.on_send(Correlate::Walk, t0, None);
+        set.on_walk_cancel();
+        set.on_send(Correlate::Walk, t0 + Duration::from_millis(200), None);
+        set.on_walk_ack(t0 + Duration::from_millis(212));
+        let s = set.walk_summary();
+        assert_eq!(s.samples, 1);
+        assert_eq!(s.rejections, 1);
+        assert!(s.p50_us >= 10_000);
+        assert!(s.p50_us < 200_000);
+        assert_eq!(set.outstanding_count(), 0);
+    }
+
+    #[test]
+    fn cancel_with_empty_queue_is_noop() {
+        let mut set = LatencySet::new().expect("hist");
+        set.on_walk_cancel();
+        assert_eq!(set.walk_summary().rejections, 0);
+    }
+
+    #[test]
+    fn walk_json_includes_rejections() {
+        let mut set = LatencySet::new().expect("hist");
+        set.on_send(Correlate::Walk, Instant::now(), None);
+        set.on_walk_cancel();
+        let json = set.walk_summary().json_object();
+        assert!(json.contains("\"rejections\":1"), "{json}");
+        assert!(json.contains("\"samples\":0"), "{json}");
+    }
+
+    #[test]
+    fn report_json_includes_unknown_opcode_fields() {
+        let report = RunReport {
+            bots: 1,
+            duration_s: 1,
+            warmup_s: 0,
+            walk: HistSummary {
+                samples: 0,
+                p50_us: 0,
+                p95_us: 0,
+                p99_us: 0,
+                rejections: 0,
+            },
+            spell_rune: HistSummary {
+                samples: 0,
+                p50_us: 0,
+                p95_us: 0,
+                p99_us: 0,
+                rejections: 0,
+            },
+            bytes_in: 0,
+            bytes_out: 0,
+            outstanding_at_end: 0,
+            sends: 0,
+            magic_effects: 0,
+            animated_texts: 0,
+            damage_sum: 0,
+            damage_samples: 0,
+            distance_shoots: 0,
+            creature_health: 0,
+            other_creature_moves: 0,
+            unique_creatures: 0,
+            bytes_discarded: 0,
+            skip_failures: 0,
+            unknown_opcodes: 2,
+            unknown_opcode_first: Some(0x15),
+            disconnects: 1,
+            reconnects: 0,
+        };
+        let json = report.to_json();
+        assert!(json.contains("\"unknown_opcodes\": 2"), "{json}");
+        assert!(json.contains("\"unknown_opcode_first\": 21"), "{json}");
+        assert!(json.contains("\"rejections\":0"), "{json}");
+        assert!(json.contains("\"disconnects\": 1"), "{json}");
+        assert!(json.contains("\"reconnects\": 0"), "{json}");
     }
 }

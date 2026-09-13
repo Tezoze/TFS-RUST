@@ -26,10 +26,10 @@ def _p99_us(loadgen: dict) -> float:
     return float(walk.get("p99_us") or 0)
 
 
-def collect_load_curve(root: Path) -> dict[str, list[tuple[int, float, float, float, float]]]:
-    """server -> [(bots, p99_us, cpu_pct_mean, rss_kb_last, cpu_s_per_action)]."""
+def collect_load_curve_from(server_root: Path) -> dict[str, list[tuple[int, float, float, float, float]]]:
+    """One results tree whose children are rust/ and/or tvp/."""
     out: dict[str, list[tuple[int, float, float, float, float]]] = {}
-    for server_dir in sorted(p for p in root.iterdir() if p.is_dir() and p.name in ("rust", "tvp")):
+    for server_dir in sorted(p for p in server_root.iterdir() if p.is_dir() and p.name in ("rust", "tvp")):
         points: list[tuple[int, float, float, float, float]] = []
         for bots_dir in sorted(server_dir.iterdir(), key=lambda p: _int_or_none(p.name) or 0):
             n = _int_or_none(bots_dir.name)
@@ -69,6 +69,28 @@ def collect_load_curve(root: Path) -> dict[str, list[tuple[int, float, float, fl
                 )
             )
         out[server_dir.name] = points
+    return out
+
+
+def result_trees(root: Path) -> list[tuple[str, Path]]:
+    """(label, path-with-rust/tvp children). Nested headline dirs or a flat tree."""
+    if any(p.is_dir() and p.name in ("rust", "tvp") for p in root.iterdir()):
+        return [("", root)]
+    trees: list[tuple[str, Path]] = []
+    for p in sorted(root.iterdir()):
+        if p.is_dir() and any((p / s).is_dir() for s in ("rust", "tvp")):
+            trees.append((p.name, p))
+    return trees
+
+
+def collect_load_curve(root: Path) -> dict[str, list[tuple[int, float, float, float, float]]]:
+    """label -> points. Labels are `rust`/`tvp` or `rust/mixed_300` when nested."""
+    out: dict[str, list[tuple[int, float, float, float, float]]] = {}
+    for stem, tree in result_trees(root):
+        part = collect_load_curve_from(tree)
+        for server, points in part.items():
+            key = f"{server}/{stem}" if stem else server
+            out[key] = points
     return out
 
 
@@ -122,6 +144,42 @@ def collect_series(root: Path, server: str, bots: int) -> list[tuple[float, floa
     return rows
 
 
+def game_thread_cpu_series(threads_csv: Path, comm: str = "game") -> list[tuple[float, float]]:
+    """Diagnosis-only: `comm` tid CPU% from consecutive `cpu_seconds` samples."""
+    if not threads_csv.is_file():
+        return []
+    by_tid: dict[str, list[tuple[float, float]]] = {}
+    with threads_csv.open(encoding="utf-8", newline="") as fh:
+        for row in csv.DictReader(fh):
+            if (row.get("comm") or "") != comm:
+                continue
+            tid = str(row.get("tid") or "")
+            try:
+                elapsed = float(row.get("elapsed_s") or 0)
+                cpu_s = float(row.get("cpu_seconds") or 0)
+            except ValueError:
+                continue
+            by_tid.setdefault(tid, []).append((elapsed, cpu_s))
+    if not by_tid:
+        return []
+    series = max(by_tid.values(), key=len)
+    out: list[tuple[float, float]] = []
+    prev: tuple[float, float] | None = None
+    for t, c in series:
+        if prev is not None and t > prev[0]:
+            out.append((t, 100.0 * (c - prev[1]) / (t - prev[0])))
+        prev = (t, c)
+    return out
+
+
+def _first_rep_dir(root: Path, server: str, bots: int) -> Path | None:
+    d = root / server / str(bots)
+    if not d.is_dir():
+        return None
+    reps = sorted(p for p in d.iterdir() if p.is_dir())
+    return reps[0] if reps else None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("results_dir", type=Path)
@@ -143,13 +201,13 @@ def main() -> int:
     curve = collect_load_curve(root)
     if any(curve.values()):
         fig, axes = plt.subplots(3, 1, figsize=(8, 10), sharex=True)
-        for server, points in curve.items():
+        for label, points in curve.items():
             if not points:
                 continue
             ns = [p[0] for p in points]
-            axes[0].plot(ns, [p[1] / 1000.0 for p in points], marker="o", label=server)
-            axes[1].plot(ns, [p[2] for p in points], marker="o", label=server)
-            axes[2].plot(ns, [p[3] / 1024.0 for p in points], marker="o", label=server)
+            axes[0].plot(ns, [p[1] / 1000.0 for p in points], marker="o", label=label)
+            axes[1].plot(ns, [p[2] for p in points], marker="o", label=label)
+            axes[2].plot(ns, [p[3] / 1024.0 for p in points], marker="o", label=label)
         axes[0].set_ylabel("walk-ack p99 (ms)")
         axes[1].set_ylabel("CPU % (mean)")
         axes[2].set_ylabel("RSS (MiB)")
@@ -165,14 +223,14 @@ def main() -> int:
         print(f"wrote {dest}")
 
         fig, ax = plt.subplots(figsize=(8, 4))
-        for server, points in curve.items():
+        for label, points in curve.items():
             if not points:
                 continue
             ax.plot(
                 [p[0] for p in points],
                 [p[4] * 1e6 for p in points],
                 marker="o",
-                label=server,
+                label=label,
             )
         ax.set_xlabel("concurrent bots")
         ax.set_ylabel("CPU-µs per delivered action")
@@ -185,17 +243,31 @@ def main() -> int:
         plt.close(fig)
         print(f"wrote {dest}")
 
+    trees = result_trees(root)
     for bots in (200, 300):
         fig, axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
         drawn = False
-        for server in ("rust", "tvp"):
-            series = collect_series(root, server, bots)
-            if not series:
-                continue
-            drawn = True
-            t = [r[0] for r in series]
-            axes[0].plot(t, [r[1] for r in series], label=server)
-            axes[1].plot(t, [r[2] / 1024.0 for r in series], label=server)
+        for stem, tree in trees:
+            suffix = f"/{stem}" if stem else ""
+            for server in ("rust", "tvp"):
+                series = collect_series(tree, server, bots)
+                if not series:
+                    continue
+                drawn = True
+                t = [r[0] for r in series]
+                axes[0].plot(t, [r[1] for r in series], label=f"{server}{suffix}")
+                axes[1].plot(t, [r[2] / 1024.0 for r in series], label=f"{server}{suffix}")
+                if server == "rust":
+                    rep = _first_rep_dir(tree, server, bots)
+                    if rep is not None:
+                        game = game_thread_cpu_series(rep / "threads.csv")
+                        if game:
+                            axes[0].plot(
+                                [g[0] for g in game],
+                                [g[1] for g in game],
+                                linestyle="--",
+                                label=f"rust game thread{suffix}",
+                            )
         if not drawn:
             plt.close(fig)
             continue

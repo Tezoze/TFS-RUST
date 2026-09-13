@@ -8,6 +8,7 @@ use tfs_rust_common::protocol_opcodes::client;
 use crate::encode::inventory_pos;
 use crate::scenario::{BotRng, RoleKind, Scenario};
 use crate::scheduler::{ActionKind, OpenLoop, ScheduledAction};
+use crate::waypoints;
 
 const CARDINALS: [u8; 4] = [
     client::MOVE_NORTH,
@@ -29,10 +30,25 @@ pub fn fill_schedule(
     start: Instant,
     rng: &mut BotRng,
     bounce_ns: bool,
-) {
+    bot_index: usize,
+) -> anyhow::Result<()> {
     let end = start + Duration::from_secs(scenario.duration_s.max(1));
     let walk_p = Duration::from_millis(scenario.walk_period_ms.max(1));
     let say_p = Duration::from_millis(scenario.say_period_ms.max(1));
+    let n_steps = scenario
+        .duration_s
+        .saturating_mul(1000)
+        .div_ceil(scenario.walk_period_ms.max(1))
+        .max(1) as usize;
+    let waypoint_ops = if bounce_ns {
+        None
+    } else if let Some(ref file) = scenario.waypoint_file {
+        let path = waypoints::resolve_waypoint_path(file);
+        let wp = waypoints::load_csv(&path)?;
+        Some(waypoints::expand(&wp, n_steps, bot_index, rng))
+    } else {
+        None
+    };
     let mut t = start;
     let mut north = true;
     let mut last_say = start;
@@ -44,6 +60,10 @@ pub fn fill_schedule(
             } else {
                 client::MOVE_SOUTH
             }
+        } else if let Some(ref ops) = waypoint_ops {
+            ops.get(i as usize)
+                .copied()
+                .unwrap_or(CARDINALS[rng.next_u64() as usize % CARDINALS.len()])
         } else {
             CARDINALS[rng.next_u64() as usize % CARDINALS.len()]
         };
@@ -116,6 +136,7 @@ pub fn fill_schedule(
         t += walk_p;
         i += 1;
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -143,6 +164,7 @@ mod tests {
             rune_server_id: 2268,
             aoe_rune_server_id: 2304,
             aoe_rune_slot: 6,
+            waypoint_file: None,
         };
         let mut ol = OpenLoop::new();
         let mut rng = BotRng::new(1);
@@ -153,7 +175,9 @@ mod tests {
             Instant::now(),
             &mut rng,
             true,
-        );
+            0,
+        )
+        .expect("schedule");
         assert!(!ol.is_empty());
     }
 }

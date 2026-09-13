@@ -5,11 +5,14 @@ Never runs both servers at once. Alternates rust/tvp per cell. Writes
 `results/<timestamp>/<server>/<bots>/repN/{loadgen.json,proc.csv,threads.csv}`.
 
 Modes (pinned-host, not CI):
-  load-curve   bots 25/50/100/200/300/400/600, frozen mixed scenario
+  load-curve   bots 25/50/100/200/300/400/600; default both mixed_300 + clustered_hunt
   steady       300 bots, duration from scenario
   overload     one point past the requested knee (default 600)
   soak         200 bots, 3600 s
   equivalence  5 bots × each isolation role, then check_equivalence.py
+
+`--scenario` pins a single RON (flat `results/<ts>/<server>/…` tree).
+Default load-curve (no `--scenario`) writes `results/<ts>/<scenario_stem>/…`.
 
 Usage:
   python3 scripts/bench/run_comparison.py --dry-run --mode load-curve
@@ -34,6 +37,8 @@ ROOT = Path(__file__).resolve().parents[2]
 ROLES = ("walker", "melee", "caster", "rune", "aoe_rune", "noise")
 DEFAULT_POINTS = (25, 50, 100, 200, 300, 400, 600)
 SCENARIO_MIXED = ROOT / "bench" / "scenarios" / "mixed_300.ron"
+SCENARIO_HUNT = ROOT / "bench" / "scenarios" / "clustered_hunt.ron"
+HEADLINE_SCENARIOS = (SCENARIO_MIXED, SCENARIO_HUNT)
 
 
 def monotonic_s() -> float:
@@ -268,6 +273,7 @@ def loadgen_cmd(
         str(bots),
         "--out",
         str(out),
+        "--progress",
     ]
     if duration_s is not None:
         cmd.extend(["--duration-s", str(duration_s)])
@@ -377,7 +383,7 @@ def write_meta(out_root: Path, args: argparse.Namespace) -> None:
         "servers": args.servers,
         "reps": args.reps,
         "points": args.points,
-        "scenario": str(args.scenario),
+        "scenario": str(args.scenario) if args.scenario else "headlines",
         "cpuset_server": args.cpuset_server,
         "cpuset_loadgen": args.cpuset_loadgen,
         "disable_saves": args.disable_saves,
@@ -445,7 +451,12 @@ def main() -> int:
     )
     parser.add_argument("--bots", type=int, default=None, help="override bots for steady/overload/soak")
     parser.add_argument("--duration-s", type=int, default=None)
-    parser.add_argument("--scenario", type=Path, default=SCENARIO_MIXED)
+    parser.add_argument(
+        "--scenario",
+        type=Path,
+        default=None,
+        help="single RON (default load-curve: mixed_300 + clustered_hunt; other modes: mixed_300)",
+    )
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--cpuset-server", default=None)
     parser.add_argument("--cpuset-loadgen", default=None)
@@ -482,6 +493,16 @@ def main() -> int:
     if args.mode == "equivalence":
         return run_equivalence(args, out_root)
 
+    if args.scenario is not None:
+        scenarios = [args.scenario]
+        nested = False
+    elif args.mode == "load-curve":
+        scenarios = list(HEADLINE_SCENARIOS)
+        nested = True
+    else:
+        scenarios = [SCENARIO_MIXED]
+        nested = False
+
     if args.mode == "load-curve":
         points = parse_points(args.points)
         duration = args.duration_s
@@ -499,21 +520,24 @@ def main() -> int:
         duration = args.duration_s or 3600
         warmup = 30
 
-    for bots in points:
-        for rep in range(args.reps):
-            for server in alternate_servers(servers, rep):
-                run_cell(
-                    server=server,
-                    bots=bots,
-                    rep=rep,
-                    scenario=args.scenario,
-                    duration_s=duration,
-                    out_root=out_root,
-                    cpuset_server=args.cpuset_server,
-                    cpuset_loadgen=args.cpuset_loadgen,
-                    dry=args.dry_run,
-                    warmup_s=warmup,
-                )
+    for scenario in scenarios:
+        cell_root = out_root / scenario.stem if nested else out_root
+        print(f"scenario {scenario} → {cell_root}", file=sys.stderr)
+        for bots in points:
+            for rep in range(args.reps):
+                for server in alternate_servers(servers, rep):
+                    run_cell(
+                        server=server,
+                        bots=bots,
+                        rep=rep,
+                        scenario=scenario,
+                        duration_s=duration,
+                        out_root=cell_root,
+                        cpuset_server=args.cpuset_server,
+                        cpuset_loadgen=args.cpuset_loadgen,
+                        dry=args.dry_run,
+                        warmup_s=warmup,
+                    )
 
     plot = [
         sys.executable,

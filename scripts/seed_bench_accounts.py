@@ -9,7 +9,10 @@ Password is SHA1 hex of the plaintext (same as `scripts/seed_test_account.sql`).
 Default placement scatters characters across `data/world/spawns.xml`: one tile
 south (then other neighbors) of unique NPC stands, then spawn-center tiles,
 with a Chebyshev gap so login does not stack the Thais temple spectator set.
-`--stack-temple` restores the old single-tile seed (32369,32241,7).
+`--layout cluster` packs a Chebyshev disk (default center 32776,32240,7 Cyclops,
+gap 1–2) so bots share spectator sets. `--stack-temple` restores the old
+single-tile seed (32369,32241,7). `--vocation-cycle 1,2,3,4` rotates vocation
+ids; names stay Test / Test1 / ….
 
 Bench defaults: vocation 1 (sorcerer), premium 365 days, `player_spells`
 Energy Strike, sudden-death rune (2268) in ammo slot 10, great-fireball
@@ -39,6 +42,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SHA1_ONE = "356a192b7913b04c54574d18c28d46e6395428ab"
 THAIS_X, THAIS_Y, THAIS_Z = 32369, 32241, 7
+# Cyclops spawn (also on TVP tvpspawn) — default `--layout cluster` center.
+CLUSTER_X, CLUSTER_Y, CLUSTER_Z = 32776, 32240, 7
+DEFAULT_CLUSTER_RADIUS = 6
 DEFAULT_SPAWNS = ROOT / "data" / "world" / "spawns.xml"
 # CONST_SLOT_AMMO / CONST_SLOT_LEFT — loadgen Rune uses ammo, AoeRune uses left.
 SLOT_AMMO = 10
@@ -179,6 +185,48 @@ def scatter_positions(
     return chosen[:count]
 
 
+def cluster_positions(
+    count: int,
+    *,
+    cx: int = CLUSTER_X,
+    cy: int = CLUSTER_Y,
+    cz: int = CLUSTER_Z,
+    radius: int = DEFAULT_CLUSTER_RADIUS,
+    min_gap: int = 2,
+) -> list[tuple[int, int, int]]:
+    """Chebyshev disk around a spawn center; gap 2 then 1, then stack."""
+    if count < 1:
+        return []
+    r = max(0, radius)
+    candidates: list[tuple[int, int, int]] = []
+    for dx in range(-r, r + 1):
+        for dy in range(-r, r + 1):
+            if max(abs(dx), abs(dy)) <= r:
+                candidates.append((cx + dx, cy + dy, cz))
+    chosen: list[tuple[int, int, int]] = []
+    taken: set[tuple[int, int, int]] = set()
+    for gap in (max(1, min_gap), 1):
+        for p in candidates:
+            if len(chosen) >= count:
+                break
+            if p in taken:
+                continue
+            if all(_chebyshev(p, q) >= gap for q in chosen):
+                chosen.append(p)
+                taken.add(p)
+    i = 0
+    while len(chosen) < count:
+        chosen.append(candidates[i % len(candidates)])
+        i += 1
+    return chosen[:count]
+
+
+def vocations_for(count: int, vocation: int, cycle: list[int] | None) -> list[int]:
+    if not cycle:
+        return [vocation] * count
+    return [cycle[i % len(cycle)] for i in range(count)]
+
+
 def _gear_sql(
     ids: list[int],
     *,
@@ -232,6 +280,7 @@ def rust_sql(
     aoe_rune_id: int = GFB_RUNE_ID,
     aoe_rune_count: int = 100,
     spell_name: str = ENERGY_STRIKE,
+    vocation_cycle: list[int] | None = None,
 ) -> str:
     if len(positions) != count:
         raise ValueError(f"positions length {len(positions)} != count {count}")
@@ -262,6 +311,7 @@ def rust_sql(
         "INSERT INTO `accounts` (`id`, `name`, `password`, `type`, `premium_ends_at`, `email`, `creation`) VALUES"
     )
     lines.append(",\n".join(acc_rows) + ";")
+    vocs = vocations_for(count, vocation, vocation_cycle)
     pl_rows = []
     for i, acc_id in enumerate(ids):
         name = character_name(char_base, i)
@@ -275,7 +325,7 @@ def rust_sql(
                     "1",
                     str(acc_id),
                     str(level),
-                    str(vocation),
+                    str(vocs[i]),
                     str(health),
                     str(health),
                     "0",
@@ -342,6 +392,7 @@ def tvp_sql(
     aoe_rune_id: int = GFB_RUNE_ID,
     aoe_rune_count: int = 100,
     spell_name: str = ENERGY_STRIKE,
+    vocation_cycle: list[int] | None = None,
 ) -> str:
     if len(positions) != count:
         raise ValueError(f"positions length {len(positions)} != count {count}")
@@ -372,6 +423,7 @@ def tvp_sql(
         "INSERT INTO `accounts` (`id`, `password`, `type`, `premium_ends_at`, `email`, `creation`, `failed_bid_count`) VALUES"
     )
     lines.append(",\n".join(acc_rows) + ";")
+    vocs = vocations_for(count, vocation, vocation_cycle)
     pl_rows = []
     for i, acc_id in enumerate(ids):
         name = character_name(char_base, i)
@@ -385,7 +437,7 @@ def tvp_sql(
                     "1",
                     str(acc_id),
                     str(level),
-                    str(vocation),
+                    str(vocs[i]),
                     str(health),
                     str(health),
                     "0",
@@ -485,6 +537,19 @@ def self_test() -> int:
     assert len(set(pos)) == 20
     xs = [p[0] for p in pos]
     assert max(xs) - min(xs) > 400, xs  # not stuck in one town
+    packed = cluster_positions(50, radius=6, min_gap=2)
+    assert len(packed) == 50
+    assert packed[0][2] == CLUSTER_Z
+    uniq50 = packed[:50]
+    assert len(set(uniq50)) == 50
+    for i, a in enumerate(uniq50):
+        for b in uniq50[i + 1 :]:
+            assert _chebyshev(a, b) >= 1
+    stacked_disk = cluster_positions(200, radius=6, min_gap=2)
+    assert len(stacked_disk) == 200
+    assert len(set(stacked_disk)) <= (2 * 6 + 1) ** 2
+    vocs = vocations_for(4, 1, [1, 2, 3, 4])
+    assert vocs == [1, 2, 3, 4]
     rust = rust_sql(
         count=2,
         start_id=1,
@@ -497,10 +562,13 @@ def self_test() -> int:
         maglevel=20,
         positions=pos[:2],
         premium_secs=365 * 24 * 3600,
+        vocation_cycle=[1, 2],
     )
     assert "INSERT INTO `accounts`" in rust
     assert "'Test'" in rust and "'Test1'" in rust
     assert ", 1," in rust  # account id 1
+    # first char vocation 1, second vocation 2 (cycle)
+    assert ", 1," in rust and ", 2," in rust
     assert str(pos[0][0]) in rust and str(pos[1][0]) in rust
     assert "player_items" in rust and "2268" in rust and "2304" in rust
     assert "Energy Strike" in rust
@@ -534,6 +602,11 @@ def main() -> int:
     parser.add_argument("--character", default="Test", help="base character name")
     parser.add_argument("--level", type=int, default=50)
     parser.add_argument("--vocation", type=int, default=1, help="1 = sorcerer (Energy Strike)")
+    parser.add_argument(
+        "--vocation-cycle",
+        default=None,
+        help="comma-separated vocation ids cycled by character index (names stay Test/Test1/…)",
+    )
     parser.add_argument("--health", type=int, default=1000)
     parser.add_argument("--mana", type=int, default=1000)
     parser.add_argument("--maglevel", type=int, default=20)
@@ -571,6 +644,21 @@ def main() -> int:
         help="old behavior: every char on Thais temple 32369,32241,7",
     )
     parser.add_argument(
+        "--layout",
+        choices=("scatter", "cluster"),
+        default="scatter",
+        help="scatter = Chebyshev gap 16 (default); cluster = disk around --cluster-*",
+    )
+    parser.add_argument("--cluster-x", type=int, default=CLUSTER_X, help="cluster center x (default 32776)")
+    parser.add_argument("--cluster-y", type=int, default=CLUSTER_Y, help="cluster center y (default 32240)")
+    parser.add_argument("--cluster-z", type=int, default=CLUSTER_Z, help="cluster center z (default 7)")
+    parser.add_argument(
+        "--cluster-radius",
+        type=int,
+        default=DEFAULT_CLUSTER_RADIUS,
+        help="Chebyshev disk radius (default 6)",
+    )
+    parser.add_argument(
         "--out-dir",
         type=Path,
         default=None,
@@ -590,16 +678,45 @@ def main() -> int:
         print("count must be >= 1", file=sys.stderr)
         return 2
 
-    positions = scatter_positions(
-        args.count,
-        spawns=args.spawns,
-        min_dist=max(1, args.min_dist),
-        stack_temple=args.stack_temple,
-    )
+    cycle: list[int] | None = None
+    if args.vocation_cycle:
+        cycle = [int(x.strip()) for x in args.vocation_cycle.split(",") if x.strip()]
+        if not cycle:
+            print("vocation-cycle must list at least one id", file=sys.stderr)
+            return 2
+
+    if args.stack_temple:
+        positions = scatter_positions(
+            args.count,
+            spawns=args.spawns,
+            min_dist=max(1, args.min_dist),
+            stack_temple=True,
+        )
+        layout_note = "stack_temple=True"
+    elif args.layout == "cluster":
+        positions = cluster_positions(
+            args.count,
+            cx=args.cluster_x,
+            cy=args.cluster_y,
+            cz=args.cluster_z,
+            radius=max(0, args.cluster_radius),
+            min_gap=2,
+        )
+        layout_note = (
+            f"layout=cluster center={args.cluster_x},{args.cluster_y},{args.cluster_z} "
+            f"r={args.cluster_radius}"
+        )
+    else:
+        positions = scatter_positions(
+            args.count,
+            spawns=args.spawns,
+            min_dist=max(1, args.min_dist),
+            stack_temple=False,
+        )
+        layout_note = f"layout=scatter min_dist={args.min_dist}"
     uniq = len(set(positions))
     print(
-        f"seed_bench_accounts: {args.count} chars on {uniq} tiles "
-        f"(min_dist={args.min_dist} stack_temple={args.stack_temple})",
+        f"seed_bench_accounts: {args.count} chars on {uniq} tiles ({layout_note})",
         file=sys.stderr,
     )
     for i, (x, y, z) in enumerate(positions[:8]):
@@ -623,6 +740,7 @@ def main() -> int:
         aoe_rune_id=args.aoe_rune_id,
         aoe_rune_count=args.aoe_rune_count,
         spell_name=args.spell_name,
+        vocation_cycle=cycle,
     )
     rust = rust_sql(**kwargs)
     tvp = tvp_sql(**kwargs)

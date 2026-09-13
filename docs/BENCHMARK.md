@@ -104,8 +104,9 @@ run. Never publish only one.
 - Layouts (`--layout`): `scatter` (default, Chebyshev gap 16 from
   `spawns.xml` NPC stands then spawn centers — no shared spectator sets),
   `cluster` (Chebyshev disk radius ~6, gap 1–2 around a chosen spawn center —
-  shared spectator sets, active monsters), `--stack-temple` (single Thais
-  temple tile 32369,32241,7). `cluster` is not implemented yet (§8.3).
+  shared spectator sets, active monsters; default center `32776,32240,7`
+  Cyclops, also on TVP `tvpspawn`), `--stack-temple` (single Thais
+  temple tile 32369,32241,7).
 - Shared OTBM: `./scripts/sync_tvp_world.sh` hardlinks Rust
   `data/world/forgotten.otbm` onto TVP `gameserver/data/world/map.otbm`.
   `run_tvp.sh` / `run_comparison.py` call it before TVP starts. TVP
@@ -139,7 +140,7 @@ Publication therefore carries **two** headline lines:
 | Scenario | File | Layout | What it measures |
 |---|---|---|---|
 | City churn | `bench/scenarios/mixed_300.ron` (**frozen**) | `scatter` | wire, walk-ack, spectator recalc, login/chat noise |
-| Hunt | `bench/scenarios/clustered_hunt.ron` (freeze when landed) | `cluster` | monster AI, combat pipeline, AoE × spectator fan-out |
+| Hunt | `bench/scenarios/clustered_hunt.ron` (not frozen) | `cluster` | monster AI, combat pipeline, AoE × spectator fan-out |
 
 `mixed_300.ron` is frozen: 300 bots, 120 s + 30 s warmup, seed 42,
 `walk_period_ms 200`, `say_period_ms 2500`, roles Walker 0.40 / Melee 0.20 /
@@ -154,17 +155,21 @@ servers. Freeze it once the equivalence gate passes on it.
 
 Isolation roles (`walker`, `melee`, `caster`, `rune`, `aoe_rune`, `noise`)
 each have a 5-bot `.ron` for attribution and for the equivalence gate.
+Those files use `walk_period_ms: 500` and `cyclops_hunt_loop.csv`. Seed
+`--layout cluster` before `--mode equivalence` so login tiles match the
+loop. Scatter cannot test combat (`unique_creatures` stays 0).
 
 ### 4.2 Server gates the bots respect
 
 - Login ramp ≤ 8/s (Rust `MAX_CONCURRENT_LOGIN_LOADS = 8`, `login.rs`).
   Report login throughput separately; do not let it distort steady state.
 - `say_period_ms ≥ 2500` (`RecordTalk` window, `chat_talk.rs`).
-- `walk_period_ms` (default 200). **Open item:** `scenario.rs:10` asserts
-  200 ms is at/above the LinearGo step duration; verify against
-  `walk_timing.rs` `get_step_duration` for the seeded character
-  (`--level 50`, grass) on both servers. If 200 ms is below the real step,
-  most walks are rejected as too-early and §6.2 applies twice over.
+- `walk_period_ms` default 200 is **below** the seeded character's LinearGo
+  step: vocation `base_speed` 70, level 50 → Go 119, GetSpeed 318, grass 150
+  waypoints, ceil-to-`beat_ms` 50 → **500 ms**. Frozen `mixed_300.ron` stays
+  at 200 (too-early walks become `walk.rejections` via §6.2). New scenarios
+  (`walker_loop`, `clustered_hunt`, isolation roles) use 500. A replacement headline freeze is
+  a later methodology change, not an edit of `mixed_300.ron`.
 - Seeded characters are sorcerer (`vocation` 1), premium, have learned
   `Energy Strike`, hold SD (server 2268) in ammo slot 10 and GFB (2304) in
   left-hand slot 6. Loadgen resolves client look ids from `TFS_ITEMS_OTB`
@@ -180,11 +185,12 @@ the shared 772 OTBM, walkable surface only, one floor, implicit loop back to
 the first tile. Authored by hand from `data/world/` and walked once in-game.
 Never import waypoints from other worlds or GPL trees.
 
-Expander in `tools/loadgen` (own module, e.g. `waypoints.rs`; not in
-`roles.rs`): polyline + `walk_period_ms` + bot RNG → precomputed list of 772
-cardinal move opcodes, axis-aligned steps between tiles (diagonals become two
-steps), repeated to fill `duration_s + warmup_s`. Bad CSV = data bug, not a
-runtime pathfinder. Inbound `pos` is never used to replan.
+Expander in `tools/loadgen/src/waypoints.rs` (not in `roles.rs`): polyline +
+`walk_period_ms` + bot RNG → precomputed list of 772 cardinal move opcodes,
+axis-aligned steps between tiles (diagonals become two steps), repeated to
+fill `duration_s + warmup_s`. Bad CSV = data bug, not a runtime pathfinder.
+Inbound `pos` is never used to replan. CSV tiles are authored from the 772
+OTBM; in-game walk-through of the starter loops is still pending.
 
 Desync so bots do not form a conga line — all folded into the precomputed
 list, no extra packets:
@@ -215,6 +221,13 @@ No GPL code, Lua, CSVs, or coordinates from other bot trees — ideas only.
 `game_frame::read_sized_payload`) and `tfs-rust-common` opcode tables. It does
 **not** depend on `tfs-rust-core`. Loadgen is the client; Python is the runner.
 Do not grow loadgen into an orchestrator.
+
+`--progress` prints one stderr line per second:
+`connected / in_world / actions_sent / bytes_in / bytes_discarded /
+disconnects / reconnects`. `run_comparison.py` always passes it. A stuck
+login burst shows `connected=N in_world=0`; a kick under load increments
+`disconnects` without changing offered load — loadgen does **not**
+auto-reconnect during the window (`reconnects` stays 0).
 
 Session: connect 7171 → RSA login packet → char list (`0x64`, no Adler on 772)
 → connect 7172 → RSA game packet → XTEA opcode stream.
@@ -256,9 +269,9 @@ Correlation, per action type:
 ### 6.2 Walk-ack correlation defect (blocker)
 
 `latency.rs` `on_walk_ack` pops the **oldest** outstanding walk FIFO. A walk
-the server rejects (wall, too-early) never produces a self `0x6D`, so its
-timestamp stays at the head of the queue; the next accepted walk's ack pops
-the rejected one's timestamp. Effects:
+the server rejects (wall, too-early) never produces a self `0x6D`. Until
+`0xB5` retires that head, the next accepted walk's ack pops the rejected
+timestamp. Effects (when cancel-walk is ignored):
 
 - Every accepted walk after a rejection is charged ≥ 1 `walk_period` extra.
 - The queue only grows (`outstanding_at_end`), so measured p99 drifts up over
@@ -267,16 +280,16 @@ the rejected one's timestamp. Effects:
   enforcement, which differ between the two servers — the bias is
   **asymmetric**.
 
-Under random cardinals rejections are frequent, so the current walk p99
-measures "how often did this bot hit a wall". Two fixes, both required:
+Under random cardinals rejections are frequent, so walk p99 without this
+fix measures "how often did this bot hit a wall". Two fixes, both required:
 
-1. Retire the head outstanding walk on `0xB5` cancel-walk (and record it as a
-   rejection count, not a latency sample). Today `inbound.rs` length-skips
-   `0xB5`.
+1. Retire the head outstanding walk on `0xB5` cancel-walk and record it as
+   `walk.rejections`, not a latency sample. **Landed** (`CancelWalk` event,
+   `on_walk_cancel`). Login-trailer `0xB5` with an empty queue is a no-op.
 2. Waypoint loops (§4.3) so rejections are rare in the first place.
 
-Report `walk.rejections` next to `walk.samples`; the equivalence gate should
-compare rejection rate as well.
+Report `walk.rejections` next to `walk.samples`; the equivalence gate
+compares rejection rate as well.
 
 ### 6.3 Sampling
 
@@ -290,10 +303,12 @@ servers:
 - `/proc/<pid>/io`
 - bytes/packets from `/proc/<pid>/net/dev` (netns-wide, includes `lo`)
 
-Game-thread CPU vs process CPU (diagnosis only): name the Rust game thread
-(`std::thread::Builder::name("game")`) so `comm` is stable; document which TVP
-`comm` is the dispatcher vs asio workers. Optional overlay in
-`plot_results.py`, never on the publication CPU chart. Do not add
+Game-thread CPU vs process CPU (diagnosis only): Rust names the game OS
+thread `game` (`std::thread::Builder::name` in `run_server.rs`) so
+`threads.csv` `comm` is stable. TVP `comm` names (dispatcher vs asio workers)
+must be read from a live `threads.csv` on the pinned host — do not guess.
+Optional overlay in `plot_results.py` on the time-series CPU panel, never on
+the publication CPU chart or `cpu_per_action.png`. Do not add
 `CLOCK_THREAD_CPUTIME_ID` sampling inside the game loop for A/B.
 
 ### 6.4 Headline metrics
@@ -321,47 +336,51 @@ Runs 5 bots of each isolation role against rust then tvp and fails
 
 | Observable | Threshold |
 |---|---|
-| `damage_sum` (numeric `0x84`) | 20% (skip if both 0) |
+| `damage_sum` (numeric `0x84`) | 20% (skip if both `unique_creatures` are 0 — field ticks are not combat) |
 | `unique_creatures` | 15% (skip if both 0) |
 | `bytes_in` per send | 25% |
-| `magic_effects` | 25% (skip if both 0) |
+| `magic_effects` | 25% (skip if both 0; do **not** skip when only one side is 0) |
 | `sends` | 25% |
 | `bytes_discarded` / `bytes_in` | 25% (skip if both 0) |
-| `walk.rejections` / `walk.samples` | 25% (add with §6.2) |
+| `walk.rejections` / `walk.samples` | 25% (skip if both 0) |
+| `disconnects` / `bots` | 25% (skip if both 0) |
+| `reconnects` | 25% (skip if both 0; both should be 0) |
 
 If the two servers do not match at 5 bots, the 300-bot chart is not measuring
-the claimed workload. Run the gate on the `cluster` layout too before
-`clustered_hunt` is frozen. Document residual deltas (script-tree AoE is the
-expected hotspot). Server-side RNG is not locked across processes; headline
-metrics must be insensitive to it (median of ≥ 3 reps) or the gate fails.
+the claimed workload. **Publication equivalence is `--layout cluster`**
+(Cyclops `32776,32240,7`) plus the isolation RONs. Scatter isolation never
+sees monsters; do not treat a green scatter-only gate as combat equivalence.
+Freeze `clustered_hunt.ron` after this cluster gate passes. Document residual
+deltas (script-tree AoE is the expected hotspot). Server-side RNG is not
+locked across processes; headline metrics must be insensitive to it (median
+of ≥ 3 reps) or the gate fails.
+
+```
+python3 scripts/seed_bench_accounts.py --count 10 --apply --target both --layout cluster
+python3 scripts/bench/run_comparison.py --mode equivalence --reps 1
+```
 
 ## 8. Remaining work (parent implements; sub-agents research only)
 
-Order matters: 1–3 are publication blockers.
+Harness items 1–7 landed in code. Isolation RONs use the Cyclops loop at
+500 ms; inbound length-skips `0xA7`/`0xD3`/`0xD4` and reports
+`unknown_opcodes`. Live cluster equivalence (`results/20260913T062814Z`)
+**FAIL**ed with `unique_creatures` > 0 (combat is visible); residual
+damage / ME / creature-count deltas remain. `clustered_hunt.ron` is **not
+frozen**. Scatter cannot test combat. In-game walk of the CSV loops still
+pending.
 
-1. **Walk-ack retire on `0xB5`** — `tools/loadgen/src/inbound.rs` emit a
-   cancel event; `latency.rs` pop head + `rejections` counter; JSON field;
-   `check_equivalence.py` threshold row. Unit test: send, cancel, send, ack →
-   one latency sample, one rejection.
-2. **Waypoint CSV + expander + `waypoint_file`** — new `tools/loadgen/src/
-   waypoints.rs`; `scenario.rs` field; `roles.rs` call site; phase / lane /
-   jitter in the same expander. Tests: 4-tile square → 4× cardinals × loops;
-   two bot seeds do not emit identical prefixes. One real
-   `bench/waypoints/thais_depot_loop.csv`, walked in-game.
-   `bench/scenarios/walker_loop.ron` (25–50 walkers).
-3. **`--layout cluster`** on `scripts/seed_bench_accounts.py` (`--cluster-x/
-   -y/-z/--cluster-radius`, `--self-test` disk packing) +
-   `bench/scenarios/clustered_hunt.ron`. Equivalence gate on cluster layout,
-   then freeze.
-4. **Verify `walk_period_ms`** against `get_step_duration` for the seeded
-   character; adjust scenario defaults if 200 ms is too short (this changes
-   `mixed_300.ron` → requires a methodology note and a new frozen version).
-5. **Game-thread `comm`** + optional `plot_results.py` overlay (diagnosis).
-6. **Orchestrator**: `run_comparison.py --scenario` already exists; add
-   `clustered_hunt` as a second headline line in `plot_results.py` and to the
-   default load-curve matrix.
-7. **Stratified roster** (`--vocation-cycle`) — optional, last; scatter vs
-   cluster dominates vocation.
+1. **Walk-ack retire on `0xB5`** — **done.**
+2. **Waypoint CSV + expander + `waypoint_file`** — **done** (`waypoints.rs`,
+   `thais_depot_loop.csv`, `walker_loop.ron`). In-game walk of the loops still
+   pending.
+3. **`--layout cluster`** — **done** (default center `32776,32240,7`).
+   Equivalence gate on cluster layout, then freeze `clustered_hunt.ron`.
+4. **`walk_period_ms`** — **verified 500 ms** for level-50 sorcerer / grass.
+   Frozen `mixed_300.ron` stays 200; new RON files use 500.
+5. **Game-thread `comm`** — **done** (named `game` thread + diagnosis overlay).
+6. **Orchestrator** — **done** (default load-curve runs both headlines).
+7. **`--vocation-cycle`** — **done** on the seeder.
 
 Crate placement: wire work in `tools/loadgen` and `bench/`; seeder and
 orchestrator stay Python; nothing in `tfs-rust-core` beyond the existing
@@ -405,7 +424,7 @@ python3 scripts/bench/check_equivalence.py --self-test
 - [ ] §8 items 1–3 landed; `clustered_hunt.ron` frozen
 - [ ] Client ceiling measured (null echo) and ≫ max bot count
 - [ ] Loadgen byte stream diffed against a real client capture
-- [ ] Equivalence gate passes on `scatter` and `cluster`, residuals documented
+- [ ] Equivalence gate passes on **cluster** (isolation RONs + Cyclops seed), residuals documented
 - [ ] `tvp` and `tvp-o3` both run; both on the chart
 - [ ] Alternating cells, ≥ 3 reps, median + spread, pinned cpusets, governor
   `performance`, `meta.json` present

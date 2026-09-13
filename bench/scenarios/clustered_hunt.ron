@@ -1,0 +1,21 @@
+(
+    name: "clustered_hunt",
+    bots: 50,
+    duration_s: 120,
+    warmup_s: 30,
+    seed: 42,
+    walk_period_ms: 500,
+    say_period_ms: 2500,
+    waypoint_file: Some("bench/waypoints/cyclops_hunt_loop.csv"),
+    roles: [
+        (kind: Melee, weight: 0.45),
+        (kind: Walker, weight: 0.20),
+        (kind: Caster, weight: 0.15),
+        (kind: Rune, weight: 0.10),
+        (kind: AoeRune, weight: 0.05),
+        (kind: Noise, weight: 0.05),
+    ],
+    spell_words: "exori vis",
+    rune_sprite_id: 3155,
+    rune_slot: 10,
+)

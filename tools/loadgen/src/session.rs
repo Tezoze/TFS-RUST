@@ -25,6 +25,7 @@ use crate::encode::{
 use crate::inbound::{InboundEvent, InboundState};
 use crate::item_extra::ItemExtraBits;
 use crate::latency::LatencySet;
+use crate::progress::{LiveCounters, SessionLease};
 use crate::ramp::LoginGate;
 use crate::roles::{bot_seed, fill_schedule};
 use crate::scenario::{BotRng, RoleKind, Scenario};
@@ -46,6 +47,7 @@ pub struct BotConfig {
     pub bounce_ns: bool,
     pub walk_count: Option<u32>,
     pub item_extra: Arc<ItemExtraBits>,
+    pub live: Arc<LiveCounters>,
 }
 
 pub struct BotOutcome {
@@ -54,6 +56,8 @@ pub struct BotOutcome {
     pub bytes_out: u64,
     pub sends: u64,
     pub inbound: InboundState,
+    pub disconnects: u64,
+    pub reconnects: u64,
 }
 
 pub fn load_rsa_pem(explicit: Option<&Path>) -> Result<RsaPrivateKey> {
@@ -144,11 +148,14 @@ pub async fn run_bot(
     let gframe = wrap_tcp_frame(&game_body);
     game.write_all(&gframe).await?;
     let mut bytes_out = gframe.len() as u64;
+    let mut lease = SessionLease::new(Arc::clone(&cfg.live));
 
     let (mut reader, mut writer) = game.into_split();
     let mut inbound = InboundState::new(Arc::clone(&cfg.item_extra));
     let mut latency = LatencySet::new()?;
     let mut sends = 0u64;
+    let mut seen_in = 0u64;
+    let mut seen_discarded = 0u64;
     let dump_inbound = cfg.index == 0 && std::env::var_os("TFS_LOADGEN_DUMP_INBOUND").is_some();
     let mut dumps = 0u8;
 
@@ -168,11 +175,20 @@ pub async fn run_bot(
             .scenario
             .warmup_s
             .saturating_add(cfg.scenario.duration_s);
-        fill_schedule(&mut ol, cfg.role, &sched, start, &mut rng, cfg.bounce_ns);
+        fill_schedule(
+            &mut ol,
+            cfg.role,
+            &sched,
+            start,
+            &mut rng,
+            cfg.bounce_ns,
+            cfg.index,
+        )?;
     }
     let run_end = start + warmup + Duration::from_secs(cfg.scenario.duration_s.max(1));
 
-    loop {
+    let mut dropped = false;
+    'run: loop {
         let now = Instant::now();
         if now >= run_end && ol.is_empty() {
             break;
@@ -182,8 +198,12 @@ pub async fn run_bot(
 
         tokio::select! {
             body = read_sized_payload(&mut reader) => {
-                let Some(mut body) = body.map_err(|e| anyhow!("game read: {e}"))? else {
-                    break;
+                let mut body = match body {
+                    Ok(Some(body)) => body,
+                    Ok(None) | Err(_) => {
+                        dropped = Instant::now() < run_end;
+                        break 'run;
+                    }
                 };
                 match decrypt_xtea_game_body(&mut body, &round, &caps) {
                     Ok(plain) => {
@@ -199,16 +219,24 @@ pub async fn run_bot(
                             dumps += 1;
                         }
                         let evs = inbound.feed(plain);
+                        note_live_inbound(&mut lease, &inbound, &mut seen_in, &mut seen_discarded);
                         let t = Instant::now();
                         for ev in evs {
                             match ev {
                                 InboundEvent::WalkAck => latency.on_walk_ack(t),
+                                InboundEvent::CancelWalk => latency.on_walk_cancel(),
                                 InboundEvent::MagicEffect { pos } => {
                                     latency.on_magic_effect(t, pos);
                                 }
                                 InboundEvent::Ping(op) => {
                                     let pkt = encode_ping_reply(op);
-                                    bytes_out += write_game(&mut writer, &pkt, &round, &caps).await?;
+                                    match write_game(&mut writer, &pkt, &round, &caps).await {
+                                        Ok(n) => bytes_out += n,
+                                        Err(_) => {
+                                            dropped = Instant::now() < run_end;
+                                            break 'run;
+                                        }
+                                    }
                                 }
                                 InboundEvent::OtherCreature { .. } => {}
                             }
@@ -217,6 +245,7 @@ pub async fn run_bot(
                     Err(_) => {
                         inbound.bytes_in += body.len() as u64;
                         inbound.bytes_discarded += body.len() as u64;
+                        note_live_inbound(&mut lease, &inbound, &mut seen_in, &mut seen_discarded);
                     }
                 }
             }
@@ -238,8 +267,15 @@ pub async fn run_bot(
                         }
                         _ => None,
                     };
-                    bytes_out += write_game(&mut writer, &payload, &round, &caps).await?;
+                    match write_game(&mut writer, &payload, &round, &caps).await {
+                        Ok(n) => bytes_out += n,
+                        Err(_) => {
+                            dropped = Instant::now() < run_end;
+                            break 'run;
+                        }
+                    }
                     sends += 1;
+                    lease.note_action();
                     if act.intended >= record_from
                         && let Some((kind, tile)) = corr
                     {
@@ -250,13 +286,36 @@ pub async fn run_bot(
         }
     }
 
+    if dropped {
+        lease.note_disconnect();
+    }
+
     Ok(BotOutcome {
         latency,
         bytes_in: inbound.bytes_in,
         bytes_out,
         sends,
         inbound,
+        disconnects: u64::from(dropped),
+        reconnects: 0,
     })
+}
+
+fn note_live_inbound(
+    lease: &mut SessionLease,
+    inbound: &InboundState,
+    seen_in: &mut u64,
+    seen_discarded: &mut u64,
+) {
+    lease.add_bytes(
+        inbound.bytes_in.saturating_sub(*seen_in),
+        inbound.bytes_discarded.saturating_sub(*seen_discarded),
+    );
+    *seen_in = inbound.bytes_in;
+    *seen_discarded = inbound.bytes_discarded;
+    if inbound.self_id.is_some() {
+        lease.mark_in_world();
+    }
 }
 
 fn materialize(kind: &ActionKind, inbound: &InboundState) -> Vec<u8> {

@@ -10,6 +10,7 @@ use tfs_loadgen::encode::wrap_tcp_frame;
 use tfs_loadgen::inbound::InboundState;
 use tfs_loadgen::item_extra::shared_item_extra;
 use tfs_loadgen::latency::{LatencySet, RunReport};
+use tfs_loadgen::progress::{LiveCounters, run_progress_ticker};
 use tfs_loadgen::ramp::LoginGate;
 use tfs_loadgen::roles::bot_seed;
 use tfs_loadgen::scenario::{BotRng, Scenario};
@@ -58,6 +59,9 @@ struct Args {
     echo_ceiling: bool,
     #[arg(long, default_value = "127.0.0.1:17171")]
     echo_addr: String,
+    /// One-line-per-second stderr ticker (connected / in_world / sends / drops).
+    #[arg(long)]
+    progress: bool,
 }
 
 #[tokio::main]
@@ -98,6 +102,15 @@ async fn main() -> Result<()> {
     let caps = v772_caps();
     let bounce_ns = args.walk_ns || args.beats.is_some();
     let item_extra = shared_item_extra();
+    let live = Arc::new(LiveCounters::default());
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+    let ticker = if args.progress {
+        let live = Arc::clone(&live);
+        Some(tokio::spawn(run_progress_ticker(live, bots, stop_rx)))
+    } else {
+        drop(stop_rx);
+        None
+    };
 
     let mut set = JoinSet::new();
     for i in 0..bots {
@@ -120,6 +133,7 @@ async fn main() -> Result<()> {
             bounce_ns,
             walk_count: args.beats,
             item_extra: Arc::clone(&item_extra),
+            live: Arc::clone(&live),
         };
         let key = Arc::clone(&key);
         let gate = Arc::clone(&gate);
@@ -131,6 +145,8 @@ async fn main() -> Result<()> {
     let mut bytes_out = 0u64;
     let mut sends = 0u64;
     let mut outstanding = 0u64;
+    let mut disconnects = 0u64;
+    let mut reconnects = 0u64;
     let mut ok = 0usize;
     while let Some(joined) = set.join_next().await {
         let outcome = joined.map_err(|e| anyhow!("bot join: {e}"))??;
@@ -139,7 +155,13 @@ async fn main() -> Result<()> {
         bytes_out += outcome.bytes_out;
         sends += outcome.sends;
         outstanding += outcome.latency.outstanding_count();
+        disconnects += outcome.disconnects;
+        reconnects += outcome.reconnects;
         ok += 1;
+    }
+    let _ = stop_tx.send(());
+    if let Some(t) = ticker {
+        let _ = t.await;
     }
 
     let report = RunReport {
@@ -162,6 +184,10 @@ async fn main() -> Result<()> {
         unique_creatures: inbound.unique_creatures(),
         bytes_discarded: inbound.bytes_discarded,
         skip_failures: inbound.skip_failures,
+        unknown_opcodes: inbound.unknown_opcodes,
+        unknown_opcode_first: inbound.unknown_opcode_first,
+        disconnects,
+        reconnects,
     };
     let json = report.to_json();
     print!("{json}");

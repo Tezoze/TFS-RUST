@@ -1,0 +1,8 @@
+# cyclops_hunt_loop — square around spawn 32776,32240,7 (Cyclops + Minotaur Guard)
+# Same center on TVP tvpspawn. Not yet walked in-game.
+# lane_clamp: 1
+x,y,z
+32776,32240,7
+32778,32240,7
+32778,32242,7
+32776,32242,7

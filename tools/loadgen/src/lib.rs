@@ -8,11 +8,13 @@ pub mod encode;
 pub mod inbound;
 pub mod item_extra;
 pub mod latency;
+pub mod progress;
 pub mod ramp;
 pub mod roles;
 pub mod scenario;
 pub mod scheduler;
 pub mod session;
+pub mod waypoints;
 
 pub use encode::{
     PROTOCOL_772, STOCK_CLIENT_OS, encode_game_first, encode_login_first, wrap_tcp_frame,

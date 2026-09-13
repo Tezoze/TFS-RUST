@@ -7,7 +7,9 @@ use serde::Deserialize;
 
 /// Minimum `SAY` interval — `RECORD_TALK_WINDOW_MS` in `chat_talk.rs`.
 pub const RECORD_TALK_WINDOW_MS: u64 = 2500;
-/// Default walk period (ms) — at/above typical LinearGo step / `earliest_walk_server_ms`.
+/// Frozen `mixed_300.ron` walk period (ms). Level-50 sorcerer on grass is ~500 ms
+/// LinearGo (`voc_base 70 + 49`, GetSpeed 318, ceil-to-beat 50). New scenarios
+/// should set `walk_period_ms: 500`; do not edit mixed_300.
 pub const DEFAULT_WALK_PERIOD_MS: u64 = 200;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -57,6 +59,9 @@ pub struct Scenario {
     /// Left-hand slot for the AoE rune so mixed bots can hold SD in ammo (10).
     #[serde(default = "default_aoe_rune_slot")]
     pub aoe_rune_slot: u16,
+    /// Repo-relative CSV (`bench/waypoints/…`). `None` → random cardinals.
+    #[serde(default)]
+    pub waypoint_file: Option<String>,
 }
 
 fn default_bots() -> usize {
@@ -103,6 +108,15 @@ impl Scenario {
             s.say_period_ms >= RECORD_TALK_WINDOW_MS,
             "say_period_ms must be >= {RECORD_TALK_WINDOW_MS} (RecordTalk window)"
         );
+        if let Some(ref file) = s.waypoint_file {
+            let path = crate::waypoints::resolve_waypoint_path(file);
+            anyhow::ensure!(
+                path.is_file(),
+                "waypoint_file not found: {file} ({})",
+                path.display()
+            );
+            let _ = crate::waypoints::load_csv(&path)?;
+        }
         Ok(s)
     }
 
@@ -125,6 +139,7 @@ impl Scenario {
             rune_server_id: default_rune_server(),
             aoe_rune_server_id: default_aoe_rune_server(),
             aoe_rune_slot: default_aoe_rune_slot(),
+            waypoint_file: None,
         }
     }
 
@@ -205,5 +220,36 @@ mod tests {
         let s = Scenario::load_path(&path).expect("mixed_300");
         assert_eq!(s.bots, 300);
         assert_eq!(s.roles.len(), 6);
+        assert!(s.waypoint_file.is_none());
+    }
+
+    #[test]
+    fn walker_loop_file_loads() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bench/scenarios/walker_loop.ron");
+        let s = Scenario::load_path(&path).expect("walker_loop");
+        assert_eq!(s.bots, 25);
+        assert_eq!(s.walk_period_ms, 500);
+        assert!(s.waypoint_file.is_some());
+    }
+
+    #[test]
+    fn clustered_hunt_file_loads() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bench/scenarios/clustered_hunt.ron");
+        let s = Scenario::load_path(&path).expect("clustered_hunt");
+        assert_eq!(s.bots, 50);
+        assert_eq!(s.walk_period_ms, 500);
+        assert!(s.waypoint_file.as_deref().unwrap().contains("cyclops"));
+    }
+
+    #[test]
+    fn walker_isolation_file_loads() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bench/scenarios/walker.ron");
+        let s = Scenario::load_path(&path).expect("walker");
+        assert_eq!(s.bots, 5);
+        assert_eq!(s.walk_period_ms, 500);
+        assert!(s.waypoint_file.as_deref().unwrap().contains("cyclops"));
     }
 }
