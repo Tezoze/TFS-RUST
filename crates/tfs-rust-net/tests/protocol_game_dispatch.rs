@@ -100,7 +100,7 @@ fn parse_auto_walk_invalid_length() {
 #[test]
 fn parse_auto_walk_max_dirs_772() {
     let mut payload = vec![0x64, 129];
-    payload.extend(std::iter::repeat(1).take(129));
+    payload.extend(std::iter::repeat_n(1, 129));
 
     // 772 restricts to <= 128 directions.
     assert!(game_command_from_payload(ConnId(1), &payload, ProtocolVersion::V772).is_err());

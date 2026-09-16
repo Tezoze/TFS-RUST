@@ -59,6 +59,11 @@ pub struct Scenario {
     /// Left-hand slot for the AoE rune so mixed bots can hold SD in ammo (10).
     #[serde(default = "default_aoe_rune_slot")]
     pub aoe_rune_slot: u16,
+    /// Expected `0x83` effect id for AoE-rune acks. GFB combat sets
+    /// `COMBAT_PARAM_EFFECT = CONST_ME_FIREAREA` (7); override if the pack
+    /// changes. `None` disables effect matching (any effect at the tile acks).
+    #[serde(default = "default_aoe_rune_effect")]
+    pub aoe_rune_effect: Option<u8>,
     /// Repo-relative CSV (`bench/waypoints/…`). `None` → random cardinals.
     #[serde(default)]
     pub waypoint_file: Option<String>,
@@ -96,6 +101,11 @@ fn default_aoe_rune_server() -> u16 {
 }
 fn default_aoe_rune_slot() -> u16 {
     6
+}
+
+/// GFB `CONST_ME_FIREAREA` (`combat_enums.rs`, `great_fireball_rune.lua`).
+fn default_aoe_rune_effect() -> Option<u8> {
+    Some(7)
 }
 
 impl Scenario {
@@ -139,6 +149,7 @@ impl Scenario {
             rune_server_id: default_rune_server(),
             aoe_rune_server_id: default_aoe_rune_server(),
             aoe_rune_slot: default_aoe_rune_slot(),
+            aoe_rune_effect: default_aoe_rune_effect(),
             waypoint_file: None,
         }
     }

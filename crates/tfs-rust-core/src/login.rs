@@ -477,8 +477,7 @@ pub fn apply_loaded_player(
     world.player_by_name.insert(key.clone(), cid);
     world.player_by_guid.insert(guid, cid);
 
-    // C++ `Game::placeCreature` login flow — try saved position, then town temple fallback.
-    // TFS 1.4.2: `src/protocolgame.cpp:258-263`. 772 decompile: `cract.cc:314-332` `SetOnMap`.
+    // 772 `TCreature::SetOnMap` (`cract.cc:314-358`): saved pos, then hometown temple Create.
     let town_id = world
         .creatures
         .get(cid)
@@ -490,8 +489,8 @@ pub fn apply_loaded_player(
     let placed_pos = match world.place_player_on_login(cid, pos, town_id) {
         Some(p) => p,
         None => {
-            // Both login and temple positions unplaceable — disconnect, don't crash.
-            // C++: `disconnectClient("Temple position is wrong. Contact the administrator.")`.
+            // Temple map container missing / no BANK — disconnect, don't crash.
+            // 772 `SetOnMap` `GetMapContainer == NONE`; TFS copy is "Temple position is wrong".
             world.creatures.remove(cid);
             world.player_by_name.remove(&key);
             world.player_by_guid.remove(&guid);

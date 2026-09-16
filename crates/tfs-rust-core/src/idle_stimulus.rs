@@ -25,7 +25,8 @@ use crate::creature::{
 };
 use crate::creature_think::EVENT_CREATURE_THINK_INTERVAL_MS;
 use crate::creature_todo::{
-    ActionObjectRef, CreatureAction, MONSTER_IDLE_WAIT_MS, trace_creature_todo,
+    ActionObjectRef, CreatureAction, MONSTER_CLOSE_CHASE_RETRY_MS, MONSTER_IDLE_WAIT_MS,
+    trace_creature_todo,
 };
 use crate::cylinder::CylinderFlags;
 use crate::game_world::GameWorld;
@@ -3071,7 +3072,10 @@ impl GameWorld {
                 true
             }
             MonsterEnqueueAttackResult::Retry => {
-                self.idle_enqueue_wait_and_start(cid, MONSTER_IDLE_WAIT_MS);
+                // Transient close-chase block, target retained — `ToDoWait(100)`
+                // on the `ToDoAttack` tail (`cract.cc:1353-1364`), not the 1000 ms
+                // roam/idle wait.
+                self.idle_enqueue_wait_and_start(cid, MONSTER_CLOSE_CHASE_RETRY_MS);
                 false
             }
             MonsterEnqueueAttackResult::Noway => {
@@ -3091,6 +3095,10 @@ impl GameWorld {
     }
 
     /// Yield and retry close-chase when still off-band; short wait at strike range (`cract.cc:845-852`).
+    ///
+    /// Off-band re-arm is `ToDoWait(100)` on the active `ToDoAttack` tail
+    /// (`cract.cc:1353-1364`) — the 1000 ms wait belongs to roam/idle tails
+    /// (`crnonpl.cc:2933`, `:2942`), not to a retained-target chase retry.
     pub(crate) fn monster_combat_handle_close_chase_blocked(&mut self, cid: CreatureId) {
         let still_off_band = self.creatures.get(cid).and_then(|k| {
             let CreatureKind::Monster(m) = k else {
@@ -3101,7 +3109,7 @@ impl GameWorld {
             Some(chebyshev(m.base.position, target_pos) > 1)
         });
         if still_off_band == Some(true) {
-            self.idle_enqueue_wait_and_start(cid, MONSTER_IDLE_WAIT_MS);
+            self.idle_enqueue_wait_and_start(cid, MONSTER_CLOSE_CHASE_RETRY_MS);
         } else {
             self.idle_enqueue_wait_and_start(cid, 200);
         }
@@ -3748,7 +3756,10 @@ impl GameWorld {
                                         if let Some(k) = self.creatures.get_mut(cid) {
                                             k.base_mut().todo.queue.pop_front();
                                         }
-                                        self.idle_enqueue_wait_and_start(cid, MONSTER_IDLE_WAIT_MS);
+                                        self.idle_enqueue_wait_and_start(
+                                            cid,
+                                            MONSTER_CLOSE_CHASE_RETRY_MS,
+                                        );
                                     }
                                     MonsterCombatCloseChaseEnqueue::Noway => {
                                         if let Some(k) = self.creatures.get_mut(cid) {

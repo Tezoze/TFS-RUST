@@ -9,8 +9,8 @@ use slotmap::Key;
 use std::sync::Arc;
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
-use tfs_rust_common::enums::{CombatType, Direction, SkullType, ZoneType};
-use tfs_rust_content::monsters::MonsterOutfit;
+use tfs_rust_common::enums::{BloodType, CombatType, Direction, SkullType, ZoneType};
+use tfs_rust_content::monsters::{LootBlock, MonsterOutfit, MonsterType};
 use tfs_rust_content::npcs::{DialoguePolicy, NpcAppearance};
 use tfs_rust_net::codec::wire::{ItemTemplateArgs, TextWindowWire};
 use tfs_rust_net::creature_known::check_creature_known;
@@ -46,6 +46,42 @@ fn monster_outfit_to_base(o: &MonsterOutfit) -> Outfit {
         look_legs: o.look_legs,
         look_feet: o.look_feet,
         look_addons: o.look_addons,
+    }
+}
+
+/// Spawn-time copy of a monster type: combat/AI snapshot + loot, without cloning
+/// the full spell/summon/defense tree twice (`MonsterType::clone` then `from_monster_type`).
+struct MonsterSpawnFields {
+    name: String,
+    now_hp: i32,
+    max_hp: i32,
+    speed: i32,
+    outfit: MonsterOutfit,
+    ai_config: MonsterAiConfig,
+    experience: u32,
+    corpse_id: u16,
+    blood: BloodType,
+    loot: Vec<LootBlock>,
+}
+
+fn monster_spawn_fields(t: &MonsterType) -> MonsterSpawnFields {
+    let max_hp = t.health_max.max(1) as i32;
+    let now_hp = if t.health_now > 0 {
+        t.health_now as i32
+    } else {
+        max_hp
+    };
+    MonsterSpawnFields {
+        name: t.name.clone(),
+        now_hp,
+        max_hp,
+        speed: t.speed as i32,
+        outfit: t.outfit.clone(),
+        ai_config: MonsterAiConfig::from_monster_type(t),
+        experience: t.experience,
+        corpse_id: t.outfit.corpse_id,
+        blood: t.blood_type(),
+        loot: t.loot.clone(),
     }
 }
 
@@ -297,34 +333,27 @@ impl GameWorld {
         startup: bool,
         extended_pos: bool,
     ) -> Option<CreatureId> {
-        let mtype = match self.monsters_db.monsters.get(&name.to_lowercase()) {
-            Some(t) => t.clone(),
-            None => {
-                warn!(monster = %name, "spawn: unknown monster type");
-                return None;
-            }
-        };
+        if self.monsters_db.get_by_name(name).is_none() {
+            warn!(monster = %name, "spawn: unknown monster type");
+            return None;
+        }
         if !self.events.on_monster_spawn(name, center, startup) {
             return None;
         }
-
-        let max_hp = mtype.health_max.max(1) as i32;
-        let now_hp = if mtype.health_now > 0 {
-            mtype.health_now as i32
-        } else {
-            max_hp
-        };
-        let speed = mtype.speed as i32;
+        let mtype = self
+            .monsters_db
+            .get_by_name(name)
+            .map(monster_spawn_fields)?;
 
         let base = CreatureBase {
             name: mtype.name.clone(),
             position: center,
             direction: dir,
-            health: now_hp,
-            max_health: max_hp,
+            health: mtype.now_hp,
+            max_health: mtype.max_hp,
             outfit: monster_outfit_to_base(&mtype.outfit),
-            speed,
-            base_speed: speed,
+            speed: mtype.speed,
+            base_speed: mtype.speed,
             var_speed: 0,
             skull: SkullType::None,
             drunkenness: 0,
@@ -371,11 +400,12 @@ impl GameWorld {
             logout_allowed: false,
         };
 
-        let ai_config = MonsterAiConfig::from_monster_type(&mtype);
         let cid = self
             .creatures
             .insert(CreatureKind::Monster(Monster::with_config(
-                base, spawn_pos, ai_config,
+                base,
+                spawn_pos,
+                mtype.ai_config,
             )));
         crate::login_out::assign_creature_wire_id(self, cid);
         // CipSoft `TMonsterhome::Radius` — per-home roam leash (`crnonpl.cc:2157`). Carried from the
@@ -420,16 +450,20 @@ impl GameWorld {
 
         self.spawns.on_creature_spawned(slot_index, cid);
         self.spawn_slot_by_creature.insert(cid, slot_index);
-        self.monster_on_creature_appear_self(cid);
+        // TVP `internalPlaceCreature` at boot does not run appear-self / target-list /
+        // ToDoYield (`spawn.cpp` startup, `game.cpp` ~498-511). Respawn still does.
+        if !startup {
+            self.monster_on_creature_appear_self(cid);
+        }
 
         // Phase 3: both eras run the 772 spawn loot / combat recompute path.
         {
             if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
                 m.experience = mtype.experience;
-                m.corpse_id = mtype.outfit.corpse_id;
-                m.blood = mtype.blood_type();
+                m.corpse_id = mtype.corpse_id;
+                m.blood = mtype.blood;
             }
-            self.finish_monster_spawn(cid, &mtype, startup, false);
+            self.finish_monster_spawn(cid, &mtype.loot, startup, false);
         }
 
         if !startup {
@@ -604,26 +638,18 @@ impl GameWorld {
         force: bool,
     ) -> Result<Option<u64>, String> {
         let center = Position { x, y, z };
-        let mtype = match self.monsters_db.get_by_name(name) {
-            Some(t) => t.clone(),
-            None => return Ok(None),
+        let Some(mtype) = self.monsters_db.get_by_name(name).map(monster_spawn_fields) else {
+            return Ok(None);
         };
-        let max_hp = mtype.health_max.max(1) as i32;
-        let now_hp = if mtype.health_now > 0 {
-            mtype.health_now as i32
-        } else {
-            max_hp
-        };
-        let speed = mtype.speed as i32;
         let base = CreatureBase {
             name: mtype.name.clone(),
             position: center,
             direction: Direction::South,
-            health: now_hp,
-            max_health: max_hp,
+            health: mtype.now_hp,
+            max_health: mtype.max_hp,
             outfit: monster_outfit_to_base(&mtype.outfit),
-            speed,
-            base_speed: speed,
+            speed: mtype.speed,
+            base_speed: mtype.speed,
             var_speed: 0,
             skull: SkullType::None,
             drunkenness: 0,
@@ -669,17 +695,18 @@ impl GameWorld {
             logging_out: false,
             logout_allowed: false,
         };
-        let ai_config = MonsterAiConfig::from_monster_type(&mtype);
         let cid = self
             .creatures
             .insert(CreatureKind::Monster(Monster::with_config(
-                base, center, ai_config,
+                base,
+                center,
+                mtype.ai_config,
             )));
         crate::login_out::assign_creature_wire_id(self, cid);
         if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
             m.experience = mtype.experience;
-            m.corpse_id = mtype.outfit.corpse_id;
-            m.blood = mtype.blood_type();
+            m.corpse_id = mtype.corpse_id;
+            m.blood = mtype.blood;
         }
         if !self.find_and_place_creature_tfs(cid, center, extended, force, 0) {
             self.creatures.remove(cid);
@@ -692,7 +719,7 @@ impl GameWorld {
             .unwrap_or(center);
         self.monster_on_creature_appear_self(cid);
         self.broadcast_creature_appear(cid, placed);
-        self.finish_monster_spawn(cid, &mtype, false, true);
+        self.finish_monster_spawn(cid, &mtype.loot, false, true);
         Ok(Some(cid.data().as_ffi()))
     }
 
@@ -923,23 +950,19 @@ impl GameWorld {
         let place_at = self
             .search_free_field(summon_field, 2)
             .unwrap_or(summon_field);
-        let mtype = self.monsters_db.get_by_name(race_name)?.clone();
-        let max_hp = mtype.health_max.max(1) as i32;
-        let now_hp = if mtype.health_now > 0 {
-            mtype.health_now as i32
-        } else {
-            max_hp
-        };
-        let speed = mtype.speed as i32;
+        let mtype = self
+            .monsters_db
+            .get_by_name(race_name)
+            .map(monster_spawn_fields)?;
         let base = CreatureBase {
             name: mtype.name.clone(),
             position: place_at,
             direction: Direction::South,
-            health: now_hp,
-            max_health: max_hp,
+            health: mtype.now_hp,
+            max_health: mtype.max_hp,
             outfit: monster_outfit_to_base(&mtype.outfit),
-            speed,
-            base_speed: speed,
+            speed: mtype.speed,
+            base_speed: mtype.speed,
             var_speed: 0,
             skull: SkullType::None,
             drunkenness: 0,
@@ -985,18 +1008,19 @@ impl GameWorld {
             logging_out: false,
             logout_allowed: false,
         };
-        let ai_config = MonsterAiConfig::from_monster_type(&mtype);
         let cid = self
             .creatures
             .insert(CreatureKind::Monster(Monster::with_config(
-                base, place_at, ai_config,
+                base,
+                place_at,
+                mtype.ai_config,
             )));
         crate::login_out::assign_creature_wire_id(self, cid);
         if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
             // Summons do not grant XP / drop loot (`setDropLoot(false)` / master gate).
             m.experience = 0;
-            m.corpse_id = mtype.outfit.corpse_id;
-            m.blood = mtype.blood_type();
+            m.corpse_id = mtype.corpse_id;
+            m.blood = mtype.blood;
         }
         if !self.find_and_place_creature_tfs(cid, place_at, false, force, 0) {
             self.creatures.remove(cid);
@@ -1013,7 +1037,7 @@ impl GameWorld {
         self.monster_on_creature_appear_self(cid);
         self.broadcast_creature_appear(cid, placed);
         self.broadcast_magic_effect(placed, 11);
-        self.finish_monster_spawn(cid, &mtype, false, true);
+        self.finish_monster_spawn(cid, &mtype.loot, false, true);
         Some(cid)
     }
 
@@ -1351,27 +1375,23 @@ impl GameWorld {
         Some(pos)
     }
 
-    /// Place a player on login — C++ `Game::placeCreature` login flow.
+    /// Place a player on login — 772 `TCreature::SetOnMap` (`cract.cc:314-358`).
     ///
-    /// TFS 1.4.2 (`src/protocolgame.cpp:258-263`): try `placeCreature(loginPos)` → if fail,
-    /// `placeCreature(templePos, force=true)` → if fail, disconnect.
-    /// 772 decompile (`cract.cc:314-332` `TCreature::SetOnMap`): `SearchLoginField` at saved
-    /// pos → fall back to `startx/starty/startz` (hometown temple).
-    ///
-    /// Returns the actual placement position, or `None` if both login and temple positions
-    /// are unplaceable (caller should disconnect the client, not crash).
+    /// Saved pos: TFS-shaped `placeCreature` neighbor search (`find_and_place_creature_tfs`).
+    /// If that fails, hometown temple is a **Create** onto the temple tile (`CheckMapPlace(0)`),
+    /// not a second `queryAdd` (TFS `protocolgame.cpp:258-263` disconnects when the temple is
+    /// full; TVP `map.cpp:258-271` `internalAddThing` stacks). `None` only when the temple
+    /// map container is missing or has no BANK.
     pub(crate) fn place_player_on_login(
         &mut self,
         cid: CreatureId,
         login_pos: Position,
         town_id: i32,
     ) -> Option<Position> {
-        // 1. Try the saved login position (with neighbor search like `Map::placeCreature`).
         if self.find_and_place_creature_tfs(cid, login_pos, false, false, 0) {
             return self.notify_player_login_placed(cid);
         }
 
-        // 2. Fall back to the town temple position (forced — `FLAG_IGNOREBLOCKITEM`).
         let temple_pos = self
             .map
             .towns
@@ -1385,13 +1405,13 @@ impl GameWorld {
                 town_id,
                 "login position unplaceable — falling back to town temple"
             );
-            if self.find_and_place_creature_tfs(cid, temple, false, true, 0) {
+            if self.commit_set_on_map_create(cid, temple) {
                 return self.notify_player_login_placed(cid);
             }
             tracing::error!(
                 ?temple,
                 town_id,
-                "town temple position also unplaceable — player will be disconnected"
+                "town temple map container missing — player will be disconnected"
             );
         } else {
             tracing::error!(
@@ -1778,6 +1798,41 @@ mod tests {
         assert_eq!(m.armor, 1);
         assert_eq!(m.poison_cycles, 0);
         assert!(m.spells.is_empty());
+    }
+
+    #[test]
+    fn startup_spawns_skips_appear_self_idle_yield() {
+        let mut world = world_with_spawn();
+        world.startup_spawns();
+        let (_, kind) = world.creatures.iter().next().unwrap();
+        let crate::creature::CreatureKind::Monster(m) = kind else {
+            panic!("expected monster");
+        };
+        assert!(m.is_idle);
+        assert_eq!(m.state, crate::creature::MonsterState::Sleeping);
+        assert!(
+            m.base.todo.is_empty(),
+            "TVP internalPlaceCreature does not ToDoYield at boot"
+        );
+    }
+
+    #[test]
+    fn spawn_monster_respawn_still_appear_self_yields() {
+        let mut world = world_with_spawn();
+        let home = Position::new(100, 100, 7);
+        let cid = world
+            .spawn_monster("Rat", home, Direction::South, home, 0, 3, false, false)
+            .expect("respawn spawn");
+        assert!(
+            !world
+                .creatures
+                .get(cid)
+                .expect("monster")
+                .base()
+                .todo
+                .is_empty(),
+            "respawn placeCreature still appear-self / ToDoYield"
+        );
     }
 
     #[test]

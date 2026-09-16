@@ -1,3 +1,73 @@
+# Phase A — send-path coalesce (CPU)
+
+Decompile `SendData` already emits one XTEA frame per beat per connection (`communication.cc:373-410`, `sending.cc` `SendAll`, `main.cc:455`). The game thread already batches; the writer re-split per logical packet. Restore that wire shape (CPU win, not a mechanics change). Split threshold from the active codec (`OutData[16384]` / 1098 `MAX_PROTOCOL_BODY_LENGTH`), never TVP 24572.
+
+- [x] A1: `frame_coalesce.rs` — concat beat payloads, XTEA once, one `write_all`; login port keeps `encrypt_xtea_game_frame`
+- [x] A2: reusable per-connection `Vec` (header reserved, encrypt in place, write slice)
+- [x] Unit: n packets → 1 frame; decrypt = concat; oversized split; 772 (no Adler) + 1098 (Adler); scratch does not realloc when capacity suffices
+- [x] `cargo test -p tfs-rust-net` (167 passed); `cargo clippy -p tfs-rust-net --lib --profile test -- -D warnings`
+- [x] Lesson: per-message writer was a silent `SendData` deviation
+- [x] A3: `run_comparison.py --mode steady --bots 1000 --reps 1 --duration-s 120 --scenario bench/scenarios/clustered_hunt.ron` — first cell (`20260914T095120Z`) **invalid**: stale Sep-13 binary (`CARGO_TARGET_DIR` pointed at the sandbox cache). Valid cell `results/20260914T102600Z/1000_bots_cpu_mem.md`: **CPU gate passed** — 33.4 CPU-s vs TVP 43.0 (old writer 51.1); tokio ~12.7 s (was 36.7); `lo` 38.6 kpps (was 100.6 k); 18.0 frames/conn/s vs TVP 41.8; 450 000 sends / 0 disconnects both
+- [x] Bottleneck hunt: per-thread user/sys + ctx-switch sampling → per-`send()` loopback kernel work, not wake-ups/XTEA (lesson 483); loadgen `frames_in` counter; runner resolves binaries via `CARGO_TARGET_DIR` and records `*_bin_mtime`
+- [ ] Phase B: RSS +263 MiB at sample 0 (tile layout) — unchanged by Phase A
+- [ ] Walk p99 tens of seconds on rust vs ~260 ms TVP (silent-drop / `0x6D`/`0xB5` parity) — not CPU
+
+# 1000-bot clustered hunt cell (2026-09-13)
+
+Same hunt as 600-bot `20260913T110154Z`. Unique tiles (`--cluster-radius 17`). `--skip-build`. TVP is A/B only.
+
+- [x] Seed 1000 `--layout cluster --cluster-radius 17 --health 5000 --target both`
+- [x] `run_comparison.py --mode steady --bots 1000 --reps 1 --duration-s 120` + cpusets `--skip-build`
+- [x] Write `results/20260913T111046Z/1000_bots_cpu_mem.md`
+
+# 600-bot clustered hunt cell (2026-09-13)
+
+Same hunt as 300-bot `20260913T104736Z`. Unique tiles so login does not stack (`--cluster-radius 13`, 729 candidates). Temple `Create` already in rust. Do not treat TVP totals as corpus.
+
+- [x] Seed 600 `--layout cluster --cluster-radius 13 --health 5000 --target both`
+- [x] Confirm workspace `tfs-rust` has SetOnMap Create string; `--skip-build` if yes
+- [x] `run_comparison.py --mode steady --bots 600 --reps 1 --duration-s 120` + cpusets
+- [x] Write `results/20260913T110154Z/600_bots_cpu_mem.md`
+
+# SetOnMap temple Create on login overflow (2026-09-13)
+
+300-bot clustered hunt dropped 131 rust sessions: TFS temple `queryAdd` refuses a second creature, then disconnect. 772 `TCreature::SetOnMap` (`cract.cc:327-349`) assigns `startx/y/z` with **no** re-search and `Create` / `CheckMapPlace(0)` (skips `IsMapBlocked`). TVP `Map::placeCreature` `internalAddThing` at temple. Do **not** `FLAG_NOLIMIT` (void/UNPASS walls).
+
+- [x] `place_player_on_login`: saved-pos search unchanged; temple fallback `commit_set_on_map_create` if tile has ground
+- [x] Tests: occupied temple stacks; missing town / void temple still `None`
+- [x] Lesson + `docs/BENCHMARK.md` §3.4 stack note
+- [x] `cargo test` placement/login; clippy on touched files
+
+# Skip SHA1→bcrypt upgrade on bench login (2026-09-13)
+
+50-bot hunt spike was ~12 CPU-s of `tokio-rt-worker` bcrypt cost-12 rehash (`account.rs` `needs_upgrade`), not map send. TVP verifies SHA1 and stops. Seeder writes SHA1 every cell.
+
+- [x] `PasswordHashConfig.upgrade_sha1_on_login` + `config.lua` `upgradeSha1OnLogin` (default true)
+- [x] Gate `hash_bcrypt_async` in `verify_loaded_account`
+- [x] `run_comparison.py` sets `TFS_UPGRADE_SHA1_ON_LOGIN=0` for rust cells
+- [x] `docs/BENCHMARK.md` §3 disclose auth asymmetry
+- [x] Tests: config parse + skip-upgrade gate
+- [x] Rebuild rust; re-run 50-bot clustered hunt → `results/20260913T100956Z` CPU max 22% (was 788%)
+
+# Spawn-boot CPU cuts (2026-09-13)
+
+Same placement tiles. No parallel game-thread spawn (`GameWorld` is not `Send`). TVP `internalPlaceCreature` at boot does not run target-list / idle-yield (`spawn.cpp:397-401`, `game.cpp:498-511`).
+
+- [x] Skip `monster_on_creature_appear_self` when `startup==true` in `spawn_monster` (respawn / `createMonster` / summons still call it)
+- [x] Reuse `SearchSpawnField` phase buffer via game-thread `thread_local` (`spawn_placement.rs`)
+- [x] Stop full `MonsterType::clone()` per spawn — snapshot scalars + loot; `finish_monster_spawn` takes `&[LootBlock]`
+- [x] Skip second `recompute_monster_combat_from_equipment` when `onSpawn` is unregistered; skip first recompute when loot is empty
+- [x] Tests: startup no ToDoYield; respawn still yields; spawn-hook / placement tests
+- [x] Verify spawn/hook/placement unit tests; clippy on these files is clean (`--no-deps --lib` still has unrelated pre-existing lints)
+
+# Cluster equivalence FAIL documented (2026-09-13)
+
+Live 5-bot cluster gate with per-cell re-seed: walk-ack healthy, combat visible, TVP AoE/creature counts over threshold. Do not load-curve. Do not freeze `clustered_hunt.ron`.
+
+- [x] `docs/BENCHMARK.md` §7.1 `results/20260913T070214Z` (aoe_rune ME 302 vs 11222)
+- [x] §8 + publication checklist point at that FAIL
+- [ ] Spawn/AoE parity (why TVP sees more creatures and GFB effects)
+
 # Loadgen --progress ticker + session drop counters (2026-09-13)
 
 Stderr one-line ticker and first-class disconnect/reconnect counts. Do **not** auto-reconnect during the measurement window. Do not edit frozen `mixed_300.ron`.

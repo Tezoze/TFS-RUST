@@ -16,7 +16,12 @@ ids; names stay Test / Test1 / ….
 
 Bench defaults: vocation 1 (sorcerer), premium 365 days, `player_spells`
 Energy Strike, sudden-death rune (2268) in ammo slot 10, great-fireball
-(2304) in left-hand slot 6.
+(2304) in left-hand slot 6. `players.lastlogin` is seeded non-zero
+(`UNIX_TIMESTAMP()`) so `firstlogin.lua` starter gear does not clobber the
+seeded runes on either server. Child rows (`player_items`, `player_spells`)
+are deleted **before** `players`: `SET FOREIGN_KEY_CHECKS=0` skips
+ON DELETE CASCADE, so a players-only wipe left firstlogin coats/torches on
+slot 6 and duplicate GFB rows from every equivalence cell.
 
 Login uses the saved `posx`/`posy`/`posz` first (Rust `place_player_on_login`;
 TVP `SetOnMap`). Unplaceable tiles fall back to town_id 1 temple.
@@ -227,6 +232,17 @@ def vocations_for(count: int, vocation: int, cycle: list[int] | None) -> list[in
     return [cycle[i % len(cycle)] for i in range(count)]
 
 
+def _wipe_player_children_sql(ids: list[int]) -> list[str]:
+    """Delete inventory/spells by id. Required: `SET FOREIGN_KEY_CHECKS=0`
+    makes `DELETE FROM players` skip ON DELETE CASCADE, so leftover
+    firstlogin coats/torches and prior-cell GFB rows accumulate on pid 6/10."""
+    id_list = ",".join(str(i) for i in ids)
+    return [
+        f"DELETE FROM `player_items` WHERE `player_id` IN ({id_list});",
+        f"DELETE FROM `player_spells` WHERE `player_id` IN ({id_list});",
+    ]
+
+
 def _gear_sql(
     ids: list[int],
     *,
@@ -291,6 +307,7 @@ def rust_sql(
     ]
     names = [_sql_str(character_name(char_base, i)) for i in range(count)]
     ids = list(range(start_id, start_id + count))
+    lines.extend(_wipe_player_children_sql(ids))
     lines.append(
         "DELETE FROM `players` WHERE `account_id` IN ("
         + ",".join(str(i) for i in ids)
@@ -346,6 +363,9 @@ def rust_sql(
                     str(z),
                     "400",
                     "0",
+                    # Non-zero so firstlogin.lua starter gear does not run
+                    # (getLastLoginSaved() == 0) and clobber seeded runes.
+                    "UNIX_TIMESTAMP()",
                 ]
             )
             + ")"
@@ -356,7 +376,7 @@ def rust_sql(
         "`health`, `healthmax`, `experience`, "
         "`lookbody`, `lookfeet`, `lookhead`, `looklegs`, `looktype`, `lookaddons`, "
         "`direction`, `maglevel`, `mana`, `manamax`, "
-        "`soul`, `town_id`, `posx`, `posy`, `posz`, `cap`, `sex`"
+        "`soul`, `town_id`, `posx`, `posy`, `posz`, `cap`, `sex`, `lastlogin`"
         ") VALUES"
     )
     lines.append(",\n".join(pl_rows) + ";")
@@ -403,6 +423,7 @@ def tvp_sql(
     ]
     names = [_sql_str(character_name(char_base, i)) for i in range(count)]
     ids = list(range(start_id, start_id + count))
+    lines.extend(_wipe_player_children_sql(ids))
     lines.append(
         "DELETE FROM `players` WHERE `account_id` IN ("
         + ",".join(str(i) for i in ids)
@@ -458,6 +479,9 @@ def tvp_sql(
                     "''",
                     "400",
                     "0",
+                    # Non-zero so firstlogin.lua starter gear does not run
+                    # (getLastLoginSaved() == 0) and clobber seeded runes.
+                    "UNIX_TIMESTAMP()",
                 ]
             )
             + ")"
@@ -468,7 +492,7 @@ def tvp_sql(
         "`health`, `healthmax`, `experience`, "
         "`lookbody`, `lookfeet`, `lookhead`, `looklegs`, `looktype`, "
         "`maglevel`, `mana`, `manamax`, `manaspent`, "
-        "`soul`, `town_id`, `posx`, `posy`, `posz`, `conditions`, `cap`, `sex`"
+        "`soul`, `town_id`, `posx`, `posy`, `posz`, `conditions`, `cap`, `sex`, `lastlogin`"
         ") VALUES"
     )
     lines.append(",\n".join(pl_rows) + ";")
@@ -571,6 +595,8 @@ def self_test() -> int:
     assert ", 1," in rust and ", 2," in rust
     assert str(pos[0][0]) in rust and str(pos[1][0]) in rust
     assert "player_items" in rust and "2268" in rust and "2304" in rust
+    assert "DELETE FROM `player_items`" in rust and "DELETE FROM `player_spells`" in rust
+    assert "lastlogin" in rust and "UNIX_TIMESTAMP()" in rust
     assert "Energy Strike" in rust
     assert "UNIX_TIMESTAMP()+" in rust
     tvp = tvp_sql(
@@ -589,6 +615,8 @@ def self_test() -> int:
     assert "failed_bid_count" in tvp
     assert "`name`" not in tvp.split("INSERT INTO `accounts`")[1].split("VALUES")[0]
     assert "player_items" in tvp and "2268" in tvp
+    assert "DELETE FROM `player_items`" in tvp
+    assert "lastlogin" in tvp
     assert "Energy Strike" in tvp
     print("seed_bench_accounts: self-test ok")
     return 0

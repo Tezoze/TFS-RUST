@@ -114,8 +114,15 @@ def host_meta() -> dict:
     }
 
 
+def cargo_target_dir() -> Path:
+    """Where `cargo build` writes. Honors `CARGO_TARGET_DIR` (sandboxed shells set it) so
+    the binary we run is the binary we built — a stale `./target` copy silently invalidates
+    an A/B cell."""
+    return Path(os.environ.get("CARGO_TARGET_DIR", str(ROOT / "target")))
+
+
 def rust_bin() -> Path:
-    return ROOT / "target" / "release" / "tfs-rust"
+    return cargo_target_dir() / "release" / "tfs-rust"
 
 
 def tvp_bin() -> Path:
@@ -152,7 +159,7 @@ def build_loadgen(dry: bool) -> list[str]:
 
 
 def loadgen_bin() -> Path:
-    return ROOT / "target" / "release" / "tfs-loadgen"
+    return cargo_target_dir() / "release" / "tfs-loadgen"
 
 
 def set_lua_key(path: Path, key: str, value: str) -> None:
@@ -194,6 +201,9 @@ def start_server(server: str, *, cpuset: str | None, log_path: Path, dry: bool) 
     env = os.environ.copy()
     if server == "rust":
         env.setdefault("RUST_LOG", "tfs_obs=info,info")
+        # TVP verifies SHA1 and stops. Rust otherwise bcrypt-upgrades every
+        # seeder SHA1 on login (cost 12 ≈ 200ms × N, Tokio blocking pool).
+        env.setdefault("TFS_UPGRADE_SHA1_ON_LOGIN", "0")
         cmd = taskset_prefix(cpuset) + [str(rust_bin())]
         cwd = ROOT
     else:
@@ -390,6 +400,12 @@ def write_meta(out_root: Path, args: argparse.Namespace) -> None:
     }
     meta["rust_bin"] = str(rust_bin())
     meta["tvp_bin"] = str(tvp_bin())
+    # Binary age next to `git` makes a stale-build cell detectable after the fact.
+    for key, path in (("rust_bin", rust_bin()), ("loadgen_bin", loadgen_bin())):
+        if path.is_file():
+            meta[f"{key}_mtime"] = time.strftime(
+                "%Y-%m-%dT%H:%M:%S", time.localtime(path.stat().st_mtime)
+            )
     (out_root / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
 
@@ -397,11 +413,38 @@ def parse_points(text: str) -> list[int]:
     return [int(x.strip()) for x in text.split(",") if x.strip()]
 
 
+def seed_cluster_accounts(*, dry: bool, count: int = 10) -> None:
+    """Reset Test* login tiles to the Cyclops disk. Logout after a cell can
+    persist temple (death) or walked-off coords; each isolation role must start
+    on the hunt layout or unique_creatures compares the wrong map. Health 5000
+    (both servers identically) so Cyclops focus does not kill a 1000-HP bot
+    mid-cell — a death drops inventory and respawns at temple, poisoning the
+    combat rows."""
+    cmd = [
+        sys.executable,
+        str(ROOT / "scripts" / "seed_bench_accounts.py"),
+        "--count",
+        str(count),
+        "--apply",
+        "--target",
+        "both",
+        "--layout",
+        "cluster",
+        "--health",
+        "5000",
+    ]
+    print("seed:", " ".join(cmd), file=sys.stderr)
+    if dry:
+        return
+    subprocess.run(cmd, cwd=ROOT, check=True)
+
+
 def run_equivalence(args: argparse.Namespace, out_root: Path) -> int:
     duration = args.duration_s or 30
     servers = [s.strip() for s in args.servers.split(",") if s.strip()]
     for server in servers:
         for role in ROLES:
+            seed_cluster_accounts(dry=args.dry_run)
             scenario = ROOT / "bench" / "scenarios" / f"{role}.ron"
             dest = out_root / "equivalence" / server
             dest.mkdir(parents=True, exist_ok=True)

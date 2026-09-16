@@ -17,8 +17,9 @@ pub struct LatencySet {
     walk: Histogram<u64>,
     spell: Histogram<u64>,
     outstanding_walk: Vec<Instant>,
-    outstanding_spell: Vec<(Instant, tfs_rust_common::Position)>,
+    outstanding_spell: Vec<(Instant, tfs_rust_common::Position, Option<u8>)>,
     walk_rejections: u64,
+    spell_rejections: u64,
 }
 
 impl LatencySet {
@@ -29,6 +30,7 @@ impl LatencySet {
             outstanding_walk: Vec::new(),
             outstanding_spell: Vec::new(),
             walk_rejections: 0,
+            spell_rejections: 0,
         })
     }
 
@@ -38,12 +40,13 @@ impl LatencySet {
         kind: Correlate,
         intended: Instant,
         tile: Option<tfs_rust_common::Position>,
+        effect: Option<u8>,
     ) {
         match kind {
             Correlate::Walk => self.outstanding_walk.push(intended),
             Correlate::SpellRune => {
                 if let Some(pos) = tile {
-                    self.outstanding_spell.push((intended, pos));
+                    self.outstanding_spell.push((intended, pos, effect));
                 }
             }
         }
@@ -70,10 +73,24 @@ impl LatencySet {
         }
     }
 
-    pub fn on_magic_effect(&mut self, now: Instant, pos: tfs_rust_common::Position) {
-        if let Some(idx) = self.outstanding_spell.iter().position(|(_, p)| *p == pos) {
-            let (intended, _) = self.outstanding_spell.remove(idx);
+    pub fn on_magic_effect(&mut self, now: Instant, pos: tfs_rust_common::Position, effect: u8) {
+        if let Some(idx) = self
+            .outstanding_spell
+            .iter()
+            .position(|(_, p, want)| *p == pos && want.is_none_or(|e| e == effect))
+        {
+            let (intended, _, _) = self.outstanding_spell.remove(idx);
             record(&mut self.spell, now.saturating_duration_since(intended));
+        }
+    }
+
+    /// Retire the oldest outstanding spell/rune as a rejection (`0xB5`-style
+    /// cancel text on `0xB4`), not a sample. No-op with an empty queue so
+    /// login MOTD / broadcast text never counts.
+    pub fn on_spell_reject(&mut self) {
+        if !self.outstanding_spell.is_empty() {
+            self.outstanding_spell.remove(0);
+            self.spell_rejections += 1;
         }
     }
 
@@ -93,6 +110,7 @@ impl LatencySet {
         self.outstanding_spell
             .extend_from_slice(&other.outstanding_spell);
         self.walk_rejections += other.walk_rejections;
+        self.spell_rejections += other.spell_rejections;
         Ok(())
     }
 
@@ -103,7 +121,9 @@ impl LatencySet {
     }
 
     pub fn spell_summary(&self) -> HistSummary {
-        HistSummary::from_hist(&self.spell)
+        let mut s = HistSummary::from_hist(&self.spell);
+        s.rejections = self.spell_rejections;
+        s
     }
 }
 
@@ -158,6 +178,8 @@ pub struct RunReport {
     pub walk: HistSummary,
     pub spell_rune: HistSummary,
     pub bytes_in: u64,
+    /// Server frames decrypted (one per server `write`); `bytes_in / frames_in` = payload per frame.
+    pub frames_in: u64,
     pub bytes_out: u64,
     pub outstanding_at_end: u64,
     pub sends: u64,
@@ -189,13 +211,14 @@ fn unknown_opcode_json(first: Option<u8>) -> String {
 impl RunReport {
     pub fn to_json(&self) -> String {
         format!(
-            "{{\n  \"bots\": {},\n  \"duration_s\": {},\n  \"warmup_s\": {},\n  \"walk\": {},\n  \"spell_rune\": {},\n  \"bytes_in\": {},\n  \"bytes_out\": {},\n  \"outstanding_at_end\": {},\n  \"sends\": {},\n  \"magic_effects\": {},\n  \"animated_texts\": {},\n  \"damage_sum\": {},\n  \"damage_samples\": {},\n  \"distance_shoots\": {},\n  \"creature_health\": {},\n  \"other_creature_moves\": {},\n  \"unique_creatures\": {},\n  \"bytes_discarded\": {},\n  \"skip_failures\": {},\n  \"unknown_opcodes\": {},\n  \"unknown_opcode_first\": {},\n  \"disconnects\": {},\n  \"reconnects\": {}\n}}\n",
+            "{{\n  \"bots\": {},\n  \"duration_s\": {},\n  \"warmup_s\": {},\n  \"walk\": {},\n  \"spell_rune\": {},\n  \"bytes_in\": {},\n  \"frames_in\": {},\n  \"bytes_out\": {},\n  \"outstanding_at_end\": {},\n  \"sends\": {},\n  \"magic_effects\": {},\n  \"animated_texts\": {},\n  \"damage_sum\": {},\n  \"damage_samples\": {},\n  \"distance_shoots\": {},\n  \"creature_health\": {},\n  \"other_creature_moves\": {},\n  \"unique_creatures\": {},\n  \"bytes_discarded\": {},\n  \"skip_failures\": {},\n  \"unknown_opcodes\": {},\n  \"unknown_opcode_first\": {},\n  \"disconnects\": {},\n  \"reconnects\": {}\n}}\n",
             self.bots,
             self.duration_s,
             self.warmup_s,
             self.walk.json_object(),
             self.spell_rune.json_object(),
             self.bytes_in,
+            self.frames_in,
             self.bytes_out,
             self.outstanding_at_end,
             self.sends,
@@ -226,7 +249,7 @@ mod tests {
     fn walk_ack_records_intended_delta() {
         let mut set = LatencySet::new().expect("hist");
         let t0 = Instant::now();
-        set.on_send(Correlate::Walk, t0, None);
+        set.on_send(Correlate::Walk, t0, None, None);
         set.on_walk_ack(t0 + Duration::from_millis(12));
         let s = set.walk_summary();
         assert_eq!(s.samples, 1);
@@ -238,19 +261,55 @@ mod tests {
         let mut set = LatencySet::new().expect("hist");
         let t0 = Instant::now();
         let tile = Position::new(3, 4, 7);
-        set.on_send(Correlate::SpellRune, t0, Some(tile));
-        set.on_magic_effect(t0 + Duration::from_millis(5), tile);
+        set.on_send(Correlate::SpellRune, t0, Some(tile), None);
+        set.on_magic_effect(t0 + Duration::from_millis(5), tile, 11);
         assert_eq!(set.spell_summary().samples, 1);
         assert_eq!(set.outstanding_count(), 0);
+    }
+
+    #[test]
+    fn spell_effect_mismatch_does_not_ack() {
+        let mut set = LatencySet::new().expect("hist");
+        let t0 = Instant::now();
+        let tile = Position::new(3, 4, 7);
+        // GFB expects FIREAREA (7); a blood splash (2) on the same tile is not
+        // the cast landing.
+        set.on_send(Correlate::SpellRune, t0, Some(tile), Some(7));
+        set.on_magic_effect(t0 + Duration::from_millis(5), tile, 2);
+        assert_eq!(set.spell_summary().samples, 0);
+        assert_eq!(set.outstanding_count(), 1);
+        set.on_magic_effect(t0 + Duration::from_millis(6), tile, 7);
+        assert_eq!(set.spell_summary().samples, 1);
+        assert_eq!(set.outstanding_count(), 0);
+    }
+
+    #[test]
+    fn spell_reject_retires_oldest_without_sample() {
+        let mut set = LatencySet::new().expect("hist");
+        let t0 = Instant::now();
+        let tile = Position::new(3, 4, 7);
+        set.on_send(Correlate::SpellRune, t0, Some(tile), Some(7));
+        set.on_spell_reject();
+        let s = set.spell_summary();
+        assert_eq!(s.samples, 0);
+        assert_eq!(s.rejections, 1);
+        assert_eq!(set.outstanding_count(), 0);
+    }
+
+    #[test]
+    fn spell_reject_with_empty_queue_is_noop() {
+        let mut set = LatencySet::new().expect("hist");
+        set.on_spell_reject();
+        assert_eq!(set.spell_summary().rejections, 0);
     }
 
     #[test]
     fn cancel_then_ack_one_sample_one_rejection() {
         let mut set = LatencySet::new().expect("hist");
         let t0 = Instant::now();
-        set.on_send(Correlate::Walk, t0, None);
+        set.on_send(Correlate::Walk, t0, None, None);
         set.on_walk_cancel();
-        set.on_send(Correlate::Walk, t0 + Duration::from_millis(200), None);
+        set.on_send(Correlate::Walk, t0 + Duration::from_millis(200), None, None);
         set.on_walk_ack(t0 + Duration::from_millis(212));
         let s = set.walk_summary();
         assert_eq!(s.samples, 1);
@@ -270,7 +329,7 @@ mod tests {
     #[test]
     fn walk_json_includes_rejections() {
         let mut set = LatencySet::new().expect("hist");
-        set.on_send(Correlate::Walk, Instant::now(), None);
+        set.on_send(Correlate::Walk, Instant::now(), None, None);
         set.on_walk_cancel();
         let json = set.walk_summary().json_object();
         assert!(json.contains("\"rejections\":1"), "{json}");
@@ -298,6 +357,7 @@ mod tests {
                 rejections: 0,
             },
             bytes_in: 0,
+            frames_in: 0,
             bytes_out: 0,
             outstanding_at_end: 0,
             sends: 0,

@@ -8,7 +8,9 @@ use crate::combat::{CombatDamage, CombatParams};
 use crate::creature::{
     ChaseMode, CreatureKind, MonsterAiConfig, MonsterSpell, MonsterState, SpellImpact, SpellShape,
 };
-use crate::creature_todo::{ActionObjectRef, CreatureAction, MONSTER_IDLE_WAIT_MS};
+use crate::creature_todo::{
+    ActionObjectRef, CreatureAction, MONSTER_CLOSE_CHASE_RETRY_MS, MONSTER_IDLE_WAIT_MS,
+};
 use crate::event_dispatcher::EventDispatcher;
 use crate::game_world::GameWorld;
 use crate::idle_stimulus::MonsterIdleWalkBranch;
@@ -4085,6 +4087,45 @@ fn test_772_close_chase_target_divergence_no_wait_loop() {
         !monster_is_parked(&world, monster),
         "must arm Go/roam or clear target — not park"
     );
+}
+
+/// Blocked close-chase re-arms with `ToDoWait(100)` (`cract.cc:1353-1364`), not the
+/// 1000 ms roam/idle wait (`crnonpl.cc:2933`, `:2942`). Off-band (cheb>1) retries
+/// at 100 ms; at strike band the short 200 ms wait stands (`cract.cc:845-852`).
+#[test]
+fn test_772_close_chase_blocked_rearms_100ms_off_band() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(103, 100, 7);
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+    let monster = insert_monster(&mut world, "Rat", mpos, 200);
+
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.base.attack_target = Some(player);
+    }
+
+    world.monster_combat_handle_close_chase_blocked(monster);
+
+    let wait_deadline = world.creatures.get(monster).and_then(|k| {
+        k.base().todo.queue.iter().find_map(|a| match a {
+            CreatureAction::Wait { deadline_ms } => Some(*deadline_ms),
+            _ => None,
+        })
+    });
+    assert_eq!(
+        wait_deadline,
+        Some(world.server_ms + MONSTER_CLOSE_CHASE_RETRY_MS),
+        "off-band blocked chase must re-arm in 100 ms (cract.cc:1359), keeping the target"
+    );
+    let still_targeted = world.creatures.get(monster).is_some_and(|k| match k {
+        CreatureKind::Monster(m) => m.base.attack_target == Some(player),
+        _ => false,
+    });
+    assert!(still_targeted, "retry must retain the target");
 }
 
 /// ~1 Hz think rescues monsters parked on a live target with no scheduler state.

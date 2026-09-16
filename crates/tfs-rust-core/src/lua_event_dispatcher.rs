@@ -16,8 +16,9 @@ use crate::talkactions::TalkActionRegistry;
 use slotmap::Key;
 use tfs_rust_common::Position;
 use tfs_rust_lua::{
-    CallbackRef, CreatureEventKind, LuaRuntime, MoveEventKind, MoveEventsRegistry,
-    MoveItemCylinder, load_all_talkaction_scripts, load_scripts_interface, with_lua_context,
+    CallbackRef, CreatureEventKind, EVENT_CALLBACK_ONSPAWN, LuaRuntime, MoveEventKind,
+    MoveEventsRegistry, MoveItemCylinder, load_all_talkaction_scripts, load_scripts_interface,
+    with_lua_context,
 };
 
 /// Lua-based event dispatcher.
@@ -853,6 +854,10 @@ impl EventDispatcher for LuaEventDispatcher {
                 );
             }
         });
+    }
+
+    fn has_monster_spawned_callback(&self) -> bool {
+        self.runtime.has_event_callback(EVENT_CALLBACK_ONSPAWN)
     }
 
     fn on_player_move_item(

@@ -102,7 +102,12 @@ pub enum InboundEvent {
     CancelWalk,
     MagicEffect {
         pos: Position,
+        effect: u8,
     },
+    /// Server refused an action (`0xB4` cancel text); retires one outstanding
+    /// spell/rune instead of recording a sample. Login MOTD / broadcasts never
+    /// match the failure list below.
+    SpellRejected,
     Ping(u8),
     OtherCreature {
         id: u32,
@@ -117,6 +122,8 @@ pub struct InboundState {
     pub last_other_creature_id: Option<u32>,
     pub last_other_creature_pos: Option<Position>,
     pub bytes_in: u64,
+    /// Decrypted server frames (= server `write`s; one XTEA frame each).
+    pub frames_in: u64,
     pub bytes_discarded: u64,
     pub magic_effects: u64,
     pub animated_texts: u64,
@@ -147,6 +154,7 @@ impl InboundState {
             last_other_creature_id: None,
             last_other_creature_pos: None,
             bytes_in: 0,
+            frames_in: 0,
             bytes_discarded: 0,
             magic_effects: 0,
             animated_texts: 0,
@@ -169,6 +177,7 @@ impl InboundState {
 
     pub fn add_counters(&mut self, other: &InboundState) {
         self.bytes_in += other.bytes_in;
+        self.frames_in += other.frames_in;
         self.bytes_discarded += other.bytes_discarded;
         self.magic_effects += other.magic_effects;
         self.animated_texts += other.animated_texts;
@@ -211,6 +220,7 @@ impl InboundState {
     /// Parse one decrypted inner payload. Returns events in order.
     pub fn feed(&mut self, payload: &[u8]) -> Vec<InboundEvent> {
         self.bytes_in += payload.len() as u64;
+        self.frames_in += 1;
         let mut events = Vec::new();
         let mut i = 0usize;
         while i < payload.len() {
@@ -337,9 +347,10 @@ impl InboundState {
                     }
                     let pos = read_pos(payload, i);
                     i += 5;
-                    i += 1; // effect id
+                    let effect = payload[i];
+                    i += 1;
                     self.magic_effects += 1;
-                    events.push(InboundEvent::MagicEffect { pos });
+                    events.push(InboundEvent::MagicEffect { pos, effect });
                 }
                 OP_ANIMATED_TEXT => match parse_animated_text(payload, &mut i) {
                     None => {
@@ -430,9 +441,22 @@ impl InboundState {
                 }
                 OP_TEXT_MESSAGE => {
                     // TVP `sendTextMessage` (`protocolgame.cpp` ~1246): type + string.
-                    if !take(payload, &mut i, 1) || !skip_len_string(payload, &mut i) {
-                        self.discard_rest(payload, i);
+                    // Failure cancels (`send_cancel_message` / `SendResult`) share this
+                    // opcode with MOTD / broadcasts, so only known action-failure texts
+                    // retire an outstanding spell — never match on the opcode alone.
+                    if !take(payload, &mut i, 1) {
+                        self.discard_rest(payload, i.saturating_sub(1));
                         break;
+                    }
+                    match read_len_string(payload, &mut i) {
+                        None => {
+                            self.discard_rest(payload, i);
+                            break;
+                        }
+                        Some(text) if is_action_failure_text(&text) => {
+                            events.push(InboundEvent::SpellRejected);
+                        }
+                        Some(_) => {}
                     }
                 }
                 OP_CANCEL_WALK => {
@@ -543,12 +567,52 @@ fn take(buf: &[u8], i: &mut usize, n: usize) -> bool {
 }
 
 fn skip_len_string(buf: &[u8], i: &mut usize) -> bool {
+    read_len_string(buf, i).is_some()
+}
+
+fn read_len_string(buf: &[u8], i: &mut usize) -> Option<String> {
     if buf.len().saturating_sub(*i) < 2 {
-        return false;
+        return None;
     }
     let len = u16::from_le_bytes([buf[*i], buf[*i + 1]]) as usize;
     *i += 2;
-    take(buf, i, len)
+    if buf.len().saturating_sub(*i) < len {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&buf[*i..*i + len]).into_owned();
+    *i += len;
+    Some(s)
+}
+
+/// `ReturnValue::description` texts (`crates/tfs-rust-core/src/return_value.rs`)
+/// for actions the loadgen schedules (use / rune / say / attack). Anything else
+/// on `0xB4` (MOTD, broadcasts, advance) is not a rejection.
+fn is_action_failure_text(text: &str) -> bool {
+    matches!(
+        text,
+        "Sorry, not possible."
+            | "Destination is out of range."
+            | "You are too far away."
+            | "First go downstairs."
+            | "First go upstairs."
+            | "You cannot throw there."
+            | "There is no way."
+            | "This is impossible."
+            | "You cannot use this object."
+            | "Your magic level is too low."
+            | "You do not have enough magic level."
+            | "You are exhausted."
+            | "You cannot use objects that fast."
+            | "You can only use it on creatures."
+            | "This action is not permitted in a protection zone."
+            | "You do not have enough mana."
+            | "You do not have enough soulpoints."
+            | "You must learn this spell first."
+            | "You have the wrong vocation to cast this spell."
+            | "Turn secure mode off if you really want to attack unmarked players."
+            | "You may not attack this person."
+            | "You may not attack this creature."
+    )
 }
 
 /// 772 `AddOutfit` (`protocolgame.cpp` ~2128): `u16` lookType, then 4 color bytes or item id.
@@ -719,7 +783,13 @@ mod tests {
         p.extend_from_slice(&magic_effect_bytes(player, 11));
 
         let ev = s.feed(&p);
-        assert_eq!(ev, vec![InboundEvent::MagicEffect { pos: player }]);
+        assert_eq!(
+            ev,
+            vec![InboundEvent::MagicEffect {
+                pos: player,
+                effect: 11
+            }]
+        );
         assert_eq!(s.self_id, Some(42));
         assert_eq!(s.pos, Some(player));
         assert_eq!(s.magic_effects, 1);
@@ -836,7 +906,8 @@ mod tests {
             ev,
             vec![
                 InboundEvent::MagicEffect {
-                    pos: Position::new(1, 2, 7)
+                    pos: Position::new(1, 2, 7),
+                    effect: 11
                 },
                 InboundEvent::Ping(OP_PING_BACK),
             ]
@@ -911,6 +982,42 @@ mod tests {
         assert_eq!(s.bytes_discarded, 0);
     }
 
+    fn text_message_bytes(text: &str) -> Vec<u8> {
+        let mut p = vec![OP_TEXT_MESSAGE, 0x17];
+        p.extend_from_slice(&(text.len() as u16).to_le_bytes());
+        p.extend_from_slice(text.as_bytes());
+        p
+    }
+
+    #[test]
+    fn failure_text_emits_spell_rejected() {
+        let mut s = InboundState::default();
+        let ev = s.feed(&text_message_bytes("Sorry, not possible."));
+        assert_eq!(ev, vec![InboundEvent::SpellRejected]);
+        assert_eq!(s.bytes_discarded, 0);
+    }
+
+    #[test]
+    fn broadcast_text_is_not_a_rejection() {
+        let mut s = InboundState::default();
+        let ev = s.feed(&text_message_bytes("Beware, beware the halloween hare."));
+        assert!(ev.is_empty());
+        assert_eq!(s.bytes_discarded, 0);
+    }
+
+    #[test]
+    fn magic_effect_carries_effect_id() {
+        let mut s = InboundState::default();
+        let ev = s.feed(&magic_effect_bytes(Position::new(1, 2, 7), 7));
+        assert_eq!(
+            ev,
+            vec![InboundEvent::MagicEffect {
+                pos: Position::new(1, 2, 7),
+                effect: 7,
+            }]
+        );
+    }
+
     #[test]
     fn cancel_walk_then_magic_effect() {
         let mut s = InboundState::default();
@@ -923,7 +1030,8 @@ mod tests {
             vec![
                 InboundEvent::CancelWalk,
                 InboundEvent::MagicEffect {
-                    pos: Position::new(1, 2, 7)
+                    pos: Position::new(1, 2, 7),
+                    effect: 11,
                 },
             ]
         );

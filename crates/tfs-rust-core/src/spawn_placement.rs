@@ -1,7 +1,10 @@
 //! 772 spawn tile search — `SearchSpawnField` + monsterhome radius rules.
 //!
 //! C++ reference: `info.cc` `SearchSpawnField`, `crnonpl.cc` `LoadMonsterhomes` /
-//! `ProcessMonsterhomes`.
+//! `ProcessMonsterhomes`. Login temple Create: `cract.cc` `SetOnMap` /
+//! `operate.cc` `CheckMapPlace(0)`.
+
+use std::cell::RefCell;
 
 use tfs_rust_common::Position;
 use tfs_rust_common::enums::ZoneType;
@@ -150,6 +153,12 @@ pub(crate) fn search_login_field(
         .find(|&pos| login_possible(pos))
 }
 
+// Game-thread TLS for SearchSpawnField BFS phases. Placement is serial on the
+// sim thread (GameWorld is not Send); keep capacity across ~23k boot searches.
+thread_local! {
+    static SEARCH_SPAWN_PHASES: RefCell<Vec<i32>> = const { RefCell::new(Vec::new()) };
+}
+
 /// C++ `SearchSpawnField` (`info.cc:911`).
 pub(crate) fn search_spawn_field(
     distance: i32,
@@ -164,78 +173,85 @@ pub(crate) fn search_spawn_field(
         return probe.login_possible.then_some(center);
     }
 
-    let grid = (2 * distance + 1) as usize;
-    let mut phases = vec![i32::MAX; grid * grid];
-    let idx = |ox: i32, oy: i32| -> usize {
-        let row = (oy + distance) as usize;
-        let col = (ox + distance) as usize;
-        row * grid + col
-    };
+    SEARCH_SPAWN_PHASES.with(|cell| {
+        let mut phases = cell.borrow_mut();
+        let grid = (2 * distance + 1) as usize;
+        let need = grid * grid;
+        if phases.len() < need {
+            phases.resize(need, i32::MAX);
+        }
+        phases[..need].fill(i32::MAX);
+        let idx = |ox: i32, oy: i32| -> usize {
+            let row = (oy + distance) as usize;
+            let col = (ox + distance) as usize;
+            row * grid + col
+        };
 
-    phases[idx(0, 0)] = 0;
+        phases[idx(0, 0)] = 0;
 
-    let mut best_pos: Option<Position> = None;
-    let mut best_tie = -1i32;
-    let mut expansion_phase = 0i32;
+        let mut best_pos: Option<Position> = None;
+        let mut best_tie = -1i32;
+        let mut expansion_phase = 0i32;
 
-    loop {
-        let mut found = false;
-        let mut expanded = false;
+        loop {
+            let mut found = false;
+            let mut expanded = false;
 
-        for oy in -distance..=distance {
-            for ox in -distance..=distance {
-                if phases[idx(ox, oy)] != expansion_phase {
-                    continue;
-                }
+            for oy in -distance..=distance {
+                for ox in -distance..=distance {
+                    if phases[idx(ox, oy)] != expansion_phase {
+                        continue;
+                    }
 
-                let pos = offset_position(center, ox, oy);
-                let probe = probe_at(pos);
+                    let pos = offset_position(center, ox, oy);
+                    let probe = probe_at(pos);
 
-                if probe.expansion_ok || expansion_phase == 0 {
-                    for ny in -1..=1 {
-                        for nx in -1..=1 {
-                            if nx == 0 && ny == 0 {
-                                continue;
-                            }
-                            let nox = ox + nx;
-                            let noy = oy + ny;
-                            if nox < -distance
-                                || nox > distance
-                                || noy < -distance
-                                || noy > distance
-                            {
-                                continue;
-                            }
-                            let step = (nox - ox).abs() + (noy - oy).abs();
-                            let neighbor = phases[idx(nox, noy)];
-                            if neighbor > expansion_phase + step {
-                                phases[idx(nox, noy)] = expansion_phase + step;
+                    if probe.expansion_ok || expansion_phase == 0 {
+                        for ny in -1..=1 {
+                            for nx in -1..=1 {
+                                if nx == 0 && ny == 0 {
+                                    continue;
+                                }
+                                let nox = ox + nx;
+                                let noy = oy + ny;
+                                if nox < -distance
+                                    || nox > distance
+                                    || noy < -distance
+                                    || noy > distance
+                                {
+                                    continue;
+                                }
+                                let step = (nox - ox).abs() + (noy - oy).abs();
+                                let neighbor = phases[idx(nox, noy)];
+                                if neighbor > expansion_phase + step {
+                                    phases[idx(nox, noy)] = expansion_phase + step;
+                                }
                             }
                         }
+                        expanded = true;
                     }
-                    expanded = true;
-                }
 
-                if probe.login_possible {
-                    // C++ `SearchSpawnField` tie-break `random(0, 99)` (`info.cc`) — glibc parity
-                    // stream, not `thread_rng` (Finding 19).
-                    let tie = tie_roll() + if probe.login_clean { 100 } else { 0 };
-                    if tie > best_tie {
-                        best_tie = tie;
-                        best_pos = Some(pos);
+                    if probe.login_possible {
+                        // C++ `SearchSpawnField` tie-break `random(0, 99)` (`info.cc`) — glibc parity
+                        // stream, not `thread_rng` (Finding 19).
+                        let tie = tie_roll() + if probe.login_clean { 100 } else { 0 };
+                        if tie > best_tie {
+                            best_tie = tie;
+                            best_pos = Some(pos);
+                        }
+                        found = true;
                     }
-                    found = true;
                 }
             }
+
+            if (found && minimize) || !expanded {
+                break;
+            }
+            expansion_phase += 1;
         }
 
-        if (found && minimize) || !expanded {
-            break;
-        }
-        expansion_phase += 1;
-    }
-
-    best_pos
+        best_pos
+    })
 }
 
 impl GameWorld {
@@ -460,6 +476,36 @@ impl GameWorld {
         }
     }
 
+    /// 772 `Create` onto a map container after `SetOnMap` temple fallback (`cract.cc:334-349`).
+    ///
+    /// `CheckMapPlace(0, …)` skips `IsMapBlocked` (`operate.cc:601-603`) so an occupied
+    /// BANK tile is legal. Requires a loaded tile with ground (BANK); do **not** use
+    /// `FLAG_NOLIMIT` — that would also accept void / UNPASS walls.
+    pub(crate) fn commit_set_on_map_create(&mut self, cid: CreatureId, pos: Position) -> bool {
+        let has_bank = self
+            .map
+            .get_tile(pos)
+            .is_some_and(|t| t.body().ground.is_some());
+        if !has_bank {
+            return false;
+        }
+        if let Some(kind) = self.creatures.get(cid) {
+            let old = kind.position();
+            let on_old = self
+                .map
+                .get_tile(old)
+                .is_some_and(|t| t.body().creatures.contains(&cid));
+            if on_old && old != pos {
+                self.map.unregister_creature_at(old, cid);
+            }
+        }
+        if let Some(kind) = self.creatures.get_mut(cid) {
+            kind.set_position(pos);
+        }
+        self.map.register_creature_at(pos, cid);
+        true
+    }
+
     /// C++ `TCreature::SetOnMap` — `SearchLoginField(dist=1)` (`cract.cc:311`, `info.cc:861`).
     pub fn place_creature_login(
         &mut self,
@@ -584,6 +630,40 @@ mod tests {
             || 0,
         );
         assert_eq!(pos, Some(far));
+    }
+
+    #[test]
+    fn search_spawn_field_reuses_phase_buffer_across_radii() {
+        let center = Position::new(10, 10, 7);
+        let far = Position::new(14, 10, 7);
+        let wide = search_spawn_field(
+            -4,
+            center,
+            |p| {
+                let ok = p == far;
+                SpawnTileProbe {
+                    login_possible: ok,
+                    login_clean: ok,
+                    expansion_ok: true,
+                }
+            },
+            || 0,
+        );
+        assert_eq!(wide, Some(far));
+        let near = search_spawn_field(
+            1,
+            center,
+            |p| {
+                let ok = p == center;
+                SpawnTileProbe {
+                    login_possible: ok,
+                    login_clean: ok,
+                    expansion_ok: ok,
+                }
+            },
+            || 0,
+        );
+        assert_eq!(near, Some(center));
     }
 
     #[test]
@@ -789,5 +869,83 @@ mod tests {
                 .iter()
                 .any(|&id| world.items.get(id).is_some_and(|i| i.item_type == WALL))
         );
+    }
+
+    /// Occupied saved pos + occupied temple still `Create`s onto temple (`cract.cc:327-349`).
+    #[test]
+    fn login_temple_create_stacks_when_query_add_would_fail() {
+        use crate::test_support::{
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_monster,
+            insert_player, test_player,
+        };
+
+        let mut world = beat_driven_test_world();
+        let login = Position::new(130, 130, 7);
+        let temple = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, temple, TEST_SYNTHETIC_GROUND_WP);
+        insert_monster(&mut world, "TempleGuard", temple, 20);
+
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                let pos = Position::new(
+                    (login.x as i32 + dx) as u16,
+                    (login.y as i32 + dy) as u16,
+                    login.z,
+                );
+                ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+                insert_monster(&mut world, &format!("Block{dx}{dy}"), pos, 20);
+            }
+        }
+
+        let joiner = insert_player(&mut world, test_player("Joiner", login));
+        let placed = world
+            .place_player_on_login(joiner, login, 1)
+            .expect("temple Create");
+        assert_eq!(placed, temple);
+        let stacked = world
+            .map
+            .get_tile(temple)
+            .expect("temple tile")
+            .body()
+            .creatures
+            .clone();
+        assert!(
+            stacked.contains(&joiner),
+            "joiner must stack on occupied temple"
+        );
+        assert!(stacked.len() >= 2);
+    }
+
+    #[test]
+    fn login_temple_create_fails_when_temple_tile_missing() {
+        use crate::test_support::{
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_monster,
+            insert_player, test_player,
+        };
+        use tfs_rust_content::otbm::TownData;
+
+        let mut world = beat_driven_test_world();
+        let login = Position::new(130, 130, 7);
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                let pos = Position::new(
+                    (login.x as i32 + dx) as u16,
+                    (login.y as i32 + dy) as u16,
+                    login.z,
+                );
+                ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+                insert_monster(&mut world, &format!("Block{dx}{dy}"), pos, 20);
+            }
+        }
+        world.map.towns.insert(
+            2,
+            TownData {
+                id: 2,
+                name: "VoidTemple".into(),
+                temple_position: Position::new(1, 1, 7),
+            },
+        );
+        let joiner = insert_player(&mut world, test_player("Joiner", login));
+        assert!(world.place_player_on_login(joiner, login, 2).is_none());
     }
 }

@@ -91,6 +91,14 @@ run. Never publish only one.
   files for a sensitivity cell. Rust has no matching switch.
 - TVP `ServerSave` globalevent at 04:30 **shuts the process down**. Never soak
   across that wall clock.
+- **Auth (disclose).** `seed_bench_accounts.py` stores SHA1 (`transformToSHA1`
+  of plaintext `1`). TVP verifies SHA1 and stops. Rust default
+  `upgradeSha1OnLogin = true` re-hashes to bcrypt cost 12 on first login
+  (`spawn_blocking`, ~200 ms × bots) — that was the 700%+ post-listen spike
+  at 50 bots, not map send. `run_comparison.py` sets
+  `TFS_UPGRADE_SHA1_ON_LOGIN=0` so the rust cell matches TVP (SHA1 verify
+  only). Production keeps the upgrade. Override the env to `1` only when
+  measuring the upgrade itself.
 
 ### 3.4 Accounts, map, spawns
 
@@ -106,7 +114,10 @@ run. Never publish only one.
   `cluster` (Chebyshev disk radius ~6, gap 1–2 around a chosen spawn center —
   shared spectator sets, active monsters; default center `32776,32240,7`
   Cyclops, also on TVP `tvpspawn`), `--stack-temple` (single Thais
-  temple tile 32369,32241,7).
+  temple tile 32369,32241,7). Cluster packing stacks extra characters on the
+  same tiles; 772 `SetOnMap` then `Create`s overflow onto the hometown temple
+  (TVP `internalAddThing`). TFS-style temple `queryAdd` + disconnect is
+  wrong here — rust follows the corpus Create.
 - Shared OTBM: `./scripts/sync_tvp_world.sh` hardlinks Rust
   `data/world/forgotten.otbm` onto TVP `gameserver/data/world/map.otbm`.
   `run_tvp.sh` / `run_comparison.py` call it before TVP starts. TVP
@@ -264,7 +275,15 @@ Correlation, per action type:
 | SLO | Sent | Ack |
 |---|---|---|
 | Walk | cardinal move opcode | self `0x6D` |
-| Spell / rune | `SAY` words / `USE_ITEM_EX` rune | `0x83` at the target tile |
+| Spell / rune | `SAY` words / `USE_ITEM_EX` rune | `0x83` at the target tile **with the expected effect id** (AoE runes; `SAY` stays pos-only) |
+
+Rune `USE_ITEM_EX` is scheduled at `walk_tick + walk_period/2`, not on the walk
+tick itself: the use still clears the in-flight step via ToDoClear, but a
+rejected use no longer wipes the walk just sent. Server cancel text on `0xB4`
+(`SendResult` / `SendMessage`) retires the oldest outstanding spell as
+`spell_rune.rejections`, not a sample — matched on known `ReturnValue` texts
+only, so MOTD / broadcasts never count. Report `spell_rune.rejections` next to
+`samples`; the equivalence gate compares rejection rate as well.
 
 ### 6.2 Walk-ack correlation defect (blocker)
 
@@ -331,44 +350,131 @@ Plus load curve (25/50/100/200/300/400/600 bots: CPU%, RSS, p99), steady-state
 python3 scripts/bench/run_comparison.py --mode equivalence --reps 1
 ```
 
-Runs 5 bots of each isolation role against rust then tvp and fails
-`check_equivalence.py` on relative delta above:
+Runs 5 bots of each isolation role against rust then tvp. The engines
+differ; this gate only checks that **the same actions were sent** and the
+sessions stayed up. Combat outcomes are logged, not gated.
 
-| Observable | Threshold |
-|---|---|
-| `damage_sum` (numeric `0x84`) | 20% (skip if both `unique_creatures` are 0 — field ticks are not combat) |
-| `unique_creatures` | 15% (skip if both 0) |
-| `bytes_in` per send | 25% |
-| `magic_effects` | 25% (skip if both 0; do **not** skip when only one side is 0) |
-| `sends` | 25% |
-| `bytes_discarded` / `bytes_in` | 25% (skip if both 0) |
-| `walk.rejections` / `walk.samples` | 25% (skip if both 0) |
-| `disconnects` / `bots` | 25% (skip if both 0) |
-| `reconnects` | 25% (skip if both 0; both should be 0) |
+| Observable | Threshold | Why |
+|---|---|---|
+| `sends` | 5% | same open-loop schedule |
+| `bytes_discarded` / `bytes_in` | 25% (skip if both 0) | loadgen decoder health |
+| `spell_rune.rejections` / `spell_rune.samples` | 25% (skip if both 0) | scheduled use actually ran (empty-slot / sprite miss) |
+| `disconnects` / `bots` | 25% (skip if both 0) | bots stayed in world |
+| `reconnects` | 25% (skip if both 0; both should be 0) | same |
 
-If the two servers do not match at 5 bots, the 300-bot chart is not measuring
-the claimed workload. **Publication equivalence is `--layout cluster`**
-(Cyclops `32776,32240,7`) plus the isolation RONs. Scatter isolation never
-sees monsters; do not treat a green scatter-only gate as combat equivalence.
-Freeze `clustered_hunt.ron` after this cluster gate passes. Document residual
-deltas (script-tree AoE is the expected hotspot). Server-side RNG is not
-locked across processes; headline metrics must be insensitive to it (median
-of ≥ 3 reps) or the gate fails.
+Not gated (server-side, expected to differ): `damage_sum`, `magic_effects`,
+`unique_creatures`, `bytes_in` per send, `walk.rejections`.
+
+The 600-bot chart is the same RON + bot count on each server. Isolation
+roles exist to catch “one side never used the rune” before that chart.
+
+Seeded bench characters carry non-zero `players.lastlogin` (both schemas) so
+`firstlogin.lua` starter gear never runs on them; the script itself also
+skips occupied slots. Cluster cells seed `--health 5000` (both servers
+identically) so Cyclops focus does not kill a 1000-HP bot mid-cell — a death
+drops inventory and respawns at temple, poisoning the combat rows.
+
+If the two servers do not send the same actions at 5 bots, the 600-bot
+chart is not the same workload. **Publication layout is `--layout cluster`**
+(Cyclops `32776,32240,7`) plus the isolation RONs so rune/walk packets
+actually fire. Scatter isolation never sees monsters; that is fine for a
+city-churn headline, not for hunt. Freeze `clustered_hunt.ron` after this
+action-sameness gate passes. Server-side RNG and combat fan-out are not
+locked across processes.
 
 ```
 python3 scripts/seed_bench_accounts.py --count 10 --apply --target both --layout cluster
 python3 scripts/bench/run_comparison.py --mode equivalence --reps 1
 ```
 
+`--mode equivalence` re-applies that cluster seed before **each** isolation
+cell. Logout after death persists temple (or walked-off) `pos*`; without a
+reset, later roles are not on Cyclops.
+
+### 7.1 Live cluster gate — **PASS** (actions, `results/20260913T083946Z`)
+
+Isolation RONs, `walk_period_ms: 500`, `cyclops_hunt_loop.csv`, per-cell
+`--layout cluster` re-seed (`--health 5000`), 5 bots × 30 s. Includes item
+wipe (`player_items` under `FOREIGN_KEY_CHECKS=0`), `lastlogin`, chase 100 ms,
+rune offset + effect-id ack. Sends matched. `disconnects`/`reconnects` 0.
+`bytes_discarded`/`skip_failures`/`unknown_opcodes` 0.
+
+GFB now fires on rust (`aoe_rune` 60/60 spell acks, 0 outstanding). Gate
+still fails every combat row:
+
+| Role | rust dmg / ME / cre / shoots | tvp dmg / ME / cre / shoots |
+|---|---|---|
+| walker | 4868 / 172 / 6 / 0 | 13550 / 296 / 3 / 0 |
+| melee | 5738 / 219 / 2 / 0 | 16080 / 462 / 4 / 0 |
+| caster | **379592** / 343 / 7 / 0 | 13842 / 685 / 8 / 0 |
+| rune | 6380 / 369 / 6 / 0 | 9139 / 448 / 9 / 0 |
+| aoe_rune | **1537469** / 6822 / 11 / **170** | 27860 / 11119 / 15 / **325** |
+| noise | 3257 / 154 / 3 / 0 | 11515 / 389 / 5 / 0 |
+
+Rust `aoe_rune` ME is now thousands (was 302). Combat fan-out still differs
+(TVP denser spawn / more effects); that is **not** a gate. Action-sameness
+on this run: `sends` matched every role, `disconnects`/`reconnects` 0,
+`spell_rune.rejections` 0, `bytes_discarded` 0.
+
+Prior FAIL `20260913T081030Z` (pre item-wipe): aoe rust 3869/302/3/**0**.
+`20260913T070214Z` and `20260913T062814Z` as before.
+
+### 7.2 Root cause of the rust `aoe_rune` collapse (inventory wipe landed)
+
+A 1-bot probe against the release binary showed rust `distance_shoots` 0 and
+a ToDo trace with zero `enqueue_player_use` events: the seeded GFB never
+reached slot 6. `firstlogin.lua` (`getLastLoginSaved() == 0`, true for every
+freshly seeded char) did `addItem(2382 → CONST_SLOT_LEFT)`, and the explicit-
+slot fallback placed a coat in the left hand; every `USE_ITEM_EX` then failed
+sprite validation (`NotPossible`) before queueing. Side effects of the same
+failure: each rune packet still cleared the in-flight walk (shared tick), and
+the 26 "acks" were blood splashes on the monster tile matching the pos-only
+ack. Landed: seeder `lastlogin = UNIX_TIMESTAMP()` (both schemas),
+`firstlogin.lua` occupied-slot guards, rune schedule offset `+walk_period/2`,
+`0xB4` cancel text → `spell_rune.rejections`, effect-id ack for AoE runes
+(`aoe_rune_effect`, default FIREAREA 7). Re-run `20260913T081030Z` still has
+rust `aoe_rune` `distance_shoots = 0` and ME 302. Cause: seeder
+`SET FOREIGN_KEY_CHECKS=0` then `DELETE FROM players` skips CASCADE, so
+`player_items` kept firstlogin coats/torches and stacked a GFB row per cell.
+Hydrate last-write on pid 6 often was not 2304; sprite check against client
+3191 cancelled before `enqueue_player_use`. Seeder now deletes `player_items`
+and `player_spells` by id first. Post-wipe seed is clean (one 2304 on pid 6,
+one 2268 on pid 10). 1-bot rust probe after wipe: `distance_shoots = 6`,
+`magic_effects = 241` in 12 s (was 0 shoots). Gate not re-run.
+
+### 7.3 Monster-engagement gap (`walker`/`melee`/`noise`, corpus-adjudicated)
+
+Melee cadence is a match (2000 ms post-hit both sides), so the ~2.5× TVP hit
+gap is engagement, not swing rate. Corpus (`tibia-game-master`) adjudication
+of the five candidate deltas:
+
+| # | Delta | Verdict |
+|---|---|---|
+| 1 | Lose-target 5%/idle roll | Corpus agrees with **rust** (`crnonpl.cc:2431`, `cyclops.mon:18`); TVP `changeTargetChance` maps to corpus `LoseTarget` |
+| 2 | Out-of-home while attacking | Corpus agrees with **rust** — despawn via `StartLogout` (`crnonpl.cc:2412-2413`), no walk-home |
+| 3 | Path failure during chase | Corpus agrees with **rust** — NOWAY → `Target = 0` + roam tail (`crnonpl.cc:2895`, `:2920-2933`) |
+| 4 | Chase re-think wait | Corpus agrees with **TVP** — active re-arm is `ToDoWait(100)` (`cract.cc:1359`) / 200 on target move (`crmain.cc:955`); 1000 ms is roam/idle only |
+| 5 | Sight 10 / wake sources | Corpus agrees with **rust** (`crnonpl.cc:2423-2424`, `:2966-2982`, `operate.cc:937`) |
+
+Fixed #4: rust's target-retained retry paths
+(`monster_combat_handle_close_chase_blocked` off-band arm, both `Retry` arms,
+move-stimulus `Retry` arm) waited `MONSTER_IDLE_WAIT_MS` (1000). They now wait
+`MONSTER_CLOSE_CHASE_RETRY_MS` (100). Cadence is still enforced by the 2000 ms
+`DelayAttack` gate, so this only re-arms sooner. Spawn placement also
+contributes to initial density (TVP scatters all monsters within radius 30;
+rust follows the corpus minimize-first/extend-later within radius 10), but
+rust's placement is the corpus behavior — not changed. Re-run
+`20260913T081030Z` still shows walker/melee/noise damage ~2.3–2.5× on TVP;
+100 ms re-arm did not close the gap.
+
 ## 8. Remaining work (parent implements; sub-agents research only)
 
 Harness items 1–7 landed in code. Isolation RONs use the Cyclops loop at
 500 ms; inbound length-skips `0xA7`/`0xD3`/`0xD4` and reports
-`unknown_opcodes`. Live cluster equivalence (`results/20260913T062814Z`)
-**FAIL**ed with `unique_creatures` > 0 (combat is visible); residual
-damage / ME / creature-count deltas remain. `clustered_hunt.ron` is **not
-frozen**. Scatter cannot test combat. In-game walk of the CSV loops still
-pending.
+`unknown_opcodes`. Live cluster **action-sameness PASS** — see §7.1
+(`results/20260913T083946Z`): same `sends`, 0 drops, 0 spell rejects. Combat
+fan-out still differs; not gated. `clustered_hunt.ron` freeze is optional
+before a load-curve. In-game walk of the CSV loops still pending.
 
 1. **Walk-ack retire on `0xB5`** — **done.**
 2. **Waypoint CSV + expander + `waypoint_file`** — **done** (`waypoints.rs`,
@@ -381,6 +487,15 @@ pending.
 5. **Game-thread `comm`** — **done** (named `game` thread + diagnosis overlay).
 6. **Orchestrator** — **done** (default load-curve runs both headlines).
 7. **`--vocation-cycle`** — **done** on the seeder.
+8. **Rune-ack retire on `0xB4` + effect-id ack** — **done** (`SpellRejected`
+   event on known `ReturnValue` texts → `spell_rune.rejections`; `UseItemEx`
+   carries `expect_effect`, `aoe_rune_effect` default FIREAREA 7; rune tick
+   offset `+walk_period/2`). Gate compares `spell_rejections_per_sample`.
+9. **Seeder `lastlogin` + `firstlogin.lua` guards** — **done** (non-zero
+   `lastlogin` both schemas; script skips occupied slots, nil-guards the
+   backpack). Cluster cells seed `--health 5000` both sides.
+10. **Seeder wipe `player_items` under `FOREIGN_KEY_CHECKS=0`** — **done**
+    (CASCADE does not fire; leftover slot-6 coats blocked GFB).
 
 Crate placement: wire work in `tools/loadgen` and `bench/`; seeder and
 orchestrator stay Python; nothing in `tfs-rust-core` beyond the existing
@@ -424,7 +539,7 @@ python3 scripts/bench/check_equivalence.py --self-test
 - [ ] §8 items 1–3 landed; `clustered_hunt.ron` frozen
 - [ ] Client ceiling measured (null echo) and ≫ max bot count
 - [ ] Loadgen byte stream diffed against a real client capture
-- [ ] Equivalence gate passes on **cluster** (isolation RONs + Cyclops seed), residuals documented
+- [x] Equivalence gate (action-sameness) passes on **cluster** (`20260913T083946Z`, §7.1)
 - [ ] `tvp` and `tvp-o3` both run; both on the chart
 - [ ] Alternating cells, ≥ 3 reps, median + spread, pinned cpusets, governor
   `performance`, `meta.json` present

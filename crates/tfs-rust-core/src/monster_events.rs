@@ -10,7 +10,7 @@ use slotmap::Key;
 use tfs_rust_common::Position;
 
 use crate::creature::{ChaseMode, CreatureKind, MonsterState};
-use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS};
+use crate::creature_todo::{CreatureAction, MONSTER_CLOSE_CHASE_RETRY_MS};
 use crate::game_world::{GameWorld, creature_can_see};
 use crate::ids::CreatureId;
 use crate::monster_ai::{MAP_MAX_VIEWPORT, MonsterEnqueueAttackResult, chebyshev};
@@ -470,7 +470,8 @@ impl GameWorld {
                 self.schedule_immediate_todo_wakeup(monster_id);
             }
             MonsterEnqueueAttackResult::Retry => {
-                self.idle_enqueue_wait_and_start(monster_id, MONSTER_IDLE_WAIT_MS);
+                // Target retained — `ToDoWait(100)` chase re-arm (`cract.cc:1353-1364`).
+                self.idle_enqueue_wait_and_start(monster_id, MONSTER_CLOSE_CHASE_RETRY_MS);
             }
             MonsterEnqueueAttackResult::Noway => {
                 // C++ NOWAY catch: clear `Target` + fall through to roam (`crnonpl.cc:2890-2898`).

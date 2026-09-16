@@ -774,14 +774,35 @@ impl MysqlPoolConfig {
     }
 }
 
-/// Password hashing settings (`config.lua` `legacySha1Enabled`, `passwordHashCost`).
+/// Password hashing settings (`config.lua` `legacySha1Enabled`, `passwordHashCost`,
+/// `upgradeSha1OnLogin`). `TFS_UPGRADE_SHA1_ON_LOGIN` overrides the upgrade key (`0`/`1`).
 pub fn password_hash_config_from(cfg: &ConfigManager) -> Result<tfs_rust_db::PasswordHashConfig> {
     let legacy_sha1_enabled = get_bool_or(cfg, "legacySha1Enabled", true)?;
     let bcrypt_cost = get_i64_or(cfg, "passwordHashCost", 12)?;
     if bcrypt_cost < 0 {
         return Err(TfsRustError::Config("passwordHashCost must be >= 0".into()));
     }
-    tfs_rust_db::PasswordHashConfig::new(legacy_sha1_enabled, bcrypt_cost as u32)
+    let mut upgrade_sha1_on_login = get_bool_or(cfg, "upgradeSha1OnLogin", true)?;
+    if let Ok(raw) = std::env::var("TFS_UPGRADE_SHA1_ON_LOGIN") {
+        upgrade_sha1_on_login = parse_upgrade_sha1_env(&raw).ok_or_else(|| {
+            TfsRustError::Config(format!(
+                "TFS_UPGRADE_SHA1_ON_LOGIN must be 0/1/true/false, got {raw:?}"
+            ))
+        })?;
+    }
+    tfs_rust_db::PasswordHashConfig::with_upgrade(
+        legacy_sha1_enabled,
+        bcrypt_cost as u32,
+        upgrade_sha1_on_login,
+    )
+}
+
+fn parse_upgrade_sha1_env(raw: &str) -> Option<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
 }
 
 /// `config.lua` `clientVersion` (default 1098). C++ ref: OTClient/TFS client protocol id.
@@ -972,6 +993,7 @@ mod tests {
         let p = password_hash_config_from(&cfg).expect("defaults");
         assert!(p.legacy_sha1_enabled);
         assert_eq!(p.bcrypt_cost, 12);
+        assert!(p.upgrade_sha1_on_login);
     }
 
     #[test]
@@ -980,11 +1002,22 @@ mod tests {
             r#"
             legacySha1Enabled = false
             passwordHashCost = 10
+            upgradeSha1OnLogin = false
             "#,
         );
         let p = password_hash_config_from(&cfg).expect("password hash config");
         assert!(!p.legacy_sha1_enabled);
         assert_eq!(p.bcrypt_cost, 10);
+        assert!(!p.upgrade_sha1_on_login);
+    }
+
+    #[test]
+    fn parse_upgrade_sha1_env_accepts_common_flags() {
+        assert_eq!(parse_upgrade_sha1_env("0"), Some(false));
+        assert_eq!(parse_upgrade_sha1_env("1"), Some(true));
+        assert_eq!(parse_upgrade_sha1_env(" false "), Some(false));
+        assert_eq!(parse_upgrade_sha1_env("True"), Some(true));
+        assert_eq!(parse_upgrade_sha1_env("maybe"), None);
     }
 
     #[test]

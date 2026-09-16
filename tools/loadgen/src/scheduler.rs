@@ -23,6 +23,10 @@ pub enum ActionKind {
         to_sprite: u16,
         /// If true, dest is `last_other_creature_pos` (else self pos) at send time.
         target_other: bool,
+        /// Expected `0x83` effect id for the ack (`None` = any effect at the
+        /// tile). Set for area runes (GFB `CONST_ME_FIREAREA`) so unrelated
+        /// splashes on the target tile do not count as acks.
+        expect_effect: Option<u8>,
     },
     LookAt(Position),
 }

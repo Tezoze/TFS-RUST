@@ -92,6 +92,12 @@ pub trait EventDispatcher {
     ) {
     }
 
+    /// True when a mutate callback may change spawn inventory / equipment.
+    /// Default false so tests and Null skip a second combat recompute.
+    fn has_monster_spawned_callback(&self) -> bool {
+        false
+    }
+
     /// TFS `Events::eventPlayerOnMoveItem` — after native `queryAdd`, before transfer.
     fn on_player_move_item(
         &self,

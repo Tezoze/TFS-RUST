@@ -77,7 +77,9 @@ impl SessionLease {
             self.live.bytes_in.fetch_add(bytes_in, RELAXED);
         }
         if bytes_discarded != 0 {
-            self.live.bytes_discarded.fetch_add(bytes_discarded, RELAXED);
+            self.live
+                .bytes_discarded
+                .fetch_add(bytes_discarded, RELAXED);
         }
     }
 }

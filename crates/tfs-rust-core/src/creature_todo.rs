@@ -37,6 +37,11 @@ use tfs_rust_common::{ConnId, Position};
 /// C++ `ToDoWait(1000)` after roam, dist_dance, dist_flee fail, master dist 2–3 (`crnonpl.cc`).
 pub const MONSTER_IDLE_WAIT_MS: u64 = 1000;
 
+/// C++ `ToDoWait(100)` re-arm on the active close-chase `ToDoAttack` tail when
+/// `GetDistance() != 1` (`cract.cc:1353-1364`). Target-retained retry only —
+/// roam/idle tails keep `MONSTER_IDLE_WAIT_MS` (`crnonpl.cc:2933`, `:2942`).
+pub const MONSTER_CLOSE_CHASE_RETRY_MS: u64 = 100;
+
 /// Snapshot per-creature + global ToDo state — enable with
 /// `RUST_LOG=tfs_rust_core::creature_todo=debug,tfs_rust_core::idle_stimulus=debug`.
 pub(crate) fn trace_creature_todo(world: &GameWorld, cid: CreatureId, event: &str) {

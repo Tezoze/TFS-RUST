@@ -12,6 +12,8 @@ use tfs_rust_common::error::{Result, TfsRustError};
 pub struct PasswordHashConfig {
     pub legacy_sha1_enabled: bool,
     pub bcrypt_cost: u32,
+    /// Re-hash SHA1 stores to bcrypt after a successful login (`upgradeSha1OnLogin`).
+    pub upgrade_sha1_on_login: bool,
 }
 
 impl Default for PasswordHashConfig {
@@ -19,12 +21,21 @@ impl Default for PasswordHashConfig {
         Self {
             legacy_sha1_enabled: true,
             bcrypt_cost: 12,
+            upgrade_sha1_on_login: true,
         }
     }
 }
 
 impl PasswordHashConfig {
     pub fn new(legacy_sha1_enabled: bool, bcrypt_cost: u32) -> Result<Self> {
+        Self::with_upgrade(legacy_sha1_enabled, bcrypt_cost, true)
+    }
+
+    pub fn with_upgrade(
+        legacy_sha1_enabled: bool,
+        bcrypt_cost: u32,
+        upgrade_sha1_on_login: bool,
+    ) -> Result<Self> {
         if !(4..=31).contains(&bcrypt_cost) {
             return Err(TfsRustError::Config(format!(
                 "passwordHashCost must be between 4 and 31, got {bcrypt_cost}"
@@ -33,7 +44,13 @@ impl PasswordHashConfig {
         Ok(Self {
             legacy_sha1_enabled,
             bcrypt_cost,
+            upgrade_sha1_on_login,
         })
+    }
+
+    /// True when a successful login should rewrite a SHA1 store to bcrypt.
+    pub fn should_upgrade_sha1(&self, stored: &str) -> bool {
+        self.upgrade_sha1_on_login && needs_upgrade(stored)
     }
 }
 
@@ -169,6 +186,7 @@ mod tests {
         let cfg = PasswordHashConfig {
             legacy_sha1_enabled: false,
             bcrypt_cost: 12,
+            upgrade_sha1_on_login: true,
         };
         let stored = sha1_password_hex("secret");
         assert!(!verify_password_sync("secret", &stored, &cfg));
@@ -194,5 +212,16 @@ mod tests {
     fn password_hash_config_rejects_invalid_cost() {
         assert!(PasswordHashConfig::new(true, 3).is_err());
         assert!(PasswordHashConfig::new(true, 32).is_err());
+    }
+
+    #[test]
+    fn should_upgrade_sha1_honours_config_gate() {
+        let sha1 = "356a192b7913b04c54574d18c28d46e6395428ab";
+        let on = PasswordHashConfig::default();
+        let off = PasswordHashConfig::with_upgrade(true, 12, false).expect("valid");
+        assert!(on.should_upgrade_sha1(sha1));
+        assert!(!off.should_upgrade_sha1(sha1));
+        let bcrypt = hash_bcrypt("x", 4).expect("hash");
+        assert!(!on.should_upgrade_sha1(&bcrypt));
     }
 }

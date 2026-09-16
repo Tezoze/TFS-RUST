@@ -185,7 +185,7 @@ fn spawn_loot_itemids_equal_corpse(version: ProtocolVersion) {
     let mut world = loot_world(version);
     let pos = Position::new(100, 100, 7);
     let cid = insert_rat(&mut world, pos);
-    world.roll_monster_spawn_loot(cid, &rat_with_loot());
+    world.roll_monster_spawn_loot(cid, &rat_with_loot().loot);
     let inventory = monster_inventory(&world, cid);
     let snapshot = inventory_item_ids(&inventory);
     assert!(
@@ -225,7 +225,7 @@ fn summons_drop_nothing(version: ProtocolVersion) {
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cid) {
         m.base.master = Some(master);
     }
-    world.roll_monster_spawn_loot(cid, &rat_with_loot());
+    world.roll_monster_spawn_loot(cid, &rat_with_loot().loot);
     let inventory = monster_inventory(&world, cid);
     assert!(inventory.bag.is_none());
     assert!(inventory.equipment.iter().all(|s| s.is_none()));
@@ -325,7 +325,7 @@ end, 0}
         m.inventory.bag = Some(bag);
     }
 
-    world.finish_monster_spawn(cid, &empty_rat(), false, false);
+    world.finish_monster_spawn(cid, &empty_rat().loot, false, false);
 
     let living_inner = world
         .items

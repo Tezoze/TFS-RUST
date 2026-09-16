@@ -2,6 +2,7 @@ pub mod adler;
 pub mod codec;
 pub mod creature_encode;
 pub mod creature_known;
+pub mod frame_coalesce;
 pub mod game_challenge;
 pub mod game_cmd_bus;
 pub mod game_command;

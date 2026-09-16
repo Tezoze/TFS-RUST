@@ -171,6 +171,7 @@ async fn main() -> Result<()> {
         walk: merged.walk_summary(),
         spell_rune: merged.spell_summary(),
         bytes_in: inbound.bytes_in,
+        frames_in: inbound.frames_in,
         bytes_out,
         outstanding_at_end: outstanding,
         sends,

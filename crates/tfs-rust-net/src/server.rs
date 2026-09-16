@@ -8,6 +8,7 @@ use tracing::{error, info, trace};
 
 use tfs_rust_common::{ConnId, GameCommand, ProtocolCaps, ProtocolVersion};
 
+use crate::frame_coalesce::encode_one_coalesced_frame;
 use crate::game_challenge::{GameChallenge, send_game_challenge};
 use crate::game_cmd_bus::GameCmdTx;
 use crate::game_first_packet::{FirstClientPacket, LoginIdentity, parse_first_client_packet};
@@ -228,9 +229,11 @@ async fn handle_login_connection(
 }
 
 async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyhow::Result<()> {
-    // C++ `server.cpp` ~163: `acceptor->set_option(boost::asio::ip::tcp::no_delay(true))`.
-    // Disables Nagle — small move packets hit the wire immediately instead of waiting for
-    // delayed ACKs (~40ms). Critical for walk smoothness.
+    // Corpus: `communication.cc:1354` sets `TCP_NODELAY=1` on the *accepted* fd (also `:1504`
+    // on listen). TFS/TVP only set `acceptor->set_option(no_delay(true))` (`server.cpp:160`)
+    // and never the client socket — Linux usually inherits it, other kernels may not, which
+    // is why the decompile sets both. App coalesce (`frame_coalesce`) is the batcher; Nagle
+    // is not. Walk smoothness needs the write to leave the host without a delayed-ACK stall.
     let _ = stream.set_nodelay(true);
     let peer_ip = match stream.peer_addr() {
         Ok(std::net::SocketAddr::V4(v)) => u32::from_le_bytes(v.ip().octets()),
@@ -344,12 +347,22 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
 
     let send_bytes = wire.send_bytes.clone();
     tokio::spawn(async move {
-        while let Some(blobs) = batch_rx.recv().await {
-            for b in blobs {
-                let frame = encrypt_xtea_game_frame(&b, &round_keys, &caps);
-                send_bytes.fetch_add(frame.len() as u64, std::sync::atomic::Ordering::Relaxed);
-                if write_half.write_all(&frame).await.is_err() {
+        // One XTEA frame per beat (`communication.cc` `SendData`); scratch reused (A2).
+        let mut scratch = Vec::with_capacity(16 * 1024 + 64);
+        'recv: while let Some(blobs) = batch_rx.recv().await {
+            let mut rest = blobs.as_slice();
+            while !rest.is_empty() {
+                let n = encode_one_coalesced_frame(rest, &round_keys, &caps, &mut scratch);
+                if n == 0 {
                     break;
+                }
+                rest = &rest[n..];
+                if scratch.is_empty() {
+                    continue;
+                }
+                send_bytes.fetch_add(scratch.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                if write_half.write_all(&scratch).await.is_err() {
+                    break 'recv;
                 }
             }
             let _ = write_half.flush().await;

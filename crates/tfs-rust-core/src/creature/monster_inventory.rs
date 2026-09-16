@@ -6,7 +6,7 @@
 
 use tfs_rust_common::Position;
 use tfs_rust_common::enums::BloodType;
-use tfs_rust_content::monsters::{LootBlock, MAX_LOOTCHANCE, MonsterType};
+use tfs_rust_content::monsters::{LootBlock, MAX_LOOTCHANCE};
 use tfs_rust_content::otb::ItemType;
 
 use crate::container::Container;
@@ -244,7 +244,7 @@ impl GameWorld {
     /// Roll `MonsterType.loot` once at spawn; skip summons (`Master != 0`).
     ///
     /// C++ reference: `TMonster::TMonster` — `crnonpl.cc:2050`.
-    pub fn roll_monster_spawn_loot(&mut self, monster_id: CreatureId, mtype: &MonsterType) {
+    pub fn roll_monster_spawn_loot(&mut self, monster_id: CreatureId, loot: &[LootBlock]) {
         if self
             .creatures
             .get(monster_id)
@@ -252,7 +252,7 @@ impl GameWorld {
         {
             return;
         }
-        if mtype.loot.is_empty() {
+        if loot.is_empty() {
             return;
         }
 
@@ -261,7 +261,7 @@ impl GameWorld {
         // Phase 3: both eras use the glibc parity loot path (772 monster AI is the single system).
         {
             let mut registry = std::mem::take(&mut self.container_registry);
-            for block in &mtype.loot {
+            for block in loot {
                 let Some(item_id) = roll_loot_block_glibc(self, block, &mut registry, monster_id)
                 else {
                     continue;
@@ -980,7 +980,7 @@ mod tests {
             m.corpse_id = 2813;
         }
 
-        world.roll_monster_spawn_loot(monster, &rat_with_loot());
+        world.roll_monster_spawn_loot(monster, &rat_with_loot().loot);
 
         let inventory = world
             .creatures
@@ -1055,7 +1055,7 @@ mod tests {
             m.base.master = Some(player);
         }
 
-        world.roll_monster_spawn_loot(monster, &rat_with_loot());
+        world.roll_monster_spawn_loot(monster, &rat_with_loot().loot);
 
         let m = match world.creatures.get(monster) {
             Some(CreatureKind::Monster(m)) => m,

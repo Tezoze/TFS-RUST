@@ -225,9 +225,10 @@ pub async fn run_bot(
                             match ev {
                                 InboundEvent::WalkAck => latency.on_walk_ack(t),
                                 InboundEvent::CancelWalk => latency.on_walk_cancel(),
-                                InboundEvent::MagicEffect { pos } => {
-                                    latency.on_magic_effect(t, pos);
+                                InboundEvent::MagicEffect { pos, effect } => {
+                                    latency.on_magic_effect(t, pos, effect);
                                 }
+                                InboundEvent::SpellRejected => latency.on_spell_reject(),
                                 InboundEvent::Ping(op) => {
                                     let pkt = encode_ping_reply(op);
                                     match write_game(&mut writer, &pkt, &round, &caps).await {
@@ -257,13 +258,14 @@ pub async fn run_bot(
                 while let Some(act) = ol.pop_due(now) {
                     let payload = materialize(&act.kind, &inbound);
                     let corr = match &act.kind {
-                        ActionKind::Walk(_) => act.kind.correlate(),
-                        ActionKind::UseItemEx { .. } => Some((
+                        ActionKind::Walk(_) => act.kind.correlate().map(|(k, t)| (k, t, None)),
+                        ActionKind::UseItemEx { expect_effect, .. } => Some((
                             crate::latency::Correlate::SpellRune,
                             Some(use_item_dest(&inbound)),
+                            *expect_effect,
                         )),
                         ActionKind::Say(_) => {
-                            Some((crate::latency::Correlate::SpellRune, inbound.pos))
+                            Some((crate::latency::Correlate::SpellRune, inbound.pos, None))
                         }
                         _ => None,
                     };
@@ -277,9 +279,9 @@ pub async fn run_bot(
                     sends += 1;
                     lease.note_action();
                     if act.intended >= record_from
-                        && let Some((kind, tile)) = corr
+                        && let Some((kind, tile, effect)) = corr
                     {
-                        latency.on_send(kind, act.intended, tile);
+                        latency.on_send(kind, act.intended, tile, effect);
                     }
                 }
             }

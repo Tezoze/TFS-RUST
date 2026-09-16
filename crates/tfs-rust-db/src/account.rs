@@ -4,7 +4,7 @@
 use sqlx::Row;
 use tfs_rust_common::error::{Result, TfsRustError};
 
-use crate::password::{PasswordHashConfig, hash_bcrypt_async, needs_upgrade, verify_password};
+use crate::password::{PasswordHashConfig, hash_bcrypt_async, verify_password};
 use crate::pool::DbPool;
 
 async fn load_character_names(pool: &DbPool, account_id: i32) -> Result<Vec<String>> {
@@ -63,7 +63,7 @@ async fn authenticate_account_password_by_number(
 }
 
 /// Shared tail of the name/number auth paths: verify password against the loaded row and
-/// transparently re-hash legacy SHA1 stores to bcrypt on success.
+/// optionally re-hash legacy SHA1 stores to bcrypt (`upgradeSha1OnLogin`).
 async fn verify_loaded_account(
     pool: &DbPool,
     hash_cfg: &PasswordHashConfig,
@@ -84,7 +84,7 @@ async fn verify_loaded_account(
         return Ok(None);
     }
 
-    if needs_upgrade(&stored) {
+    if hash_cfg.should_upgrade_sha1(&stored) {
         let upgraded = hash_bcrypt_async(password, hash_cfg.bcrypt_cost).await?;
         sqlx::query("UPDATE accounts SET password = ? WHERE id = ?")
             .bind(&upgraded)

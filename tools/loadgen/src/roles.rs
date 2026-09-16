@@ -105,14 +105,20 @@ pub fn fill_schedule(
                     } else {
                         scenario.rune_server_id
                     };
+                    // Offset half a walk period from the walk at `t`: the use
+                    // still cancels the in-flight step via ToDoClear, but it no
+                    // longer shares the tick, so a failed use does not wipe the
+                    // walk that was just sent. Stays before the next walk at
+                    // `t + walk_p`, preserving FIFO pop order.
                     ol.push(ScheduledAction {
-                        intended: t,
+                        intended: t + walk_p / 2,
                         kind: ActionKind::UseItemEx {
                             from: inventory_pos(slot),
                             from_sprite: scenario.rune_sprite_id,
                             from_server_id: server_id,
                             to_sprite: 0,
                             target_other: true,
+                            expect_effect: if aoe { scenario.aoe_rune_effect } else { None },
                         },
                     });
                     last_say = t;
@@ -164,6 +170,7 @@ mod tests {
             rune_server_id: 2268,
             aoe_rune_server_id: 2304,
             aoe_rune_slot: 6,
+            aoe_rune_effect: Some(7),
             waypoint_file: None,
         };
         let mut ol = OpenLoop::new();

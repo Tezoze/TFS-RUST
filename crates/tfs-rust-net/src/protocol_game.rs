@@ -89,26 +89,11 @@ pub fn decrypt_xtea_game_body<'a>(
 // Plaintext: [u16 v][payload…] zero-padded to a multiple of 8 bytes for XTEA. `v` is **`payload.len()`** (bytes
 // after the 2-byte header), not the padded block size minus 2 — matches OTClient/TFS inner length semantics.
 pub fn encrypt_xtea_game_frame(payload: &[u8], keys: &RoundKeys, caps: &ProtocolCaps) -> Vec<u8> {
-    // Plaintext = [u16 v][payload…] padded up to the next multiple of 8 for XTEA.
-    let plain_len = (2 + payload.len()).next_multiple_of(8);
-    let v = payload.len();
-    let mut plain = vec![0u8; plain_len];
-    plain[0..2].copy_from_slice(&(v as u16).to_le_bytes());
-    plain[2..2 + payload.len()].copy_from_slice(payload);
-    xtea_tfs::encrypt(&mut plain, plain_len, keys);
-
-    // 1098 prefixes a 4-byte Adler checksum over the ciphertext (`addCryptoHeader(true)`); 772 omits it.
-    let checksum_len = if caps.adler_checksum { 4 } else { 0 };
-    let mut body = vec![0u8; checksum_len + plain.len()];
-    body[checksum_len..].copy_from_slice(&plain);
-    if caps.adler_checksum {
-        let c = adler_checksum(&plain);
-        body[0..4].copy_from_slice(&c.to_le_bytes());
-    }
-    let mut frame = Vec::with_capacity(2 + body.len());
-    frame.extend_from_slice(&(body.len() as u16).to_le_bytes());
-    frame.extend_from_slice(&body);
-    frame
+    // Login / loadgen: one alloc for the returned frame. Game writer uses
+    // `frame_coalesce::encode_one_coalesced_frame` with a reusable `Vec` instead.
+    let mut out = Vec::new();
+    crate::frame_coalesce::encode_payload_frame(payload, keys, caps, &mut out);
+    out
 }
 
 /// Read framed payloads from the connection and forward parsed commands to the game thread.

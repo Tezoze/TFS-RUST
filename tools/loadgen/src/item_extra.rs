@@ -216,5 +216,10 @@ mod tests {
             bits.client_id(2268).is_some(),
             "OTB missing server id 2268 (sudden death rune)"
         );
+        assert_eq!(
+            bits.client_id(2304),
+            Some(3191),
+            "OTB server id 2304 (GFB) must map to client 3191"
+        );
     }
 }

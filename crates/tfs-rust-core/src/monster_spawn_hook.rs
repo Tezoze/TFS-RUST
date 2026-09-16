@@ -1,12 +1,13 @@
 //! Native spawn loot then Lua `onSpawn` mutate hook (data-pack Lua Phase 4).
 //!
-//! Ordering: allow-gate → place → roll loot (non-summons) → combat recompute →
-//! `on_monster_spawned` → combat recompute again (equipment may have changed).
+//! Ordering: allow-gate → place → roll loot (non-summons, non-empty) → combat
+//! recompute when loot rolled → `on_monster_spawned` → combat recompute again
+//! only if a mutate callback is registered (equipment may have changed).
 //!
 //! Pack: `Monster:onSpawn` / `EventCallback(EVENT_CALLBACK_ONSPAWN)`.
 //! Corpus: `TMonster::TMonster` spawn inventory (`crnonpl.cc:2050`).
 
-use tfs_rust_content::monsters::MonsterType;
+use tfs_rust_content::monsters::LootBlock;
 
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
@@ -18,7 +19,7 @@ impl GameWorld {
     pub(crate) fn finish_monster_spawn(
         &mut self,
         cid: CreatureId,
-        mtype: &MonsterType,
+        loot: &[LootBlock],
         startup: bool,
         artificial: bool,
     ) {
@@ -26,12 +27,15 @@ impl GameWorld {
             .creatures
             .get(cid)
             .is_some_and(|k| k.base().master.is_some());
-        if !is_summon {
-            self.roll_monster_spawn_loot(cid, mtype);
+        let rolled_loot = !is_summon && !loot.is_empty();
+        if rolled_loot {
+            self.roll_monster_spawn_loot(cid, loot);
             self.recompute_monster_combat_from_equipment(cid);
         }
         fire_on_monster_spawned(self, cid, startup, artificial);
-        if matches!(self.creatures.get(cid), Some(CreatureKind::Monster(_))) {
+        if self.events.has_monster_spawned_callback()
+            && matches!(self.creatures.get(cid), Some(CreatureKind::Monster(_)))
+        {
             self.recompute_monster_combat_from_equipment(cid);
         }
     }
@@ -114,7 +118,7 @@ mod tests {
         let cid = insert_monster(&mut world, "Rat", Position::new(50, 50, 7), 100);
         let shared = Rc::new(Cell::new(0u32));
         world.events = Box::new(HookRc(shared.clone()));
-        world.finish_monster_spawn(cid, &empty_rat(), false, false);
+        world.finish_monster_spawn(cid, &empty_rat().loot, false, false);
         assert_eq!(shared.get(), 1);
     }
 }
