@@ -289,7 +289,7 @@ impl GameWorld {
             return false;
         }
         // Creatures are UNPASS containers — occupied tiles fail.
-        if !body.creatures.is_empty() {
+        if !body.creatures().is_empty() {
             return false;
         }
         for entry in &chain {
@@ -494,7 +494,7 @@ impl GameWorld {
             let on_old = self
                 .map
                 .get_tile(old)
-                .is_some_and(|t| t.body().creatures.contains(&cid));
+                .is_some_and(|t| t.body().creatures().contains(&cid));
             if on_old && old != pos {
                 self.map.unregister_creature_at(old, cid);
             }
@@ -706,7 +706,7 @@ mod tests {
         ensure_walkable_tile(&mut world.map, wall_pos, TEST_SYNTHETIC_GROUND_WP);
         let wall_item = world.items.insert(Item::new_single(WALL));
         if let Some(tile) = world.map.get_tile_mut(wall_pos) {
-            tile.body_mut().down_items.push(wall_item);
+            tile.body_mut().down_items_mut().push(wall_item);
         }
 
         let cid = insert_monster(&mut world, "Rat", home, 20);
@@ -760,9 +760,7 @@ mod tests {
                 ground: Some(DIRT_WALL),
 
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: 0,
                 zone: ZoneType::Normal,
             }),
@@ -838,7 +836,7 @@ mod tests {
         }
         let wall_item = world.items.insert(Item::new_single(WALL));
         if let Some(tile) = world.map.get_tile_mut(home) {
-            tile.body_mut().down_items.push(wall_item);
+            tile.body_mut().down_items_mut().push(wall_item);
         }
 
         world.spawns = SpawnManager::from_zones(vec![SpawnZone {
@@ -865,7 +863,7 @@ mod tests {
                 .get_tile(placed)
                 .expect("tile")
                 .body()
-                .down_items
+                .down_items()
                 .iter()
                 .any(|&id| world.items.get(id).is_some_and(|i| i.item_type == WALL))
         );
@@ -907,8 +905,8 @@ mod tests {
             .get_tile(temple)
             .expect("temple tile")
             .body()
-            .creatures
-            .clone();
+            .creatures()
+            .to_vec();
         assert!(
             stacked.contains(&joiner),
             "joiner must stack on occupied temple"

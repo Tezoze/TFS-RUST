@@ -6,6 +6,7 @@ mod los;
 
 use std::collections::HashMap;
 
+use rustc_hash::FxHashSet;
 use slotmap::SlotMap;
 use tfs_rust_common::Position;
 use tfs_rust_content::items::ItemDatabase;
@@ -30,7 +31,10 @@ pub struct Map {
     /// OTBM `HOUSETILE` membership collected at build (TFS `House::addTile` during parse).
     /// Drained by [`crate::house::ownership`] `house_scan_map` — not a full-grid walk.
     pub house_tiles: Vec<(u32, Position, Vec<ItemId>)>,
-    /// Load-time clones for `TILESTATE_REFRESH` tiles (not houses).
+    /// Non-house `TILEFLAG_REFRESH` positions from OTBM. Cylinder raster keys off this
+    /// set so lazy snapshots cannot shrink which ORIGMAP XY columns are paced.
+    pub refresh_positions: FxHashSet<Position>,
+    /// Item clones for REFRESH restore. Empty at load; filled on first stack mutation.
     pub refresh_snapshots: HashMap<Position, crate::sector_refresh::TileRefreshSnap>,
 }
 
@@ -46,26 +50,24 @@ impl Map {
     ) -> Self {
         let mut grid = SparseGrid::new();
         let mut house_tiles = Vec::new();
-        let mut refresh_snapshots = HashMap::new();
+        let mut refresh_positions = FxHashSet::default();
         for (pos, td) in data.tiles {
             let tile = tile_from_data(pos, td, items_db, items);
             if let Tile::House(h) = &tile {
                 let body = tile.body();
                 let item_ids: Vec<ItemId> = body
-                    .down_items
+                    .down_items()
                     .iter()
                     .copied()
-                    .chain(body.top_items.iter().copied())
+                    .chain(body.top_items().iter().copied())
                     .collect();
                 house_tiles.push((h.house_id, pos, item_ids));
             } else if tile.body().flags & flags::REFRESH != 0 {
-                refresh_snapshots.insert(
-                    pos,
-                    crate::sector_refresh::TileRefreshSnap::from_tile(tile.body(), items),
-                );
+                refresh_positions.insert(pos);
             }
             grid.insert_tile(pos.x, pos.y, pos.z, tile);
         }
+        grid.shrink_to_fit();
         Self {
             width: data.width,
             height: data.height,
@@ -73,7 +75,8 @@ impl Map {
             towns: data.towns,
             waypoints: data.waypoints,
             house_tiles,
-            refresh_snapshots,
+            refresh_positions,
+            refresh_snapshots: HashMap::new(),
         }
     }
 
@@ -87,6 +90,30 @@ impl Map {
 
     pub fn get_tile_mut(&mut self, pos: Position) -> Option<&mut Tile> {
         self.grid.get_tile_mut(pos.x, pos.y, pos.z)
+    }
+
+    /// Clone the load-time stack on first mutation of a REFRESH tile.
+    ///
+    /// No-op when a snap already exists, the tile is a house, or `pos` is not in
+    /// [`Self::refresh_positions`]. Restore uses this clone, not live ItemIds.
+    pub fn snapshot_refresh_if_needed(&mut self, pos: Position, items: &SlotMap<ItemId, Item>) {
+        if self.refresh_snapshots.contains_key(&pos) {
+            return;
+        }
+        if !self.refresh_positions.contains(&pos) {
+            return;
+        }
+        let Some(tile) = self.get_tile(pos) else {
+            return;
+        };
+        if matches!(tile, Tile::House(_)) {
+            return;
+        }
+        if tile.body().flags & flags::REFRESH == 0 {
+            return;
+        }
+        let snap = crate::sector_refresh::TileRefreshSnap::from_tile(tile.body(), items);
+        self.refresh_snapshots.insert(pos, snap);
     }
 
     /// Find a tile that holds `item_id` (down or top stack). Used for house / auto-close checks.
@@ -133,7 +160,7 @@ impl Map {
         let tile_present = self.get_tile(pos).is_some();
         if let Some(t) = self.get_tile_mut(pos) {
             let body = t.body();
-            if !body.creatures.contains(&id) {
+            if !body.creatures().contains(&id) {
                 t.add_creature(id);
             }
         }
@@ -258,9 +285,9 @@ fn internal_add_item_id(
 
     let always_on_top = it.map(|t| t.always_on_top()).unwrap_or(false);
     if always_on_top {
-        body.top_items.push(item_id);
+        body.top_items_mut().push(item_id);
     } else {
-        body.down_items.insert(0, item_id);
+        body.down_items_mut().insert(0, item_id);
     }
 }
 
@@ -361,7 +388,7 @@ pub(crate) fn tile_remaining_props(
     {
         consider(it);
     }
-    for &iid in body.down_items.iter().chain(body.top_items.iter()) {
+    for &iid in body.down_items().iter().chain(body.top_items().iter()) {
         if iid == exclude {
             continue;
         }
@@ -569,9 +596,7 @@ fn tile_from_data(
         ground: None,
 
         ground_item: None,
-        down_items: Vec::new(),
-        top_items: Vec::new(),
-        creatures: Vec::new(),
+        stacks: None,
         flags: converted_flags,
         zone,
     };
@@ -728,9 +753,9 @@ mod tile_flag_tests {
         let tile = map.get_tile(pos).expect("tile");
         let item_id = tile
             .body()
-            .top_items
+            .top_items()
             .first()
-            .or_else(|| tile.body().down_items.first())
+            .or_else(|| tile.body().down_items().first())
             .copied()
             .expect("sign item");
         let item = items.get(item_id).expect("item");
@@ -799,10 +824,10 @@ mod tile_flag_tests {
         assert_ne!(tile.body().flags & flags::TELEPORT, 0);
         let tele_id = tile
             .body()
-            .down_items
+            .down_items()
             .first()
             .copied()
-            .or_else(|| tile.body().top_items.first().copied())
+            .or_else(|| tile.body().top_items().first().copied())
             .expect("teleport item");
         let item = items.get(tele_id).expect("item");
         assert_eq!(item.item_type, TELEPORT);

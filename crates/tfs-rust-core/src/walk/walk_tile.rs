@@ -52,7 +52,7 @@ pub(crate) fn tile_elevation_sum(
     {
         sum += items_db.items.get(&gid).map(|t| t.elevation()).unwrap_or(0);
     }
-    for &item_id in &body.down_items {
+    for &item_id in body.down_items() {
         if let Some(item) = items.get(item_id)
             && let Some(it) = items_db.items.get(&item.item_type)
             && it.has_height()
@@ -60,7 +60,7 @@ pub(crate) fn tile_elevation_sum(
             sum += it.elevation();
         }
     }
-    for &item_id in &body.top_items {
+    for &item_id in body.top_items() {
         if let Some(item) = items.get(item_id)
             && let Some(it) = items_db.items.get(&item.item_type)
             && it.has_height()
@@ -84,7 +84,7 @@ fn tile_has_unpass(world: &GameWorld, body: &crate::tile::TileBody) -> bool {
     if (body.flags & tilestate::BLOCKSOLID) != 0 {
         return true;
     }
-    if !body.creatures.is_empty() {
+    if !body.creatures().is_empty() {
         return true;
     }
     if let Some(gid) = body.ground
@@ -92,9 +92,9 @@ fn tile_has_unpass(world: &GameWorld, body: &crate::tile::TileBody) -> bool {
     {
         return true;
     }
-    body.down_items
+    body.down_items()
         .iter()
-        .chain(body.top_items.iter())
+        .chain(body.top_items().iter())
         .any(|&iid| {
             world
                 .items
@@ -398,7 +398,7 @@ pub(crate) fn tile_query_add_monster(
 
     if (flags & FLAG_IGNOREBLOCKCREATURE) == 0 {
         if can_push_creatures && !is_summon {
-            for &tile_c in &body.creatures {
+            for &tile_c in body.creatures() {
                 if tile_c == mover {
                     continue;
                 }
@@ -427,8 +427,8 @@ pub(crate) fn tile_query_add_monster(
                     return ReturnValue::NotPossible;
                 }
             }
-        } else if !body.creatures.is_empty() {
-            for &tile_c in &body.creatures {
+        } else if !body.creatures().is_empty() {
+            for &tile_c in body.creatures() {
                 if tile_c == mover {
                     continue;
                 }
@@ -512,8 +512,8 @@ pub(crate) fn tile_query_add_npc(
         return ReturnValue::NotPossible;
     }
 
-    if (flags & FLAG_IGNOREBLOCKCREATURE) == 0 && !body.creatures.is_empty() {
-        for &tile_c in &body.creatures {
+    if (flags & FLAG_IGNOREBLOCKCREATURE) == 0 && !body.creatures().is_empty() {
+        for &tile_c in body.creatures() {
             if tile_c == mover {
                 continue;
             }
@@ -546,7 +546,7 @@ pub(crate) fn tile_query_add_npc(
         {
             return ReturnValue::NotPossible;
         }
-        for &item_id in body.top_items.iter().chain(body.down_items.iter()) {
+        for &item_id in body.top_items().iter().chain(body.down_items().iter()) {
             if let Some(item) = world.items.get(item_id)
                 && let Some(it) = world.items_db.items.get(&item.item_type)
                 && it.block_solid()
@@ -628,7 +628,7 @@ pub(crate) fn tile_query_add_player(
 
     // C++ ref: src/tile.cpp:567-573 — creature blocking (players)
     if (flags & FLAG_IGNOREBLOCKCREATURE) == 0 {
-        for &tile_c in &body.creatures {
+        for &tile_c in body.creatures() {
             if tile_c == mover {
                 continue;
             }
@@ -661,7 +661,7 @@ pub(crate) fn tile_query_add_player(
         {
             return ReturnValue::NotPossible;
         }
-        for &item_id in body.top_items.iter().chain(body.down_items.iter()) {
+        for &item_id in body.top_items().iter().chain(body.down_items().iter()) {
             if let Some(item) = world.items.get(item_id)
                 && let Some(it) = world.items_db.items.get(&item.item_type)
                 && it.block_solid()
@@ -702,9 +702,7 @@ mod pz_entry_lock_tests {
                 ground: Some(TEST_SYNTHETIC_GROUND_WP),
 
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: tilestate::PROTECTIONZONE,
                 zone: ZoneType::Protection,
             }),
@@ -778,9 +776,7 @@ mod pz_entry_lock_tests {
                 inner: TileBody {
                     ground: Some(TEST_SYNTHETIC_GROUND_WP),
                     ground_item: None,
-                    down_items: Vec::new(),
-                    top_items: Vec::new(),
-                    creatures: Vec::new(),
+                    stacks: None,
                     flags: 0,
                     zone: ZoneType::Normal,
                 },

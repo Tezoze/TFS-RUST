@@ -929,9 +929,7 @@ fn test_772_cornered_flee_falls_through_to_roam() {
                 ground: None,
 
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: tilestate::BLOCKSOLID,
                 zone: ZoneType::Normal,
             }),
@@ -1230,9 +1228,7 @@ fn test_772_idle_hold_no_dance_poll() {
                 ground: Some(150),
 
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: tilestate::BLOCKSOLID | tilestate::BLOCKPATH,
                 zone: ZoneType::Normal,
             }),
@@ -1810,9 +1806,7 @@ fn test_772_dist_flee_fail_enqueues_wait() {
                 ground: Some(TEST_SYNTHETIC_GROUND_WP),
 
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: tilestate::BLOCKSOLID | tilestate::BLOCKPATH,
                 zone: ZoneType::Normal,
             }),
@@ -1960,9 +1954,7 @@ fn test_772_attack_from_idle_queue() {
                 ground: Some(TEST_SYNTHETIC_GROUND_WP),
 
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: tilestate::BLOCKSOLID | tilestate::BLOCKPATH,
                 zone: ZoneType::Normal,
             }),
@@ -2065,9 +2057,7 @@ fn test_772_melee_stick_fight_no_wait_after_attack() {
                 ground: Some(TEST_SYNTHETIC_GROUND_WP),
 
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: tilestate::BLOCKSOLID | tilestate::BLOCKPATH,
                 zone: ZoneType::Normal,
             }),
@@ -3585,9 +3575,7 @@ fn test_chase_freeze_attack_path_noway_clears_target() {
                 ground: None,
 
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: 0,
                 zone: ZoneType::Normal,
             }),
@@ -3678,9 +3666,7 @@ fn test_772_attacking_no_path_roams_not_park() {
                 ground: None,
 
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: 0,
                 zone: ZoneType::Normal,
             }),
@@ -3973,9 +3959,7 @@ fn test_772_attacking_los_blocked_does_not_freeze() {
             ground: Some(TEST_SYNTHETIC_GROUND_WP),
 
             ground_item: None,
-            down_items: Vec::new(),
-            top_items: Vec::new(),
-            creatures: Vec::new(),
+            stacks: None,
             flags: tilestate::BLOCKSOLID | tilestate::BLOCKPATH | tilestate::UNTHROW,
             zone: ZoneType::Normal,
         }),
@@ -4578,9 +4562,7 @@ fn test_phase9_772_loses_target_entering_house() {
                 ground: Some(1),
 
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: 0,
                 zone: ZoneType::Normal,
             },
@@ -7159,9 +7141,7 @@ fn setup_south_stair_world(
             ground: Some(TEST_SYNTHETIC_GROUND_WP),
 
             ground_item: None,
-            down_items: Vec::new(),
-            top_items: Vec::new(),
-            creatures: Vec::new(),
+            stacks: None,
             flags: tilestate::FLOORCHANGE_SOUTH,
             zone: ZoneType::Normal,
         }),
@@ -7318,9 +7298,7 @@ fn otclient_772_up_from_surface_skips_remove() {
             ground: Some(TEST_SYNTHETIC_GROUND_WP),
 
             ground_item: None,
-            down_items: Vec::new(),
-            top_items: Vec::new(),
-            creatures: Vec::new(),
+            stacks: None,
             flags: tilestate::FLOORCHANGE_NORTH,
             zone: ZoneType::Normal,
         }),
@@ -7568,9 +7546,7 @@ fn ensure_pz_tile(map: &mut crate::map::Map, pos: Position, ground_type: u16) {
             ground: Some(ground_type),
 
             ground_item: None,
-            down_items: Vec::new(),
-            top_items: Vec::new(),
-            creatures: Vec::new(),
+            stacks: None,
             flags: 0,
             zone: ZoneType::Protection,
         }),
@@ -7582,9 +7558,9 @@ fn tile_has_item_type(world: &GameWorld, pos: Position, item_type: u16) -> bool 
         return false;
     };
     tile.body()
-        .down_items
+        .down_items()
         .iter()
-        .chain(tile.body().top_items.iter())
+        .chain(tile.body().top_items().iter())
         .any(|iid| {
             world
                 .items

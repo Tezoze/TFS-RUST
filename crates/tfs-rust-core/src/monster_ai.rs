@@ -1526,7 +1526,7 @@ impl GameWorld {
                         return 0;
                     };
                     let mut cost = 0u32;
-                    for &c in tile.body().creatures.iter() {
+                    for &c in tile.body().creatures().iter() {
                         if c != ctx.cid {
                             cost += CREATURE_ON_TILE_PATH_COST;
                         }

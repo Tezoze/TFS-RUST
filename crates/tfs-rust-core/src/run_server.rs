@@ -702,6 +702,8 @@ async fn run_on_game_thread(io_handle: tokio::runtime::Handle) -> anyhow::Result
         tile_stack_item_refs = world.map.grid.tile_stack_item_refs(),
         map_chunk_slots_per_chunk = crate::map::CHUNK_AREA,
         items_slotmap = world.items.len(),
+        refresh_snapshot_count = world.map.refresh_snapshots.len(),
+        refresh_position_count = world.map.refresh_positions.len(),
         creatures_slotmap = world.creatures.len(),
         spawn_slots = world.spawns.slots.len(),
         "GameWorld ready — steady-state entity counts (RSS diagnostic; compare to `ps` after load)"

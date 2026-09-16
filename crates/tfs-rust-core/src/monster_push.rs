@@ -172,7 +172,7 @@ impl GameWorld {
                     .get_tile(dest)
                     .map(|t| {
                         t.body()
-                            .creatures
+                            .creatures()
                             .iter()
                             .copied()
                             .filter(|&c| c != mover)
@@ -290,9 +290,9 @@ impl GameWorld {
             .get_tile(dest)
             .map(|t| {
                 t.body()
-                    .down_items
+                    .down_items()
                     .iter()
-                    .chain(t.body().top_items.iter())
+                    .chain(t.body().top_items().iter())
                     .copied()
                     .filter(|&iid| {
                         self.item_is_kickable_box(
@@ -416,13 +416,13 @@ impl GameWorld {
         // (`objects.srv:61-64`), so any creature on the tile makes
         // `CoordinateFlag(UNPASS)` true. Without this, a player/NPC Gate B wrongly
         // *passes* on an occupied tile and the block lands later (wrong error code).
-        if !body.creatures.is_empty() {
+        if !body.creatures().is_empty() {
             return false;
         }
         !body
-            .down_items
+            .down_items()
             .iter()
-            .chain(body.top_items.iter())
+            .chain(body.top_items().iter())
             .any(|&iid| {
                 self.items
                     .get(iid)
@@ -527,7 +527,7 @@ impl GameWorld {
             let old_creatures = self
                 .map
                 .get_tile(blocker_pos)
-                .map(|t| t.body().creatures.clone())
+                .map(|t| t.body().creatures().to_vec())
                 .unwrap_or_default();
             // Walk order: NotifyTurn → MoveObject → queryDestination chain → CollisionEvent
             // → spectator `from → final` (`game.cpp` ~863–880). Broadcast after the chain so
@@ -629,7 +629,7 @@ impl GameWorld {
             let other = self
                 .map
                 .get_tile(try_pos)
-                .and_then(|t| t.body().creatures.iter().copied().find(|&c| c != blocker));
+                .and_then(|t| t.body().creatures().iter().copied().find(|&c| c != blocker));
             let Some(other) = other else {
                 break; // tile clear → passable
             };

@@ -816,7 +816,7 @@ impl GameWorld {
             let Some(tile) = self.map.get_tile(pos) else {
                 continue;
             };
-            for &cid in &tile.body().creatures {
+            for &cid in tile.body().creatures() {
                 if cid != attacker {
                     hit_ids.push(cid);
                 }
@@ -851,7 +851,7 @@ impl GameWorld {
         {
             return false;
         }
-        for &iid in body.top_items.iter().chain(body.down_items.iter()) {
+        for &iid in body.top_items().iter().chain(body.down_items().iter()) {
             if let Some(i) = self.items.get(iid)
                 && self
                     .items_db
@@ -1997,9 +1997,9 @@ mod tests {
                 if let Some(tile) = world.map.get_tile(p) {
                     for &iid in tile
                         .body()
-                        .down_items
+                        .down_items()
                         .iter()
-                        .chain(tile.body().top_items.iter())
+                        .chain(tile.body().top_items().iter())
                     {
                         if world.items.get(iid).is_some_and(|i| i.item_type == 2389) {
                             found_drop = true;

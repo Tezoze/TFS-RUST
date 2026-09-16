@@ -240,7 +240,7 @@ fn cyclops_quad_sibling_tiles_block_chase_fill_walkable() {
     );
     let tile = world.map.get_tile(c4_pos).expect("sibling tile");
     assert!(
-        tile.body().creatures.contains(&ids[3]),
+        tile.body().creatures().contains(&ids[3]),
         "NW cyclops must be registered on map tile"
     );
 }

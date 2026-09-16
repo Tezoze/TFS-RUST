@@ -608,9 +608,9 @@ impl GameWorld {
             return false;
         };
         let body = tile.body();
-        body.top_items
+        body.top_items()
             .iter()
-            .chain(body.down_items.iter())
+            .chain(body.down_items().iter())
             .copied()
             .any(|iid| {
                 self.items
@@ -1015,7 +1015,7 @@ mod tests {
         let tile = world.map.get_tile(pos).expect("tile");
         let corpse_item_id = tile
             .body()
-            .down_items
+            .down_items()
             .iter()
             .find(|id| world.items.get(**id).is_some_and(|i| i.item_type == 2813))
             .copied()
@@ -1122,7 +1122,12 @@ mod tests {
             .map
             .get_tile(pos)
             .into_iter()
-            .flat_map(|t| t.body().top_items.iter().chain(t.body().down_items.iter()))
+            .flat_map(|t| {
+                t.body()
+                    .top_items()
+                    .iter()
+                    .chain(t.body().down_items().iter())
+            })
             .filter_map(|&iid| world.items.get(iid).map(|it| it.item_type))
             .collect();
         assert!(
@@ -1140,7 +1145,12 @@ mod tests {
             .map
             .get_tile(pos)
             .into_iter()
-            .flat_map(|t| t.body().top_items.iter().chain(t.body().down_items.iter()))
+            .flat_map(|t| {
+                t.body()
+                    .top_items()
+                    .iter()
+                    .chain(t.body().down_items().iter())
+            })
             .filter_map(|&iid| world.items.get(iid).map(|it| it.item_type))
             .collect();
         assert!(
@@ -1170,8 +1180,8 @@ mod tests {
         world.create_liquid_splash(pos, ITEM_SMALLSPLASH, 5);
         assert_eq!(world.items.len(), items_before);
         let body = world.map.get_tile(pos).unwrap().body();
-        assert_eq!(body.down_items.as_slice(), &[table_id]);
-        assert!(body.top_items.is_empty());
+        assert_eq!(body.down_items(), &[table_id]);
+        assert!(body.top_items().is_empty());
     }
 
     #[test]

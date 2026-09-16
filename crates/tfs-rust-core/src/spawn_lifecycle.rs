@@ -304,7 +304,7 @@ impl GameWorld {
         let Some(tile) = self.map.get_tile(pos) else {
             return false;
         };
-        for &cid in &tile.body().creatures {
+        for &cid in tile.body().creatures() {
             let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
                 continue;
             };
@@ -916,7 +916,7 @@ impl GameWorld {
                 crate::tile::MapStackEntry::Creature(_) => {}
             }
         }
-        if !tile.body().creatures.is_empty() {
+        if !tile.body().creatures().is_empty() {
             return false;
         }
         self.monster_sight_clear(origin, pos)
@@ -1150,7 +1150,7 @@ impl GameWorld {
             let old_creatures = self
                 .map
                 .get_tile(old)
-                .map(|t| t.body().creatures.clone())
+                .map(|t| t.body().creatures().to_vec())
                 .unwrap_or_default();
             if !teleport && let Some(k) = self.creatures.get_mut(cid) {
                 set_direction_from_step_for_kick(old, dest, k);
@@ -2681,9 +2681,7 @@ mod tests {
                 ground: Some(100),
 
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: tilestate::PROTECTIONZONE,
                 zone: ZoneType::Protection,
             }),
@@ -2704,9 +2702,7 @@ mod tests {
                         ground: Some(100),
 
                         ground_item: None,
-                        down_items: Vec::new(),
-                        top_items: Vec::new(),
-                        creatures: Vec::new(),
+                        stacks: None,
                         flags: tilestate::PROTECTIONZONE,
                         zone: ZoneType::Protection,
                     }),

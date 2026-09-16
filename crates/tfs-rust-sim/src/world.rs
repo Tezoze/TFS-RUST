@@ -448,6 +448,7 @@ pub fn beat_driven_world_with_synthetic_ground_data(
         towns: HashMap::new(),
         waypoints: HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_positions: Default::default(),
         refresh_snapshots: HashMap::new(),
     };
     map.towns.insert(
@@ -495,9 +496,7 @@ pub fn ensure_walkable_tile(map: &mut Map, pos: Position, ground_type: u16) {
         Tile::Normal(TileBody {
             ground: Some(ground_type),
             ground_item: None,
-            down_items: Vec::new(),
-            top_items: Vec::new(),
-            creatures: Vec::new(),
+            stacks: None,
             flags: 0,
             zone: ZoneType::Normal,
         }),

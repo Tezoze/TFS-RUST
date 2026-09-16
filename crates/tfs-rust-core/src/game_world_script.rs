@@ -964,7 +964,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
                 z: center_z,
             };
             if let Some(tile) = self.map.get_tile(pos) {
-                for &cid in &tile.body().creatures {
+                for &cid in tile.body().creatures() {
                     out.push(Self::creature_to_script_id(cid));
                 }
             }
@@ -1074,7 +1074,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         {
             return true;
         }
-        for &iid in body.down_items.iter().chain(body.top_items.iter()) {
+        for &iid in body.down_items().iter().chain(body.top_items().iter()) {
             if let Some(item) = self.items.get(iid)
                 && self
                     .items_db
@@ -1153,7 +1153,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             matched |= TILESTATE_BLOCKSOLID;
             matched |= TILESTATE_IMMOVABLEBLOCKSOLID;
         }
-        for &iid in body.down_items.iter().chain(body.top_items.iter()) {
+        for &iid in body.down_items().iter().chain(body.top_items().iter()) {
             if let Some(item) = self.items.get(iid)
                 && self
                     .items_db
@@ -1203,10 +1203,10 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         };
         let body = tile.body();
         let mut out = Vec::new();
-        for &id in &body.top_items {
+        for &id in body.top_items() {
             out.push(id.data().as_ffi());
         }
-        for &id in &body.down_items {
+        for &id in body.down_items() {
             out.push(id.data().as_ffi());
         }
         out
@@ -1218,7 +1218,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             return Vec::new();
         };
         tile.body()
-            .creatures
+            .creatures()
             .iter()
             .map(|cid| cid.data().as_ffi())
             .collect()
@@ -1236,9 +1236,9 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         let body = tile.body();
         let ground = if body.ground.is_some() { 1u32 } else { 0 };
         ground
-            + body.top_items.len() as u32
-            + body.creatures.len() as u32
-            + body.down_items.len() as u32
+            + body.top_items().len() as u32
+            + body.creatures().len() as u32
+            + body.down_items().len() as u32
     }
 
     fn tile_get_thing(&self, x: u16, y: u16, z: u8, index: u32) -> Option<ScriptThing> {
@@ -1257,18 +1257,18 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             idx -= 1;
         }
 
-        if idx < body.top_items.len() {
-            return Some(ScriptThing::Item(body.top_items[idx].data().as_ffi()));
+        if idx < body.top_items().len() {
+            return Some(ScriptThing::Item(body.top_items()[idx].data().as_ffi()));
         }
-        idx -= body.top_items.len();
+        idx -= body.top_items().len();
 
-        if idx < body.creatures.len() {
-            return Some(ScriptThing::Creature(body.creatures[idx].data().as_ffi()));
+        if idx < body.creatures().len() {
+            return Some(ScriptThing::Creature(body.creatures()[idx].data().as_ffi()));
         }
-        idx -= body.creatures.len();
+        idx -= body.creatures().len();
 
-        if idx < body.down_items.len() {
-            return Some(ScriptThing::Item(body.down_items[idx].data().as_ffi()));
+        if idx < body.down_items().len() {
+            return Some(ScriptThing::Item(body.down_items()[idx].data().as_ffi()));
         }
         None
     }
@@ -1703,7 +1703,7 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         let mut player_ids = Vec::new();
         for &pos in &rec.tiles {
             if let Some(tile) = self.map.get_tile(pos) {
-                for &cid in &tile.body().creatures {
+                for &cid in tile.body().creatures() {
                     if matches!(
                         self.creatures.get(cid),
                         Some(crate::creature::CreatureKind::Player(_))
@@ -2026,9 +2026,7 @@ mod e5_e6_e7_script_tests {
                 inner: TileBody {
                     ground: Some(1),
                     ground_item: None,
-                    down_items: Vec::new(),
-                    top_items: Vec::new(),
-                    creatures: Vec::new(),
+                    stacks: None,
                     flags: 0,
                     zone: ZoneType::Normal,
                 },
@@ -2053,9 +2051,7 @@ mod e5_e6_e7_script_tests {
             Tile::Normal(TileBody {
                 ground: Some(493),
                 ground_item: Some(gid),
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: 0,
                 zone: ZoneType::Normal,
             }),

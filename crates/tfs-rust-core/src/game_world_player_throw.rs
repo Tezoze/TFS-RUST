@@ -206,7 +206,7 @@ impl GameWorld {
         let old_creatures = self
             .map
             .get_tile(from_pos)
-            .map(|t| t.body().creatures.clone())
+            .map(|t| t.body().creatures().to_vec())
             .unwrap_or_default();
         let old_stack = self.creature_self_stack_at(moving_creature, from_pos);
 
@@ -268,9 +268,9 @@ impl GameWorld {
         {
             return true;
         }
-        body.down_items
+        body.down_items()
             .iter()
-            .chain(body.top_items.iter())
+            .chain(body.top_items().iter())
             .any(|&iid| {
                 self.items
                     .get(iid)
@@ -1151,7 +1151,7 @@ mod push_phase_c_tests {
             .items
             .insert(crate::item::Item::new_single(HEIGHT_ITEM_TYPE));
         if let Some(tile) = world.map.get_tile_mut(pos) {
-            tile.body_mut().down_items.push(item_id);
+            tile.body_mut().down_items_mut().push(item_id);
         }
     }
 
@@ -1395,9 +1395,7 @@ mod push_phase_d_tests {
                 inner: TileBody {
                     ground: Some(1),
                     ground_item: None,
-                    down_items: Vec::new(),
-                    top_items: Vec::new(),
-                    creatures: Vec::new(),
+                    stacks: None,
                     flags: 0,
                     zone: ZoneType::Normal,
                 },
@@ -1800,9 +1798,7 @@ mod push_gm_bypass_tests {
                 inner: TileBody {
                     ground: Some(1),
                     ground_item: None,
-                    down_items: Vec::new(),
-                    top_items: Vec::new(),
-                    creatures: Vec::new(),
+                    stacks: None,
                     flags: 0,
                     zone: ZoneType::Normal,
                 },
@@ -2219,7 +2215,7 @@ mod push_followup_d1_d2_d3_tests {
             .items
             .insert(crate::item::Item::new_single(HEIGHT_ITEM_TYPE));
         if let Some(tile) = world.map.get_tile_mut(pos) {
-            tile.body_mut().down_items.push(item_id);
+            tile.body_mut().down_items_mut().push(item_id);
         }
     }
 
@@ -2314,7 +2310,7 @@ mod push_followup_d1_d2_d3_tests {
         let dest_creatures = world
             .map
             .get_tile(to)
-            .map(|t| t.body().creatures.clone())
+            .map(|t| t.body().creatures().to_vec())
             .unwrap_or_default();
         assert!(
             dest_creatures.contains(&mover) && dest_creatures.contains(&blocker),
@@ -2366,9 +2362,7 @@ mod push_hole_spectator_tests {
             Tile::Normal(TileBody {
                 ground: Some(1),
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: tilestate::FLOORCHANGE_DOWN,
                 zone: ZoneType::Normal,
             }),
@@ -2391,7 +2385,7 @@ mod push_hole_spectator_tests {
         let on_hole = world
             .map
             .get_tile(hole)
-            .is_some_and(|t| t.body().creatures.contains(&mover));
+            .is_some_and(|t| t.body().creatures().contains(&mover));
         assert!(!on_hole, "creature must not stay registered on the hole");
         let pkts = world.pending_outgoing.get(&conn);
         assert!(

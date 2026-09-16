@@ -2660,7 +2660,7 @@ fn place_furniture(world: &mut GameWorld, pos: Position) {
     let item_id = world.items.insert(Item::new_single(FURNITURE_TYPE));
     if let Some(tile) = world.map.get_tile_mut(pos) {
         let body = tile.body_mut();
-        body.down_items.push(item_id);
+        body.down_items_mut().push(item_id);
         body.flags |= crate::tile::flags::BLOCKPATH;
     }
 }

@@ -104,9 +104,9 @@ impl GameWorld {
             return false;
         }
         !body
-            .down_items
+            .down_items()
             .iter()
-            .chain(body.top_items.iter())
+            .chain(body.top_items().iter())
             .any(|&iid| {
                 self.items
                     .get(iid)
@@ -127,7 +127,7 @@ impl GameWorld {
             return false;
         }
 
-        for &iid in body.down_items.iter().chain(body.top_items.iter()) {
+        for &iid in body.down_items().iter().chain(body.top_items().iter()) {
             let Some(item) = self.items.get(iid) else {
                 continue;
             };
@@ -141,7 +141,7 @@ impl GameWorld {
         }
 
         if avoid_players {
-            for &cid in &body.creatures {
+            for &cid in body.creatures() {
                 if matches!(
                     self.creatures.get(cid),
                     Some(crate::creature::CreatureKind::Player(_))
@@ -168,15 +168,15 @@ impl GameWorld {
             };
             let body = tile.body();
             let mut items: Vec<ItemId> = body
-                .down_items
+                .down_items()
                 .iter()
-                .chain(body.top_items.iter())
+                .chain(body.top_items().iter())
                 .copied()
                 .filter(|&iid| iid != exclude_item)
                 .collect();
             items.reverse();
             let creatures: Vec<CreatureId> = body
-                .creatures
+                .creatures()
                 .iter()
                 .copied()
                 .filter(|&cid| exclude_creature != Some(cid))
@@ -285,7 +285,7 @@ mod tests {
                 .get_tile(door_pos)
                 .unwrap()
                 .body()
-                .creatures
+                .creatures()
                 .is_empty()
         );
     }

@@ -85,7 +85,7 @@ fn self_move_stack_pos(world: &GameWorld, cid: CreatureId, body: &crate::tile::T
 
 /// Count `down_items` that are Cip `PRIORITY_BOTTOM` (fields / pools).
 fn cip_bottom_down_count(world: &GameWorld, body: &crate::tile::TileBody) -> usize {
-    body.down_items
+    body.down_items()
         .iter()
         .filter(|&&id| {
             world
@@ -313,7 +313,7 @@ pub(crate) fn internal_teleport_player(
     let old_creatures = world
         .map
         .get_tile(old_pos)
-        .map(|t| t.body().creatures.clone())
+        .map(|t| t.body().creatures().to_vec())
         .unwrap_or_default();
 
     // C++ `Map::moveCreature`: `teleport = forceTeleport || !ground || !areInRange<1,1,0>`.
@@ -1364,7 +1364,7 @@ impl GameWorld {
                 (
                     body.ground.is_some(),
                     cip_bottom_down_count(self, body),
-                    body.top_items.len(),
+                    body.top_items().len(),
                 )
             })
             .unwrap_or((true, 0, 0));
@@ -1879,7 +1879,7 @@ impl GameWorld {
                 let old_creatures = self
                     .map
                     .get_tile(old_pos)
-                    .map(|t| t.body().creatures.clone())
+                    .map(|t| t.body().creatures().to_vec())
                     .unwrap_or_default();
                 let result = self.internal_move_creature_step(cid, dir, now);
                 match result {
@@ -2377,7 +2377,7 @@ impl GameWorld {
                 && self
                     .map
                     .get_tile(seg.from)
-                    .is_some_and(|t| t.body().creatures.contains(&cid))
+                    .is_some_and(|t| t.body().creatures().contains(&cid))
             {
                 ghost_positions.push(seg.from);
             }
@@ -2402,7 +2402,7 @@ impl GameWorld {
         let on_final = self
             .map
             .get_tile(final_pos)
-            .is_some_and(|t| t.body().creatures.contains(&cid));
+            .is_some_and(|t| t.body().creatures().contains(&cid));
         if !on_final && is_player && (is_floor_change || segments.len() > 1) {
             tracing::error!(
                 ?cid,
@@ -2454,7 +2454,7 @@ impl GameWorld {
         let on_from = self
             .map
             .get_tile(from)
-            .is_some_and(|t| t.body().creatures.contains(&cid));
+            .is_some_and(|t| t.body().creatures().contains(&cid));
         if !on_from {
             let actual = self.creatures.get(cid).map(|k| k.position());
             tracing::error!(
@@ -2535,7 +2535,7 @@ impl GameWorld {
         if let Some(gid) = body.ground_item {
             out.push(self.snapshot_tile_move_event_item(gid));
         }
-        for &iid in body.top_items.iter().chain(body.down_items.iter()) {
+        for &iid in body.top_items().iter().chain(body.down_items().iter()) {
             out.push(self.snapshot_tile_move_event_item(iid));
         }
         out
@@ -2620,7 +2620,7 @@ impl GameWorld {
                     return 0;
                 };
                 let mut cost = 0u32;
-                for &c in tile.body().creatures.iter() {
+                for &c in tile.body().creatures().iter() {
                     if c != ctx.cid {
                         cost += CREATURE_ON_TILE_PATH_COST;
                     }
@@ -3225,7 +3225,7 @@ mod monster_walk_tests {
         let old_creatures = world
             .map
             .get_tile(walk_from)
-            .map(|t| t.body().creatures.clone())
+            .map(|t| t.body().creatures().to_vec())
             .unwrap_or_default();
         world.pending_outgoing.clear();
 

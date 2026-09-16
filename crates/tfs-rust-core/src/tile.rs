@@ -1,9 +1,14 @@
 //! Map tile stacks (ground, items, creatures) and flags.
-// C++ reference: `Tile` (`tile.h`), `Tile::queryAdd`, `queryRemove`, `addThing`, `removeThing`.
+//!
+//! Pack surface: `Tile` (`tile.h`), `Tile::queryAdd`, `queryRemove`, `addThing`, `removeThing`.
+//! Corpus: TVP `StaticTile` lazy item/creature vectors (`tile.h` ~364–424); 772
+//! `GetFirstObject` chain (`map.cc:2356`) via [`TileBody::map_object_chain`].
 
 use crate::ids::{CreatureId, ItemId};
 use crate::thing::LookTarget;
 use tfs_rust_common::enums::ZoneType;
+
+pub use crate::tile_stacks::TileStacks;
 
 /// TFS `tileflags_t` (`src/tile.h`) — runtime tile state bitfield.
 /// C++ ref: src/tile.h:23-52
@@ -75,11 +80,8 @@ pub struct TileBody {
     /// Item instance for the ground — TFS `Tile::getGround()` returns a full `Item*`.
     /// Needed so StepIn/transform/decay can mutate the ground (e.g. pitfall 293↔294).
     pub ground_item: Option<ItemId>,
-    /// Non-ground items below creatures on the wire (`Tile::getBeginDownItem`, `src/tile.cpp`).
-    pub down_items: Vec<ItemId>,
-    /// Always-on-top items, sent before creatures (`getBeginTopItem` … `getEndTopItem`).
-    pub top_items: Vec<ItemId>,
-    pub creatures: Vec<CreatureId>,
+    /// Down / top / creature stacks. `None` on ground-only tiles (TVP `StaticTile` laziness).
+    pub stacks: Option<Box<TileStacks>>,
     pub flags: u32,
     pub zone: ZoneType,
 }
@@ -94,13 +96,76 @@ impl TileBody {
     pub fn new() -> Self {
         Self {
             ground: None,
-
             ground_item: None,
-            down_items: Vec::new(),
-            top_items: Vec::new(),
-            creatures: Vec::new(),
+            stacks: None,
             flags: 0,
             zone: ZoneType::Normal,
+        }
+    }
+
+    /// Test / literal helper — empty vecs stay `None`.
+    pub fn stacks_from(
+        down_items: Vec<ItemId>,
+        top_items: Vec<ItemId>,
+        creatures: Vec<CreatureId>,
+    ) -> Option<Box<TileStacks>> {
+        TileStacks::boxed_if_nonempty(down_items, top_items, creatures)
+    }
+
+    pub fn with_stacks(
+        down_items: Vec<ItemId>,
+        top_items: Vec<ItemId>,
+        creatures: Vec<CreatureId>,
+    ) -> Self {
+        Self {
+            stacks: Self::stacks_from(down_items, top_items, creatures),
+            ..Self::new()
+        }
+    }
+
+    pub fn down_items(&self) -> &[ItemId] {
+        self.stacks
+            .as_ref()
+            .map(|s| s.down_items.as_slice())
+            .unwrap_or(&[])
+    }
+
+    pub fn top_items(&self) -> &[ItemId] {
+        self.stacks
+            .as_ref()
+            .map(|s| s.top_items.as_slice())
+            .unwrap_or(&[])
+    }
+
+    pub fn creatures(&self) -> &[CreatureId] {
+        self.stacks
+            .as_ref()
+            .map(|s| s.creatures.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// Allocates stacks on first write. Prefer [`Tile::add_item`] / [`Tile::add_creature`].
+    pub fn down_items_mut(&mut self) -> &mut Vec<ItemId> {
+        &mut self.ensure_stacks().down_items
+    }
+
+    pub fn top_items_mut(&mut self) -> &mut Vec<ItemId> {
+        &mut self.ensure_stacks().top_items
+    }
+
+    pub fn creatures_mut(&mut self) -> &mut Vec<CreatureId> {
+        &mut self.ensure_stacks().creatures
+    }
+
+    pub fn ensure_stacks(&mut self) -> &mut TileStacks {
+        self.stacks
+            .get_or_insert_with(|| Box::new(TileStacks::default()))
+    }
+
+    /// Drop the box when every stack is empty (ground-only again).
+    pub fn compact_stacks(&mut self) {
+        if self.stacks.as_ref().is_some_and(|s| s.is_empty()) {
+            self.stacks = None;
         }
     }
 
@@ -109,8 +174,8 @@ impl TileBody {
     pub fn script_stack_item_ids(&self) -> impl Iterator<Item = ItemId> + '_ {
         self.ground_item
             .into_iter()
-            .chain(self.top_items.iter().copied())
-            .chain(self.down_items.iter().copied())
+            .chain(self.top_items().iter().copied())
+            .chain(self.down_items().iter().copied())
     }
 
     /// 772 map-container object chain — `GetFirstObject` / `getNextObject` (`map.cc:2356`, `cract.cc:89-103`, `crnonpl.cc:2185+`).
@@ -123,15 +188,15 @@ impl TileBody {
         if let Some(g) = self.ground {
             out.push(MapStackEntry::Ground(g));
         }
-        if !self.down_items.is_empty() {
-            for &id in self.down_items.iter().rev() {
+        if !self.down_items().is_empty() {
+            for &id in self.down_items().iter().rev() {
                 out.push(MapStackEntry::Item(id));
             }
         }
-        for &id in &self.top_items {
+        for &id in self.top_items() {
             out.push(MapStackEntry::Item(id));
         }
-        for &cid in &self.creatures {
+        for &cid in self.creatures() {
             out.push(MapStackEntry::Creature(cid));
         }
         out
@@ -189,15 +254,16 @@ impl Tile {
     }
 
     pub fn add_creature(&mut self, id: CreatureId) {
-        self.body_mut().creatures.push(id);
+        self.body_mut().creatures_mut().push(id);
     }
 
     pub fn remove_creature(&mut self, id: CreatureId) -> bool {
         let body = self.body_mut();
-        if let Some(i) = body.creatures.iter().position(|&c| c == id) {
+        if let Some(i) = body.creatures().iter().position(|&c| c == id) {
             // Order-preserving remove — Cip `CutObject` splices the map-container list.
             // `swap_remove` reorders remaining creatures and desyncs MoveCreature stackpos.
-            body.creatures.remove(i);
+            body.creatures_mut().remove(i);
+            body.compact_stacks();
             return true;
         }
         false
@@ -213,7 +279,7 @@ impl Tile {
     /// Add an item to this tile (adds to front of down_items, matching C++ `Tile::addThing`).
     // C++ ref: src/tile.cpp Tile::addThing — non-always-on-top items insert at begin of downItems.
     pub fn add_item(&mut self, item_id: ItemId) {
-        self.body_mut().down_items.insert(0, item_id);
+        self.body_mut().down_items_mut().insert(0, item_id);
     }
 
     /// Add an always-on-top item to this tile, inserted at `index` (for sorted insertion
@@ -226,7 +292,7 @@ impl Tile {
     /// `get_item_stack_pos` returns a different index than the client's, causing `0x6C`
     /// remove to delete the wrong item (e.g. a ladder instead of a splash).
     pub fn add_top_item_at(&mut self, item_id: ItemId, index: usize) {
-        let items = &mut self.body_mut().top_items;
+        let items = self.body_mut().top_items_mut();
         if index >= items.len() {
             items.push(item_id);
         } else {
@@ -239,7 +305,7 @@ impl Tile {
     /// (e.g. OTBM load, where items are already in map-editor order). For runtime adds
     /// via `internal_add_item_to_tile`, use `add_top_item_at` with a sorted index.
     pub fn add_top_item(&mut self, item_id: ItemId) {
-        self.body_mut().top_items.push(item_id);
+        self.body_mut().top_items_mut().push(item_id);
     }
 
     /// Remove an item from this tile by its ItemId. Returns the index it was removed from, or None.
@@ -253,13 +319,15 @@ impl Tile {
             return Some(0);
         }
         // Try down_items
-        if let Some(i) = body.down_items.iter().position(|&id| id == item_id) {
-            body.down_items.remove(i);
+        if let Some(i) = body.down_items().iter().position(|&id| id == item_id) {
+            body.down_items_mut().remove(i);
+            body.compact_stacks();
             return Some(i);
         }
         // Try top_items
-        if let Some(i) = body.top_items.iter().position(|&id| id == item_id) {
-            body.top_items.remove(i);
+        if let Some(i) = body.top_items().iter().position(|&id| id == item_id) {
+            body.top_items_mut().remove(i);
+            body.compact_stacks();
             return Some(i);
         }
         None
@@ -269,20 +337,20 @@ impl Tile {
     pub fn has_item(&self, item_id: ItemId) -> bool {
         let body = self.body();
         body.ground_item == Some(item_id)
-            || body.down_items.contains(&item_id)
-            || body.top_items.contains(&item_id)
+            || body.down_items().contains(&item_id)
+            || body.top_items().contains(&item_id)
     }
 
     /// Total number of items on this tile (top + down, excluding ground).
     pub fn total_item_count(&self) -> usize {
         let body = self.body();
-        body.top_items.len() + body.down_items.len()
+        body.top_items().len() + body.down_items().len()
     }
 
     /// Get the first down item (top of down stack, i.e. index 0).
     // C++ ref: src/tile.cpp Tile::getTopDownItem
     pub fn get_top_down_item(&self) -> Option<ItemId> {
-        self.body().down_items.first().copied()
+        self.body().down_items().first().copied()
     }
 
     /// Compute the client stack position for an item on this tile.
@@ -323,7 +391,7 @@ impl Tile {
         let mut n: u8 = if body.ground.is_some() { 1 } else { 0 };
         if cip_order {
             // Oldest down first (rev of newest-first storage) — matches Cip PlaceObject append.
-            for &did in body.down_items.iter().rev() {
+            for &did in body.down_items().iter().rev() {
                 if !is_priority_bottom(did) {
                     continue;
                 }
@@ -332,7 +400,7 @@ impl Tile {
                 }
                 n = n.saturating_add(1);
             }
-            for &tid in &body.top_items {
+            for &tid in body.top_items() {
                 if tid == item_id {
                     return Some(n);
                 }
@@ -345,8 +413,8 @@ impl Tile {
             // group (`!Append && CurPriority >= ObjPriority` breaks on the first LOW). The
             // 7.72 client applies the same rule when it inserts an `0x6A` add, which carries
             // no stackpos. `down_items` is stored newest-first, so LOW is walked forward.
-            n = n.saturating_add(body.creatures.len() as u8);
-            for &did in &body.down_items {
+            n = n.saturating_add(body.creatures().len() as u8);
+            for &did in body.down_items() {
                 if is_priority_bottom(did) {
                     continue;
                 }
@@ -357,14 +425,14 @@ impl Tile {
             }
             None
         } else {
-            for &tid in &body.top_items {
+            for &tid in body.top_items() {
                 if tid == item_id {
                     return Some(n);
                 }
                 n = n.saturating_add(1);
             }
-            n = n.saturating_add(body.creatures.len() as u8);
-            for &did in &body.down_items {
+            n = n.saturating_add(body.creatures().len() as u8);
+            for &did in body.down_items() {
                 if did == item_id {
                     return Some(n);
                 }
@@ -379,8 +447,8 @@ impl Tile {
     pub fn down_item_start_stack_pos(&self) -> u8 {
         let body = self.body();
         let mut n: u8 = if body.ground.is_some() { 1 } else { 0 };
-        n = n.saturating_add(body.top_items.len() as u8);
-        n = n.saturating_add(body.creatures.len() as u8);
+        n = n.saturating_add(body.top_items().len() as u8);
+        n = n.saturating_add(body.creatures().len() as u8);
         n
     }
 
@@ -401,7 +469,7 @@ impl Tile {
         G: Fn(ItemId) -> bool,
     {
         let body = self.body();
-        if body.down_items.is_empty() && body.top_items.is_empty() {
+        if body.down_items().is_empty() && body.top_items().is_empty() {
             // TFS `Tile::getThing` returns ground at stackpos 0 when the item list is empty.
             // OTBM `setGround` now stores a SlotMap `ground_item` (`map/mod.rs`).
             // Non-zero stackpos is a creature (or miss) — do not steal those aims.
@@ -413,9 +481,9 @@ impl Tile {
         }
 
         let container_item = body
-            .down_items
+            .down_items()
             .iter()
-            .chain(body.top_items.iter())
+            .chain(body.top_items().iter())
             .copied()
             .find(|&id| is_container(id));
 
@@ -454,7 +522,7 @@ impl Tile {
 
         if cip_order {
             // BOTTOM is an appended group (oldest heads it); LOW is not (newest heads it).
-            for &did in body.down_items.iter().rev() {
+            for &did in body.down_items().iter().rev() {
                 if !is_priority_bottom(did) {
                     continue;
                 }
@@ -465,7 +533,7 @@ impl Tile {
             }
         }
 
-        for &tid in &body.top_items {
+        for &tid in body.top_items() {
             if n == stack_pos {
                 return Some(tid);
             }
@@ -473,13 +541,13 @@ impl Tile {
         }
 
         let after_top = n;
-        let creature_end = after_top.saturating_add(body.creatures.len() as u8);
+        let creature_end = after_top.saturating_add(body.creatures().len() as u8);
         if stack_pos >= after_top && stack_pos < creature_end {
             return None;
         }
         n = creature_end;
 
-        for &did in &body.down_items {
+        for &did in body.down_items() {
             if cip_order && is_priority_bottom(did) {
                 continue;
             }
@@ -515,17 +583,17 @@ where
     F: Fn(CreatureId) -> bool,
     G: Fn(ItemId) -> bool,
 {
-    for &creature_id in &body.creatures {
+    for &creature_id in body.creatures() {
         if can_see_creature(creature_id) {
             return Some(LookTarget::Creature(creature_id));
         }
     }
-    for &item_id in &body.down_items {
+    for &item_id in body.down_items() {
         if item_is_opaque(item_id) {
             return Some(LookTarget::Item(item_id));
         }
     }
-    for &item_id in body.top_items.iter().rev() {
+    for &item_id in body.top_items().iter().rev() {
         if item_is_opaque(item_id) {
             return Some(LookTarget::Item(item_id));
         }
@@ -572,8 +640,8 @@ pub fn creature_stack_pos_for_viewer(
 pub fn client_creature_stack_pos(body: &TileBody, creature: CreatureId) -> i32 {
     creature_stack_pos_for_viewer(
         body.ground.is_some(),
-        body.top_items.len(),
-        &body.creatures,
+        body.top_items().len(),
+        body.creatures(),
         creature,
         |_| true,
     )
@@ -591,8 +659,8 @@ pub fn client_creature_stack_pos_cip(
 ) -> i32 {
     creature_stack_pos_for_viewer(
         body.ground.is_some(),
-        bottom_down_count + body.top_items.len(),
-        &body.creatures,
+        bottom_down_count + body.top_items().len(),
+        body.creatures(),
         creature,
         |_| true,
     )
@@ -609,15 +677,9 @@ mod look_tests {
         top: Vec<ItemId>,
         creatures: Vec<CreatureId>,
     ) -> TileBody {
-        TileBody {
-            ground,
-            ground_item: None,
-            down_items: down,
-            top_items: top,
-            creatures,
-            flags: 0,
-            zone: ZoneType::Normal,
-        }
+        let mut body = TileBody::with_stacks(down, top, creatures);
+        body.ground = ground;
+        body
     }
 
     #[test]
@@ -629,9 +691,7 @@ mod look_tests {
             ground: Some(102),
 
             ground_item: None,
-            down_items: vec![top, bottom],
-            top_items: vec![],
-            creatures: vec![],
+            stacks: TileBody::stacks_from(vec![top, bottom], vec![], vec![]),
             flags: 0,
             zone: ZoneType::Normal,
         };
@@ -851,6 +911,34 @@ mod look_tests {
         assert_eq!(
             tile.item_id_for_use(99, false, |_| false, |id| id == bag),
             Some(bag)
+        );
+    }
+
+    #[test]
+    fn ground_only_tile_does_not_allocate_stacks() {
+        let body = TileBody::new();
+        assert!(body.stacks.is_none());
+        let mut tile = Tile::Normal(body);
+        let mut items: SlotMap<ItemId, _> = SlotMap::with_key();
+        let ground = items.insert(());
+        tile.set_ground(ground, 100);
+        assert!(
+            tile.body().stacks.is_none(),
+            "set_ground must not allocate down/top/creature stacks"
+        );
+    }
+
+    #[test]
+    fn last_down_item_remove_compacts_stacks() {
+        let mut items: SlotMap<ItemId, _> = SlotMap::with_key();
+        let iid = items.insert(());
+        let mut tile = Tile::empty_normal();
+        tile.add_item(iid);
+        assert!(tile.body().stacks.is_some());
+        assert_eq!(tile.remove_item_by_id(iid), Some(0));
+        assert!(
+            tile.body().stacks.is_none(),
+            "empty stacks must drop the box"
         );
     }
 }

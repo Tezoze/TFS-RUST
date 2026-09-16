@@ -152,8 +152,8 @@ impl GameWorld {
         let body = self.map.get_tile(pos)?.body();
         body.ground_item
             .into_iter()
-            .chain(body.down_items.iter().copied())
-            .chain(body.top_items.iter().copied())
+            .chain(body.down_items().iter().copied())
+            .chain(body.top_items().iter().copied())
             .find(|&id| {
                 self.items
                     .get(id)

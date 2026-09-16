@@ -17,9 +17,7 @@ fn ground_tile() -> Tile {
         ground: Some(100),
 
         ground_item: None,
-        down_items: vec![],
-        top_items: vec![],
-        creatures: vec![],
+        stacks: None,
         flags: 0,
         zone: ZoneType::Normal,
     })
@@ -33,6 +31,7 @@ fn flat_map(w: u16, h: u16) -> Map {
         towns: std::collections::HashMap::new(),
         waypoints: std::collections::HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: std::collections::HashMap::new(),
     };
     for x in 0..w {
@@ -144,16 +143,16 @@ fn creature_lists_agree_after_batch_of_moves() {
 
     // Verify tile stacks reflect the moves.
     let tile_p1 = map.get_tile(p1).expect("tile p1");
-    assert!(tile_p1.body().creatures.contains(&a));
-    assert!(!tile_p1.body().creatures.contains(&b));
+    assert!(tile_p1.body().creatures().contains(&a));
+    assert!(!tile_p1.body().creatures().contains(&b));
     let tile_p2 = map.get_tile(p2).expect("tile p2");
-    assert!(tile_p2.body().creatures.contains(&b));
-    assert!(tile_p2.body().creatures.contains(&c));
+    assert!(tile_p2.body().creatures().contains(&b));
+    assert!(tile_p2.body().creatures().contains(&c));
 
     // Unregister one and confirm agreement.
     map.unregister_creature_at(p2, c);
     map.debug_assert_creature_lists_agree();
 
     let tile_p2 = map.get_tile(p2).expect("tile p2");
-    assert!(!tile_p2.body().creatures.contains(&c));
+    assert!(!tile_p2.body().creatures().contains(&c));
 }

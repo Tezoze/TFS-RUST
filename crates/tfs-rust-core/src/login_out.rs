@@ -358,7 +358,7 @@ pub(crate) fn map_tile_content(
                 });
             }
         }
-        for &item_id in &body.top_items {
+        for &item_id in body.top_items() {
             // Get the actual item from world storage
             let Some(item) = world.items.get(item_id) else {
                 continue;
@@ -381,7 +381,7 @@ pub(crate) fn map_tile_content(
                 is_animation: world.items_db.is_animation_for_server(iid),
             });
         }
-        for &ocid in &body.creatures {
+        for &ocid in body.creatures() {
             // Visibility gates (ghost / invisible) before building wire.
             let skip = match world.creatures.get(ocid) {
                 Some(CreatureKind::Player(p)) => {
@@ -441,7 +441,7 @@ pub(crate) fn map_tile_content(
             };
             content.creatures.push(w);
         }
-        for &item_id in &body.down_items {
+        for &item_id in body.down_items() {
             // Get the actual item from world storage
             let Some(item) = world.items.get(item_id) else {
                 continue;

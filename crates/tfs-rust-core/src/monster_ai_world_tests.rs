@@ -933,9 +933,7 @@ fn test_772_diagonal_detour_when_cardinals_blocked() {
                 ground: Some(150),
 
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: tilestate::BLOCKSOLID | tilestate::BLOCKPATH,
                 zone: ZoneType::Normal,
             }),
@@ -1080,9 +1078,7 @@ fn test_772_blocked_flee_stops() {
                 ground: None,
 
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: tilestate::BLOCKSOLID,
                 zone: ZoneType::Normal,
             }),
@@ -1333,9 +1329,7 @@ fn test_772_attack_clears_dest_in_protection_zone() {
         Tile::Normal(TileBody {
             ground: Some(2148),
             ground_item: None,
-            down_items: Vec::new(),
-            top_items: Vec::new(),
-            creatures: Vec::new(),
+            stacks: None,
             flags: 0,
             zone: ZoneType::Protection,
         }),

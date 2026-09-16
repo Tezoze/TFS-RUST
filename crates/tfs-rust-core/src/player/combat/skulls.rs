@@ -418,7 +418,7 @@ impl GameWorld {
         let Some(tile) = self.map.get_tile(pos) else {
             return true;
         };
-        for &cid in &tile.body().creatures {
+        for &cid in tile.body().creatures() {
             if cid == caster {
                 continue;
             }
@@ -951,7 +951,7 @@ mod tests {
         }
         crate::test_support::ensure_walkable_tile(&mut world.map, pos, 100);
         if let Some(tile) = world.map.get_tile_mut(pos) {
-            tile.body_mut().creatures = vec![a, b];
+            *tile.body_mut().creatures_mut() = vec![a, b];
         }
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(a) {
             p.secure_mode = true;

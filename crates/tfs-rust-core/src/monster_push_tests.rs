@@ -676,9 +676,7 @@ fn house_tile_is_hard_block_in_move_possible() {
                 ground: Some(1),
 
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: 0,
                 zone: tfs_rust_common::enums::ZoneType::Normal,
             },
@@ -1470,7 +1468,7 @@ fn fast_kicker_steps_onto_vacated_tiles_three_pushes() {
         let still_on_old = world
             .map
             .get_tile(blocker_start)
-            .is_some_and(|t| t.body().creatures.contains(&blocker));
+            .is_some_and(|t| t.body().creatures().contains(&blocker));
         assert!(
             !still_on_old,
             "step {step}: blocker must be unregistered from vacated tile"
@@ -1479,7 +1477,7 @@ fn fast_kicker_steps_onto_vacated_tiles_three_pushes() {
             world
                 .map
                 .get_tile(expected_kicker_pos)
-                .is_some_and(|t| t.body().creatures.contains(&kicker)),
+                .is_some_and(|t| t.body().creatures().contains(&kicker)),
             "step {step}: kicker must be registered on the vacated tile"
         );
 
@@ -1561,7 +1559,7 @@ fn d5_hard_block_does_not_kick_boxes() {
     // Place a kickable box on the dest tile.
     let box_item = world.items.insert(Item::new_single(BOX_TYPE));
     if let Some(tile) = world.map.get_tile_mut(dest) {
-        tile.body_mut().down_items.push(box_item);
+        tile.body_mut().down_items_mut().push(box_item);
     }
 
     let target = insert_monster_with_config(&mut world, "Rat", tpos, 200, kicker_config());
@@ -1606,7 +1604,7 @@ fn d5_hard_block_does_not_kick_boxes() {
     let dest_items = world
         .map
         .get_tile(dest)
-        .map(|t| t.body().down_items.clone())
+        .map(|t| t.body().down_items().to_vec())
         .unwrap_or_default();
     assert!(
         dest_items.contains(&box_item),
@@ -1616,7 +1614,7 @@ fn d5_hard_block_does_not_kick_boxes() {
     let escape_items = world
         .map
         .get_tile(escape)
-        .map(|t| t.body().down_items.clone())
+        .map(|t| t.body().down_items().to_vec())
         .unwrap_or_default();
     assert!(
         !escape_items.contains(&box_item),
@@ -1658,7 +1656,7 @@ fn place_furniture(world: &mut crate::game_world::GameWorld, pos: Position) {
     let item_id = world.items.insert(Item::new_single(FURNITURE_TYPE));
     if let Some(tile) = world.map.get_tile_mut(pos) {
         let body = tile.body_mut();
-        body.down_items.push(item_id);
+        body.down_items_mut().push(item_id);
         body.flags |= crate::tile::flags::BLOCKPATH;
     }
 }
@@ -1786,7 +1784,7 @@ fn monster_kick_boxes_handles_furniture_avoid() {
     let furniture_iid = world
         .map
         .get_tile(dest)
-        .and_then(|t| t.body().down_items.first().copied())
+        .and_then(|t| t.body().down_items().first().copied())
         .expect("furniture on dest");
     assert!(
         world.item_is_kickable_box(furniture_iid, MonsterState::Attacking, false, false, false),

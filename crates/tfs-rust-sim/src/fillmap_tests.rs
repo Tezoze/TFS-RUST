@@ -133,7 +133,7 @@ fn cyclops_quad_far_n_path_avoids_nw_sibling_when_last() {
     let nw_pos = spawns[3];
     let tile = world.map.get_tile(nw_pos).expect("nw tile");
     assert!(
-        tile.body().creatures.contains(&ids[3]),
+        tile.body().creatures().contains(&ids[3]),
         "NW cyclops must occupy map tile before path query"
     );
     assert!(

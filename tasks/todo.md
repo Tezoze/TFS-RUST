@@ -9,8 +9,17 @@ Decompile `SendData` already emits one XTEA frame per beat per connection (`comm
 - [x] Lesson: per-message writer was a silent `SendData` deviation
 - [x] A3: `run_comparison.py --mode steady --bots 1000 --reps 1 --duration-s 120 --scenario bench/scenarios/clustered_hunt.ron` — first cell (`20260914T095120Z`) **invalid**: stale Sep-13 binary (`CARGO_TARGET_DIR` pointed at the sandbox cache). Valid cell `results/20260914T102600Z/1000_bots_cpu_mem.md`: **CPU gate passed** — 33.4 CPU-s vs TVP 43.0 (old writer 51.1); tokio ~12.7 s (was 36.7); `lo` 38.6 kpps (was 100.6 k); 18.0 frames/conn/s vs TVP 41.8; 450 000 sends / 0 disconnects both
 - [x] Bottleneck hunt: per-thread user/sys + ctx-switch sampling → per-`send()` loopback kernel work, not wake-ups/XTEA (lesson 483); loadgen `frames_in` counter; runner resolves binaries via `CARGO_TARGET_DIR` and records `*_bin_mtime`
-- [ ] Phase B: RSS +263 MiB at sample 0 (tile layout) — unchanged by Phase A
-- [ ] Walk p99 tens of seconds on rust vs ~260 ms TVP (silent-drop / `0x6D`/`0xB5` parity) — not CPU
+# Phase B — static memory (live heap)
+
+Layout only. Stack order, flags, zone, sector-refresh timing, and spectator/sector order unchanged.
+
+Gate is **live heap bytes** (malloc census) or **RSS after malloc_trim**, not raw `ps` RSS after `GameWorld ready`. Raw RSS measures glibc’s OTBM-staging high-water mark; HEAD recycled those 96-B chunks into `Box<Tile>`, Phase B `Vec<Tile>` does not. C1 (single-pass OTBM) is the cause fix — no `malloc_trim` in this phase.
+
+- [x] B1: `tile_stacks.rs` — `TileBody.stacks: Option<Box<TileStacks>>`; allocate on first non-ground insert; compact when empty; accessors `down_items()` / `top_items()` / `creatures()`. Tile 48 B / TileBody 32 B; stacks boxed on ~600 k tiles
+- [x] B2: snapshot REFRESH tiles on first mutation (`refresh_positions` at load; raster from positions, not snap keys). Boot `refresh_snapshot_count=0`
+- [x] B3: dense chunk `Vec<Tile>` + `[u16; 4096]` slot index (`u16::MAX` = empty); `shrink_to_fit` after map load
+- [x] `cargo test -p tfs-rust-core` (1412 pass / 29 pre-existing fail, same as HEAD); boot log counts `map_tiles=7848819` `map_chunks=3355` `refresh_snapshot_count=0`; live heap 1893 → 1326 MiB (−567). Raw ps RSS 2129 → 2386 is the staging lie
+- [ ] Walk p99 tens of seconds on rust vs ~260 ms TVP (silent-drop / `0x6D`/`0xB5` parity) — Phase D, not CPU
 
 # 1000-bot clustered hunt cell (2026-09-13)
 

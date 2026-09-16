@@ -901,7 +901,7 @@ fn tile_walkable_lua(world: &GameWorld, x: u16, y: u16, z: u8) -> bool {
     {
         return false;
     }
-    for &iid in body.top_items.iter().chain(body.down_items.iter()) {
+    for &iid in body.top_items().iter().chain(body.down_items().iter()) {
         let Some(item) = world.items.get(iid) else {
             continue;
         };
@@ -966,9 +966,7 @@ mod tests {
             Tile::Normal(TileBody {
                 ground: Some(type_id),
                 ground_item: Some(iid),
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: 0,
                 zone: ZoneType::Normal,
             }),
@@ -1165,9 +1163,7 @@ mod tests {
             Tile::Normal(TileBody {
                 ground: Some(100),
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: 0,
                 zone: ZoneType::Normal,
             }),
@@ -1226,9 +1222,7 @@ mod tests {
             Tile::Normal(TileBody {
                 ground: Some(100),
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: 0,
                 zone: ZoneType::Normal,
             }),
@@ -1266,9 +1260,7 @@ mod tests {
             Tile::Normal(TileBody {
                 ground: Some(100),
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: 0,
                 zone: ZoneType::Normal,
             }),

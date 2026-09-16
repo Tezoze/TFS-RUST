@@ -887,9 +887,7 @@ mod tests {
                 ground: Some(ground_type),
 
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: 0,
                 zone: ZoneType::Protection,
             }),

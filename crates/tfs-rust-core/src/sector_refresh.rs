@@ -1,9 +1,10 @@
 //! Live tile refresh — OTBM snapshot restore (TFS `Tile::refresh` / `Map::refreshMap`).
 //!
 //! Corpus `RefreshSector` reloads ORIGMAP `.sec` patches (`map.cc:1307-1350`).
-//! This shard ships OTBM, so the pack surface wins: clone items at load, restore
-//! on `refreshMap()` / minute cron. Houses are not snapshotted (`House::addTile`
-//! clears REFRESH). Creatures stay. Decay stays in `ProcessCronSystem`.
+//! This shard ships OTBM, so the pack surface wins: record REFRESH positions
+//! at load, clone items on first mutation, restore on `refreshMap()` / minute
+//! cron. Houses are not snapshotted (`House::addTile` clears REFRESH).
+//! Creatures stay. Decay stays in `ProcessCronSystem`.
 //!
 //! Minute job is `RefreshCylinders` (`operate.cc:2964-2988`, `main.cc:383`) — one
 //! ORIGMAP 32×32 XY column, all Z, skip floors a player `CanSeeFloor`. Full
@@ -37,12 +38,16 @@ pub(crate) struct RefreshCylinderState {
 }
 
 impl RefreshCylinderState {
-    fn ensure_index(&mut self, snapshots: &std::collections::HashMap<Position, TileRefreshSnap>) {
+    fn ensure_index(
+        &mut self,
+        snapshots: &std::collections::HashMap<Position, TileRefreshSnap>,
+        refresh_positions: &rustc_hash::FxHashSet<Position>,
+    ) {
         if self.indexed {
             return;
         }
         let mut set = BTreeSet::new();
-        for pos in snapshots.keys() {
+        for pos in refresh_positions.iter().chain(snapshots.keys()) {
             set.insert((pos.x / ORIGMAP_SECTOR, pos.y / ORIGMAP_SECTOR));
         }
         self.xys = set.into_iter().collect();
@@ -64,7 +69,7 @@ impl RefreshCylinderState {
 }
 
 /// One cloned map item (no live SlotMap id) — TFS `Item::clone` without unique re-register.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RefreshItemSnap {
     pub item_type: u16,
     pub count: u16,
@@ -91,7 +96,7 @@ impl RefreshItemSnap {
 }
 
 /// Ground + stack order from load — TFS `makeRefreshItemList`.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct TileRefreshSnap {
     pub ground: Option<RefreshItemSnap>,
     pub down: Vec<RefreshItemSnap>,
@@ -106,12 +111,12 @@ impl TileRefreshSnap {
             .and_then(|id| items.get(id))
             .map(RefreshItemSnap::from_item);
         let down = body
-            .down_items
+            .down_items()
             .iter()
             .filter_map(|&id| items.get(id).map(RefreshItemSnap::from_item))
             .collect();
         let top = body
-            .top_items
+            .top_items()
             .iter()
             .filter_map(|&id| items.get(id).map(RefreshItemSnap::from_item))
             .collect();
@@ -153,7 +158,7 @@ impl GameWorld {
     /// `RefreshedCylinders` default is 1 (`map.cc:351`).
     pub fn refresh_cylinders(&mut self) -> u32 {
         self.refresh_cylinder_state
-            .ensure_index(&self.map.refresh_snapshots);
+            .ensure_index(&self.map.refresh_snapshots, &self.map.refresh_positions);
         let Some((sx, sy)) = self.refresh_cylinder_state.next_xy() else {
             return 0;
         };
@@ -209,8 +214,8 @@ impl GameWorld {
                 let b = t.body();
                 b.ground_item
                     .into_iter()
-                    .chain(b.down_items.iter().copied())
-                    .chain(b.top_items.iter().copied())
+                    .chain(b.down_items().iter().copied())
+                    .chain(b.top_items().iter().copied())
                     .collect()
             })
             .unwrap_or_default();
@@ -232,7 +237,9 @@ impl GameWorld {
 mod tests {
     use super::*;
     use crate::item::Item;
-    use crate::test_support::{beat_driven_test_world, ensure_walkable_tile};
+    use crate::test_support::{
+        TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
+    };
     use crate::tile::flags as tile_flags;
     use tfs_rust_common::Position;
 
@@ -262,7 +269,7 @@ mod tests {
 
     fn has_junk(world: &GameWorld, pos: Position, junk: ItemId) -> bool {
         let body = world.map.get_tile(pos).unwrap().body();
-        body.down_items.contains(&junk) || body.top_items.contains(&junk)
+        body.down_items().contains(&junk) || body.top_items().contains(&junk)
     }
 
     #[test]
@@ -314,5 +321,41 @@ mod tests {
             sector_refreshable(2, 2, 7, &[Position::new(112, 80, 7)]),
             "dx=32 is outside radius 31"
         );
+    }
+
+    #[test]
+    fn lazy_snapshot_restore_matches_load_stack() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(80, 80, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        let ground_id = world
+            .items
+            .insert(Item::new_single(TEST_SYNTHETIC_GROUND_WP));
+        let down_id = world.items.insert(Item::new_single(2148));
+        if let Some(t) = world.map.get_tile_mut(pos) {
+            t.body_mut().flags |= tile_flags::REFRESH;
+            t.set_ground(ground_id, TEST_SYNTHETIC_GROUND_WP);
+            t.add_item(down_id);
+        }
+        world.map.refresh_positions.insert(pos);
+        let expected =
+            TileRefreshSnap::from_tile(world.map.get_tile(pos).unwrap().body(), &world.items);
+        assert!(
+            world.map.refresh_snapshots.is_empty(),
+            "load must not clone stacks"
+        );
+
+        let junk = drop_junk(&mut world, pos);
+        assert_eq!(
+            world.map.refresh_snapshots.get(&pos),
+            Some(&expected),
+            "first mutation snapshots the load-time stack"
+        );
+
+        assert_eq!(world.refresh_map(), 1);
+        assert!(world.items.get(junk).is_none());
+        let after =
+            TileRefreshSnap::from_tile(world.map.get_tile(pos).unwrap().body(), &world.items);
+        assert_eq!(after, expected);
     }
 }

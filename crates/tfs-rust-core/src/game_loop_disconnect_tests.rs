@@ -159,7 +159,7 @@ async fn death_ok_during_linger_leaves_body_for_destructor() {
         world
             .map
             .get_tile(pos)
-            .is_some_and(|t| !t.body().down_items.is_empty()),
+            .is_some_and(|t| !t.body().down_items().is_empty()),
         "corpse/pool must land — destructor not skipped"
     );
 }

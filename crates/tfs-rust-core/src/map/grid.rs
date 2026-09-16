@@ -1,5 +1,8 @@
 //! Lazy 64×64 chunk grid — tiles + per-chunk creature spatial index.
 //!
+//! Dense `Vec<Tile>` + `[u16; 4096]` slot index (`u16::MAX` = empty). Layout only —
+//! `get_tile` stays O(1); spectator sector order is unchanged (`crmain.cc:101–144`).
+//!
 //! Replaces `HashMap<Position, Tile>` and `QTreeNode` (`map.cpp` lazy spatial index outcomes).
 // C++ reference: `map.cpp` `Map::getSpectators`, tile storage (sparse world).
 
@@ -50,12 +53,16 @@ fn position_from_chunk_slot(origin_x: u16, origin_y: u16, z: u8, idx: usize) -> 
     Position::new(origin_x + lx, origin_y + ly, z)
 }
 
+const EMPTY_SLOT: u16 = u16::MAX;
+
 /// One 64×64 region on a single floor.
 #[derive(Debug)]
 pub(crate) struct Chunk {
     pub tile_count: u16,
     pub creatures: SmallVec<[CreatureId; 4]>,
-    pub tiles: Box<[Option<Box<Tile>>; CHUNK_AREA]>,
+    /// Slot → dense `tiles` index; [`EMPTY_SLOT`] means unoccupied.
+    slot_index: Box<[u16; CHUNK_AREA]>,
+    tiles: Vec<Tile>,
 }
 
 impl Chunk {
@@ -63,7 +70,38 @@ impl Chunk {
         Self {
             tile_count: 0,
             creatures: SmallVec::new(),
-            tiles: Box::new(std::array::from_fn(|_| None)),
+            slot_index: Box::new([EMPTY_SLOT; CHUNK_AREA]),
+            tiles: Vec::new(),
+        }
+    }
+
+    fn tile_at(&self, slot: usize) -> Option<&Tile> {
+        let dense = self.slot_index[slot];
+        if dense == EMPTY_SLOT {
+            None
+        } else {
+            self.tiles.get(usize::from(dense))
+        }
+    }
+
+    fn tile_at_mut(&mut self, slot: usize) -> Option<&mut Tile> {
+        let dense = self.slot_index[slot];
+        if dense == EMPTY_SLOT {
+            None
+        } else {
+            self.tiles.get_mut(usize::from(dense))
+        }
+    }
+
+    fn insert_at(&mut self, slot: usize, tile: Tile) {
+        let dense = self.slot_index[slot];
+        if dense == EMPTY_SLOT {
+            let di = self.tiles.len() as u16;
+            self.slot_index[slot] = di;
+            self.tiles.push(tile);
+            self.tile_count += 1;
+        } else {
+            self.tiles[usize::from(dense)] = tile;
         }
     }
 }
@@ -94,22 +132,21 @@ impl SparseGrid {
         self.chunks
             .values()
             .flat_map(|c| c.tiles.iter())
-            .filter_map(|slot| slot.as_deref())
             .map(|t| {
                 let b = t.body();
-                b.down_items.len() + b.top_items.len()
+                b.down_items().len() + b.top_items().len()
             })
             .sum()
     }
 
     pub fn get_tile(&self, x: u16, y: u16, z: u8) -> Option<&Tile> {
         let key = ChunkKey::from_pos(x, y, z);
-        self.chunks.get(&key)?.tiles[tile_index(x, y)].as_deref()
+        self.chunks.get(&key)?.tile_at(tile_index(x, y))
     }
 
     pub fn get_tile_mut(&mut self, x: u16, y: u16, z: u8) -> Option<&mut Tile> {
         let key = ChunkKey::from_pos(x, y, z);
-        self.chunks.get_mut(&key)?.tiles[tile_index(x, y)].as_deref_mut()
+        self.chunks.get_mut(&key)?.tile_at_mut(tile_index(x, y))
     }
 
     pub fn insert_tile(&mut self, x: u16, y: u16, z: u8, tile: Tile) {
@@ -118,11 +155,14 @@ impl SparseGrid {
             .chunks
             .entry(key)
             .or_insert_with(|| Box::new(Chunk::new()));
-        let idx = tile_index(x, y);
-        if chunk.tiles[idx].is_none() {
-            chunk.tile_count += 1;
+        chunk.insert_at(tile_index(x, y), tile);
+    }
+
+    /// Drop spare `Vec<Tile>` capacity after OTBM load.
+    pub fn shrink_to_fit(&mut self) {
+        for chunk in self.chunks.values_mut() {
+            chunk.tiles.shrink_to_fit();
         }
-        chunk.tiles[idx] = Some(Box::new(tile));
     }
 
     /// Chunk spatial list only — does not allocate a chunk (tile must exist first).
@@ -162,11 +202,10 @@ impl SparseGrid {
         for (key, chunk) in &self.chunks {
             // Every chunk-list creature must be on some tile in this chunk.
             for &cid in &chunk.creatures {
-                let on_tile = chunk.tiles.iter().any(|slot| {
-                    slot.as_deref()
-                        .map(|t| t.body().creatures.contains(&cid))
-                        .unwrap_or(false)
-                });
+                let on_tile = chunk
+                    .tiles
+                    .iter()
+                    .any(|t| t.body().creatures().contains(&cid));
                 debug_assert!(
                     on_tile,
                     "creature {:?} in chunk {:?} spatial list but not on any tile",
@@ -175,16 +214,17 @@ impl SparseGrid {
             }
             // Every tile-list creature must be in the chunk spatial list.
             let (ox, oy, z) = key.chunk_origin();
-            for (idx, slot) in chunk.tiles.iter().enumerate() {
-                let Some(tile) = slot else { continue };
-                let body = tile.body();
-                if body.creatures.is_empty() {
+            for (slot, &dense) in chunk.slot_index.iter().enumerate() {
+                if dense == EMPTY_SLOT {
                     continue;
                 }
-                let lx = (idx % CHUNK_SIZE as usize) as u16;
-                let ly = (idx / CHUNK_SIZE as usize) as u16;
-                let pos = Position::new(ox + lx, oy + ly, z);
-                for &cid in &body.creatures {
+                let tile = &chunk.tiles[usize::from(dense)];
+                let body = tile.body();
+                if body.creatures().is_empty() {
+                    continue;
+                }
+                let pos = position_from_chunk_slot(ox, oy, z, slot);
+                for &cid in body.creatures() {
                     debug_assert!(
                         chunk.creatures.contains(&cid),
                         "creature {:?} on tile {:?} missing from chunk spatial list",
@@ -265,7 +305,7 @@ impl SparseGrid {
                 for y in ty0..=ty1 {
                     for x in tx0..=tx1 {
                         if let Some(tile) = self.get_tile(x, y, z) {
-                            let creatures = &tile.body().creatures;
+                            let creatures = tile.body().creatures();
                             if !creatures.is_empty() {
                                 out.extend_from_slice(creatures);
                             }
@@ -279,11 +319,12 @@ impl SparseGrid {
     pub fn find_item_position(&self, item_id: crate::ids::ItemId) -> Option<Position> {
         for (key, chunk) in &self.chunks {
             let (ox, oy, z) = key.chunk_origin();
-            for (idx, slot) in chunk.tiles.iter().enumerate() {
-                if let Some(tile) = slot
-                    && tile.has_item(item_id)
-                {
-                    return Some(position_from_chunk_slot(ox, oy, z, idx));
+            for (slot, &dense) in chunk.slot_index.iter().enumerate() {
+                if dense == EMPTY_SLOT {
+                    continue;
+                }
+                if chunk.tiles[usize::from(dense)].has_item(item_id) {
+                    return Some(position_from_chunk_slot(ox, oy, z, slot));
                 }
             }
         }
@@ -293,10 +334,14 @@ impl SparseGrid {
     pub fn for_each_tile(&self, mut f: impl FnMut(Position, &Tile)) {
         for (key, chunk) in &self.chunks {
             let (ox, oy, z) = key.chunk_origin();
-            for (idx, slot) in chunk.tiles.iter().enumerate() {
-                if let Some(tile) = slot.as_deref() {
-                    f(position_from_chunk_slot(ox, oy, z, idx), tile);
+            for (slot, &dense) in chunk.slot_index.iter().enumerate() {
+                if dense == EMPTY_SLOT {
+                    continue;
                 }
+                f(
+                    position_from_chunk_slot(ox, oy, z, slot),
+                    &chunk.tiles[usize::from(dense)],
+                );
             }
         }
     }
@@ -328,9 +373,7 @@ mod tests {
             ground: Some(100),
 
             ground_item: None,
-            down_items: vec![item],
-            top_items: vec![],
-            creatures: vec![],
+            stacks: TileBody::stacks_from(vec![item], vec![], vec![]),
             flags: 0,
             zone: tfs_rust_common::ZoneType::Normal,
         });
@@ -371,9 +414,7 @@ mod tests {
                 ground: Some(100),
 
                 ground_item: None,
-                down_items: vec![],
-                top_items: vec![],
-                creatures: vec![id],
+                stacks: TileBody::stacks_from(vec![], vec![], vec![id]),
                 flags: 0,
                 zone: tfs_rust_common::ZoneType::Normal,
             });
@@ -407,9 +448,7 @@ mod tests {
             ground: Some(100),
 
             ground_item: None,
-            down_items: vec![],
-            top_items: vec![],
-            creatures: vec![],
+            stacks: None,
             flags: 0,
             zone: tfs_rust_common::ZoneType::Normal,
         });
@@ -444,9 +483,7 @@ mod tests {
             ground: Some(100),
 
             ground_item: None,
-            down_items: vec![],
-            top_items: vec![],
-            creatures: vec![orphan],
+            stacks: TileBody::stacks_from(vec![], vec![], vec![orphan]),
             flags: 0,
             zone: tfs_rust_common::ZoneType::Normal,
         });
@@ -482,9 +519,7 @@ mod tests {
             ground: Some(100),
 
             ground_item: None,
-            down_items: vec![],
-            top_items: vec![],
-            creatures: vec![id],
+            stacks: TileBody::stacks_from(vec![], vec![], vec![id]),
             flags: 0,
             zone: tfs_rust_common::ZoneType::Normal,
         });

@@ -9,9 +9,7 @@ fn body_at(x: u16, y: u16, flags: u32) -> Tile {
         ground: Some(100),
 
         ground_item: None,
-        down_items: vec![],
-        top_items: vec![],
-        creatures: vec![],
+        stacks: None,
         flags,
         zone: ZoneType::Normal,
     })
@@ -25,6 +23,7 @@ fn map_with_wall() -> Map {
         towns: std::collections::HashMap::new(),
         waypoints: std::collections::HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: std::collections::HashMap::new(),
     };
     map.insert_tile(Position::new(0, 0, 7), body_at(0, 0, 0));
@@ -88,6 +87,7 @@ fn sight_not_blocked_by_missing_tile() {
         towns: std::collections::HashMap::new(),
         waypoints: std::collections::HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: std::collections::HashMap::new(),
     };
     map.insert_tile(Position::new(0, 0, 7), body_at(0, 0, 0));
@@ -111,6 +111,7 @@ fn los_symmetric_when_clear() {
         towns: std::collections::HashMap::new(),
         waypoints: std::collections::HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: std::collections::HashMap::new(),
     };
     for x in 0..4u16 {
@@ -122,9 +123,7 @@ fn los_symmetric_when_clear() {
                     ground: Some(1),
 
                     ground_item: None,
-                    down_items: vec![],
-                    top_items: vec![],
-                    creatures: vec![],
+                    stacks: None,
                     flags: 0,
                     zone: ZoneType::Normal,
                 }),
@@ -153,6 +152,7 @@ fn flat_map(w: u16, h: u16) -> Map {
         towns: std::collections::HashMap::new(),
         waypoints: std::collections::HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: std::collections::HashMap::new(),
     };
     for x in 0..w {

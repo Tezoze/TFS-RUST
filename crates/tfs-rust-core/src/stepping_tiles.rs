@@ -174,8 +174,8 @@ fn facing_depot_item(world: &GameWorld, cid: CreatureId) -> Option<ItemId> {
     let ids = body
         .ground_item
         .into_iter()
-        .chain(body.top_items.iter().copied())
-        .chain(body.down_items.iter().copied());
+        .chain(body.top_items().iter().copied())
+        .chain(body.down_items().iter().copied());
     for iid in ids {
         let Some(item) = world.items.get(iid) else {
             continue;
@@ -267,9 +267,7 @@ mod tests {
             Tile::Normal(TileBody {
                 ground: Some(type_id),
                 ground_item: Some(iid),
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: 0,
                 zone: ZoneType::Normal,
             }),
@@ -364,9 +362,7 @@ mod tests {
             Tile::Normal(TileBody {
                 ground: Some(100),
                 ground_item: None,
-                down_items: vec![depot_iid],
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: TileBody::stacks_from(vec![depot_iid], Vec::new(), Vec::new()),
                 flags: 0,
                 zone: ZoneType::Normal,
             }),

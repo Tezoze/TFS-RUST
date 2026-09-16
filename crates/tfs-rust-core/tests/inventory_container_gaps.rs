@@ -42,9 +42,7 @@ fn map_find_item_position_finds_down_item() {
         ground: Some(100),
 
         ground_item: None,
-        down_items: vec![iid],
-        top_items: Vec::new(),
-        creatures: Vec::new(),
+        stacks: tfs_rust_core::tile::TileBody::stacks_from(vec![iid], Vec::new(), Vec::new()),
         flags: 0,
         zone: ZoneType::Normal,
     };
@@ -55,6 +53,7 @@ fn map_find_item_position_finds_down_item() {
         towns: std::collections::HashMap::new(),
         waypoints: std::collections::HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: std::collections::HashMap::new(),
     };
     m.insert_tile(pos, tfs_rust_core::tile::Tile::Normal(body));

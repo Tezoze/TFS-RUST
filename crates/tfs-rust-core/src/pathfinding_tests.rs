@@ -101,6 +101,7 @@ fn scan_min_terrain_waypoints_ignores_blocked_tiles() {
         towns: HashMap::new(),
         waypoints: HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
     };
     let origin = Position::new(2, 2, 7);
@@ -115,9 +116,7 @@ fn scan_min_terrain_waypoints_ignores_blocked_tiles() {
             ground: Some(50),
 
             ground_item: None,
-            down_items: Vec::new(),
-            top_items: Vec::new(),
-            creatures: Vec::new(),
+            stacks: None,
             flags: tilestate::BLOCKSOLID | tilestate::BLOCKPATH,
             zone: ZoneType::Normal,
         }),
@@ -146,6 +145,7 @@ fn uniform_walkable_map(width: u16, ground: u16) -> Map {
         towns: HashMap::new(),
         waypoints: HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
     };
     for x in 0..width {
@@ -222,6 +222,7 @@ fn reverse_with_allow_diagonal_still_uses_reverse_expansion() {
         towns: HashMap::new(),
         waypoints: HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
     };
     for x in 0..15u16 {
@@ -280,6 +281,7 @@ fn reverse_falls_back_to_forward_around_obstacle() {
         towns: HashMap::new(),
         waypoints: HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
     };
     for x in 0..7u16 {
@@ -294,9 +296,7 @@ fn reverse_falls_back_to_forward_around_obstacle() {
             ground: Some(100),
 
             ground_item: None,
-            down_items: Vec::new(),
-            top_items: Vec::new(),
-            creatures: Vec::new(),
+            stacks: None,
             flags: tilestate::BLOCKSOLID | tilestate::BLOCKPATH,
             zone: ZoneType::Normal,
         }),
@@ -364,6 +364,7 @@ fn reverse_prefers_fast_tile_on_asymmetric_terrain() {
         towns: HashMap::new(),
         waypoints: HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
     };
     for y in 0..3u16 {
@@ -414,6 +415,7 @@ fn reverse_obeys_allow_diagonal_false() {
         towns: HashMap::new(),
         waypoints: HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
     };
     for x in 0..7u16 {
@@ -436,9 +438,7 @@ fn reverse_obeys_allow_diagonal_false() {
                 ground: Some(100),
 
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: tilestate::BLOCKSOLID | tilestate::BLOCKPATH,
                 zone: ZoneType::Normal,
             }),
@@ -495,6 +495,7 @@ fn reverse_noway_without_fallback() {
         towns: HashMap::new(),
         waypoints: HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
     };
     for x in 0..7u16 {
@@ -512,9 +513,7 @@ fn reverse_noway_without_fallback() {
                 ground: Some(100),
 
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: tilestate::BLOCKSOLID | tilestate::BLOCKPATH,
                 zone: ZoneType::Normal,
             }),
@@ -845,6 +844,7 @@ fn cyclops_quad_uniform_map_excluding(
         towns: HashMap::new(),
         waypoints: HashMap::new(),
         house_tiles: Vec::new(),
+        refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
     };
     let pad = REVERSE_PATH_VIEW_RADIUS as u16 + 2;

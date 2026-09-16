@@ -171,7 +171,7 @@ impl GameWorld {
 
             // Collect creatures — 772 `GetFirstObject` loop (`magic.cc:485-494`).
             if let Some(tile) = self.map.get_tile(tile_pos) {
-                for &cid in &tile.body().creatures {
+                for &cid in tile.body().creatures() {
                     if skip_caster == Some(cid) {
                         continue;
                     }

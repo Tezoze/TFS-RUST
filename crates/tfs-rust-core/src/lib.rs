@@ -122,6 +122,7 @@ mod test_world;
 pub mod thing;
 pub mod tile;
 mod tile_specials;
+mod tile_stacks;
 pub mod todo_queue;
 mod tool_use;
 mod trade;

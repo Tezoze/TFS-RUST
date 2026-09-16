@@ -45,7 +45,7 @@ fn place_height_item(world: &mut GameWorld, pos: Position) {
         .items
         .insert(crate::item::Item::new_single(HEIGHT_ITEM_TYPE));
     if let Some(tile) = world.map.get_tile_mut(pos) {
-        tile.body_mut().down_items.push(item_id);
+        tile.body_mut().down_items_mut().push(item_id);
     }
 }
 

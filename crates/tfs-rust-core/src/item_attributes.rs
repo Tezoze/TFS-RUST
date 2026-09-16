@@ -124,7 +124,7 @@ pub type CustomAttributeMap = HashMap<String, CustomAttrValue>;
 
 /// Item attribute storage matching C++ ItemAttributes class
 // C++ ref: `src/item.h:109-400`
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ItemAttributes {
     /// Bitmask of which attributes are set
     attribute_bits: ItemAttrFlags,

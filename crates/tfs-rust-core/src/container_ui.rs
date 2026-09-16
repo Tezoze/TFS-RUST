@@ -539,13 +539,13 @@ impl GameWorld {
     ) -> Option<impl Iterator<Item = ItemId> + '_> {
         let body = self.map.get_tile(pos)?.body();
         let bottoms = body
-            .down_items
+            .down_items()
             .iter()
             .rev()
             .copied()
             .filter(|&id| self.item_is_cip_priority_bottom(id));
         let lows = body
-            .down_items
+            .down_items()
             .iter()
             .copied()
             .filter(|&id| !self.item_is_cip_priority_bottom(id));
@@ -555,7 +555,7 @@ impl GameWorld {
             body.ground_item
                 .into_iter()
                 .chain(bottoms)
-                .chain(body.top_items.iter().copied())
+                .chain(body.top_items().iter().copied())
                 .chain(lows),
         )
     }
@@ -1174,10 +1174,10 @@ impl GameWorld {
         }
         let tile = self.map.get_tile(target.pos)?;
         let body = tile.body();
-        if body.creatures.is_empty() {
+        if body.creatures().is_empty() {
             return None;
         }
-        body.creatures.first().copied()
+        body.creatures().first().copied()
     }
 
     /// Rune dest walk — `UseMagicItem` (`magic.cc:4059-4081`). Generic use-with stays `first()`.
@@ -1193,7 +1193,7 @@ impl GameWorld {
         let tile = self.map.get_tile(target.pos)?;
         crate::spell::prefer_rune_tile_target(
             caster,
-            &tile.body().creatures,
+            tile.body().creatures(),
             aggressive,
             target.creature_id,
         )
@@ -1455,7 +1455,7 @@ mod tests {
                 ground: Some(100),
 
                 ground_item: None,
-                down_items: vec![container_item_id],
+                stacks: TileBody::stacks_from(vec![container_item_id], Vec::new(), Vec::new()),
                 ..TileBody::new()
             }),
         );
@@ -1509,7 +1509,7 @@ mod tests {
                 ground: Some(100),
 
                 ground_item: None,
-                down_items: vec![container_item_id],
+                stacks: TileBody::stacks_from(vec![container_item_id], Vec::new(), Vec::new()),
                 ..TileBody::new()
             }),
         );

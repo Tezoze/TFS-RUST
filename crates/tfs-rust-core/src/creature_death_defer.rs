@@ -290,7 +290,7 @@ mod tests {
         world
             .map
             .get_tile(pos)
-            .is_some_and(|t| !t.body().down_items.is_empty())
+            .is_some_and(|t| !t.body().down_items().is_empty())
     }
 
     #[test]

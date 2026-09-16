@@ -61,7 +61,7 @@ impl GameWorld {
 
         // Ground is always skipped (BANK).
         // Cip order: ground → top items → creatures → down items.
-        for &iid in &body.top_items {
+        for &iid in body.top_items() {
             if ignore == Some(iid) {
                 continue;
             }
@@ -76,7 +76,7 @@ impl GameWorld {
             }
         }
         // Creatures are skipped when Move=true.
-        for &iid in &body.down_items {
+        for &iid in body.down_items() {
             if ignore == Some(iid) {
                 continue;
             }
@@ -153,7 +153,7 @@ impl GameWorld {
     ) -> Option<Thing> {
         let tile = self.map.get_tile(pos)?;
         let body = tile.body();
-        for &creature_id in body.creatures.iter().rev() {
+        for &creature_id in body.creatures().iter().rev() {
             let Some(c) = self.creatures.get(creature_id) else {
                 continue;
             };
@@ -178,7 +178,7 @@ impl GameWorld {
     ) -> Option<Thing> {
         let tile = self.map.get_tile(pos)?;
         let body = tile.body();
-        for &creature_id in body.creatures.iter().rev() {
+        for &creature_id in body.creatures().iter().rev() {
             let Some(c) = self.creatures.get(creature_id) else {
                 continue;
             };
@@ -286,7 +286,7 @@ impl GameWorld {
         let is_blocking = it.map(|t| t.block_solid()).unwrap_or(false);
         if is_blocking && !flags.contains(CylinderFlags::IGNORE_BLOCK_CREATURE) {
             let body = tile.body();
-            if !body.creatures.is_empty() {
+            if !body.creatures().is_empty() {
                 return ReturnValue::NotEnoughRoom;
             }
         }
@@ -332,7 +332,7 @@ impl GameWorld {
             }
         }
 
-        for &iid in body.top_items.iter().chain(body.down_items.iter()) {
+        for &iid in body.top_items().iter().chain(body.down_items().iter()) {
             if let Some(i) = self.items.get(iid)
                 && let Some(t) = self.items_db.items.get(&i.item_type)
             {
@@ -589,6 +589,7 @@ impl GameWorld {
         } else {
             flags
         };
+        self.map.snapshot_refresh_if_needed(pos, &self.items);
         let is_stackable;
         let item_type;
         let item_count;
@@ -673,7 +674,7 @@ impl GameWorld {
                 // C++ `tile.cpp:901`: `if (itemType.alwaysOnTopOrder <= Item::items[(*it)->getID()].alwaysOnTopOrder)`.
                 let insert_at = tile
                     .body()
-                    .top_items
+                    .top_items()
                     .iter()
                     .position(|&existing_id| {
                         let existing_order = self
@@ -684,7 +685,7 @@ impl GameWorld {
                             .unwrap_or(0);
                         new_order <= existing_order
                     })
-                    .unwrap_or_else(|| tile.body().top_items.len());
+                    .unwrap_or_else(|| tile.body().top_items().len());
                 tile.add_top_item_at(item_id, insert_at);
             } else {
                 tile.add_item(item_id);
@@ -724,9 +725,9 @@ impl GameWorld {
             .get_tile(pos)
             .map(|t| {
                 let b = t.body();
-                b.top_items
+                b.top_items()
                     .iter()
-                    .chain(b.down_items.iter())
+                    .chain(b.down_items().iter())
                     .copied()
                     .filter(|&iid| {
                         self.items
@@ -820,6 +821,7 @@ impl GameWorld {
         pos: Position,
         item_id: ItemId,
     ) -> Result<(), ReturnValue> {
+        self.map.snapshot_refresh_if_needed(pos, &self.items);
         let item_type = self
             .items
             .get(item_id)
@@ -855,6 +857,7 @@ impl GameWorld {
         item_id: ItemId,
         count: u16,
     ) -> Result<(), ReturnValue> {
+        self.map.snapshot_refresh_if_needed(pos, &self.items);
         let item = self.items.get(item_id).ok_or(ReturnValue::NotPossible)?;
         let is_stackable = self
             .items_db
@@ -961,7 +964,7 @@ mod detach_tile_flag_tests {
                 .get_tile(from)
                 .unwrap()
                 .body()
-                .down_items
+                .down_items()
                 .is_empty(),
             "table gone from source"
         );

@@ -181,7 +181,7 @@ impl GameWorld {
         let mut cids = Vec::new();
         for pos in tiles {
             if let Some(tile) = self.map.get_tile(pos) {
-                cids.extend(tile.body().creatures.iter().copied());
+                cids.extend(tile.body().creatures().iter().copied());
             }
         }
         for cid in cids {
@@ -351,7 +351,7 @@ fn collect_clean_field(
     delete_ids: &mut Vec<(Position, ItemId)>,
 ) {
     let body = tile.body();
-    for &id in body.down_items.iter().chain(body.top_items.iter()) {
+    for &id in body.down_items().iter().chain(body.top_items().iter()) {
         let Some(item) = world.items.get(id) else {
             continue;
         };
@@ -532,9 +532,9 @@ mod tests {
         let tile = world.map.get_tile(pos).expect("tile");
         let on_tile: Vec<_> = tile
             .body()
-            .down_items
+            .down_items()
             .iter()
-            .chain(tile.body().top_items.iter())
+            .chain(tile.body().top_items().iter())
             .copied()
             .collect();
         assert!(on_tile.contains(&table), "unmoveable table must stay");

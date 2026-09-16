@@ -109,9 +109,7 @@ mod tests {
             Tile::Normal(TileBody {
                 ground: Some(type_id),
                 ground_item: Some(iid),
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: 0,
                 zone: ZoneType::Normal,
             }),

@@ -308,9 +308,9 @@ fn native_do_relocate(world: &mut GameWorld, from: Position, to: Position) -> bo
     if let Some(gid) = body.ground_item {
         item_ids.push(gid);
     }
-    item_ids.extend(body.top_items.iter().copied());
-    item_ids.extend(body.down_items.iter().copied());
-    let creatures: Vec<CreatureId> = body.creatures.clone();
+    item_ids.extend(body.top_items().iter().copied());
+    item_ids.extend(body.down_items().iter().copied());
+    let creatures: Vec<CreatureId> = body.creatures().to_vec();
 
     for iid in item_ids.iter().rev() {
         let Some(item) = world.items.get(*iid) else {
@@ -351,8 +351,8 @@ fn strip_reloc_obstacles(world: &mut GameWorld, from: Position) {
         .body()
         .ground_item
         .into_iter()
-        .chain(tile.body().top_items.iter().copied())
-        .chain(tile.body().down_items.iter().copied())
+        .chain(tile.body().top_items().iter().copied())
+        .chain(tile.body().down_items().iter().copied())
         .collect();
     let mut poff = false;
     for iid in ids {
@@ -398,9 +398,7 @@ mod tests {
             Tile::Normal(TileBody {
                 ground: Some(type_id),
                 ground_item: Some(iid),
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: 0,
                 zone: ZoneType::Normal,
             }),
@@ -443,9 +441,7 @@ mod tests {
             Tile::Normal(TileBody {
                 ground: Some(100),
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: 0,
                 zone: ZoneType::Normal,
             }),
@@ -455,9 +451,7 @@ mod tests {
             Tile::Normal(TileBody {
                 ground: Some(100),
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: 0,
                 zone: ZoneType::Normal,
             }),

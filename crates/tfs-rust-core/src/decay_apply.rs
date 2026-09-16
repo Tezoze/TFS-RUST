@@ -182,6 +182,9 @@ impl GameWorld {
             Some(crate::cylinder::Cylinder::Tile { pos }) => Some(pos),
             _ => None,
         };
+        if let Some(pos) = tile_pos {
+            self.map.snapshot_refresh_if_needed(pos, &self.items);
+        }
 
         // Reset old-type tile flags before the id swap — TFS `updateThing`
         // (`tile.cpp:963-966`): `resetTileFlags` then `setTileFlags`.

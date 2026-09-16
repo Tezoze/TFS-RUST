@@ -587,7 +587,7 @@ mod tests {
         assert_eq!(body.ground, Some(1284));
         assert_eq!(body.ground_item, Some(iid));
         assert!(
-            body.down_items.is_empty() && body.top_items.is_empty(),
+            body.down_items().is_empty() && body.top_items().is_empty(),
             "drawbridge must be the bank, not a stack overlay"
         );
     }
@@ -650,7 +650,7 @@ mod tests {
         let body = world.map.get_tile(pos).unwrap().body();
         assert_eq!(body.ground, Some(493));
         assert_eq!(body.ground_item, Some(water_iid));
-        assert_eq!(body.top_items.as_slice(), &[dirt_iid]);
+        assert_eq!(body.top_items(), &[dirt_iid]);
         assert!(
             world.items.get(water_iid).is_some(),
             "water bank must survive dirt overlay"
@@ -677,7 +677,7 @@ mod tests {
             .expect("second splash");
         let second_id = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(second));
         let body = world.map.get_tile(pos).unwrap().body();
-        assert_eq!(body.top_items.as_slice(), &[second_id]);
+        assert_eq!(body.top_items(), &[second_id]);
         assert!(world.items.get(first_id).is_none(), "old splash released");
         assert_eq!(world.items.get(second_id).map(|i| i.count), Some(5));
     }
@@ -713,7 +713,7 @@ mod tests {
         let splash_iid = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(splash));
         let body = world.map.get_tile(pos).unwrap().body();
         assert_eq!(
-            body.top_items.as_slice(),
+            body.top_items(),
             &[splash_iid, ladder_iid],
             "equal alwaysOnTopOrder: splash inserts before ladder"
         );
@@ -729,13 +729,13 @@ mod tests {
             .lua_script_game_create_tile(pos.x, pos.y, pos.z, true)
             .unwrap();
         world.create_liquid_splash(pos, 2019, 2);
-        let first = world.map.get_tile(pos).unwrap().body().top_items[0];
+        let first = world.map.get_tile(pos).unwrap().body().top_items()[0];
         assert_eq!(world.items.get(first).map(|i| i.count), Some(2));
         world.create_liquid_splash(pos, 2019, 4);
         let body = world.map.get_tile(pos).unwrap().body();
-        assert_eq!(body.top_items.len(), 1);
+        assert_eq!(body.top_items().len(), 1);
         assert!(world.items.get(first).is_none(), "first splash released");
-        let remaining = body.top_items[0];
+        let remaining = body.top_items()[0];
         assert_eq!(world.items.get(remaining).map(|i| i.count), Some(4));
         assert_eq!(world.items.get(remaining).map(|i| i.fluid_type()), Some(4));
     }
@@ -765,9 +765,9 @@ mod tests {
         );
         assert_eq!(world.decay.live_count(), decay_before);
         let body = world.map.get_tile(pos).unwrap().body();
-        assert_eq!(body.down_items.as_slice(), &[table_iid]);
+        assert_eq!(body.down_items(), &[table_iid]);
         assert!(
-            body.top_items.is_empty(),
+            body.top_items().is_empty(),
             "no combat pool on Bottom furniture"
         );
     }
@@ -789,10 +789,14 @@ mod tests {
         let corpse_iid = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(corpse));
         world.create_liquid_splash(pos, 2019, 2);
         let body = world.map.get_tile(pos).unwrap().body();
-        assert_eq!(body.down_items.as_slice(), &[corpse_iid]);
-        assert_eq!(body.top_items.len(), 1, "combat splash lands beside corpse");
+        assert_eq!(body.down_items(), &[corpse_iid]);
         assert_eq!(
-            world.items.get(body.top_items[0]).map(|i| i.item_type),
+            body.top_items().len(),
+            1,
+            "combat splash lands beside corpse"
+        );
+        assert_eq!(
+            world.items.get(body.top_items()[0]).map(|i| i.item_type),
             Some(2019)
         );
     }
@@ -820,7 +824,7 @@ mod tests {
         );
         let splash_iid = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(splash.unwrap()));
         let body = world.map.get_tile(pos).unwrap().body();
-        assert!(body.top_items.contains(&splash_iid));
+        assert!(body.top_items().contains(&splash_iid));
     }
 
     /// Combat splash on ladder: CreatePool skips TOP (`operate.cc:2626`).
@@ -848,10 +852,10 @@ mod tests {
         let ladder_iid = crate::ids::ItemId::from(slotmap::KeyData::from_ffi(ladder_id));
         world.create_liquid_splash(pos, 2019, 2);
         let body = world.map.get_tile(pos).unwrap().body();
-        assert_eq!(body.top_items.len(), 2);
-        assert_eq!(body.top_items[1], ladder_iid);
+        assert_eq!(body.top_items().len(), 2);
+        assert_eq!(body.top_items()[1], ladder_iid);
         assert_eq!(
-            world.items.get(body.top_items[0]).map(|i| i.item_type),
+            world.items.get(body.top_items()[0]).map(|i| i.item_type),
             Some(2019)
         );
     }
@@ -913,9 +917,7 @@ mod tests {
             Tile::Normal(TileBody {
                 ground: Some(100),
                 ground_item: Some(iid),
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: 0,
                 zone: ZoneType::Normal,
             }),

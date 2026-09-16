@@ -43,7 +43,7 @@ impl GameWorld {
         let targets: Vec<CreatureId> = self
             .map
             .get_tile(pos)
-            .map(|t| t.body().creatures.clone())
+            .map(|t| t.body().creatures().to_vec())
             .unwrap_or_default();
         for cid in targets {
             self.apply_magic_field_to_creature(cid, server_id, Some(field_item_id));
@@ -57,9 +57,9 @@ impl GameWorld {
                 return;
             };
             let body = tile.body();
-            body.down_items
+            body.down_items()
                 .iter()
-                .chain(body.top_items.iter())
+                .chain(body.top_items().iter())
                 .filter_map(|&iid| {
                     let sid = self.items.get(iid)?.item_type;
                     self.items_db
@@ -233,9 +233,9 @@ impl GameWorld {
             return false;
         };
         let body = tile.body();
-        body.down_items
+        body.down_items()
             .iter()
-            .chain(body.top_items.iter())
+            .chain(body.top_items().iter())
             .any(|&iid| {
                 let Some(sid) = self.items.get(iid).map(|i| i.item_type) else {
                     return false;
@@ -252,9 +252,9 @@ impl GameWorld {
             .get_tile(pos)
             .map(|t| {
                 t.body()
-                    .down_items
+                    .down_items()
                     .iter()
-                    .chain(t.body().top_items.iter())
+                    .chain(t.body().top_items().iter())
                     .copied()
                     .collect::<Vec<_>>()
             })

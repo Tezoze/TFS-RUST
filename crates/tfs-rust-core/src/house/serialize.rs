@@ -72,10 +72,10 @@ pub fn should_save_house_item(world: &GameWorld, item_id: ItemId) -> bool {
 fn tile_save_items(world: &GameWorld, tile: &Tile) -> Vec<ItemId> {
     let body = tile.body();
     let mut ids: Vec<ItemId> = body
-        .down_items
+        .down_items()
         .iter()
         .copied()
-        .chain(body.top_items.iter().copied())
+        .chain(body.top_items().iter().copied())
         .filter(|&id| should_save_house_item(world, id))
         .collect();
     // C++ `saveTile` push_front → reverse of tile list order.
@@ -230,10 +230,10 @@ fn strip_moveable_house_items(world: &mut GameWorld, pos: Position) {
         .get_tile(pos)
         .map(|tile| {
             let body = tile.body();
-            body.down_items
+            body.down_items()
                 .iter()
                 .copied()
-                .chain(body.top_items.iter().copied())
+                .chain(body.top_items().iter().copied())
                 .filter(|&id| is_moveable_house_overlay(world, id))
                 .collect()
         })
@@ -327,9 +327,9 @@ fn find_matching_stationary(
     let want_door = item_door_id(&loaded.item);
     for &id in tile
         .body()
-        .down_items
+        .down_items()
         .iter()
-        .chain(tile.body().top_items.iter())
+        .chain(tile.body().top_items().iter())
     {
         let Some(item) = world.items.get(id) else {
             continue;
@@ -585,9 +585,9 @@ mod tests {
         let tile = world2.map.get_tile(pos).expect("tile");
         let body = tile.body();
         let door_ids: Vec<_> = body
-            .down_items
+            .down_items()
             .iter()
-            .chain(body.top_items.iter())
+            .chain(body.top_items().iter())
             .copied()
             .filter(|&id| {
                 world2
@@ -643,8 +643,8 @@ mod tests {
         );
         assert!(placed.is_none());
         let tile = world.map.get_tile(pos).unwrap();
-        assert!(tile.body().down_items.is_empty());
-        assert!(tile.body().top_items.is_empty());
+        assert!(tile.body().down_items().is_empty());
+        assert!(tile.body().top_items().is_empty());
     }
 
     fn chair_type(server_id: u16) -> ItemType {
@@ -710,9 +710,9 @@ mod tests {
         let tile = world2.map.get_tile(pos).expect("tile");
         let body = tile.body();
         let chairs: Vec<_> = body
-            .down_items
+            .down_items()
             .iter()
-            .chain(body.top_items.iter())
+            .chain(body.top_items().iter())
             .copied()
             .filter(|&id| world2.items.get(id).is_some_and(|i| i.item_type == chair))
             .collect();

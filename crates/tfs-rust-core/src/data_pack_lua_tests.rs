@@ -143,7 +143,7 @@ fn corpse_container_ids(
     let tile = world.map.get_tile(pos).expect("tile");
     let corpse_id = tile
         .body()
-        .down_items
+        .down_items()
         .iter()
         .copied()
         .find(|&id| {
@@ -390,7 +390,7 @@ fn place_inventory_item(
 
 fn tile_has_corpse_type(world: &GameWorld, pos: Position, corpse_type: u16) -> bool {
     world.map.get_tile(pos).is_some_and(|tile| {
-        tile.body().down_items.iter().any(|&id| {
+        tile.body().down_items().iter().any(|&id| {
             world
                 .items
                 .get(id)

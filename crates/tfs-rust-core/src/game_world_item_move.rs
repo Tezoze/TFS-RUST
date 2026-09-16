@@ -1031,9 +1031,7 @@ mod tests {
             Tile::Normal(TileBody {
                 ground: Some(100),
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: tilestate::FLOORCHANGE_DOWN,
                 zone: ZoneType::Normal,
             }),
@@ -1079,9 +1077,7 @@ mod tests {
             Tile::Normal(TileBody {
                 ground: Some(100),
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: tilestate::FLOORCHANGE_SOUTH,
                 zone: ZoneType::Normal,
             }),
@@ -1117,9 +1113,7 @@ mod tests {
             Tile::Normal(TileBody {
                 ground: Some(100),
                 ground_item: None,
-                down_items: Vec::new(),
-                top_items: Vec::new(),
-                creatures: Vec::new(),
+                stacks: None,
                 flags: tilestate::FLOORCHANGE_DOWN,
                 zone: ZoneType::Normal,
             }),
