@@ -229,14 +229,23 @@ async fn run_on_game_thread(io_handle: tokio::runtime::Handle) -> anyhow::Result
             tfs_rust_content::house_prices::HouseRentPolicy::BlanketSqm(each as u32)
         }
     };
-    let mut items_db = std::sync::Arc::new(content.items);
+    let mut items_db = content.items;
     let monsters_db = std::sync::Arc::new(content.monsters);
     let groups = std::sync::Arc::new(content.groups);
 
     // Create items SlotMap first - needed for map loading to create Item instances
     let mut items = slotmap::SlotMap::with_key();
-    let map_house_ids: Vec<u32> = content.map.houses.keys().copied().collect();
-    let map = Map::from_map_data(content.map, items_db.as_ref(), &mut items);
+    let t_otbm = std::time::Instant::now();
+    let map = Map::from_otbm(content.otbm, items_db.as_ref(), &mut items)
+        .map_err(|e| anyhow::anyhow!("OTBM tile load: {e}"))?;
+    info!(
+        elapsed_ms = t_otbm.elapsed().as_millis(),
+        map_tiles = map.grid.populated_tile_count(),
+        map_chunks = map.grid.chunk_count(),
+        items_slotmap = items.len(),
+        "OTBM tiles streamed into SparseGrid"
+    );
+    let map_house_ids: Vec<u32> = map.house_tiles.iter().map(|(id, _, _)| *id).collect();
     let spawns = SpawnManager::from_zones(spawn_zones);
     let vocations = std::sync::Arc::new(content.vocations);
     let outfits_db = std::sync::Arc::new(content.outfits);

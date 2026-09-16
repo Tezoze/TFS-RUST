@@ -1,3 +1,14 @@
+# Phase C — boot (unstick RSS)
+
+Drop `HashMap<Position, TileData>` staging so the Phase B −567 MiB live saving shows in RSS. No `malloc_trim`. Load-order side effects (tile flags, house tiles, refresh set) stay identical. Crate split: content walks OTBM; core converts each tile immediately.
+
+- [x] C1a: `OtbmFile` + `visit_tiles` (`otbm.rs`). Parse tree + towns/waypoints/attrs in `open`; yield one tile at a time (reused `things` Vec). `MapData` is metadata only (no tiles HashMap).
+- [x] C1b: `Map::from_otbm` in `map/otbm_load.rs` — callback → `tile_from_data` → `SparseGrid::insert_tile`; `shrink_to_fit` at end. `from_map_data` stays for synthetic tests.
+- [x] C1c: `pipeline.rs` `Arc<ItemDatabase>` (clone Arc into monster `spawn_blocking`); `Content` holds `OtbmFile`. `run_server` / sim `Map::from_otbm`.
+- [x] Unit: visit fixture (tile/housetile/town, 2 tests); `from_map_data` house-tile index; `from_otbm_streams_housetile_into_grid`
+- [x] `cargo test -p tfs-rust-content --lib otbm` (2 pass); `cargo test -p tfs-rust-core --lib map::` (16 pass); `cargo check -p tfs-rust` bins; clippy on touched files (no new lints)
+- [x] Gate: boot log `map_tiles=7848819` `map_chunks=3355` `items_slotmap=8565829`; tree 485 ms + stream 901 ms = **1.39 s** (was 5.1; TVP 2.8). Raw VmRSS **1474 MiB** (was 2386, −912). HWM=RSS (no staging high-water). `2026-09-16T06:47:40Z` release `./target/release/tfs-rust`.
+
 # Phase A — send-path coalesce (CPU)
 
 Decompile `SendData` already emits one XTEA frame per beat per connection (`communication.cc:373-410`, `sending.cc` `SendAll`, `main.cc:455`). The game thread already batches; the writer re-split per logical packet. Restore that wire shape (CPU win, not a mechanics change). Split threshold from the active codec (`OutData[16384]` / 1098 `MAX_PROTOCOL_BODY_LENGTH`), never TVP 24572.

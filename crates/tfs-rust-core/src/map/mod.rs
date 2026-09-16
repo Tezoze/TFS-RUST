@@ -3,6 +3,7 @@
 
 mod grid;
 mod los;
+mod otbm_load;
 
 use std::collections::HashMap;
 
@@ -10,11 +11,9 @@ use rustc_hash::FxHashSet;
 use slotmap::SlotMap;
 use tfs_rust_common::Position;
 use tfs_rust_content::items::ItemDatabase;
-use tfs_rust_content::otbm::{self, MapData, TileData, TileThing};
 
 use crate::ids::{CreatureId, ItemId};
 use crate::item::Item;
-use crate::tile::HouseTile;
 use crate::tile::{Tile, TileBody, flags};
 
 pub use grid::{CHUNK_AREA, CHUNK_SIZE, SECTOR_SIZE, SparseGrid};
@@ -39,47 +38,6 @@ pub struct Map {
 }
 
 impl Map {
-    /// Build runtime tiles from parsed OTBM (`IOMap::parseTileArea` + `Tile::internalAddThing` — `src/iomap.cpp`, `src/tile.cpp`).
-    ///
-    /// DEVIATION FROM C++: Creates actual Item instances in the items SlotMap instead of
-    /// just storing raw item types. This is required for the new item system.
-    pub fn from_map_data(
-        data: MapData,
-        items_db: &ItemDatabase,
-        items: &mut SlotMap<ItemId, Item>,
-    ) -> Self {
-        let mut grid = SparseGrid::new();
-        let mut house_tiles = Vec::new();
-        let mut refresh_positions = FxHashSet::default();
-        for (pos, td) in data.tiles {
-            let tile = tile_from_data(pos, td, items_db, items);
-            if let Tile::House(h) = &tile {
-                let body = tile.body();
-                let item_ids: Vec<ItemId> = body
-                    .down_items()
-                    .iter()
-                    .copied()
-                    .chain(body.top_items().iter().copied())
-                    .collect();
-                house_tiles.push((h.house_id, pos, item_ids));
-            } else if tile.body().flags & flags::REFRESH != 0 {
-                refresh_positions.insert(pos);
-            }
-            grid.insert_tile(pos.x, pos.y, pos.z, tile);
-        }
-        grid.shrink_to_fit();
-        Self {
-            width: data.width,
-            height: data.height,
-            grid,
-            towns: data.towns,
-            waypoints: data.waypoints,
-            house_tiles,
-            refresh_positions,
-            refresh_snapshots: HashMap::new(),
-        }
-    }
-
     pub fn insert_tile(&mut self, pos: Position, tile: Tile) {
         self.grid.insert_tile(pos.x, pos.y, pos.z, tile);
     }
@@ -201,127 +159,6 @@ impl Map {
     pub fn debug_assert_creature_lists_agree(&self) {
         self.grid.debug_assert_creature_lists_agree();
     }
-}
-
-/// Apply `OTBM_ITEM` props after the u16 id — `Item::unserializeItemNode` (`item.cpp`).
-/// Shared by ground and stacked items so ActionID/UniqueID (and text, fluids, …) land.
-fn apply_otbm_item_node_attrs(
-    item: &mut Item,
-    it: Option<&tfs_rust_content::otb::ItemType>,
-    otbm_attr_blob: Option<&[u8]>,
-    pos: Position,
-    id: u16,
-) {
-    let Some(blob) = otbm_attr_blob.filter(|b| !b.is_empty()) else {
-        return;
-    };
-    let is_container = it
-        .map(|t| t.group == tfs_rust_content::otb::ItemType::GROUP_CONTAINER)
-        .unwrap_or(false);
-    // Remere OTBM attrs 23–28 (key/door) — not DB `AttrTypes_t` NAME/WEIGHT.
-    match crate::item_blob::parse_otbm_item_blob(blob, is_container) {
-        Ok(parsed) => {
-            // `ATTR_TELE_DEST` lives on TFS `Teleport::destPos`, not `itemAttrTypes`
-            // (`teleport.cpp` / `enums.h`). `set_tele_dest` therefore does not set bits —
-            // dest-only OTBM pads (most magic forcefields) must still keep attributes.
-            if parsed.attrs.attribute_bits() != 0 || parsed.attrs.tele_dest().is_some() {
-                item.attributes = Some(Box::new(parsed.attrs));
-            }
-            if let Some(st) = parsed.subtype_override {
-                let is_fluid = it.is_some_and(|t| t.is_fluid_container() || t.is_splash());
-                if is_fluid {
-                    // Fluid subtype 0 = empty; do not force count≥1 (would look like water).
-                    item.count = u16::from(st);
-                    item.set_fluid_type(u16::from(st));
-                } else {
-                    item.count = u16::from(st).max(1);
-                }
-            }
-        }
-        Err(e) => {
-            tracing::warn!(
-                item_id = id,
-                ?pos,
-                error = %e,
-                "OTBM item attr unserialize failed (item placed without attrs)"
-            );
-        }
-    }
-}
-
-/// C++ `Tile::internalAddThing` for item ids (`src/tile.cpp`).
-/// Creates an Item instance and stores it on the tile (ground, top, or down).
-///
-/// `otbm_attr_blob`: bytes after the `u16` item id in an `OTBM_ITEM` node
-/// (`Item::unserializeItemNode` / `unserializeAttr` — `item.cpp`). Used for
-/// sign/blackboard `ATTR_TEXT`, action ids, unique ids, teleports, etc. `None`
-/// for bare `OTBM_ATTR_ITEM` embeds (id only).
-fn internal_add_item_id(
-    pos: Position,
-    id: u16,
-    items_db: &ItemDatabase,
-    body: &mut TileBody,
-    items: &mut SlotMap<ItemId, Item>,
-    otbm_attr_blob: Option<&[u8]>,
-) {
-    let id = otbm::remap_create_item_stream_id(id);
-    let it = items_db.items.get(&id);
-    let is_ground = it.map(|t| t.is_ground_tile()).unwrap_or(false);
-
-    let mut item = Item::new_single(id);
-    apply_otbm_item_node_attrs(&mut item, it, otbm_attr_blob, pos, id);
-    item.parent = Some(crate::cylinder::Cylinder::Tile { pos });
-
-    if is_ground && body.ground.is_none() {
-        // TFS `Tile::setGround` stores a full `Item*` — create an Item instance
-        // so StepIn/transform/decay can mutate the ground (e.g. pitfall 293↔294).
-        let gid = items.insert(item);
-        body.ground = Some(id);
-        body.ground_item = Some(gid);
-        return;
-    }
-
-    let item_id = items.insert(item);
-
-    let always_on_top = it.map(|t| t.always_on_top()).unwrap_or(false);
-    if always_on_top {
-        body.top_items_mut().push(item_id);
-    } else {
-        body.down_items_mut().insert(0, item_id);
-    }
-}
-
-/// Convert raw OTBM tile flags to TILESTATE flags.
-/// C++ ref: src/iomap.cpp:270-280 — OTBM zone flags use a different bit layout than runtime TILESTATE.
-fn convert_otbm_flags(otbm_flags: u32) -> (u32, tfs_rust_common::ZoneType) {
-    const OTBM_TILEFLAG_PROTECTIONZONE: u32 = 1 << 0;
-    const OTBM_TILEFLAG_NOPVPZONE: u32 = 1 << 2;
-    const OTBM_TILEFLAG_NOLOGOUT: u32 = 1 << 3;
-    const OTBM_TILEFLAG_PVPZONE: u32 = 1 << 4;
-    const OTBM_TILEFLAG_REFRESH: u32 = 1 << 5;
-
-    let mut tileflags = 0u32;
-    let mut zone = tfs_rust_common::ZoneType::Normal;
-
-    if otbm_flags & OTBM_TILEFLAG_PROTECTIONZONE != 0 {
-        tileflags |= flags::PROTECTIONZONE;
-        zone = tfs_rust_common::ZoneType::Protection;
-    } else if otbm_flags & OTBM_TILEFLAG_NOPVPZONE != 0 {
-        tileflags |= flags::NOPVPZONE;
-        zone = tfs_rust_common::ZoneType::NoPvp;
-    } else if otbm_flags & OTBM_TILEFLAG_PVPZONE != 0 {
-        tileflags |= flags::PVPZONE;
-        zone = tfs_rust_common::ZoneType::Pvp;
-    }
-
-    if otbm_flags & OTBM_TILEFLAG_NOLOGOUT != 0 {
-        tileflags |= flags::NOLOGOUT;
-    }
-    if otbm_flags & OTBM_TILEFLAG_REFRESH != 0 {
-        tileflags |= flags::REFRESH;
-    }
-
-    (tileflags, zone)
 }
 
 /// Props still contributed by other things on a tile (excluding one item).
@@ -570,72 +407,6 @@ pub(crate) fn apply_item_tile_flags(
     }
 }
 
-/// Raw OTBM item stream id before `remap_create_item_stream_id` (`src/item.cpp` `CreateItem(PropStream&)`).
-#[cfg(test)]
-fn otbm_item_stream_id(thing: &TileThing) -> Option<u16> {
-    match thing {
-        TileThing::EmbeddedItemId(id) => Some(*id),
-        TileThing::ItemNodeProps(raw) => {
-            if raw.len() < 2 {
-                return None;
-            }
-            Some(u16::from_le_bytes([raw[0], raw[1]]))
-        }
-    }
-}
-
-fn tile_from_data(
-    pos: Position,
-    td: TileData,
-    items_db: &ItemDatabase,
-    items: &mut SlotMap<ItemId, Item>,
-) -> Tile {
-    let (converted_flags, zone) = convert_otbm_flags(td.tile_flags);
-
-    let mut body = TileBody {
-        ground: None,
-
-        ground_item: None,
-        stacks: None,
-        flags: converted_flags,
-        zone,
-    };
-
-    for thing in td.things {
-        match &thing {
-            TileThing::EmbeddedItemId(stream_id) => {
-                let id = otbm::remap_create_item_stream_id(*stream_id);
-                if let Some(item_type) = items_db.items.get(&id) {
-                    apply_item_tile_flags(&mut body, item_type, items_db);
-                }
-                internal_add_item_id(pos, *stream_id, items_db, &mut body, items, None);
-            }
-            TileThing::ItemNodeProps(raw) => {
-                if raw.len() < 2 {
-                    continue;
-                }
-                let stream_id = u16::from_le_bytes([raw[0], raw[1]]);
-                let id = otbm::remap_create_item_stream_id(stream_id);
-                if let Some(item_type) = items_db.items.get(&id) {
-                    apply_item_tile_flags(&mut body, item_type, items_db);
-                }
-                // Bytes after the item id — C++ `unserializeItemNode` (`item.cpp:754`).
-                let attr_blob = &raw[2..];
-                internal_add_item_id(pos, stream_id, items_db, &mut body, items, Some(attr_blob));
-            }
-        }
-    }
-
-    if let Some(hid) = td.house_id {
-        Tile::House(HouseTile {
-            inner: body,
-            house_id: hid,
-        })
-    } else {
-        Tile::Normal(body)
-    }
-}
-
 #[cfg(test)]
 mod tile_flag_tests {
     use std::collections::HashMap;
@@ -665,34 +436,36 @@ mod tile_flag_tests {
         }
     }
 
+    fn empty_meta() -> MapData {
+        MapData {
+            width: 256,
+            height: 256,
+            spawn_file: None,
+            house_file: None,
+            spawn_zones: Vec::new(),
+            houses: HashMap::new(),
+            towns: HashMap::new(),
+            waypoints: HashMap::new(),
+        }
+    }
+
     fn map_from_single_tile(
         pos: Position,
         things: Vec<TileThing>,
         db: &ItemDatabase,
     ) -> super::Map {
         let mut items: SlotMap<ItemId, crate::item::Item> = SlotMap::with_key();
-        let mut tiles = HashMap::new();
-        tiles.insert(
-            pos,
-            TileData {
+        super::Map::from_map_data(
+            empty_meta(),
+            [TileData {
                 position: pos,
                 house_id: None,
                 tile_flags: 0,
                 things,
-            },
-        );
-        let data = MapData {
-            width: 256,
-            height: 256,
-            spawn_file: None,
-            house_file: None,
-            spawn_zones: Vec::new(),
-            tiles,
-            houses: HashMap::new(),
-            towns: HashMap::new(),
-            waypoints: HashMap::new(),
-        };
-        super::Map::from_map_data(data, db, &mut items)
+            }],
+            db,
+            &mut items,
+        )
     }
 
     fn map_and_items_from_single_tile(
@@ -701,28 +474,17 @@ mod tile_flag_tests {
         db: &ItemDatabase,
     ) -> (super::Map, SlotMap<ItemId, crate::item::Item>) {
         let mut items: SlotMap<ItemId, crate::item::Item> = SlotMap::with_key();
-        let mut tiles = HashMap::new();
-        tiles.insert(
-            pos,
-            TileData {
+        let map = super::Map::from_map_data(
+            empty_meta(),
+            [TileData {
                 position: pos,
                 house_id: None,
                 tile_flags: 0,
                 things,
-            },
+            }],
+            db,
+            &mut items,
         );
-        let data = MapData {
-            width: 256,
-            height: 256,
-            spawn_file: None,
-            house_file: None,
-            spawn_zones: Vec::new(),
-            tiles,
-            houses: HashMap::new(),
-            towns: HashMap::new(),
-            waypoints: HashMap::new(),
-        };
-        let map = super::Map::from_map_data(data, db, &mut items);
         (map, items)
     }
 
@@ -941,37 +703,25 @@ mod tile_flag_tests {
         let pos = Position::new(100, 100, 7);
         let db = item_db(vec![(GROUND, ground_item_type(GROUND))]);
         let mut items: SlotMap<ItemId, crate::item::Item> = SlotMap::with_key();
-        let mut tiles = HashMap::new();
-        tiles.insert(
-            pos,
-            TileData {
-                position: pos,
-                house_id: Some(7),
-                tile_flags: 0,
-                things: vec![TileThing::EmbeddedItemId(GROUND)],
-            },
+        let map = super::Map::from_map_data(
+            empty_meta(),
+            [
+                TileData {
+                    position: pos,
+                    house_id: Some(7),
+                    tile_flags: 0,
+                    things: vec![TileThing::EmbeddedItemId(GROUND)],
+                },
+                TileData {
+                    position: Position::new(101, 100, 7),
+                    house_id: None,
+                    tile_flags: 0,
+                    things: vec![TileThing::EmbeddedItemId(GROUND)],
+                },
+            ],
+            &db,
+            &mut items,
         );
-        tiles.insert(
-            Position::new(101, 100, 7),
-            TileData {
-                position: Position::new(101, 100, 7),
-                house_id: None,
-                tile_flags: 0,
-                things: vec![TileThing::EmbeddedItemId(GROUND)],
-            },
-        );
-        let data = MapData {
-            width: 256,
-            height: 256,
-            spawn_file: None,
-            house_file: None,
-            spawn_zones: Vec::new(),
-            tiles,
-            houses: HashMap::new(),
-            towns: HashMap::new(),
-            waypoints: HashMap::new(),
-        };
-        let map = super::Map::from_map_data(data, &db, &mut items);
         assert_eq!(map.house_tiles.len(), 1);
         assert_eq!(map.house_tiles[0].0, 7);
         assert_eq!(map.house_tiles[0].1, pos);

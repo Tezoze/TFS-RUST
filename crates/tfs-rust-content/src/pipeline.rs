@@ -4,23 +4,26 @@ use crate::houses_xml::{HouseXmlEntry, load_houses_xml};
 use crate::items::ItemDatabase;
 use crate::monsters::MonsterDatabase;
 use crate::mounts::MountDatabase;
-use crate::otbm::{MapData, OtbmLoader};
+use crate::otbm::{MapData, OtbmFile, OtbmLoader};
 use crate::outfits::OutfitDatabase;
 use crate::raids::{RaidCatalog, load_raids};
 use crate::spawns::load_spawn_xml;
 use crate::vocations::VocationRegistry;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tfs_rust_common::error::Result;
 use tracing::info;
 
 pub struct Content {
-    pub items: ItemDatabase,
+    pub items: Arc<ItemDatabase>,
     pub monsters: MonsterDatabase,
     pub vocations: VocationRegistry,
     pub outfits: OutfitDatabase,
     pub mounts: MountDatabase,
     pub groups: GroupDatabase,
     pub map: MapData,
+    /// Node tree + file bytes; tiles are streamed in `Map::from_otbm` (no HashMap stage).
+    pub otbm: OtbmFile,
     /// `{map}-houses.xml` entries (`Houses::loadHousesXML`). Empty when the file is missing.
     pub houses: Vec<HouseXmlEntry>,
     /// `{world}/house-prices.ron` area SQM table. `None` when the file is missing.
@@ -57,8 +60,7 @@ pub async fn load_all(data_dir: &Path, map_otbm_relative: Option<&str>) -> Resul
 
     let groups_future = tokio::task::spawn_blocking(move || GroupDatabase::load(&groups_path));
 
-    let map_future =
-        tokio::task::spawn_blocking(move || OtbmLoader::load_from_file(&map_path_for_task));
+    let map_future = tokio::task::spawn_blocking(move || OtbmLoader::open(&map_path_for_task));
 
     let (items_res, vocs_res, out_res, mounts_res, groups_res, map_res) = tokio::join!(
         items_future,
@@ -69,16 +71,17 @@ pub async fn load_all(data_dir: &Path, map_otbm_relative: Option<&str>) -> Resul
         map_future
     );
 
-    let items = items_res.unwrap()?;
+    let items = Arc::new(items_res.unwrap()?);
     // Waypoints / DistUse live in patched `items.otb` only — never load `objects.srv` at runtime.
     // Offline: `cargo run -p tfs-rust-content --bin patch-otb-waypoints`
-    let items_for_monsters = items.clone();
+    let items_for_monsters = Arc::clone(&items);
     let monsters_future = tokio::task::spawn_blocking(move || {
-        MonsterDatabase::load_dir(&monsters_dir, &items_for_monsters)
+        MonsterDatabase::load_dir(&monsters_dir, items_for_monsters.as_ref())
     });
     let monsters = monsters_future.await.unwrap()?;
 
-    let mut map = map_res.unwrap()?;
+    let otbm = map_res.unwrap()?;
+    let mut map = otbm.map_data();
     let base = map_path.parent().unwrap_or_else(|| Path::new("."));
     let stem = map_path
         .file_stem()
@@ -164,6 +167,7 @@ pub async fn load_all(data_dir: &Path, map_otbm_relative: Option<&str>) -> Resul
         mounts: mounts_res.unwrap()?,
         groups: groups_res.unwrap()?,
         map,
+        otbm,
         houses,
         house_prices,
         raids,

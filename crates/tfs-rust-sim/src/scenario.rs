@@ -77,9 +77,9 @@ pub fn beat_driven_world_from_map(data_dir: &Path, map_rel: &str) -> Result<Game
     }
 
     let items_db = Arc::new(load_items_db_for(data_dir)?);
-    let map_data = OtbmLoader::load_from_file(&map_path).map_err(|e| e.to_string())?;
+    let otbm = OtbmLoader::open(&map_path).map_err(|e| e.to_string())?;
     let mut items = SlotMap::default();
-    let map = Map::from_map_data(map_data, items_db.as_ref(), &mut items);
+    let map = Map::from_otbm(otbm, items_db.as_ref(), &mut items).map_err(|e| e.to_string())?;
     let mechanics = load_mechanics(data_dir, ProtocolVersion::V772);
     let monsters_dir = data_dir.join("monster");
     let monsters_db = Arc::new(
