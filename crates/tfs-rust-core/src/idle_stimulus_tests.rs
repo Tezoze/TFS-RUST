@@ -6314,9 +6314,9 @@ fn test_monster_deep_zero_delay_execute_chain() {
             base.todo
                 .queue
                 .push_back(CreatureAction::Wait { deadline_ms: 0 });
-            base.todo.queue.push_back(CreatureAction::Talk {
-                text: "chain-step".into(),
-            });
+            base.todo
+                .queue
+                .push_back(CreatureAction::talk_text("chain-step"));
         }
     }
 
@@ -6393,9 +6393,9 @@ fn test_monster_wait_zero_chains_same_beat_to_next_action() {
         base.todo
             .queue
             .push_back(CreatureAction::Wait { deadline_ms: 0 });
-        base.todo.queue.push_back(CreatureAction::Talk {
-            text: "Hicks!".into(),
-        });
+        base.todo
+            .queue
+            .push_back(CreatureAction::talk_text("Hicks!"));
     }
 
     // Arm the Wait{0} — clamp 1 → fires next beat.

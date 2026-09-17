@@ -197,10 +197,24 @@ def apply_tvp_overlay(*, disable_saves: bool, dry: bool = False) -> None:
         set_lua_key(cfg, "enableMapDataFiles", "false")
 
 
+def ensure_tfs_obs(env: dict[str, str]) -> None:
+    """Force `tfs_obs=info` so `game_obs_summary` lands in rust `server.log`.
+
+    `setdefault` is not enough: a parent `RUST_LOG` (often `tfs_obs=off` from
+    `rust-src/main.rs` default) wins and the 10s windows never emit. Later
+    EnvFilter directives override, so appending always enables the target.
+    """
+    cur = (env.get("RUST_LOG") or "").strip()
+    if not cur:
+        env["RUST_LOG"] = "tfs_obs=info,info"
+        return
+    env["RUST_LOG"] = f"{cur},tfs_obs=info"
+
+
 def start_server(server: str, *, cpuset: str | None, log_path: Path, dry: bool) -> subprocess.Popen | None:
     env = os.environ.copy()
     if server == "rust":
-        env.setdefault("RUST_LOG", "tfs_obs=info,info")
+        ensure_tfs_obs(env)
         # TVP verifies SHA1 and stops. Rust otherwise bcrypt-upgrades every
         # seeder SHA1 on login (cost 12 ≈ 200ms × N, Tokio blocking pool).
         env.setdefault("TFS_UPGRADE_SHA1_ON_LOGIN", "0")

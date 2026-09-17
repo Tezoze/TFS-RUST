@@ -16,7 +16,9 @@ ids; names stay Test / Test1 / ….
 
 Bench defaults: vocation 1 (sorcerer), premium 365 days, `player_spells`
 Energy Strike, sudden-death rune (2268) in ammo slot 10, great-fireball
-(2304) in left-hand slot 6. `players.lastlogin` is seeded non-zero
+(2304) in left-hand slot 6. `--preset ms-swarm` sets Master Sorcerer (5),
+level 80, health 30000, mana 200000, maglevel 80, Ultimate Explosion +
+Ultimate Healing (UE is level 60 + premium). `--spell-name` is comma-separated. `players.lastlogin` is seeded non-zero
 (`UNIX_TIMESTAMP()`) so `firstlogin.lua` starter gear does not clobber the
 seeded runes on either server. Child rows (`player_items`, `player_spells`)
 are deleted **before** `players`: `SET FOREIGN_KEY_CHECKS=0` skips
@@ -57,6 +59,9 @@ SLOT_LEFT = 6
 SD_RUNE_ID = 2268
 GFB_RUNE_ID = 2304
 ENERGY_STRIKE = "Energy Strike"
+ULTIMATE_EXPLOSION = "Ultimate Explosion"
+ULTIMATE_HEALING = "Ultimate Healing"
+MS_SWARM_SPELLS = f"{ULTIMATE_EXPLOSION},{ULTIMATE_HEALING}"
 # One step off the NPC tile (often blocked). Prefer south (in front of dir=2).
 _NPC_NUDGE = ((0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (-1, 1), (1, -1), (-1, -1))
 
@@ -243,6 +248,11 @@ def _wipe_player_children_sql(ids: list[int]) -> list[str]:
     ]
 
 
+def spell_names_from(spell_name: str) -> list[str]:
+    """Comma-separated `player_spells.name` values (`Energy Strike` or `A,B`)."""
+    return [s.strip() for s in spell_name.split(",") if s.strip()]
+
+
 def _gear_sql(
     ids: list[int],
     *,
@@ -256,6 +266,7 @@ def _gear_sql(
     lines: list[str] = []
     item_rows: list[str] = []
     spell_rows: list[str] = []
+    spells = spell_names_from(spell_name)
     for pid in ids:
         sid = 101
         if rune_id > 0 and rune_count > 0:
@@ -265,8 +276,8 @@ def _gear_sql(
             item_rows.append(
                 f"({pid}, {SLOT_LEFT}, {sid}, {aoe_rune_id}, {aoe_rune_count}, X'')"
             )
-        if spell_name:
-            spell_rows.append(f"({pid}, {_sql_str(spell_name)})")
+        for name in spells:
+            spell_rows.append(f"({pid}, {_sql_str(name)})")
     if item_rows:
         lines.append(
             "INSERT INTO `player_items` (`player_id`, `pid`, `sid`, `itemtype`, `count`, `attributes`) VALUES"
@@ -550,6 +561,16 @@ def apply_sql(sql: str, *, host: str, user: str, password: str, database: str) -
     subprocess.run(cmd, input=sql, text=True, check=True)
 
 
+def apply_ms_swarm_preset(args: argparse.Namespace) -> None:
+    """Master Sorcerer swarm: voc 5, huge vitals, UE + UH. Does not change layout."""
+    args.vocation = 5
+    args.level = 80
+    args.health = 30000
+    args.mana = 200000
+    args.maglevel = 80
+    args.spell_name = MS_SWARM_SPELLS
+
+
 def self_test() -> int:
     assert sha1_hex("1") == SHA1_ONE, sha1_hex("1")
     assert character_name("Test", 0) == "Test"
@@ -618,6 +639,24 @@ def self_test() -> int:
     assert "DELETE FROM `player_items`" in tvp
     assert "lastlogin" in tvp
     assert "Energy Strike" in tvp
+    assert spell_names_from("Energy Strike") == ["Energy Strike"]
+    assert spell_names_from(MS_SWARM_SPELLS) == [ULTIMATE_EXPLOSION, ULTIMATE_HEALING]
+    rust_ms = rust_sql(
+        count=2,
+        start_id=1,
+        password_hex=SHA1_ONE,
+        char_base="Test",
+        level=80,
+        vocation=5,
+        health=30000,
+        mana=200000,
+        maglevel=80,
+        positions=pos[:2],
+        premium_secs=365 * 24 * 3600,
+        spell_name=MS_SWARM_SPELLS,
+    )
+    assert ULTIMATE_EXPLOSION in rust_ms and ULTIMATE_HEALING in rust_ms
+    assert "30000" in rust_ms and "200000" in rust_ms
     print("seed_bench_accounts: self-test ok")
     return 0
 
@@ -653,7 +692,17 @@ def main() -> int:
         help="GFB rune server id in left-hand slot 6",
     )
     parser.add_argument("--aoe-rune-count", type=int, default=100)
-    parser.add_argument("--spell-name", default=ENERGY_STRIKE, help="player_spells row (needLearnSpells)")
+    parser.add_argument(
+        "--spell-name",
+        default=ENERGY_STRIKE,
+        help="player_spells names, comma-separated (needLearnSpells)",
+    )
+    parser.add_argument(
+        "--preset",
+        choices=("ms-swarm",),
+        default=None,
+        help="ms-swarm: voc 5, level 80, HP 30000, mana 200000, UE+UH (layout unchanged)",
+    )
     parser.add_argument(
         "--spawns",
         type=Path,
@@ -702,6 +751,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.self_test:
         return self_test()
+    if args.preset == "ms-swarm":
+        apply_ms_swarm_preset(args)
     if args.count < 1:
         print("count must be >= 1", file=sys.stderr)
         return 2

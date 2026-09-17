@@ -24,7 +24,9 @@ const SCRIPTS_INTERFACE_ALLOWLIST: &[&str] = &[
     "eventcallbacks/player/default_onReportBug.lua",
     "eventcallbacks/player/moveitem.lua",
     "eventcallbacks/monster/rarity.lua", // Phase 4; missing file is not an error
+    "eventcallbacks/monster/hunt_pressure.lua",
     "globalevents/record.lua",
+    "globalevents/hunt_pressure.lua",
 ];
 
 /// Load allowlisted `data/scripts/eventcallbacks/**`,
@@ -347,7 +349,7 @@ mod tests {
         );
     }
 
-    /// Shipped pack: report-bug loads; drop-loot and spawn do not.
+    /// Shipped pack: report-bug + hunt-pressure spawn; drop-loot does not.
     #[test]
     fn real_pack_allowlist() {
         let data_root = workspace_data_root();
@@ -380,8 +382,8 @@ mod tests {
             runtime.undispatched_event_callbacks()
         );
         assert!(
-            !has_event_callback(&runtime, EVENT_CALLBACK_ONSPAWN),
-            "rarity.lua is not shipped"
+            has_event_callback(&runtime, EVENT_CALLBACK_ONSPAWN),
+            "hunt_pressure.lua must register onSpawn"
         );
         assert!(
             !has_event_callback(&runtime, EVENT_CALLBACK_ONDROPLOOT),
@@ -394,6 +396,10 @@ mod tests {
         assert!(
             runtime.has_global_event("PlayerRecord"),
             "allowlisted record.lua must drain GlobalEvent PlayerRecord"
+        );
+        assert!(
+            runtime.has_global_event("HuntPressure"),
+            "allowlisted hunt_pressure.lua must drain GlobalEvent HuntPressure"
         );
         assert!(
             !runtime.has_creature_event("DropLoot"),

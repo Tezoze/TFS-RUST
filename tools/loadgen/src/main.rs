@@ -187,6 +187,11 @@ async fn main() -> Result<()> {
         skip_failures: inbound.skip_failures,
         unknown_opcodes: inbound.unknown_opcodes,
         unknown_opcode_first: inbound.unknown_opcode_first,
+        skip_failure_opcodes: inbound.skip_failure_opcodes.clone(),
+        unknown_opcode_counts: inbound.unknown_opcode_counts.clone(),
+        text_reject_counts: inbound.text_reject_counts.clone(),
+        skip_failure_first_peek: inbound.skip_failure_first_peek.clone(),
+        skip_failure_player_z: inbound.skip_failure_player_z,
         disconnects,
         reconnects,
     };

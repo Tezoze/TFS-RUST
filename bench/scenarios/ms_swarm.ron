@@ -1,0 +1,30 @@
+(
+    name: "ms_swarm",
+    bots: 1000,
+    duration_s: 120,
+    warmup_s: 30,
+    seed: 42,
+    walk_period_ms: 500,
+    say_period_ms: 2500,
+    roles: [
+        (kind: Caster, weight: 1.0),
+    ],
+    spell_words: "exevo gran mas vis",
+    spell_words_pool: [
+        "exevo gran mas vis",
+        "exevo gran mas vis",
+        "exura vita",
+    ],
+    chat_messages: [
+        "we are a bot swarm",
+        "bot swarm incoming",
+        "the swarm is here",
+        "1000 master sorcerers",
+        "beep boop",
+        "we hunt as one",
+        "glhf",
+        "bots bots bots",
+        "the map is ours",
+        "this is fine",
+    ],
+)

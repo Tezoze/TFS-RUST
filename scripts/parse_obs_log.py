@@ -95,6 +95,21 @@ def main() -> int:
     cells = [" / ".join(triple(windows, p)) for p in ("creatures_us", "cron_us", "skills_us", "other_us", "todo_us")]
     print(f"| {name} | " + " | ".join(cells) + " |\n")
 
+    print("## Command + flush (µs)")
+    cmd_cells = [
+        " / ".join(triple(windows, p))
+        for p in (
+            "command_dispatch_us",
+            "flush_outgoing_us",
+            "walk_us",
+            "use_us",
+            "talk_us",
+            "other_cmd_us",
+            "lua_callback_us",
+        )
+    ]
+    print(f"| {name} | " + " | ".join(cmd_cells) + " |\n")
+
     print("## ToDo / decay / path")
     todo = [
         agg(windows, "todo_heap_max", MAXIMUM),
@@ -119,6 +134,11 @@ def main() -> int:
         ("output_full", COUNTER),
         ("output_slow_shed", COUNTER),
         ("decay_live_max", MAXIMUM),
+        ("walk_cmds", COUNTER),
+        ("use_cmds", COUNTER),
+        ("talk_cmds", COUNTER),
+        ("other_cmds", COUNTER),
+        ("lua_callbacks", COUNTER),
     ):
         print(f"- {key}: {agg(windows, key, kind)}")
     return 0

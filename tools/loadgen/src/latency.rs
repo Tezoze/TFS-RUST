@@ -1,5 +1,6 @@
 //! `hdrhistogram` walk-ack and spell/rune latency. Intended-time, not send-time.
 
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
@@ -195,6 +196,11 @@ pub struct RunReport {
     pub skip_failures: u64,
     pub unknown_opcodes: u64,
     pub unknown_opcode_first: Option<u8>,
+    pub skip_failure_opcodes: HashMap<u8, u64>,
+    pub unknown_opcode_counts: HashMap<u8, u64>,
+    pub text_reject_counts: HashMap<String, u64>,
+    pub skip_failure_first_peek: Option<String>,
+    pub skip_failure_player_z: Option<u8>,
     /// Game sessions that dropped before the measurement window ended.
     pub disconnects: u64,
     /// Always 0: loadgen does not auto-reconnect during a run.
@@ -208,10 +214,49 @@ fn unknown_opcode_json(first: Option<u8>) -> String {
     }
 }
 
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if c.is_control() => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+fn u8_histogram_json(map: &HashMap<u8, u64>) -> String {
+    if map.is_empty() {
+        return "{}".into();
+    }
+    let mut keys: Vec<u8> = map.keys().copied().collect();
+    keys.sort_unstable();
+    let parts: Vec<String> = keys
+        .iter()
+        .map(|k| format!("\"{k}\":{}", map[k]))
+        .collect();
+    format!("{{{}}}", parts.join(","))
+}
+
+fn str_histogram_json(map: &HashMap<String, u64>) -> String {
+    if map.is_empty() {
+        return "{}".into();
+    }
+    let mut keys: Vec<&String> = map.keys().collect();
+    keys.sort();
+    let parts: Vec<String> = keys
+        .iter()
+        .map(|k| format!("\"{}\":{}", json_escape(k), map[*k]))
+        .collect();
+    format!("{{{}}}", parts.join(","))
+}
+
 impl RunReport {
     pub fn to_json(&self) -> String {
         format!(
-            "{{\n  \"bots\": {},\n  \"duration_s\": {},\n  \"warmup_s\": {},\n  \"walk\": {},\n  \"spell_rune\": {},\n  \"bytes_in\": {},\n  \"frames_in\": {},\n  \"bytes_out\": {},\n  \"outstanding_at_end\": {},\n  \"sends\": {},\n  \"magic_effects\": {},\n  \"animated_texts\": {},\n  \"damage_sum\": {},\n  \"damage_samples\": {},\n  \"distance_shoots\": {},\n  \"creature_health\": {},\n  \"other_creature_moves\": {},\n  \"unique_creatures\": {},\n  \"bytes_discarded\": {},\n  \"skip_failures\": {},\n  \"unknown_opcodes\": {},\n  \"unknown_opcode_first\": {},\n  \"disconnects\": {},\n  \"reconnects\": {}\n}}\n",
+            "{{\n  \"bots\": {},\n  \"duration_s\": {},\n  \"warmup_s\": {},\n  \"walk\": {},\n  \"spell_rune\": {},\n  \"bytes_in\": {},\n  \"frames_in\": {},\n  \"bytes_out\": {},\n  \"outstanding_at_end\": {},\n  \"sends\": {},\n  \"magic_effects\": {},\n  \"animated_texts\": {},\n  \"damage_sum\": {},\n  \"damage_samples\": {},\n  \"distance_shoots\": {},\n  \"creature_health\": {},\n  \"other_creature_moves\": {},\n  \"unique_creatures\": {},\n  \"bytes_discarded\": {},\n  \"skip_failures\": {},\n  \"unknown_opcodes\": {},\n  \"unknown_opcode_first\": {},\n  \"skip_failure_opcodes\": {},\n  \"unknown_opcode_counts\": {},\n  \"text_reject_counts\": {},\n  \"skip_failure_first_peek\": {},\n  \"skip_failure_player_z\": {},\n  \"disconnects\": {},\n  \"reconnects\": {}\n}}\n",
             self.bots,
             self.duration_s,
             self.warmup_s,
@@ -234,6 +279,17 @@ impl RunReport {
             self.skip_failures,
             self.unknown_opcodes,
             unknown_opcode_json(self.unknown_opcode_first),
+            u8_histogram_json(&self.skip_failure_opcodes),
+            u8_histogram_json(&self.unknown_opcode_counts),
+            str_histogram_json(&self.text_reject_counts),
+            match &self.skip_failure_first_peek {
+                Some(s) => format!("\"{}\"", json_escape(s)),
+                None => "null".into(),
+            },
+            match self.skip_failure_player_z {
+                Some(z) => z.to_string(),
+                None => "null".into(),
+            },
             self.disconnects,
             self.reconnects
         )
@@ -243,6 +299,7 @@ impl RunReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use tfs_rust_common::Position;
 
     #[test]
@@ -373,12 +430,25 @@ mod tests {
             skip_failures: 0,
             unknown_opcodes: 2,
             unknown_opcode_first: Some(0x15),
+            skip_failure_opcodes: HashMap::from([(0x6A, 3)]),
+            unknown_opcode_counts: HashMap::from([(0x15, 2)]),
+            text_reject_counts: HashMap::from([("You are exhausted.".into(), 4)]),
+            skip_failure_first_peek: Some("6301abcd".into()),
+            skip_failure_player_z: Some(7),
             disconnects: 1,
             reconnects: 0,
         };
         let json = report.to_json();
         assert!(json.contains("\"unknown_opcodes\": 2"), "{json}");
         assert!(json.contains("\"unknown_opcode_first\": 21"), "{json}");
+        assert!(json.contains("\"skip_failure_opcodes\": {\"106\":3}"), "{json}");
+        assert!(json.contains("\"unknown_opcode_counts\": {\"21\":2}"), "{json}");
+        assert!(
+            json.contains("\"text_reject_counts\": {\"You are exhausted.\":4}"),
+            "{json}"
+        );
+        assert!(json.contains("\"skip_failure_first_peek\": \"6301abcd\""), "{json}");
+        assert!(json.contains("\"skip_failure_player_z\": 7"), "{json}");
         assert!(json.contains("\"rejections\":0"), "{json}");
         assert!(json.contains("\"disconnects\": 1"), "{json}");
         assert!(json.contains("\"reconnects\": 0"), "{json}");

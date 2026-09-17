@@ -264,7 +264,7 @@ pub async fn run_bot(
                             Some(use_item_dest(&inbound)),
                             *expect_effect,
                         )),
-                        ActionKind::Say(_) => {
+                        ActionKind::Say { spell: true, .. } => {
                             Some((crate::latency::Correlate::SpellRune, inbound.pos, None))
                         }
                         _ => None,
@@ -327,7 +327,7 @@ fn materialize(kind: &ActionKind, inbound: &InboundState) -> Vec<u8> {
             let cid = inbound.last_other_creature_id.unwrap_or(*id);
             encode_attack(cid)
         }
-        ActionKind::Say(text) => encode_say(text),
+        ActionKind::Say { text, .. } => encode_say(text),
         ActionKind::UseItemEx {
             from,
             from_sprite,

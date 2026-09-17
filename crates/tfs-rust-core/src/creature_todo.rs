@@ -127,9 +127,17 @@ pub enum CreatureAction {
     /// `TDAttack` — melee/ranged strike (`cract.cc:1325`); execute stub until Phase E2.
     Attack,
     /// `TDTalk` — speak text on the next ToDo execute (`cract.cc:848`, `:1367-1390`).
-    /// Owned `String` so NPC dialogue replies can be scheduled (NPC-6); drunk "Hicks!"
-    /// also uses this path.
-    Talk { text: String },
+    ///
+    /// Player `CTalk` sets `check_spamming` true (mode / channel / addressee from the
+    /// wire); `Execute` calls `player_say`. NPC replies and drunk `"Hicks!"` use
+    /// [`Self::talk_text`] (`CheckSpamming=false` viewport broadcast).
+    Talk {
+        text: String,
+        speak_class: u8,
+        channel_id: u16,
+        addressee: String,
+        check_spamming: bool,
+    },
     /// `TDChangeState` — deferred NPC activity transition (`cract.cc:859-861`, `:1393`).
     /// Execute sets Idle (clearing focus) with stimulus yield (`ChangeNPCState(..., true)`).
     ChangeNpcState { to_idle: bool },
@@ -163,6 +171,19 @@ pub enum CreatureAction {
         obj: ActionObjectRef,
         partner_wire: u32,
     },
+}
+
+impl CreatureAction {
+    /// NPC dialogue / drunk Hicks — `Talk(Mode, NULL, Text, false)` (`cract.cc:409`, `:848`).
+    pub(crate) fn talk_text(text: impl Into<String>) -> Self {
+        Self::Talk {
+            text: text.into(),
+            speak_class: 1, // TALKTYPE_SAY
+            channel_id: 0,
+            addressee: String::new(),
+            check_spamming: false,
+        }
+    }
 }
 
 /// Per-creature action queue paired with the global wakeup heap.
@@ -337,7 +358,7 @@ impl GameWorld {
         k.base_mut()
             .todo
             .queue
-            .push_back(CreatureAction::Talk { text: text.into() });
+            .push_back(CreatureAction::talk_text(text));
         tracing::debug!(
             creature = k.base().name.as_str(),
             ?cid,

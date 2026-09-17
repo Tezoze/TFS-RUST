@@ -3653,20 +3653,37 @@ impl GameWorld {
                 trace_creature_todo(self, cid, "execute_wait_done");
                 TodoExecuteKind::Wait
             }
-            CreatureAction::Talk { text } => {
-                // C++ `TDTalk` — `cract.cc:848-851`, `:1367-1390`: `this->Talk(Mode, NULL, Text, false)`.
-                // Talk mode: `TALK_SAY` for players/NPCs, `TALK_ANIMAL_LOW` for monsters (`cract.cc:409`).
+            CreatureAction::Talk {
+                text,
+                speak_class,
+                channel_id,
+                addressee,
+                check_spamming,
+            } => {
+                // C++ `TDTalk` — `cract.cc:848-856`. Player `CTalk` stores CheckSpamming=true
+                // and runs `Talk()` (spells, mute, RecordTalk, SendTalk). NPC / Hicks use
+                // `Talk(..., false)` viewport broadcast only.
                 trace_creature_todo(self, cid, "execute_talk");
-                let is_monster = self
+                let is_player = self
                     .creatures
                     .get(cid)
-                    .is_some_and(|k| matches!(k, CreatureKind::Monster(_)));
-                let speak_type = if is_monster {
-                    SpeakType::MonsterSay as u8
+                    .is_some_and(|k| matches!(k, CreatureKind::Player(_)));
+                if is_player && check_spamming {
+                    if let Some(conn) = self.conn_for_creature(cid) {
+                        self.player_say(conn, cid, speak_class, channel_id, &addressee, &text);
+                    }
                 } else {
-                    SpeakType::Say as u8
-                };
-                self.broadcast_creature_say_viewport(cid, speak_type, &text);
+                    let is_monster = self
+                        .creatures
+                        .get(cid)
+                        .is_some_and(|k| matches!(k, CreatureKind::Monster(_)));
+                    let speak_type = if is_monster {
+                        SpeakType::MonsterSay as u8
+                    } else {
+                        SpeakType::Say as u8
+                    };
+                    self.broadcast_creature_say_viewport(cid, speak_type, &text);
+                }
                 trace_creature_todo(self, cid, "execute_talk_done");
                 TodoExecuteKind::Wait
             }

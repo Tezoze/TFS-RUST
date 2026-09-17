@@ -244,10 +244,13 @@ Session: connect 7171 → RSA login packet → char list (`0x64`, no Adler on 77
 → connect 7172 → RSA game packet → XTEA opcode stream.
 
 Inbound parse is deliberately minimal (`inbound.rs`): self id (`0x0A`), own
-position (`0x64` header), `0x6D` move / `0x6C` remove, `0x83` magic effect,
-`0x84` animated text (damage), `0xB5` cancel walk, counters for everything
-else. Map bodies and login trailers are length-skipped so a later `0x83` in
-the same payload still counts. A full client decoder is out of scope.
+position (`0x64` header / `0x6D` / NotifyGo `0xBF` z-down), `0x6C` remove,
+`0x83` magic effect, `0x84` animated text (damage), `0xB5` cancel walk,
+counters for everything else. Map bodies and login trailers are length-skipped
+so a later `0x83` in the same payload still counts. Chat `SAY` is **not**
+correlated as a spell; walk `0xB4` cylinder texts are histogram-only. A full
+client decoder is out of scope. Do not quote walk/spell p99 unless
+`skip_failures==0` and `bytes_discarded==0`.
 
 Validation before any number is trusted:
 
@@ -275,7 +278,7 @@ Correlation, per action type:
 | SLO | Sent | Ack |
 |---|---|---|
 | Walk | cardinal move opcode | self `0x6D` |
-| Spell / rune | `SAY` words / `USE_ITEM_EX` rune | `0x83` at the target tile **with the expected effect id** (AoE runes; `SAY` stays pos-only) |
+| Spell / rune | spell-word `SAY` / `USE_ITEM_EX` rune | `0x83` at the target tile **with the expected effect id** (AoE runes; spell `SAY` stays pos-only). Chat `SAY` is **not** correlated. |
 
 Rune `USE_ITEM_EX` is scheduled at `walk_tick + walk_period/2`, not on the walk
 tick itself: the use still clears the in-flight step via ToDoClear, but a
@@ -329,6 +332,10 @@ must be read from a live `threads.csv` on the pinned host — do not guess.
 Optional overlay in `plot_results.py` on the time-series CPU panel, never on
 the publication CPU chart or `cpu_per_action.png`. Do not add
 `CLOCK_THREAD_CPUTIME_ID` sampling inside the game loop for A/B.
+`GameObs` (`RUST_LOG` must include `tfs_obs=info`; the runner appends it)
+splits game-thread work the beat wall misses: `command_dispatch_us`,
+`flush_outgoing_us`, walk/use/talk/other packet µs, `lua_callback_us`. After
+a clean window, `perf record -F 99 -g -p <tfs-rust-pid>` names functions.
 
 ### 6.4 Headline metrics
 
@@ -357,7 +364,7 @@ sessions stayed up. Combat outcomes are logged, not gated.
 | Observable | Threshold | Why |
 |---|---|---|
 | `sends` | 5% | same open-loop schedule |
-| `bytes_discarded` / `bytes_in` | 25% (skip if both 0) | loadgen decoder health |
+| `skip_failures` and `bytes_discarded` | both 0 | loadgen decoder health; walk/spell p99 is not a latency if either is non-zero |
 | `spell_rune.rejections` / `spell_rune.samples` | 25% (skip if both 0) | scheduled use actually ran (empty-slot / sprite miss) |
 | `disconnects` / `bots` | 25% (skip if both 0) | bots stayed in world |
 | `reconnects` | 25% (skip if both 0; both should be 0) | same |

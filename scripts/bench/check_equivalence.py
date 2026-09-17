@@ -19,8 +19,8 @@ import sys
 from pathlib import Path
 
 # Same scheduled actions, same session health. Not hit/effect fan-out.
+# Decoder health is absolute: any skip_failures or bytes_discarded makes walk/spell p99 junk.
 THRESH_SENDS = 0.05
-THRESH_DISCARD = 0.25
 THRESH_SPELL_REJECT = 0.25
 THRESH_DROP = 0.25
 ROLES = ("walker", "melee", "caster", "rune", "aoe_rune", "noise")
@@ -32,11 +32,8 @@ def rel_delta(a: float, b: float) -> float:
     return abs(a - b) / max(abs(a), abs(b), 1.0)
 
 
-def discarded_ratio(report: dict) -> float:
-    bytes_in = float(report.get("bytes_in") or 0)
-    if bytes_in <= 0:
-        return 0.0
-    return float(report.get("bytes_discarded") or 0) / bytes_in
+def decoder_clean(report: dict) -> bool:
+    return int(report.get("skip_failures") or 0) == 0 and int(report.get("bytes_discarded") or 0) == 0
 
 
 def spell_rejection_rate(report: dict) -> float:
@@ -68,14 +65,17 @@ def compare_pair(rust: dict, tvp: dict, *, label: str) -> list[str]:
 
     # Open-loop schedule: both sides must emit the same action count.
     check("sends", float(rust.get("sends") or 0), float(tvp.get("sends") or 0), THRESH_SENDS)
-    # Decoder health — if one side discards the stream, the chart is junk.
-    check(
-        "bytes_discarded_per_in",
-        discarded_ratio(rust),
-        discarded_ratio(tvp),
-        THRESH_DISCARD,
-        skip_zero=True,
-    )
+    # Decoder health — skip_failures or discarded bytes mean walk/spell p99 is not a latency.
+    rust_clean = decoder_clean(rust)
+    tvp_clean = decoder_clean(tvp)
+    if not rust_clean or not tvp_clean:
+        fails.append(
+            f"{label}: decoder_health rust skip_failures={rust.get('skip_failures', 0)} "
+            f"bytes_discarded={rust.get('bytes_discarded', 0)} "
+            f"tvp skip_failures={tvp.get('skip_failures', 0)} "
+            f"bytes_discarded={tvp.get('bytes_discarded', 0)} "
+            f"(walk/spell p99 not comparable)"
+        )
     # Scheduled rune/say uses that the server refused (empty slot, sprite miss).
     # Not combat RNG — a 0% vs 50% reject means one side never did the action.
     check(
@@ -144,6 +144,14 @@ def self_test() -> int:
     discard_bad = dict(ok)
     discard_bad["bytes_discarded"] = 5000
     assert compare_pair(ok, discard_bad, label="discard")
+    skip_bad = dict(ok)
+    skip_bad["skip_failures"] = 10
+    assert compare_pair(ok, skip_bad, label="skip")
+    both_dirty = dict(ok)
+    both_dirty["bytes_discarded"] = 100
+    other_dirty = dict(ok)
+    other_dirty["bytes_discarded"] = 100
+    assert compare_pair(both_dirty, other_dirty, label="both-dirty")
     spell_reject_bad = dict(ok)
     spell_reject_bad["spell_rune"] = {"samples": 40, "rejections": 20}
     assert compare_pair(ok, spell_reject_bad, label="spell-reject")

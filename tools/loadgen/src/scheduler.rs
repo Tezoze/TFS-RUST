@@ -14,7 +14,9 @@ use crate::latency::Correlate;
 pub enum ActionKind {
     Walk(u8),
     Attack(u32),
-    Say(String),
+    /// Viewport talk. `spell` true → correlate as `SpellRune` (expects `0x83`).
+    /// Chat lines never produce a magic effect; they must not enqueue the FIFO.
+    Say { text: String, spell: bool },
     UseItemEx {
         from: Position,
         from_sprite: u16,
@@ -36,8 +38,8 @@ impl ActionKind {
         match self {
             Self::Walk(_) => Some((Correlate::Walk, None)),
             Self::UseItemEx { .. } => Some((Correlate::SpellRune, None)),
-            Self::Say(_) => Some((Correlate::SpellRune, None)),
-            Self::Attack(_) | Self::LookAt(_) => None,
+            Self::Say { spell: true, .. } => Some((Correlate::SpellRune, None)),
+            Self::Say { spell: false, .. } | Self::Attack(_) | Self::LookAt(_) => None,
         }
     }
 }
@@ -122,5 +124,22 @@ mod tests {
         assert!(ol.peek_due(t0 + Duration::from_secs(11)).is_some());
         let a = ol.pop_due(t0 + Duration::from_secs(11)).expect("due");
         assert!(matches!(a.kind, ActionKind::Walk(_)));
+    }
+
+    #[test]
+    fn chat_say_does_not_correlate_as_spell() {
+        let chat = ActionKind::Say {
+            text: "we are a bot swarm".into(),
+            spell: false,
+        };
+        assert!(chat.correlate().is_none());
+        let spell = ActionKind::Say {
+            text: "exevo gran mas vis".into(),
+            spell: true,
+        };
+        assert_eq!(
+            spell.correlate().map(|(k, _)| k),
+            Some(Correlate::SpellRune)
+        );
     }
 }

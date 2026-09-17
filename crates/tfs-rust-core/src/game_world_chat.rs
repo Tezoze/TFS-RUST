@@ -78,6 +78,37 @@ impl GameWorld {
         Ok(())
     }
 
+    /// 772 `CTalk` — `receiving.cc:901-903`: `ToDoTalk` + `ToDoStart`.
+    ///
+    /// No upfront `ToDoClear` (unlike `CGoDirection`). [`Self::creature_todo_add`]
+    /// clears only when `LockToDo` is already set (pending Go → snapback).
+    /// `Talk()` / spells run on the next `MoveCreatures` drain (`cract.cc:848-856`).
+    pub fn player_request_say(
+        &mut self,
+        cid: CreatureId,
+        speak_class: u8,
+        channel_id: u16,
+        receiver: &str,
+        text: &str,
+    ) {
+        if !matches!(self.creatures.get(cid), Some(CreatureKind::Player(_))) {
+            return;
+        }
+        let _ = self.creature_todo_add(
+            cid,
+            crate::creature_todo::CreatureAction::Talk {
+                text: text.to_string(),
+                speak_class,
+                channel_id,
+                addressee: receiver.to_string(),
+                check_spamming: true,
+            },
+        );
+        // `ToDoStart` clamps Delay < 1 to 1 (`cract.cc:1016-1018`); `TDTalk` has no
+        // `CalculateDelay` arm (default 0).
+        self.todo_start_from_action(cid, 1);
+    }
+
     /// TFS `Game::playerSay` — `gameserver/src/game.cpp:3208-3281`.
     ///
     /// Top-level chat dispatch: idle reset → spell/talkaction check → mute check →
@@ -2555,6 +2586,42 @@ mod apply_spec_tests {
                 .get(&ConnId(3))
                 .is_none_or(|p| p.is_empty()),
             "viewer at dx=8 must not hear SAY"
+        );
+    }
+
+    #[test]
+    fn ctalk_runs_player_say_on_move_creatures_not_enqueue() {
+        use crate::test_support::{
+            TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile,
+            insert_spectator_player, test_player,
+        };
+        use tfs_rust_common::Position;
+
+        let mut world = beat_driven_test_world();
+        let speaker_pos = Position::new(100, 100, 7);
+        let near_pos = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, speaker_pos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, near_pos, TEST_SYNTHETIC_GROUND_WP);
+        let speaker =
+            insert_spectator_player(&mut world, ConnId(1), test_player("Speaker", speaker_pos));
+        let _near = insert_spectator_player(&mut world, ConnId(2), test_player("Near", near_pos));
+
+        world.player_request_say(speaker, TALKTYPE_SAY, 0, "", "hello");
+        assert!(
+            world
+                .pending_outgoing
+                .get(&ConnId(2))
+                .is_none_or(|p| p.is_empty()),
+            "CTalk must not SendTalk at enqueue"
+        );
+
+        world.move_creatures(50);
+        assert!(
+            world
+                .pending_outgoing
+                .get(&ConnId(2))
+                .is_some_and(|p| !p.is_empty()),
+            "Execute TDTalk must SendTalk on MoveCreatures drain"
         );
     }
 }

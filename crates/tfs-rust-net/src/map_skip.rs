@@ -255,6 +255,7 @@ mod tests {
     use crate::map_description::{
         ItemStack, TileContent, send_map_description_packet, write_map_description_body,
     };
+    use crate::creature_encode::AddCreatureWire;
 
     fn codec_772() -> Codec {
         Codec::from_version(ProtocolVersion::V772).expect("772 codec")
@@ -430,5 +431,145 @@ mod tests {
             |id| id == gold,
         ));
         assert_eq!(i, bytes.len());
+    }
+
+    fn grass() -> ItemStack {
+        ItemStack {
+            client_id: 0x0673,
+            count: 1,
+            stackable: false,
+            is_splash_or_fluid: false,
+            is_animation: false,
+        }
+    }
+
+    #[test]
+    fn skip_south_row_with_ground_and_uptodate_creature() {
+        let gold = 3031u16;
+        let mut msg = NetworkMessage::new();
+        let mut known = HashSet::new();
+        known.insert(42);
+        let mut get_tile = |x: i32, y: i32, z: i32| -> Option<TileContent> {
+            if z != 7 || y != 200 {
+                return None;
+            }
+            if x == 100 {
+                Some(TileContent {
+                    ground: Some(grass()),
+                    creatures: vec![AddCreatureWire {
+                        id: 42,
+                        known: true,
+                        uptodate: true,
+                        ..Default::default()
+                    }],
+                    ..TileContent::default()
+                })
+            } else if x == 101 {
+                Some(TileContent {
+                    ground: Some(ItemStack {
+                        client_id: gold,
+                        count: 5,
+                        stackable: true,
+                        is_splash_or_fluid: false,
+                        is_animation: false,
+                    }),
+                    ..TileContent::default()
+                })
+            } else if x == 102 {
+                Some(TileContent {
+                    ground: Some(grass()),
+                    creatures: vec![AddCreatureWire {
+                        id: 99,
+                        known: false,
+                        uptodate: false,
+                        name: "Cyclops".into(),
+                        ..Default::default()
+                    }],
+                    ..TileContent::default()
+                })
+            } else {
+                None
+            }
+        };
+        let mut can_see = |_id: u32| true;
+        write_map_description_body(
+            &codec_772(),
+            &mut msg,
+            100,
+            200,
+            7,
+            client_viewport_width(),
+            1,
+            &mut get_tile,
+            &mut known,
+            &mut can_see,
+            false,
+        );
+        let body = msg.into_bytes();
+        let mut i = 0usize;
+        assert!(
+            skip_772_map_description_body(
+                &body,
+                &mut i,
+                7,
+                client_viewport_width(),
+                1,
+                |id| id == gold,
+            ),
+            "south row with 0x63/0x61/stackable must skip to end"
+        );
+        assert_eq!(i, body.len());
+    }
+
+    #[test]
+    fn skip_south_row_ten_item_tile() {
+        let mut items = vec![grass()];
+        for k in 0..9 {
+            items.push(ItemStack {
+                client_id: 0x0100 + k,
+                count: 1,
+                stackable: false,
+                is_splash_or_fluid: false,
+                is_animation: false,
+            });
+        }
+        let mut msg = NetworkMessage::new();
+        let mut known = HashSet::new();
+        let mut get_tile = |x: i32, y: i32, z: i32| -> Option<TileContent> {
+            if x == 100 && y == 200 && z == 7 {
+                Some(TileContent {
+                    ground: items.first().cloned(),
+                    top_items: items[1..].to_vec(),
+                    ..TileContent::default()
+                })
+            } else {
+                None
+            }
+        };
+        let mut can_see = |_id: u32| true;
+        write_map_description_body(
+            &codec_772(),
+            &mut msg,
+            100,
+            200,
+            7,
+            client_viewport_width(),
+            1,
+            &mut get_tile,
+            &mut known,
+            &mut can_see,
+            false,
+        );
+        let body = msg.into_bytes();
+        let mut i = 0usize;
+        assert!(skip_772_map_description_body(
+            &body,
+            &mut i,
+            7,
+            client_viewport_width(),
+            1,
+            |_| false,
+        ));
+        assert_eq!(i, body.len());
     }
 }

@@ -10,6 +10,17 @@ use std::time::{Duration, Instant};
 /// Default window between aggregated summary emits.
 pub const OBS_SUMMARY_INTERVAL: Duration = Duration::from_secs(10);
 
+/// Inbound game-packet class for CPU split (walk / use / talk / other).
+///
+/// Classification lives next to `handle_game_packet`; this enum is the histogram key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CmdObsClass {
+    Walk,
+    Use,
+    Talk,
+    Other,
+}
+
 /// Number of geometric buckets (plus overflow).
 const HIST_BUCKETS: usize = 32;
 
@@ -112,6 +123,20 @@ pub struct GameObs {
     pub login_loads: u64,
     pub concurrent_logins_max: u64,
 
+    // --- command drain / flush (µs) — outside beat_wall_ms ---
+    pub command_dispatch_us: FixedHistogram,
+    pub flush_outgoing_us: FixedHistogram,
+    pub walk_us: FixedHistogram,
+    pub use_us: FixedHistogram,
+    pub talk_us: FixedHistogram,
+    pub other_cmd_us: FixedHistogram,
+    pub lua_callback_us: FixedHistogram,
+    pub walk_cmds: u64,
+    pub use_cmds: u64,
+    pub talk_cmds: u64,
+    pub other_cmds: u64,
+    pub lua_callbacks: u64,
+
     // --- subsystems (µs) ---
     pub creatures_us: FixedHistogram,
     pub cron_us: FixedHistogram,
@@ -170,6 +195,18 @@ impl GameObs {
             login_load_us: FixedHistogram::default(),
             login_loads: 0,
             concurrent_logins_max: 0,
+            command_dispatch_us: FixedHistogram::default(),
+            flush_outgoing_us: FixedHistogram::default(),
+            walk_us: FixedHistogram::default(),
+            use_us: FixedHistogram::default(),
+            talk_us: FixedHistogram::default(),
+            other_cmd_us: FixedHistogram::default(),
+            lua_callback_us: FixedHistogram::default(),
+            walk_cmds: 0,
+            use_cmds: 0,
+            talk_cmds: 0,
+            other_cmds: 0,
+            lua_callbacks: 0,
             creatures_us: FixedHistogram::default(),
             cron_us: FixedHistogram::default(),
             skills_us: FixedHistogram::default(),
@@ -354,6 +391,44 @@ impl GameObs {
         self.output_slow_shed = self.output_slow_shed.saturating_add(1);
     }
 
+    #[inline]
+    pub fn record_command_dispatch_us(&mut self, us: u64) {
+        self.command_dispatch_us.record(us);
+    }
+
+    #[inline]
+    pub fn record_flush_outgoing_us(&mut self, us: u64) {
+        self.flush_outgoing_us.record(us);
+    }
+
+    #[inline]
+    pub fn record_lua_callback_us(&mut self, us: u64) {
+        self.lua_callbacks = self.lua_callbacks.saturating_add(1);
+        self.lua_callback_us.record(us);
+    }
+
+    #[inline]
+    pub fn record_cmd_class_us(&mut self, class: CmdObsClass, us: u64) {
+        match class {
+            CmdObsClass::Walk => {
+                self.walk_cmds = self.walk_cmds.saturating_add(1);
+                self.walk_us.record(us);
+            }
+            CmdObsClass::Use => {
+                self.use_cmds = self.use_cmds.saturating_add(1);
+                self.use_us.record(us);
+            }
+            CmdObsClass::Talk => {
+                self.talk_cmds = self.talk_cmds.saturating_add(1);
+                self.talk_us.record(us);
+            }
+            CmdObsClass::Other => {
+                self.other_cmds = self.other_cmds.saturating_add(1);
+                self.other_cmd_us.record(us);
+            }
+        }
+    }
+
     /// Emit aggregated summary when the window elapsed; resets window counters.
     pub fn maybe_emit(&mut self, now: Instant) {
         if now.duration_since(self.window_started) < OBS_SUMMARY_INTERVAL {
@@ -388,6 +463,32 @@ impl GameObs {
             login_us_p95 = self.login_load_us.percentile(95.0),
             login_us_p99 = self.login_load_us.percentile(99.0),
             concurrent_logins_max = self.concurrent_logins_max,
+            command_dispatch_us_p50 = self.command_dispatch_us.percentile(50.0),
+            command_dispatch_us_p95 = self.command_dispatch_us.percentile(95.0),
+            command_dispatch_us_p99 = self.command_dispatch_us.percentile(99.0),
+            flush_outgoing_us_p50 = self.flush_outgoing_us.percentile(50.0),
+            flush_outgoing_us_p95 = self.flush_outgoing_us.percentile(95.0),
+            flush_outgoing_us_p99 = self.flush_outgoing_us.percentile(99.0),
+            walk_us_p50 = self.walk_us.percentile(50.0),
+            walk_us_p95 = self.walk_us.percentile(95.0),
+            walk_us_p99 = self.walk_us.percentile(99.0),
+            use_us_p50 = self.use_us.percentile(50.0),
+            use_us_p95 = self.use_us.percentile(95.0),
+            use_us_p99 = self.use_us.percentile(99.0),
+            talk_us_p50 = self.talk_us.percentile(50.0),
+            talk_us_p95 = self.talk_us.percentile(95.0),
+            talk_us_p99 = self.talk_us.percentile(99.0),
+            other_cmd_us_p50 = self.other_cmd_us.percentile(50.0),
+            other_cmd_us_p95 = self.other_cmd_us.percentile(95.0),
+            other_cmd_us_p99 = self.other_cmd_us.percentile(99.0),
+            lua_callback_us_p50 = self.lua_callback_us.percentile(50.0),
+            lua_callback_us_p95 = self.lua_callback_us.percentile(95.0),
+            lua_callback_us_p99 = self.lua_callback_us.percentile(99.0),
+            walk_cmds = self.walk_cmds,
+            use_cmds = self.use_cmds,
+            talk_cmds = self.talk_cmds,
+            other_cmds = self.other_cmds,
+            lua_callbacks = self.lua_callbacks,
             creatures_us_p50 = self.creatures_us.percentile(50.0),
             creatures_us_p95 = self.creatures_us.percentile(95.0),
             creatures_us_p99 = self.creatures_us.percentile(99.0),
@@ -484,6 +585,30 @@ mod tests {
         assert_eq!(h.percentile(50.0), 0);
         assert_eq!(h.percentile(99.0), 0);
         assert_eq!(h.mean(), 0);
+    }
+
+    #[test]
+    fn game_obs_records_dispatch_flush_and_cmd_class() {
+        let mut obs = GameObs::new();
+        obs.record_command_dispatch_us(120);
+        obs.record_flush_outgoing_us(40);
+        obs.record_lua_callback_us(15);
+        obs.record_cmd_class_us(CmdObsClass::Walk, 10);
+        obs.record_cmd_class_us(CmdObsClass::Use, 20);
+        obs.record_cmd_class_us(CmdObsClass::Talk, 5);
+        obs.record_cmd_class_us(CmdObsClass::Other, 8);
+        assert_eq!(obs.command_dispatch_us.samples(), 1);
+        assert_eq!(obs.flush_outgoing_us.samples(), 1);
+        assert_eq!(obs.lua_callback_us.samples(), 1);
+        assert_eq!(obs.lua_callbacks, 1);
+        assert_eq!(obs.walk_cmds, 1);
+        assert_eq!(obs.use_cmds, 1);
+        assert_eq!(obs.talk_cmds, 1);
+        assert_eq!(obs.other_cmds, 1);
+        assert_eq!(obs.walk_us.samples(), 1);
+        assert_eq!(obs.use_us.samples(), 1);
+        assert_eq!(obs.talk_us.samples(), 1);
+        assert_eq!(obs.other_cmd_us.samples(), 1);
     }
 
     #[test]

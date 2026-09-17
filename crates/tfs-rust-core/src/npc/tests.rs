@@ -941,7 +941,7 @@ fn reply_todo_schedules_wait_talk_chain() {
         .queue
         .iter()
         .filter_map(|a| match a {
-            crate::creature_todo::CreatureAction::Talk { text } => Some(text.as_str()),
+            crate::creature_todo::CreatureAction::Talk { text, .. } => Some(text.as_str()),
             _ => None,
         })
         .collect();

@@ -51,7 +51,10 @@ pub fn fill_schedule(
     };
     let mut t = start;
     let mut north = true;
-    let mut last_say = start;
+    let say_offset_ms = (bot_index as u64).wrapping_mul(97) % scenario.say_period_ms.max(1);
+    let mut last_say = start
+        .checked_sub(say_p.saturating_sub(Duration::from_millis(say_offset_ms)))
+        .unwrap_or(start);
     let mut i = 0u32;
     while t < end {
         let walk_op = if bounce_ns || role == RoleKind::Walker && scenario.name == "walk_ns" {
@@ -85,9 +88,10 @@ pub fn fill_schedule(
             }
             RoleKind::Caster => {
                 if t.saturating_duration_since(last_say) >= say_p {
+                    let (text, spell) = scenario.caster_say(rng);
                     ol.push(ScheduledAction {
                         intended: t,
-                        kind: ActionKind::Say(scenario.spell_words.clone()),
+                        kind: ActionKind::Say { text, spell },
                     });
                     last_say = t;
                 }
@@ -132,7 +136,10 @@ pub fn fill_schedule(
                 if t.saturating_duration_since(last_say) >= say_p {
                     ol.push(ScheduledAction {
                         intended: t,
-                        kind: ActionKind::Say("hi".into()),
+                        kind: ActionKind::Say {
+                            text: scenario.noise_say_text(rng),
+                            spell: false,
+                        },
                     });
                     last_say = t;
                 }
@@ -165,6 +172,8 @@ mod tests {
                 weight: 1.0,
             }],
             spell_words: "exori vis".into(),
+            spell_words_pool: Vec::new(),
+            chat_messages: Vec::new(),
             rune_sprite_id: 3155,
             rune_slot: 10,
             rune_server_id: 2268,
@@ -186,5 +195,66 @@ mod tests {
         )
         .expect("schedule");
         assert!(!ol.is_empty());
+    }
+
+    #[test]
+    fn caster_chat_says_are_not_spells() {
+        let s = Scenario {
+            name: "ms".into(),
+            bots: 1,
+            duration_s: 20,
+            warmup_s: 0,
+            seed: 1,
+            walk_period_ms: 500,
+            say_period_ms: 2500,
+            roles: vec![RoleWeight {
+                kind: RoleKind::Caster,
+                weight: 1.0,
+            }],
+            spell_words: "exevo gran mas vis".into(),
+            spell_words_pool: vec!["exevo gran mas vis".into()],
+            chat_messages: vec!["we are a bot swarm".into()],
+            rune_sprite_id: 3155,
+            rune_slot: 10,
+            rune_server_id: 2268,
+            aoe_rune_server_id: 2304,
+            aoe_rune_slot: 6,
+            aoe_rune_effect: Some(7),
+            waypoint_file: None,
+        };
+        let mut ol = OpenLoop::new();
+        let mut rng = BotRng::new(1);
+        fill_schedule(
+            &mut ol,
+            RoleKind::Caster,
+            &s,
+            Instant::now(),
+            &mut rng,
+            false,
+            0,
+        )
+        .expect("schedule");
+        let mut saw_chat = false;
+        let mut saw_spell = false;
+        while let Some(a) = ol.pop_due(Instant::now() + Duration::from_secs(60)) {
+            match a.kind {
+                ActionKind::Say {
+                    ref text,
+                    spell: false,
+                } => {
+                    assert!(text.contains("bot swarm"), "{text}");
+                    saw_chat = true;
+                }
+                ActionKind::Say {
+                    ref text,
+                    spell: true,
+                } => {
+                    assert!(text.contains("exevo"), "{text}");
+                    saw_spell = true;
+                }
+                _ => {}
+            }
+        }
+        assert!(saw_chat && saw_spell);
     }
 }

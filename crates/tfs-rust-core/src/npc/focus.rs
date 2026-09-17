@@ -1014,12 +1014,7 @@ impl GameWorld {
         for reply in &plan.replies {
             let deadline_ms = self.server_ms.saturating_add(u64::from(reply.delay_ms));
             let _ = self.creature_todo_add(npc_id, CreatureAction::Wait { deadline_ms });
-            let _ = self.creature_todo_add(
-                npc_id,
-                CreatureAction::Talk {
-                    text: reply.text.clone(),
-                },
-            );
+            let _ = self.creature_todo_add(npc_id, CreatureAction::talk_text(reply.text.clone()));
             trace.push(DialogueEvent::Todo {
                 op: TodoOp::Talk,
                 delay_ms: Some(reply.delay_ms),

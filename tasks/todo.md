@@ -1,3 +1,51 @@
+# Player CTalk → ToDoTalk (2026-09-17)
+
+Decompile `CTalk` enqueues `TDTalk` + `ToDoStart` (`receiving.cc:901-903`); `Talk()` / spells run in `Execute` (`cract.cc:848-856`). Rust ran `player_say` in the packet handler (`talk_us`). Match corpus: enqueue via `creature_todo_add` (clear only if `LockToDo`), execute `player_say` on drain. NPC/Hicks keep `check_spamming=false` viewport path. Lua `creature:say` stays immediate. `mixed_300.ron` frozen. No `0xBF`.
+
+- [x] Extend `CreatureAction::Talk` (mode / channel / addressee / check_spamming)
+- [x] `player_request_say` + `game_loop` Say packet; execute arm calls `player_say`
+- [x] Tests: SAY not on wire until `move_creatures`; existing `player_say` body tests unchanged
+
+# 200-bot rust soak (2026-09-17)
+
+Leak slope, not boot RSS. Rust-only (TVP ServerSave at 04:30). `mixed_300.ron` stays frozen. No `0xBF` work.
+
+- [x] `run_comparison.py --mode soak --servers rust --bots 200 --reps 1 --scenario bench/scenarios/ms_swarm.ron --disable-saves` (3600 s + 30 s warmup) — `results/20260916T221147Z`
+- [x] Gate: RSS/PSS **+6.1 MiB / h** after login (1476 → 1482 MiB); explained by `decay_live_max` 1215 → 36874 (hunt_pressure corpses, 1800 s first stage). `todo_heap_max` 467 → 294 (down). `output_queued_bytes_max=0`, 0 disconnects. Not a glibc/TVP-style leak. Decoder still dirty (`skip_failures=1295`) — do not quote walk p99. Next: `0xBF` skip.
+
+# GameObs CPU split (2026-09-17)
+
+Diagnosis only — split the ~84% `comm=game` CPU (1000-bot cell) that `beat_wall_ms` does not cover. No per-packet INFO. `mixed_300.ron` stays frozen. No `0xBF` skip work. No `CLOCK_THREAD_CPUTIME_ID` in A/B.
+
+- [x] `GameObs`: `command_dispatch_us`, `flush_outgoing_us`, walk/use/talk/other_cmd µs + counts, `lua_callback_us`
+- [x] Time drain / `handle_game_packet` class / `LuaCallback` / `flush_pending_outgoing` in `game_loop.rs`
+- [x] Force `,tfs_obs=info` in `run_comparison.py`; `parse_obs_log.py` + BENCHMARK §6.3
+- [x] Tests: obs record + classifier table (`cmd_class` / `classifies_walk_use_talk_other`)
+- [x] Rust-only 50-bot `ms_swarm` 60s `results/20260916T214628Z`. `tfs_obs` windows emit. After `--skip 3`: dispatch p50 4 µs / p99 512–1024; flush p99 8–16 µs; walk ~81–1009/10s at 2–4 µs p99; talk ~17–202/10s at 32–64 p50 / 256–512 p99; **use_cmds=0** (casters SAY spell words); lua 10/10s (hunt_pressure) 128–256 µs; beat `todo_us` is the sim cost. Residual skip 4×`0xBF` — do not quote walk p99.
+
+# Fix list after ms_swarm 1000-bot A/B (2026-09-16)
+
+Do **not** chase game-thread CPU. Cell `results/20260916T074546Z`: 1000 in-world, beat p50 16 / p99 32 ms, game thread ~25% of one core. TVP is `-Og`. Walk p99 / SAY reject / damage rows are decoder + metric + combat parity, not throughput. `mixed_300.ron` stays frozen.
+
+Rep0: Rust `skip_failures=3075` / `bytes_discarded=168219` / `unknown_opcode_first=99`; TVP zeros. Walk p99 5022 ms vs 109 ms. Spell reject 20095/27001 vs 3044/43293. Damage per `0x84` sample ~4876 vs ~78.
+
+- [x] Phase 0 — loadgen diagnosability: skip_failure opcode histogram; unknown-opcode counts (not first-only); `0xB4` reject-text histogram; chat SAY must not enqueue `SpellRune`; decoder-health gate is `skip_failures==0` and `bytes_discarded==0` (no p99 quote otherwise). Tests. 50-bot rust-only is enough to name the skip opcode.
+- [x] Phase 1 — Rust-only inbound desync (walk p99). `0x63` is a map-object creature tag, not a server opcode. Loadgen skips `0xBF` using NotifyGo’s new z (`0x6C` has no dest). 1-bot / 5-bot isolation: skip=0, walk p99 ~35–45 ms. Residual at 50/1000: `0xBF` skip at `player_z=8`, peek `11241200ff…` (client id `0x2411` not in `items.otb`). 1000-bot rust-only `20260916T103354Z`: skip 54 (was 3075), discarded 36 kB (was 168 kB), walk **p50 42 ms / p95 199 ms / p99 still 5 s** from the desynced tail. Unique creatures 3490. No 3-rep A/B until `0xBF` skip is 0.
+- [x] Phase 2 — SAY/spell rejects after the metric split. Chat SAY does not enqueue `SpellRune`. Walk `0xB4` cylinder texts are histogram-only. 1000-bot reject 1072/27040 (~4%) vs old 20095/27001 (~74%) and vs TVP ~7%. Remaining texts: PZ 794, mana 478; no exhaust/secure. SAY p99 is outstanding-at-end (3762).
+- [x] Phase 3 — Combat isolation `bench/scenarios/ue_isolation.ron` (`20260916T102522Z`). Decoder clean both sides. Rust `damage_sum=0` / `unique_creatures=0` / ME 4128; TVP 172 / 11 samples (~16 each) / 3 creatures / ME 3637. hunt_pressure on both (lesson 486). Keep `damage_sum` ungated. 1000-bot per-sample still ~4839 (fleet-visible `0x84`).
+- [x] Rerun: rust-only 50 (`20260916T103042Z`) then 1-rep 1000 (`20260916T103354Z`). **No 3-rep A/B** — decoder not green. TVP `-O3` / matplotlib still housekeeping.
+
+# MS swarm + dual hunt-pressure (2026-09-16)
+
+Same `tfs-loadgen` binary vs Rust and TVP. `mixed_300.ron` stays frozen. Map-wide deaths are pack Lua (not a Rust-only cull).
+
+- [x] Loadgen: `chat_messages` + `spell_words_pool`; caster mixes UE/UH + chat; Noise uses chat pool; phase-offset says. New `bench/scenarios/ms_swarm.ron`.
+- [x] Seeder `--preset ms-swarm`: vocation 5, level 80, HP 30000, mana 200000, maglevel 80, `Ultimate Explosion` + `Ultimate Healing`. `--spell-name` comma-separated. Both SQL dialects.
+- [x] Pack: `eventcallbacks/monster/hunt_pressure.lua` (`onSpawn` id list) + `globalevents/hunt_pressure.lua` (`onStartup` + `addEvent`, not `:interval`). Kills `#Game.getPlayers() * 0.30 / 12` via `Creature(id):addHealth(-max)`.
+- [x] Rust allowlist those two files (`scripts_interface.rs`). No new `config.lua` key (TVP enum).
+- [x] Tests: loadgen RON + say mix; seeder self-test; `real_pack_allowlist` ONSPAWN + HuntPressure GE.
+- [x] TVP pack: copy both Lua files under `gameserver/data/scripts/`; enable `events.xml` Monster `onSpawn` (was 0 — EventCallback never ran). Not `creaturescripts.xml` (empty; would need per-monster `registerEvent`).
+
 # Phase C — boot (unstick RSS)
 
 Drop `HashMap<Position, TileData>` staging so the Phase B −567 MiB live saving shows in RSS. No `malloc_trim`. Load-order side effects (tile flags, house tiles, refresh set) stay identical. Crate split: content walks OTBM; core converts each tile immediately.
@@ -30,7 +78,7 @@ Gate is **live heap bytes** (malloc census) or **RSS after malloc_trim**, not ra
 - [x] B2: snapshot REFRESH tiles on first mutation (`refresh_positions` at load; raster from positions, not snap keys). Boot `refresh_snapshot_count=0`
 - [x] B3: dense chunk `Vec<Tile>` + `[u16; 4096]` slot index (`u16::MAX` = empty); `shrink_to_fit` after map load
 - [x] `cargo test -p tfs-rust-core` (1412 pass / 29 pre-existing fail, same as HEAD); boot log counts `map_tiles=7848819` `map_chunks=3355` `refresh_snapshot_count=0`; live heap 1893 → 1326 MiB (−567). Raw ps RSS 2129 → 2386 is the staging lie
-- [ ] Walk p99 tens of seconds on rust vs ~260 ms TVP (silent-drop / `0x6D`/`0xB5` parity) — Phase D, not CPU
+- [x] Walk p99 tens of seconds on rust vs ~260 ms TVP (silent-drop / `0x6D`/`0xB5` parity) — Phase D, not CPU. Reopened by `20260916T074546Z`. After loadgen histograms + `0xBF` z-tracking: 1000-bot rust-only walk **p50 42 ms / p95 199 ms**; p99 still 5 s while residual `0xBF` skip (54) remains. 1/5-bot cells are clean (~35–45 ms p99).
 
 # 1000-bot clustered hunt cell (2026-09-13)
 

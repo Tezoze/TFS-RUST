@@ -51,6 +51,22 @@ fn game_packet_conn(cmd: &GameCommand) -> Option<ConnId> {
     }
 }
 
+/// Histogram class for one inbound game packet (OBS CPU split).
+fn cmd_obs_class(packet: &GamePacket) -> crate::obs::CmdObsClass {
+    use crate::obs::CmdObsClass;
+    match packet {
+        GamePacket::Move(_)
+        | GamePacket::AutoWalk { .. }
+        | GamePacket::StopAutoWalk
+        | GamePacket::Turn(_) => CmdObsClass::Walk,
+        GamePacket::UseItem(_) | GamePacket::UseItemEx(_) | GamePacket::UseWithCreature { .. } => {
+            CmdObsClass::Use
+        }
+        GamePacket::Say(_) => CmdObsClass::Talk,
+        _ => CmdObsClass::Other,
+    }
+}
+
 fn defer_extra_same_conn_game(
     cmd: GameCommand,
     served: &HashSet<ConnId>,
@@ -227,6 +243,19 @@ fn ensure_output_sink<'a>(
 }
 
 fn flush_pending_outgoing(
+    world: &mut GameWorld,
+    output_sinks: &mut OutputSinkMap,
+    out_registry: &Option<OutRegistry>,
+    pending_output_shed: &mut Vec<ConnId>,
+) {
+    let flush_start = Instant::now();
+    flush_pending_outgoing_inner(world, output_sinks, out_registry, pending_output_shed);
+    world
+        .obs
+        .record_flush_outgoing_us(flush_start.elapsed().as_micros() as u64);
+}
+
+fn flush_pending_outgoing_inner(
     world: &mut GameWorld,
     output_sinks: &mut OutputSinkMap,
     out_registry: &Option<OutRegistry>,
@@ -1219,14 +1248,10 @@ fn handle_game_packet(
             }
         }
         GamePacket::Say(payload) => {
-            // CH-1: `Game::playerSay` dispatch — `gameserver/src/game.cpp:3208-3281`.
-            // Only `TALKTYPE_SAY` is wired (viewport broadcast); other arms stubbed
-            // pending CH-2/CH-3/CH-4/CH-5. Text length is already capped at 255 bytes
-            // by the wire parser (`game_parse.rs::parse_say`, mirroring
-            // `protocolgame.cpp:945-947`).
+            // 772 `CTalk` — `receiving.cc:901-903`: enqueue `TDTalk` + `ToDoStart`.
+            // `player_say` (spells / RecordTalk / SendTalk) runs in `Execute`.
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
-                world.player_say(
-                    conn_id,
+                world.player_request_say(
                     cid,
                     payload.speak_class,
                     payload.channel_id,
@@ -1535,10 +1560,14 @@ fn dispatch_command(
             // C++ reference: `LuaEnvironment::executeTimerEvent` (`luascript.cpp:18238`).
             // Dispatch the `addEvent` callback with Lua mutation scope + read context,
             // then clean up the stale abort handle in the scheduler.
+            let t0 = Instant::now();
             crate::lua_scope::fire_on_timer_event(world, event_id);
             if let Some(scheduler) = &world.scheduler {
                 scheduler.forget(event_id);
             }
+            world
+                .obs
+                .record_lua_callback_us(t0.elapsed().as_micros() as u64);
             ControlFlow::Continue(())
         }
         GameCommand::LuaAsyncResult {
@@ -1569,7 +1598,12 @@ fn dispatch_command(
             ControlFlow::Continue(())
         }
         GameCommand::Game { conn_id, packet } => {
+            let class = cmd_obs_class(&packet);
+            let t0 = Instant::now();
             handle_game_packet(world, conn_id, packet, game_rx, pending);
+            world
+                .obs
+                .record_cmd_class_us(class, t0.elapsed().as_micros() as u64);
             ControlFlow::Continue(())
         }
         GameCommand::HouseNamesResolved {
@@ -1907,6 +1941,7 @@ pub async fn run_game_loop(
                 }
                 obs_note_ingress(&mut world, &game_rx, &pending);
                 let first_game_conn = cmd.as_ref().and_then(game_packet_conn);
+                let dispatch_start = Instant::now();
                 match dispatch_command(
                     &mut world,
                     cmd,
@@ -1992,6 +2027,9 @@ pub async fn run_game_loop(
                         while let Some(c) = deferred.pop_back() {
                             pending.push_front((Instant::now(), c));
                         }
+                        world.obs.record_command_dispatch_us(
+                            dispatch_start.elapsed().as_micros() as u64,
+                        );
                         world.obs_record_commands(processed);
                         world.obs_maybe_emit();
                         advance_due_beats_after_receive_data(
@@ -2065,6 +2103,85 @@ pub async fn wait_for_shutdown_signal() -> anyhow::Result<ShutdownSignal> {
 pub async fn graceful_shutdown(_db: &tfs_rust_db::DbPool) -> anyhow::Result<()> {
     let _ = _db;
     Ok(())
+}
+
+#[cfg(test)]
+mod cmd_obs_class_tests {
+    use tfs_rust_common::Position;
+    use tfs_rust_common::enums::Direction;
+    use tfs_rust_common::game_packet::{GamePacket, SayPayload, UseItemExPayload, UseItemPayload};
+
+    use crate::obs::CmdObsClass;
+
+    use super::cmd_obs_class;
+
+    fn pos() -> Position {
+        Position::new(100, 100, 7)
+    }
+
+    #[test]
+    fn classifies_walk_use_talk_other() {
+        let cases: &[(GamePacket, CmdObsClass)] = &[
+            (GamePacket::Move(Direction::North), CmdObsClass::Walk),
+            (
+                GamePacket::AutoWalk {
+                    path: vec![Direction::East],
+                },
+                CmdObsClass::Walk,
+            ),
+            (GamePacket::StopAutoWalk, CmdObsClass::Walk),
+            (GamePacket::Turn(Direction::South), CmdObsClass::Walk),
+            (
+                GamePacket::UseItem(UseItemPayload {
+                    pos: pos(),
+                    sprite_id: 1,
+                    stack_pos: 0,
+                    index: 0,
+                }),
+                CmdObsClass::Use,
+            ),
+            (
+                GamePacket::UseItemEx(UseItemExPayload {
+                    from_pos: pos(),
+                    from_sprite_id: 1,
+                    from_stack_pos: 0,
+                    to_pos: pos(),
+                    to_sprite_id: 1,
+                    to_stack_pos: 0,
+                }),
+                CmdObsClass::Use,
+            ),
+            (
+                GamePacket::UseWithCreature {
+                    from_pos: pos(),
+                    sprite_id: 1,
+                    from_stack_pos: 0,
+                    creature_id: 1,
+                },
+                CmdObsClass::Use,
+            ),
+            (
+                GamePacket::Say(SayPayload {
+                    speak_class: 1,
+                    channel_id: 0,
+                    receiver: String::new(),
+                    text: "hi".into(),
+                }),
+                CmdObsClass::Talk,
+            ),
+            (GamePacket::Ping, CmdObsClass::Other),
+            (
+                GamePacket::LookAt {
+                    pos: pos(),
+                    stack_pos: 0,
+                },
+                CmdObsClass::Other,
+            ),
+        ];
+        for (packet, expected) in cases {
+            assert_eq!(cmd_obs_class(packet), *expected, "{packet:?}");
+        }
+    }
 }
 
 #[cfg(test)]

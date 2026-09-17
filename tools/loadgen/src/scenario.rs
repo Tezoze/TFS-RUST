@@ -46,6 +46,12 @@ pub struct Scenario {
     pub roles: Vec<RoleWeight>,
     #[serde(default = "default_spell")]
     pub spell_words: String,
+    /// If non-empty, casters pick uniformly from this instead of `spell_words`.
+    #[serde(default)]
+    pub spell_words_pool: Vec<String>,
+    /// Random SAY texts (Noise always; Caster mixes with spells). Empty → `"hi"`.
+    #[serde(default)]
+    pub chat_messages: Vec<String>,
     #[serde(default = "default_rune_sprite")]
     pub rune_sprite_id: u16,
     #[serde(default = "default_rune_slot")]
@@ -144,6 +150,8 @@ impl Scenario {
                 weight: 1.0,
             }],
             spell_words: default_spell(),
+            spell_words_pool: Vec::new(),
+            chat_messages: Vec::new(),
             rune_sprite_id: default_rune_sprite(),
             rune_slot: default_rune_slot(),
             rune_server_id: default_rune_server(),
@@ -173,6 +181,40 @@ impl Scenario {
             .last()
             .map(|r| r.kind)
             .unwrap_or(RoleKind::Walker)
+    }
+
+    fn pick_from<'a>(rng: &mut BotRng, items: &'a [String]) -> &'a str {
+        &items[rng.next_u64() as usize % items.len()]
+    }
+
+    pub fn spell_say_text(&self, rng: &mut BotRng) -> String {
+        if self.spell_words_pool.is_empty() {
+            self.spell_words.clone()
+        } else {
+            Self::pick_from(rng, &self.spell_words_pool).to_string()
+        }
+    }
+
+    pub fn noise_say_text(&self, rng: &mut BotRng) -> String {
+        if self.chat_messages.is_empty() {
+            "hi".into()
+        } else {
+            Self::pick_from(rng, &self.chat_messages).to_string()
+        }
+    }
+
+    /// Caster SAY: ~40% chat when `chat_messages` is set, else a spell.
+    /// Second value is `true` when the text is a spell (enqueue `SpellRune`).
+    pub fn caster_say(&self, rng: &mut BotRng) -> (String, bool) {
+        if !self.chat_messages.is_empty() && rng.next_f64() < 0.4 {
+            (self.noise_say_text(rng), false)
+        } else {
+            (self.spell_say_text(rng), true)
+        }
+    }
+
+    pub fn caster_say_text(&self, rng: &mut BotRng) -> String {
+        self.caster_say(rng).0
     }
 }
 
@@ -262,5 +304,76 @@ mod tests {
         assert_eq!(s.bots, 5);
         assert_eq!(s.walk_period_ms, 500);
         assert!(s.waypoint_file.as_deref().unwrap().contains("cyclops"));
+    }
+
+    #[test]
+    fn ms_swarm_file_loads() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bench/scenarios/ms_swarm.ron");
+        let s = Scenario::load_path(&path).expect("ms_swarm");
+        assert_eq!(s.bots, 1000);
+        assert_eq!(s.roles.len(), 1);
+        assert_eq!(s.roles[0].kind, RoleKind::Caster);
+        assert!(
+            s.spell_words_pool
+                .iter()
+                .any(|w| w.contains("exevo gran mas vis"))
+        );
+        assert!(s.spell_words_pool.iter().any(|w| w.contains("exura vita")));
+        assert!(s.chat_messages.iter().any(|m| m.contains("bot swarm")));
+        assert!(s.waypoint_file.is_none());
+    }
+
+    #[test]
+    fn ue_isolation_file_loads() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bench/scenarios/ue_isolation.ron");
+        let s = Scenario::load_path(&path).expect("ue_isolation");
+        assert_eq!(s.bots, 5);
+        assert!(s.chat_messages.is_empty());
+        assert_eq!(s.spell_words_pool.len(), 1);
+        assert!(s.spell_words_pool[0].contains("exevo gran mas vis"));
+        assert!(s.waypoint_file.as_deref().unwrap().contains("cyclops"));
+    }
+
+    #[test]
+    fn caster_say_mixes_pool_and_chat() {
+        let s: Scenario = ron::from_str(
+            r#"(
+            name: "x",
+            roles: [(kind: Caster, weight: 1.0)],
+            spell_words_pool: ["exevo gran mas vis", "exura vita"],
+            chat_messages: ["we are a bot swarm"],
+        )"#,
+        )
+        .expect("ron");
+        let mut rng = BotRng::new(1);
+        let mut saw_spell = false;
+        let mut saw_chat = false;
+        for _ in 0..80 {
+            let (t, spell) = s.caster_say(&mut rng);
+            if t.contains("exevo") || t.contains("exura") {
+                saw_spell = true;
+                assert!(spell, "{t}");
+            }
+            if t.contains("bot swarm") {
+                saw_chat = true;
+                assert!(!spell, "{t}");
+            }
+        }
+        assert!(saw_spell && saw_chat);
+    }
+
+    #[test]
+    fn noise_defaults_to_hi_without_chat_pool() {
+        let s: Scenario = ron::from_str(
+            r#"(
+            name: "x",
+            roles: [(kind: Noise, weight: 1.0)],
+        )"#,
+        )
+        .expect("ron");
+        let mut rng = BotRng::new(7);
+        assert_eq!(s.noise_say_text(&mut rng), "hi");
     }
 }

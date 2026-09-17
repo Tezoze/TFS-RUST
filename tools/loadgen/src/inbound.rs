@@ -5,7 +5,10 @@
 //! (`0x83`/`0x84`/`0x85`/`0x8C`) feed the Tier 4 content-equivalence gate.
 //!
 //! Map bodies (`0x64` / `0x65`–`0x68` / `0xBE`/`0xBF`) are skipped with the client
-//! skip-counter so a later `0x83` in the same decrypted payload is counted. Login
+//! skip-counter so a later `0x83` in the same decrypted payload is counted.
+//! Surface→underground NotifyGo is `0x6C` (no dest) + `0xBF`; inbound must bump z
+//! before skipping the 5-floor underground rows or `0x67` desyncs (`skip_failures`).
+//! Login
 //! trailers (`0x78`/`0x79`/`0xA0`/`0xA1`/`0x82`/`0x8D`/`0xA2`/`0xB4`) are
 //! length-skipped for the same reason. `0xB5` cancel-walk is parsed (direction
 //! byte) and emitted so latency can retire a rejected walk. TVP also emits
@@ -14,9 +17,11 @@
 //! `0x6D`/`0x83` — those must be length-skipped too. Fight modes `0xA7` (three
 //! body bytes, TVP `sendFightModes`) and VIP `0xD3`/`0xD4` (`u32` guid) are
 //! skipped the same way. Unknown opcodes still discard the rest and are
-//! counted (`unknown_opcodes` / `unknown_opcode_first`).
+//! counted (`unknown_opcodes` / `unknown_opcode_first` plus per-opcode counts).
+//! Map/thing skip failures record the opcode that was being skipped
+//! (`skip_failure_opcodes`) so a Rust-only desync is attributable.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use tfs_rust_common::Position;
@@ -86,6 +91,26 @@ const OP_FIGHT_MODES: u8 = 0xA7;
 const OP_VIP_STATUS: u8 = 0xD3;
 /// TVP `sendUpdatedVIPStatus` logout (`protocolgame.cpp` ~2016): `u32` guid.
 const OP_VIP_LOGOUT: u8 = 0xD4;
+/// 772 `sendContainer` (`v772.rs` `encode_container_open`).
+const OP_CONTAINER_OPEN: u8 = 0x6E;
+/// 772 `sendCloseContainer` (`outgoing_extra.rs`).
+const OP_CONTAINER_CLOSE: u8 = 0x6F;
+/// 772 `sendAddContainerItem` (`v772.rs`).
+const OP_CONTAINER_ADD: u8 = 0x70;
+/// 772 `sendUpdateContainerItem` (`v772.rs`).
+const OP_CONTAINER_UPDATE: u8 = 0x71;
+/// 772 `sendRemoveContainerItem` (`v772.rs`).
+const OP_CONTAINER_REMOVE: u8 = 0x72;
+/// 772 `sendChannelsDialog`.
+const OP_CHANNELS_DIALOG: u8 = 0xAB;
+/// 772 `sendChannel`.
+const OP_CHANNEL_OPEN: u8 = 0xAC;
+/// 772 `sendOpenPrivateChannel`.
+const OP_OPEN_PRIVATE: u8 = 0xAD;
+/// 772 `sendCreatePrivateChannel`.
+const OP_CREATE_PRIVATE: u8 = 0xB2;
+/// 772 `sendClosePrivate`.
+const OP_CLOSE_PRIVATE: u8 = 0xB3;
 /// 772 fight-mode body after `0xA7` (not the 1098/Rust extra pvp byte).
 const FIGHT_MODES_772_LEN: usize = 3;
 /// `TALKTYPE_RVR_CHANNEL` — `sendToChannel` writes `u32` time, not `u16` id.
@@ -138,6 +163,17 @@ pub struct InboundState {
     pub unknown_opcodes: u64,
     /// First unknown server opcode byte this session, if any.
     pub unknown_opcode_first: Option<u8>,
+    /// `skip_failed` counts keyed by the opcode whose body could not be skipped.
+    pub skip_failure_opcodes: HashMap<u8, u64>,
+    /// Unknown top-level opcode counts (not first-only).
+    pub unknown_opcode_counts: HashMap<u8, u64>,
+    /// `0xB4` action-failure texts (walk + spell). Walk/cylinder strings are
+    /// histogram-only; spell texts emit [`InboundEvent::SpellRejected`].
+    pub text_reject_counts: HashMap<String, u64>,
+    /// First 8 bytes at the skip-failure cursor (hex), if any.
+    pub skip_failure_first_peek: Option<String>,
+    /// `player_z` when the first skip failed (None if no skip fail).
+    pub skip_failure_player_z: Option<u8>,
 }
 
 impl Default for InboundState {
@@ -168,6 +204,11 @@ impl InboundState {
             skip_failures: 0,
             unknown_opcodes: 0,
             unknown_opcode_first: None,
+            skip_failure_opcodes: HashMap::new(),
+            unknown_opcode_counts: HashMap::new(),
+            text_reject_counts: HashMap::new(),
+            skip_failure_first_peek: None,
+            skip_failure_player_z: None,
         }
     }
 
@@ -191,11 +232,21 @@ impl InboundState {
         if self.unknown_opcode_first.is_none() {
             self.unknown_opcode_first = other.unknown_opcode_first;
         }
+        merge_u8_counts(&mut self.skip_failure_opcodes, &other.skip_failure_opcodes);
+        merge_u8_counts(&mut self.unknown_opcode_counts, &other.unknown_opcode_counts);
+        merge_str_counts(&mut self.text_reject_counts, &other.text_reject_counts);
+        if self.skip_failure_first_peek.is_none() {
+            self.skip_failure_first_peek = other.skip_failure_first_peek.clone();
+        }
+        if self.skip_failure_player_z.is_none() {
+            self.skip_failure_player_z = other.skip_failure_player_z;
+        }
         self.seen_creatures.extend(&other.seen_creatures);
     }
 
     fn note_unknown(&mut self, op: u8) {
         self.unknown_opcodes += 1;
+        *self.unknown_opcode_counts.entry(op).or_insert(0) += 1;
         if self.unknown_opcode_first.is_none() {
             self.unknown_opcode_first = Some(op);
         }
@@ -251,31 +302,39 @@ impl InboundState {
                         client_viewport_width(),
                         client_viewport_height(),
                     ) {
-                        self.skip_failed(payload, i);
+                        self.skip_failed(payload, i, op);
                         break;
                     }
                 }
                 OP_MAP_NORTH | OP_MAP_SOUTH => {
                     if !self.skip_map_body(payload, &mut i, client_viewport_width(), 1) {
-                        self.skip_failed(payload, i);
+                        self.skip_failed(payload, i, op);
                         break;
                     }
                 }
                 OP_MAP_EAST | OP_MAP_WEST => {
                     if !self.skip_map_body(payload, &mut i, 1, client_viewport_height()) {
-                        self.skip_failed(payload, i);
+                        self.skip_failed(payload, i, op);
                         break;
                     }
                 }
                 OP_FLOOR_UP => {
                     if !self.skip_floor_up(payload, &mut i) {
-                        self.skip_failed(payload, i);
+                        self.skip_failed(payload, i, op);
                         break;
                     }
                 }
                 OP_FLOOR_DOWN => {
+                    // NotifyGo increments z then `SendFloors` (`map_description.rs`).
+                    // Surface→underground is `0x6C` (no dest) so z is still 7 here.
+                    // Underground downs may have already applied dest via `0x6D`;
+                    // floor *count* at z 9–14 is still 1 after a spare +1.
+                    if self.player_z() == 7 {
+                        events.push(InboundEvent::WalkAck);
+                    }
+                    self.apply_notify_go_z_down();
                     if !self.skip_floor_down(payload, &mut i) {
-                        self.skip_failed(payload, i);
+                        self.skip_failed(payload, i, op);
                         break;
                     }
                 }
@@ -288,7 +347,7 @@ impl InboundState {
                     if skip_772_tile_description(payload, &mut i, |id| self.item_extra.has(id))
                         .is_none()
                     {
-                        self.skip_failed(payload, i);
+                        self.skip_failed(payload, i, op);
                         break;
                     }
                 }
@@ -299,7 +358,7 @@ impl InboundState {
                     }
                     i += 5;
                     if !skip_772_thing(payload, &mut i, |id| self.item_extra.has(id)) {
-                        self.skip_failed(payload, i);
+                        self.skip_failed(payload, i, op);
                         break;
                     }
                 }
@@ -311,7 +370,7 @@ impl InboundState {
                     }
                     i += 6;
                     if !skip_772_thing(payload, &mut i, |id| self.item_extra.has(id)) {
-                        self.skip_failed(payload, i);
+                        self.skip_failed(payload, i, op);
                         break;
                     }
                 }
@@ -396,7 +455,7 @@ impl InboundState {
                     if !take(payload, &mut i, 1)
                         || !skip_772_thing(payload, &mut i, |id| self.item_extra.has(id))
                     {
-                        self.skip_failed(payload, i);
+                        self.skip_failed(payload, i, op);
                         break;
                     }
                 }
@@ -454,7 +513,10 @@ impl InboundState {
                             break;
                         }
                         Some(text) if is_action_failure_text(&text) => {
-                            events.push(InboundEvent::SpellRejected);
+                            *self.text_reject_counts.entry(text.clone()).or_insert(0) += 1;
+                            if is_spell_failure_text(&text) {
+                                events.push(InboundEvent::SpellRejected);
+                            }
                         }
                         Some(_) => {}
                     }
@@ -510,6 +572,64 @@ impl InboundState {
                         break;
                     }
                 }
+                OP_CONTAINER_CLOSE => {
+                    if !take(payload, &mut i, 1) {
+                        self.discard_rest(payload, i.saturating_sub(1));
+                        break;
+                    }
+                }
+                OP_CONTAINER_REMOVE => {
+                    if !take(payload, &mut i, 2) {
+                        self.discard_rest(payload, i.saturating_sub(1));
+                        break;
+                    }
+                }
+                OP_CONTAINER_ADD => {
+                    if !take(payload, &mut i, 1)
+                        || !skip_772_thing(payload, &mut i, |id| self.item_extra.has(id))
+                    {
+                        self.skip_failed(payload, i, op);
+                        break;
+                    }
+                }
+                OP_CONTAINER_UPDATE => {
+                    if !take(payload, &mut i, 2)
+                        || !skip_772_thing(payload, &mut i, |id| self.item_extra.has(id))
+                    {
+                        self.skip_failed(payload, i, op);
+                        break;
+                    }
+                }
+                OP_CONTAINER_OPEN => {
+                    if !self.skip_container_open(payload, &mut i) {
+                        self.skip_failed(payload, i, op);
+                        break;
+                    }
+                }
+                OP_CHANNELS_DIALOG => {
+                    if !skip_channels_dialog(payload, &mut i) {
+                        self.discard_rest(payload, i);
+                        break;
+                    }
+                }
+                OP_CHANNEL_OPEN | OP_CREATE_PRIVATE => {
+                    if !take(payload, &mut i, 2) || !skip_len_string(payload, &mut i) {
+                        self.discard_rest(payload, i);
+                        break;
+                    }
+                }
+                OP_OPEN_PRIVATE => {
+                    if !skip_len_string(payload, &mut i) {
+                        self.discard_rest(payload, i);
+                        break;
+                    }
+                }
+                OP_CLOSE_PRIVATE => {
+                    if !take(payload, &mut i, 2) {
+                        self.discard_rest(payload, i.saturating_sub(1));
+                        break;
+                    }
+                }
                 _ => {
                     self.note_unknown(op);
                     self.discard_rest(payload, i.saturating_sub(1));
@@ -522,6 +642,15 @@ impl InboundState {
 
     fn player_z(&self) -> u8 {
         self.pos.map(|p| p.z).unwrap_or(7)
+    }
+
+    /// Encoder `SendFloors` uses z after the NotifyGo down-step.
+    fn apply_notify_go_z_down(&mut self) {
+        if let Some(p) = &mut self.pos
+            && p.z < 15
+        {
+            p.z = p.z.saturating_add(1);
+        }
     }
 
     fn skip_map_body(&self, payload: &[u8], i: &mut usize, width: i32, height: i32) -> bool {
@@ -548,13 +677,75 @@ impl InboundState {
         }
     }
 
-    fn skip_failed(&mut self, payload: &[u8], start: usize) {
+    fn skip_container_open(&self, payload: &[u8], i: &mut usize) -> bool {
+        // cid + container item + name + capacity + hasParent + count + items.
+        if !take(payload, i, 1) {
+            return false;
+        }
+        if !skip_772_thing(payload, i, |id| self.item_extra.has(id)) {
+            return false;
+        }
+        if !skip_len_string(payload, i) || !take(payload, i, 2) {
+            return false;
+        }
+        if !take(payload, i, 1) {
+            return false;
+        }
+        let n = payload[*i - 1];
+        for _ in 0..n {
+            if !skip_772_thing(payload, i, |id| self.item_extra.has(id)) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn skip_failed(&mut self, payload: &[u8], start: usize, op: u8) {
         self.skip_failures += 1;
+        *self.skip_failure_opcodes.entry(op).or_insert(0) += 1;
+        if self.skip_failure_first_peek.is_none() {
+            let n = payload.len().saturating_sub(start).min(32);
+            self.skip_failure_first_peek = Some(hex_bytes(&payload[start..start + n]));
+            self.skip_failure_player_z = Some(self.player_z());
+        }
         self.discard_rest(payload, start);
     }
 
     fn discard_rest(&mut self, payload: &[u8], start: usize) {
         self.bytes_discarded += payload.len().saturating_sub(start) as u64;
+    }
+}
+
+fn skip_channels_dialog(buf: &[u8], i: &mut usize) -> bool {
+    if !take(buf, i, 1) {
+        return false;
+    }
+    let n = buf[*i - 1];
+    for _ in 0..n {
+        if !take(buf, i, 2) || !skip_len_string(buf, i) {
+            return false;
+        }
+    }
+    true
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
+}
+
+fn merge_u8_counts(dst: &mut HashMap<u8, u64>, src: &HashMap<u8, u64>) {
+    for (&k, &v) in src {
+        *dst.entry(k).or_insert(0) += v;
+    }
+}
+
+fn merge_str_counts(dst: &mut HashMap<String, u64>, src: &HashMap<String, u64>) {
+    for (k, &v) in src {
+        *dst.entry(k.clone()).or_insert(0) += v;
     }
 }
 
@@ -588,6 +779,12 @@ fn read_len_string(buf: &[u8], i: &mut usize) -> Option<String> {
 /// for actions the loadgen schedules (use / rune / say / attack). Anything else
 /// on `0xB4` (MOTD, broadcasts, advance) is not a rejection.
 fn is_action_failure_text(text: &str) -> bool {
+    is_walk_failure_text(text) || is_spell_failure_text(text)
+}
+
+/// Cylinder / walk `SendResult` strings. Histogrammed but must **not** retire
+/// `SpellRune` — rust sends these with `0xB5` Snapback (`walk/mod.rs`).
+fn is_walk_failure_text(text: &str) -> bool {
     matches!(
         text,
         "Sorry, not possible."
@@ -599,7 +796,13 @@ fn is_action_failure_text(text: &str) -> bool {
             | "There is no way."
             | "This is impossible."
             | "You cannot use this object."
-            | "Your magic level is too low."
+    )
+}
+
+fn is_spell_failure_text(text: &str) -> bool {
+    matches!(
+        text,
+        "Your magic level is too low."
             | "You do not have enough magic level."
             | "You are exhausted."
             | "You cannot use objects that fast."
@@ -739,7 +942,7 @@ mod tests {
 
     use tfs_rust_common::ProtocolVersion;
     use tfs_rust_net::map_description::{
-        TileContent, send_map_description_packet, write_map_description_body,
+        TileContent, send_map_description_packet, send_notify_go, write_map_description_body,
     };
     use tfs_rust_net::{Codec, NetworkMessage};
 
@@ -846,6 +1049,135 @@ mod tests {
         let ev = s.feed(&p);
         assert_eq!(ev, vec![InboundEvent::WalkAck]);
         assert_eq!(s.pos, Some(Position::new(10, 9, 7)));
+    }
+
+    #[test]
+    fn notify_go_hole_down_skips_and_acks() {
+        let orig = Position::new(100, 100, 7);
+        let dest = Position::new(100, 100, 8);
+        let mut s = InboundState {
+            self_id: Some(1),
+            pos: Some(orig),
+            ..InboundState::default()
+        };
+        let mut known = HashSet::new();
+        let mut get_tile = |_x: i32, _y: i32, _z: i32| -> Option<TileContent> { None };
+        let mut can_see = |_id: u32| true;
+        let mut p = send_notify_go(
+            &codec_772(),
+            orig,
+            dest,
+            0,
+            1,
+            &mut get_tile,
+            &mut known,
+            &mut can_see,
+            false,
+        )
+        .into_bytes();
+        p.extend_from_slice(&magic_effect_bytes(dest, 11));
+        let ev = s.feed(&p);
+        assert_eq!(s.skip_failures, 0, "peek={:?}", s.skip_failure_first_peek);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.pos.map(|p| p.z), Some(8));
+        assert_eq!(s.magic_effects, 1);
+        assert!(ev.contains(&InboundEvent::WalkAck));
+    }
+
+    #[test]
+    fn notify_go_same_z_south_pos_comes_from_6d() {
+        let orig = Position::new(100, 100, 7);
+        let dest = Position::new(100, 101, 7);
+        let mut s = InboundState {
+            self_id: Some(1),
+            pos: Some(orig),
+            ..InboundState::default()
+        };
+        let mut known = HashSet::new();
+        let mut get_tile = |_x: i32, _y: i32, _z: i32| -> Option<TileContent> { None };
+        let mut can_see = |_id: u32| true;
+        let p = send_notify_go(
+            &codec_772(),
+            orig,
+            dest,
+            0,
+            1,
+            &mut get_tile,
+            &mut known,
+            &mut can_see,
+            false,
+        )
+        .into_bytes();
+        let ev = s.feed(&p);
+        assert_eq!(s.skip_failures, 0, "peek={:?}", s.skip_failure_first_peek);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.pos, Some(dest));
+        assert!(ev.contains(&InboundEvent::WalkAck));
+    }
+
+    #[test]
+    fn notify_go_stairs_down_diag_skips() {
+        let orig = Position::new(100, 100, 7);
+        let dest = Position::new(100, 101, 8);
+        let mut s = InboundState {
+            self_id: Some(1),
+            pos: Some(orig),
+            ..InboundState::default()
+        };
+        let mut known = HashSet::new();
+        let mut get_tile = |_x: i32, _y: i32, _z: i32| -> Option<TileContent> { None };
+        let mut can_see = |_id: u32| true;
+        let mut p = send_notify_go(
+            &codec_772(),
+            orig,
+            dest,
+            0,
+            1,
+            &mut get_tile,
+            &mut known,
+            &mut can_see,
+            false,
+        )
+        .into_bytes();
+        p.extend_from_slice(&magic_effect_bytes(dest, 11));
+        let ev = s.feed(&p);
+        assert_eq!(s.skip_failures, 0, "peek={:?}", s.skip_failure_first_peek);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.pos.map(|p| p.z), Some(8));
+        assert_eq!(s.magic_effects, 1);
+        assert!(ev.contains(&InboundEvent::WalkAck));
+    }
+
+    #[test]
+    fn notify_go_underground_down_skips() {
+        let orig = Position::new(100, 100, 8);
+        let dest = Position::new(100, 100, 9);
+        let mut s = InboundState {
+            self_id: Some(1),
+            pos: Some(orig),
+            ..InboundState::default()
+        };
+        let mut known = HashSet::new();
+        let mut get_tile = |_x: i32, _y: i32, _z: i32| -> Option<TileContent> { None };
+        let mut can_see = |_id: u32| true;
+        let mut p = send_notify_go(
+            &codec_772(),
+            orig,
+            dest,
+            0,
+            1,
+            &mut get_tile,
+            &mut known,
+            &mut can_see,
+            false,
+        )
+        .into_bytes();
+        p.extend_from_slice(&magic_effect_bytes(dest, 11));
+        let ev = s.feed(&p);
+        assert_eq!(s.skip_failures, 0, "peek={:?} z={:?}", s.skip_failure_first_peek, s.skip_failure_player_z);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.magic_effects, 1);
+        assert!(ev.contains(&InboundEvent::WalkAck));
     }
 
     #[test]
@@ -992,9 +1324,20 @@ mod tests {
     #[test]
     fn failure_text_emits_spell_rejected() {
         let mut s = InboundState::default();
-        let ev = s.feed(&text_message_bytes("Sorry, not possible."));
+        let ev = s.feed(&text_message_bytes("You are exhausted."));
         assert_eq!(ev, vec![InboundEvent::SpellRejected]);
         assert_eq!(s.bytes_discarded, 0);
+    }
+
+    #[test]
+    fn walk_sorry_text_does_not_steal_spell_fifo() {
+        let mut s = InboundState::default();
+        let ev = s.feed(&text_message_bytes("Sorry, not possible."));
+        assert!(ev.is_empty());
+        assert_eq!(
+            s.text_reject_counts.get("Sorry, not possible.").copied(),
+            Some(1)
+        );
     }
 
     #[test]
@@ -1149,6 +1492,70 @@ mod tests {
         assert_eq!(s.magic_effects, 0);
         assert_eq!(s.unknown_opcodes, 1);
         assert_eq!(s.unknown_opcode_first, Some(0x15));
+        assert_eq!(s.unknown_opcode_counts.get(&0x15).copied(), Some(1));
         assert!(s.bytes_discarded > 0);
+    }
+
+    #[test]
+    fn skip_failed_records_opcode_histogram() {
+        let mut s = InboundState::default();
+        // 0x6A + pos, then a truncated thing (one byte) so skip_772_thing fails.
+        let mut p = vec![OP_ADD_TILE_THING];
+        p.extend_from_slice(&1u16.to_le_bytes());
+        p.extend_from_slice(&2u16.to_le_bytes());
+        p.push(7);
+        p.push(0x01);
+        let ev = s.feed(&p);
+        assert!(ev.is_empty());
+        assert_eq!(s.skip_failures, 1);
+        assert_eq!(
+            s.skip_failure_opcodes.get(&OP_ADD_TILE_THING).copied(),
+            Some(1)
+        );
+        assert!(s.bytes_discarded > 0);
+        assert!(s.skip_failure_first_peek.is_some());
+    }
+
+    #[test]
+    fn container_open_then_magic_effect() {
+        let mut s = InboundState::default();
+        let mut p = vec![OP_CONTAINER_OPEN, 0];
+        p.extend_from_slice(&0x0ABCu16.to_le_bytes()); // header item, no extra
+        p.extend_from_slice(&3u16.to_le_bytes());
+        p.extend_from_slice(b"bag");
+        p.push(8); // capacity
+        p.push(0); // hasParent
+        p.push(0); // count
+        p.extend_from_slice(&magic_effect_bytes(Position::new(1, 2, 7), 11));
+        let ev = s.feed(&p);
+        assert_eq!(s.magic_effects, 1);
+        assert_eq!(ev.len(), 1);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.unknown_opcodes, 0);
+    }
+
+    #[test]
+    fn channels_dialog_then_magic_effect() {
+        let mut s = InboundState::default();
+        let mut p = vec![OP_CHANNELS_DIALOG, 1];
+        p.extend_from_slice(&5u16.to_le_bytes());
+        p.extend_from_slice(&5u16.to_le_bytes());
+        p.extend_from_slice(b"Trade");
+        p.extend_from_slice(&magic_effect_bytes(Position::new(1, 2, 7), 11));
+        let ev = s.feed(&p);
+        assert_eq!(s.magic_effects, 1);
+        assert_eq!(ev.len(), 1);
+        assert_eq!(s.bytes_discarded, 0);
+    }
+
+    #[test]
+    fn failure_text_counts_histogram() {
+        let mut s = InboundState::default();
+        let ev = s.feed(&text_message_bytes("You are exhausted."));
+        assert_eq!(ev, vec![InboundEvent::SpellRejected]);
+        assert_eq!(
+            s.text_reject_counts.get("You are exhausted.").copied(),
+            Some(1)
+        );
     }
 }
