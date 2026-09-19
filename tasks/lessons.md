@@ -1147,4 +1147,10 @@
 490. **Player `CTalk` is `ToDoTalk` + `ToDoStart`, not packet-time `player_say`** (`receiving.cc:901-903`; `cract.cc:848-856`, `:991-996`, `:1016-1018`): wire SAY used to run spells/RecordTalk/SendTalk in `handle_game_packet` (`talk_us`). Corpus enqueues `TDTalk` (no upfront `ToDoClear`; `ToDoAdd` clears only if `LockToDo`) and `Talk()` runs in `Execute` (`TDTalk` has no `CalculateDelay` arm → clamp 1). `player_request_say` + `creature_todo_add`; execute with `check_spamming` calls `player_say`. NPC/Hicks keep `talk_text` (`CheckSpamming=false`). Lua `creature:say` stays immediate. Spell/SAY cost now lands in `todo_us` like walk Execute.
     *(2026-09-17)*
 
+491. **Loadgen `0xBF` skip failed on 10-object tiles, not missing OTB `0x2411`** (`map_skip.rs` `skip_tile_description`; `sending.cc:271-282` `SendMapPoint`): residual peek `11241200ff` at `player_z=8` is LE `0x2411` (client id luxurious couch, `merged_items.txt` server 1703) then `0x0012` then skip `0xFF00` — a **next tile**, not an unknown id. Decompile writes at most 10 objects and **no** `0xFF00` terminator; skip treated the 11th u16 as fatal (`nthings >= 10` → `None`). Fix: after 10 things return `Some(0)` like OTClient. Also bump z on `0xBF` only when `player_z==7` (`0x6C` has no dest); `0x6D` already applied dest (`z=14` double-bump skipped 0 floors). Floor count 3 at z=8 was already correct. Do not quote walk p99 until a cell has `skip_failures==0`.
+    *(2026-09-17)*
+
+492. **50-bot ms_swarm after 10-thing skip: `skip_failures=0`, one stray `0xFF`** (`results/20260919T213326Z`): 50 in-world, 0 disconnects. `skip_failures=0` / empty `skip_failure_opcodes`. `bytes_discarded=230` from **one** `unknown_opcodes=1` opcode **255** (did not grow after ~action 7522). Decoder gate is both-zero — still do not quote walk p99 (14.5 s) or outstanding 2211. 0xBF 10-thing path held. Next is the lone `0xFF` as a top-level opcode (leftover skip high byte), not a 1000-bot cell.
+    *(2026-09-20)*
+
 

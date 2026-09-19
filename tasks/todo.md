@@ -1,3 +1,20 @@
+# 50-bot rust ms_swarm decoder gate (2026-09-20)
+
+Prove the 0xBF 10-thing skip on a live cell before quoting walk p99. `mixed_300.ron` frozen. Rebuild loadgen (uncommitted `map_skip.rs` / `inbound.rs`).
+
+- [x] Seed 50 `--preset ms-swarm` cluster accounts
+- [x] `run_comparison.py --mode steady --servers rust --bots 50 --reps 1 --duration-s 60 --scenario bench/scenarios/ms_swarm.ron --disable-saves` — `results/20260919T213326Z`
+- [x] Gate: `skip_failures=0` (0xBF 10-thing skip holds). **`bytes_discarded=230`** — one unknown opcode `255` (`0xFF`), then rest of that frame. 50 in-world, 0 disconnects. Not both-zero — do not quote walk p99. Next: lone `0xFF` as top-level opcode, not a 1000-bot cell.
+
+# Loadgen 0xBF skip (2026-09-17)
+
+Residual `skip_failures` at `player_z=8` peek `11241200ff` (`0x2411` is client id luxurious couch, in OTB). Root cause is not floor count (3 at z=8 matches `SendFloors`). `skip_tile_description` returns `None` after 10 things (`MAX_OBJECTS_PER_POINT`); decompile `SendMapPoint` emits 10 objects with no `0xFF00` terminator (`sending.cc:271-282`). OTClient stops at 10 and treats the next bytes as the next tile (`skip=0`). Secondary: `0xBF` always `apply_notify_go_z_down`; after `0x6D` dest is already applied — bump only on `0x6C` surface→underground (`z==7`). `mixed_300.ron` frozen.
+
+- [x] `map_skip.rs`: after 10 things, `return Some(0)` not `None`
+- [x] `inbound.rs`: bump z on `0xBF` only when `player_z()==7`
+- [x] Tests: 10-thing tile then `0x2411` without terminator; encoder 10-thing still skips; `0x6D` 8→9 does not double-bump
+- [x] `cargo test -p tfs-rust-net --lib map_skip`; `cargo test -p tfs-loadgen`
+
 # Player CTalk → ToDoTalk (2026-09-17)
 
 Decompile `CTalk` enqueues `TDTalk` + `ToDoStart` (`receiving.cc:901-903`); `Talk()` / spells run in `Execute` (`cract.cc:848-856`). Rust ran `player_say` in the packet handler (`talk_us`). Match corpus: enqueue via `creature_todo_add` (clear only if `LockToDo`), execute `player_say` on drain. NPC/Hicks keep `check_spamming=false` viewport path. Lua `creature:say` stays immediate. `mixed_300.ron` frozen. No `0xBF`.

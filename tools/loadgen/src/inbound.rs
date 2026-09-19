@@ -7,7 +7,8 @@
 //! Map bodies (`0x64` / `0x65`–`0x68` / `0xBE`/`0xBF`) are skipped with the client
 //! skip-counter so a later `0x83` in the same decrypted payload is counted.
 //! Surface→underground NotifyGo is `0x6C` (no dest) + `0xBF`; inbound must bump z
-//! before skipping the 5-floor underground rows or `0x67` desyncs (`skip_failures`).
+//! before skipping 3-floor `0xBF` at the new z. Underground `0x6D` already has dest;
+//! do not bump again on `0xBF`.
 //! Login
 //! trailers (`0x78`/`0x79`/`0xA0`/`0xA1`/`0x82`/`0x8D`/`0xA2`/`0xB4`) are
 //! length-skipped for the same reason. `0xB5` cancel-walk is parsed (direction
@@ -327,12 +328,12 @@ impl InboundState {
                 OP_FLOOR_DOWN => {
                     // NotifyGo increments z then `SendFloors` (`map_description.rs`).
                     // Surface→underground is `0x6C` (no dest) so z is still 7 here.
-                    // Underground downs may have already applied dest via `0x6D`;
-                    // floor *count* at z 9–14 is still 1 after a spare +1.
+                    // Underground downs already applied dest via `0x6D` — do not bump
+                    // again (`player_z==14` would skip 0 floors instead of 1).
                     if self.player_z() == 7 {
                         events.push(InboundEvent::WalkAck);
+                        self.apply_notify_go_z_down();
                     }
-                    self.apply_notify_go_z_down();
                     if !self.skip_floor_down(payload, &mut i) {
                         self.skip_failed(payload, i, op);
                         break;
@@ -1176,6 +1177,7 @@ mod tests {
         let ev = s.feed(&p);
         assert_eq!(s.skip_failures, 0, "peek={:?} z={:?}", s.skip_failure_first_peek, s.skip_failure_player_z);
         assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.pos, Some(dest), "0x6D dest z must not be bumped again on 0xBF");
         assert_eq!(s.magic_effects, 1);
         assert!(ev.contains(&InboundEvent::WalkAck));
     }

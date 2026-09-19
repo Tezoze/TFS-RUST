@@ -98,7 +98,11 @@ pub fn skip_772_move_down_floor_body(
     )
 }
 
-/// One tile: things until a skip pair (`u16 >= 0xFF00`). Returns the skip count (low byte).
+/// One tile: things until a skip pair (`u16 >= 0xFF00`), or 10 things with no terminator.
+///
+/// Decompile `SendMapPoint` (`sending.cc:271-282`) writes at most `MAX_OBJECTS_PER_POINT` (10)
+/// objects and does **not** emit a skip pair after them; OTClient `getTileDescription` stops at
+/// 10 and leaves the next bytes for the following tile (`skip = 0`).
 pub fn skip_772_tile_description(
     buf: &[u8],
     i: &mut usize,
@@ -154,7 +158,8 @@ fn skip_tile_description(
             return Some(i32::from(peek as u8));
         }
         if nthings >= TILE_THING_CAP {
-            return None;
+            // Full tile, no `0xFF00` — next u16 is the next tile (`SendMapPoint`).
+            return Some(0);
         }
         if !skip_thing(buf, i, item_has_extra) {
             return None;
@@ -571,5 +576,30 @@ mod tests {
             |_| false,
         ));
         assert_eq!(i, body.len());
+    }
+
+    #[test]
+    fn skip_ten_things_then_next_tile_without_ff00() {
+        // `SendMapPoint` 10 objects, no terminator; next tile starts at `0x2411`
+        // (client id luxurious couch — the residual peek `11241200ff`).
+        let mut buf = Vec::new();
+        for k in 0..10u16 {
+            buf.extend_from_slice(&(0x0100 + k).to_le_bytes());
+        }
+        buf.extend_from_slice(&0x2411u16.to_le_bytes());
+        buf.extend_from_slice(&0x0012u16.to_le_bytes());
+        buf.extend_from_slice(&0xFF00u16.to_le_bytes());
+
+        let mut i = 0usize;
+        assert_eq!(
+            skip_772_tile_description(&buf, &mut i, |_| false),
+            Some(0),
+            "10 things must end the tile without requiring 0xFF00"
+        );
+        assert_eq!(
+            skip_772_tile_description(&buf, &mut i, |_| false),
+            Some(0)
+        );
+        assert_eq!(i, buf.len());
     }
 }
