@@ -602,4 +602,69 @@ mod tests {
         );
         assert_eq!(i, buf.len());
     }
+
+    #[test]
+    fn skip_last_tile_ten_things_leaves_orphan_ff() {
+        // 8 floors × 1×1: 7 empty tiles (`[6, 0xFF]`), then a 10-thing last cell
+        // with no terminator, then leftover `0xFF` then `0x83`. Peek `[0xFF, 0x83]`
+        // is `0x83FF < 0xFF00`, so the 10-thing cap leaves the cursor on `0xFF`.
+        // Do not eat it here — a live 0xBE at z=8 leftover `ff980100ff…` is more
+        // skip-stream, not a skip high byte (`20260919T221503Z`).
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&0xFF06u16.to_le_bytes());
+        for k in 0..10u16 {
+            buf.extend_from_slice(&(0x0100 + k).to_le_bytes());
+        }
+        buf.push(0xFF);
+        buf.push(0x83);
+
+        let mut i = 0usize;
+        assert!(skip_772_map_description_body(
+            &buf,
+            &mut i,
+            7,
+            1,
+            1,
+            |_| false,
+        ));
+        assert_eq!(buf[i], 0xFF);
+        assert_eq!(buf[i + 1], 0x83);
+    }
+
+    #[test]
+    fn skip_empty_map_does_not_eat_following_ff() {
+        // Blanket leftover-`0xFF` eat after a terminated/empty stream stole the next
+        // `0x65`/`0xBF` body (`20260919T214742Z`). Last tile here is a skip pair, not
+        // an unterminated 10-thing — leave `0xFF` for inbound.
+        let player = Position::new(32369, 32241, 7);
+        let mut known = HashSet::new();
+        let mut get_tile = empty_tile;
+        let mut can_see = |_id: u32| true;
+        let msg = send_map_description_packet(
+            &codec_772(),
+            player,
+            player,
+            &mut get_tile,
+            &mut known,
+            &mut can_see,
+            false,
+        );
+        let mut payload = msg.into_bytes();
+        payload.push(0xFF);
+        payload.push(0x65);
+
+        assert_eq!(payload[0], 0x64);
+        let mut i = 1usize;
+        i += 5; // position
+        assert!(skip_772_map_description_body(
+            &payload,
+            &mut i,
+            7,
+            client_viewport_width(),
+            client_viewport_height(),
+            |_| false,
+        ));
+        assert_eq!(payload[i], 0xFF);
+        assert_eq!(payload[i + 1], 0x65);
+    }
 }

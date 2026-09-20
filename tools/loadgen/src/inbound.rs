@@ -8,7 +8,23 @@
 //! skip-counter so a later `0x83` in the same decrypted payload is counted.
 //! Surface→underground NotifyGo is `0x6C` (no dest) + `0xBF`; inbound must bump z
 //! before skipping 3-floor `0xBF` at the new z. Underground `0x6D` already has dest;
-//! do not bump again on `0xBF`.
+//! do not bump again on `0xBF` (dest z=9 skips 1). Climb up is always `0x6D` + dest then
+//! `0xBE`; if `0x6D` did not apply (not self), `0xBE` at z=8 would skip 1 floor while
+//! the encoder wrote 6 (new z==7). Bump z-1 on `0xBE` only when `player_z==8` and no
+//! self `0x6D` dest z>7 is awaiting (9→8 dest z=8 must still skip 1, including when
+//! `0x6D`/`0xBE` split frames). Encoder omits floor bytes when up `z<7` or down has no
+//! range (`append_send_floors_body` early return); the next opcode is `SendRow`
+//! (`0x65`–`0x68`) or a tile-update (`0x69`/`0x6A`/`0x6B`, `20260920T010424Z` peek
+//! `6bfa7d…`). If skip-floors fails and the body starts with that opcode, treat
+//! as 0 floors — do not eat `0xFF` (`20260919T223936Z` peek `67…`). After a counted
+//! map/floor skip, extra skip-stream tiles may remain (`0x68` leftover `2f1171…`);
+//! drain them until a known opcode. A trailing skip pair `[n, 0xFF]` with `n` equal
+//! to a map opcode (`20260920T011720Z` `0x68` peek `eof`) is leftover empty tiles,
+//! not a new `SendRow` — eat it when the next byte is a known opcode. Unread skip
+//! tiles after `0xA0` (`0400ff…`) are drained on the following `feed` loop, not
+//! treated as opcodes. Leftover `0xFF` before skip-stream (`ff2a11…` after `0xA0`)
+//! is skip-tiled, not left as unknown 255. First-opcode `ff98…` stays unknown.
+//! An omitted `SendRow` may be followed by a speak-shaped body (`00000600Test22…`).
 //! Login
 //! trailers (`0x78`/`0x79`/`0xA0`/`0xA1`/`0x82`/`0x8D`/`0xA2`/`0xB4`) are
 //! length-skipped for the same reason. `0xB5` cancel-walk is parsed (direction
@@ -19,6 +35,10 @@
 //! body bytes, TVP `sendFightModes`) and VIP `0xD3`/`0xD4` (`u32` guid) are
 //! skipped the same way. Unknown opcodes still discard the rest and are
 //! counted (`unknown_opcodes` / `unknown_opcode_first` plus per-opcode counts).
+//! First unknown also records peek / previous opcode / `player_z` so a lone `0xFF`
+//! leftover skip high byte is attributable. A top-level `0xFF` is skipped when the
+//! next byte is a known opcode (`20260920T005241Z` peek `ff66…`); skip-stream
+//! `ff98…` stays unknown.
 //! Map/thing skip failures record the opcode that was being skipped
 //! (`skip_failure_opcodes`) so a Rust-only desync is attributable.
 
@@ -126,6 +146,9 @@ pub enum InboundEvent {
     WalkAck,
     /// Server rejected the current walk (`0xB5`); not a latency sample.
     CancelWalk,
+    /// Walk bump: `0xB4` walk-bump text with a trailing `0xB5` in this payload
+    /// (`on_walk_step_rejected`). Unpaired Sorry is histogram-only.
+    WalkRejected,
     MagicEffect {
         pos: Position,
         effect: u8,
@@ -168,13 +191,23 @@ pub struct InboundState {
     pub skip_failure_opcodes: HashMap<u8, u64>,
     /// Unknown top-level opcode counts (not first-only).
     pub unknown_opcode_counts: HashMap<u8, u64>,
-    /// `0xB4` action-failure texts (walk + spell). Walk/cylinder strings are
-    /// histogram-only; spell texts emit [`InboundEvent::SpellRejected`].
+    /// `0xB4` action-failure texts (walk + spell). Walk-bump strings emit
+    /// [`InboundEvent::WalkRejected`] only when the next opcode is `0xB5`;
+    /// unpaired Sorry stays histogram-only. Spell texts emit [`InboundEvent::SpellRejected`].
     pub text_reject_counts: HashMap<String, u64>,
     /// First 8 bytes at the skip-failure cursor (hex), if any.
     pub skip_failure_first_peek: Option<String>,
     /// `player_z` when the first skip failed (None if no skip fail).
     pub skip_failure_player_z: Option<u8>,
+    /// First 32 bytes at the unknown-opcode cursor (hex, includes the opcode).
+    pub unknown_opcode_peek: Option<String>,
+    /// Opcode successfully parsed immediately before the first unknown, if any.
+    pub unknown_opcode_prev: Option<u8>,
+    /// `player_z` when the first unknown opcode was seen.
+    pub unknown_opcode_player_z: Option<u8>,
+    /// Self `0x6D` dest z>7 and dest<old (underground climb). Next `0xBE` skips 1
+    /// floor at that z even if it arrives in a later frame — do not bump 8→7.
+    awaiting_move_up_one_floor: bool,
 }
 
 impl Default for InboundState {
@@ -210,6 +243,10 @@ impl InboundState {
             text_reject_counts: HashMap::new(),
             skip_failure_first_peek: None,
             skip_failure_player_z: None,
+            unknown_opcode_peek: None,
+            unknown_opcode_prev: None,
+            unknown_opcode_player_z: None,
+            awaiting_move_up_one_floor: false,
         }
     }
 
@@ -242,14 +279,27 @@ impl InboundState {
         if self.skip_failure_player_z.is_none() {
             self.skip_failure_player_z = other.skip_failure_player_z;
         }
+        if self.unknown_opcode_peek.is_none() {
+            self.unknown_opcode_peek = other.unknown_opcode_peek.clone();
+        }
+        if self.unknown_opcode_prev.is_none() {
+            self.unknown_opcode_prev = other.unknown_opcode_prev;
+        }
+        if self.unknown_opcode_player_z.is_none() {
+            self.unknown_opcode_player_z = other.unknown_opcode_player_z;
+        }
         self.seen_creatures.extend(&other.seen_creatures);
     }
 
-    fn note_unknown(&mut self, op: u8) {
+    fn note_unknown(&mut self, op: u8, payload: &[u8], start: usize, prev: Option<u8>) {
         self.unknown_opcodes += 1;
         *self.unknown_opcode_counts.entry(op).or_insert(0) += 1;
         if self.unknown_opcode_first.is_none() {
             self.unknown_opcode_first = Some(op);
+            let n = payload.len().saturating_sub(start).min(32);
+            self.unknown_opcode_peek = Some(hex_bytes(&payload[start..start + n]));
+            self.unknown_opcode_prev = prev;
+            self.unknown_opcode_player_z = Some(self.player_z());
         }
     }
 
@@ -275,8 +325,32 @@ impl InboundState {
         self.frames_in += 1;
         let mut events = Vec::new();
         let mut i = 0usize;
+        let mut prev: Option<u8> = None;
         while i < payload.len() {
             let op = payload[i];
+            // Orphan skip high byte (`[n, 0xFF]` pair) left after a finished
+            // tile/container. Next byte is a real opcode (`20260920T005241Z`
+            // peek `ff66…`). Do not eat when the next byte is still skip-stream
+            // (`ff98…`, `20260919T221503Z`).
+            if op == 0xFF
+                && payload
+                    .get(i + 1)
+                    .copied()
+                    .is_some_and(is_known_inbound_opcode)
+            {
+                i += 1;
+                continue;
+            }
+            // Skip-stream left after a finished packet (`20260920T011720Z` `0x04`
+            // after `0xA0`). Do not drain the first opcode of a payload (`0x15`
+            // unknown test).
+            if prev.is_some() && !is_known_inbound_opcode(op) {
+                let before = i;
+                self.drain_trailing_skip_stream(payload, &mut i);
+                if i != before {
+                    continue;
+                }
+            }
             i += 1;
             match op {
                 OP_SELF_APPEAR => {
@@ -320,6 +394,16 @@ impl InboundState {
                     }
                 }
                 OP_FLOOR_UP => {
+                    // Encoder `SendFloors` up uses z after the NotifyGo up-step.
+                    // 8→7 without dest still at z=8 would skip 1 floor (need 6).
+                    // 9→8 dest z=8 skips 1; `awaiting_move_up_one_floor` survives
+                    // a frame split so we do not bump (`20260919T222725Z`).
+                    let dest_applied = self.awaiting_move_up_one_floor;
+                    self.awaiting_move_up_one_floor = false;
+                    if self.player_z() == 8 && !dest_applied {
+                        events.push(InboundEvent::WalkAck);
+                        self.apply_notify_go_z_up();
+                    }
                     if !self.skip_floor_up(payload, &mut i) {
                         self.skip_failed(payload, i, op);
                         break;
@@ -330,6 +414,8 @@ impl InboundState {
                     // Surface→underground is `0x6C` (no dest) so z is still 7 here.
                     // Underground downs already applied dest via `0x6D` — do not bump
                     // again (`player_z==14` would skip 0 floors instead of 1).
+                    // Do not bump `0xBF` at z=8: dest-applied 7→8/`0x6D` skips 3
+                    // (`20260919T223936Z` skip 10→17).
                     if self.player_z() == 7 {
                         events.push(InboundEvent::WalkAck);
                         self.apply_notify_go_z_down();
@@ -382,7 +468,11 @@ impl InboundState {
                     }
                     Some((id, old_pos, new_pos)) => {
                         if self.is_self_move(id, old_pos) {
+                            let old_z = self.player_z();
                             self.pos = Some(new_pos);
+                            if new_pos.z > 7 && old_z > new_pos.z {
+                                self.awaiting_move_up_one_floor = true;
+                            }
                             events.push(InboundEvent::WalkAck);
                         } else if let Some(cid) = id {
                             self.note_creature(cid, Some(new_pos));
@@ -503,7 +593,8 @@ impl InboundState {
                     // TVP `sendTextMessage` (`protocolgame.cpp` ~1246): type + string.
                     // Failure cancels (`send_cancel_message` / `SendResult`) share this
                     // opcode with MOTD / broadcasts, so only known action-failure texts
-                    // retire an outstanding spell — never match on the opcode alone.
+                    // retire an outstanding action — never match on the opcode alone.
+                    // Walk-bump text retires a walk only when the next byte is `0xB5`.
                     if !take(payload, &mut i, 1) {
                         self.discard_rest(payload, i.saturating_sub(1));
                         break;
@@ -515,7 +606,11 @@ impl InboundState {
                         }
                         Some(text) if is_action_failure_text(&text) => {
                             *self.text_reject_counts.entry(text.clone()).or_insert(0) += 1;
-                            if is_spell_failure_text(&text) {
+                            if is_walk_snapback_text(&text)
+                                && payload.get(i).copied() == Some(OP_CANCEL_WALK)
+                            {
+                                events.push(InboundEvent::WalkRejected);
+                            } else if is_spell_failure_text(&text) {
                                 events.push(InboundEvent::SpellRejected);
                             }
                         }
@@ -632,11 +727,12 @@ impl InboundState {
                     }
                 }
                 _ => {
-                    self.note_unknown(op);
+                    self.note_unknown(op, payload, i.saturating_sub(1), prev);
                     self.discard_rest(payload, i.saturating_sub(1));
                     break;
                 }
             }
+            prev = Some(op);
         }
         events
     }
@@ -654,18 +750,108 @@ impl InboundState {
         }
     }
 
+    /// Encoder `SendFloors` uses z after the NotifyGo up-step.
+    fn apply_notify_go_z_up(&mut self) {
+        if let Some(p) = &mut self.pos
+            && p.z > 0
+        {
+            p.z = p.z.saturating_sub(1);
+        }
+    }
+
     fn skip_map_body(&self, payload: &[u8], i: &mut usize, width: i32, height: i32) -> bool {
-        skip_772_map_description_body(payload, i, self.player_z(), width, height, |id| {
+        let start = *i;
+        if skip_772_map_description_body(payload, i, self.player_z(), width, height, |id| {
             self.item_extra.has(id)
-        })
+        }) {
+            self.drain_trailing_skip_stream(payload, i);
+            return true;
+        }
+        *i = start;
+        // Encoder omitted the row body, or this `0x65`–`0x68` was a leftover skip
+        // pair consumed as an opcode (`20260920T011720Z` peek `eof`).
+        if start >= payload.len()
+            || payload
+                .get(start)
+                .copied()
+                .is_some_and(is_known_inbound_opcode)
+        {
+            return true;
+        }
+        // `20260920T013342Z` peek `00000600Test22…`: omitted row then speak.
+        if skip_speak_shaped_body(payload, i) {
+            return true;
+        }
+        *i = start;
+        false
     }
 
     fn skip_floor_up(&self, payload: &[u8], i: &mut usize) -> bool {
-        skip_772_move_up_floor_body(payload, i, self.player_z(), |id| self.item_extra.has(id))
+        self.skip_send_floors_body(payload, i, true)
     }
 
     fn skip_floor_down(&self, payload: &[u8], i: &mut usize) -> bool {
-        skip_772_move_down_floor_body(payload, i, self.player_z(), |id| self.item_extra.has(id))
+        self.skip_send_floors_body(payload, i, false)
+    }
+
+    /// Skip `SendFloors` body. Encoder may write **no** floor bytes (`z<7` up, or
+    /// down with no range) and then `SendRow` (`0x65`–`0x68`) or a tile-update
+    /// (`0x69`/`0x6A`/`0x6B`). If the counted skip fails and the body starts with
+    /// that next opcode, rewind and succeed (0 floors).
+    fn skip_send_floors_body(&self, payload: &[u8], i: &mut usize, up: bool) -> bool {
+        let start = *i;
+        let ok = if up {
+            skip_772_move_up_floor_body(payload, i, self.player_z(), |id| self.item_extra.has(id))
+        } else {
+            skip_772_move_down_floor_body(payload, i, self.player_z(), |id| {
+                self.item_extra.has(id)
+            })
+        };
+        if ok {
+            self.drain_trailing_skip_stream(payload, i);
+            return true;
+        }
+        if send_floors_omitted_body(payload, start) {
+            *i = start;
+            return true;
+        }
+        *i = start;
+        false
+    }
+
+    /// Encoder wrote more skip tiles than inbound z counted (`20260920T010424Z`
+    /// `0x68` leftover `2f1171…`). Consume whole tiles until a known opcode.
+    /// A leftover skip pair `[n, 0xFF]` is eaten even when `n` is a map opcode
+    /// (`20260920T011720Z` `0x68` then eof) if the following byte is a known
+    /// opcode. Do not eat `0x6D 0xFFFF` (self-move). Leftover `0xFF` before
+    /// skip-stream (`20260920T013342Z` `ff2a11…`) is skip-tiled; first-opcode
+    /// `ff98…` is not drained (`prev` is unset).
+    fn drain_trailing_skip_stream(&self, payload: &[u8], i: &mut usize) {
+        loop {
+            if *i >= payload.len() {
+                return;
+            }
+            let op = payload[*i];
+            if op == 0xFF {
+                // Orphan skip high byte. Next may be skip-stream (`ff2a11…`)
+                // not a known opcode (`20260920T013342Z`).
+                *i += 1;
+                continue;
+            }
+            if is_leftover_skip_pair(payload, *i) {
+                *i += 2;
+                continue;
+            }
+            if is_known_inbound_opcode(op) {
+                return;
+            }
+            let start = *i;
+            if skip_772_tile_description(payload, i, |id| self.item_extra.has(id)).is_some() {
+                continue;
+            }
+            *i = start;
+            return;
+        }
     }
 
     fn is_self_move(&self, id: Option<u32>, old_pos: Option<Position>) -> bool {
@@ -706,7 +892,11 @@ impl InboundState {
         *self.skip_failure_opcodes.entry(op).or_insert(0) += 1;
         if self.skip_failure_first_peek.is_none() {
             let n = payload.len().saturating_sub(start).min(32);
-            self.skip_failure_first_peek = Some(hex_bytes(&payload[start..start + n]));
+            self.skip_failure_first_peek = if n == 0 {
+                Some("eof".into())
+            } else {
+                Some(hex_bytes(&payload[start..start + n]))
+            };
             self.skip_failure_player_z = Some(self.player_z());
         }
         self.discard_rest(payload, start);
@@ -715,6 +905,100 @@ impl InboundState {
     fn discard_rest(&mut self, payload: &[u8], start: usize) {
         self.bytes_discarded += payload.len().saturating_sub(start) as u64;
     }
+}
+
+/// Leftover skip pair `[n, 0xFF]` after a counted skip-stream.
+/// `n` may equal a map opcode (`0x68`); eat it only when the next byte is a
+/// known opcode so a real `SendRow` with skip-count `0xFF` (`0x68 0xFF 0xFF…`)
+/// and self-move `0x6D 0xFFFF` stay intact.
+fn is_leftover_skip_pair(payload: &[u8], i: usize) -> bool {
+    if payload.get(i + 1).copied() != Some(0xFF) {
+        return false;
+    }
+    let op = payload[i];
+    let after = payload.get(i + 2).copied();
+    !is_known_inbound_opcode(op) || after.is_some_and(is_known_inbound_opcode)
+}
+
+/// Encoder `append_send_floors_body` returned with no floor bytes; next opcode is
+/// `SendRow`, a tile-update, or another top-level packet (`20260919T223936Z` peek
+/// `67…`, `20260920T010424Z` peek `6bfa7d…`). Never `0xFF`.
+fn send_floors_omitted_body(payload: &[u8], start: usize) -> bool {
+    matches!(
+        payload.get(start).copied(),
+        Some(
+            OP_MAP_NORTH
+                | OP_MAP_EAST
+                | OP_MAP_SOUTH
+                | OP_MAP_WEST
+                | OP_MAP_DESCRIPTION
+                | OP_UPDATE_TILE
+                | OP_ADD_TILE_THING
+                | OP_UPDATE_TILE_THING
+                | OP_FLOOR_UP
+                | OP_FLOOR_DOWN
+                | OP_MOVE
+                | OP_REMOVE
+                | OP_MAGIC_EFFECT
+        )
+    )
+}
+
+/// Opcodes `feed` actually parses. A leftover `0xFF` is skipped only when the
+/// following byte is one of these — not `0x98` skip-stream or another `0xFF`.
+fn is_known_inbound_opcode(op: u8) -> bool {
+    matches!(
+        op,
+        OP_SELF_APPEAR
+            | OP_PING
+            | OP_PING_BACK
+            | OP_MAP_DESCRIPTION
+            | OP_MAP_NORTH
+            | OP_MAP_EAST
+            | OP_MAP_SOUTH
+            | OP_MAP_WEST
+            | OP_UPDATE_TILE
+            | OP_ADD_TILE_THING
+            | OP_UPDATE_TILE_THING
+            | OP_REMOVE
+            | OP_MOVE
+            | OP_CONTAINER_OPEN
+            | OP_CONTAINER_CLOSE
+            | OP_CONTAINER_ADD
+            | OP_CONTAINER_UPDATE
+            | OP_CONTAINER_REMOVE
+            | OP_INVENTORY_ITEM
+            | OP_INVENTORY_EMPTY
+            | OP_FLOOR_UP
+            | OP_FLOOR_DOWN
+            | OP_WORLD_LIGHT
+            | OP_MAGIC_EFFECT
+            | OP_ANIMATED_TEXT
+            | OP_DISTANCE_SHOOT
+            | OP_CREATURE_SQUARE
+            | OP_CREATURE_HEALTH
+            | OP_CREATURE_LIGHT
+            | OP_CREATURE_OUTFIT
+            | OP_CHANGE_SPEED
+            | OP_CREATURE_SKULL
+            | OP_CREATURE_SHIELD
+            | OP_PLAYER_STATS
+            | OP_PLAYER_SKILLS
+            | OP_PLAYER_ICONS
+            | OP_CANCEL_TARGET
+            | OP_FIGHT_MODES
+            | OP_CREATURE_SAY
+            | OP_CHANNELS_DIALOG
+            | OP_CHANNEL_OPEN
+            | OP_OPEN_PRIVATE
+            | OP_TEXT_MESSAGE
+            | OP_CANCEL_WALK
+            | OP_CREATE_PRIVATE
+            | OP_CLOSE_PRIVATE
+            | OP_VIP_ENTRY
+            | OP_VIP_STATUS
+            | OP_VIP_LOGOUT
+    )
 }
 
 fn skip_channels_dialog(buf: &[u8], i: &mut usize) -> bool {
@@ -783,9 +1067,20 @@ fn is_action_failure_text(text: &str) -> bool {
     is_walk_failure_text(text) || is_spell_failure_text(text)
 }
 
-/// Cylinder / walk `SendResult` strings. Histogrammed but must **not** retire
-/// `SpellRune` — rust sends these with `0xB5` Snapback (`walk/mod.rs`).
+/// Cylinder / walk `SendResult` strings. Histogrammed always. Walk FIFO retire
+/// is [`is_walk_snapback_text`] plus a trailing `0xB5` in the same payload.
 fn is_walk_failure_text(text: &str) -> bool {
+    is_walk_snapback_text(text)
+        || matches!(
+            text,
+            "You cannot throw there." | "You cannot use this object."
+        )
+}
+
+/// Walk bump / blocked step — `on_walk_step_rejected` sends this text then
+/// `0xB5` in one coalesced frame. `"Sorry, not possible."` alone is also
+/// unpaired `send_cancel_message(NotPossible)` (`20260919T225517Z`).
+fn is_walk_snapback_text(text: &str) -> bool {
     matches!(
         text,
         "Sorry, not possible."
@@ -793,10 +1088,8 @@ fn is_walk_failure_text(text: &str) -> bool {
             | "You are too far away."
             | "First go downstairs."
             | "First go upstairs."
-            | "You cannot throw there."
             | "There is no way."
             | "This is impossible."
-            | "You cannot use this object."
     )
 }
 
@@ -860,6 +1153,30 @@ fn skip_creature_say(buf: &[u8], i: &mut usize) -> bool {
         _ => true,
     };
     extra_ok && skip_len_string(buf, i)
+}
+
+/// Omitted `SendRow` body that is actually a speak packet without `0xAA`
+/// (`20260920T013342Z` peek `00000600Test22` + type SAY + pos + `bots bots bots`).
+/// Optional leading `u16 0` (truncated statement id), then name + speak-type + pos + text.
+fn skip_speak_shaped_body(buf: &[u8], i: &mut usize) -> bool {
+    let start = *i;
+    if buf.get(*i).copied() == Some(0) && buf.get(*i + 1).copied() == Some(0) {
+        *i += 2;
+    }
+    let name_len = buf
+        .get(*i..*i + 2)
+        .map(|b| u16::from_le_bytes([b[0], b[1]]))
+        .unwrap_or(0);
+    if !(1..=32).contains(&name_len) || !skip_len_string(buf, i) || !take(buf, i, 1) {
+        *i = start;
+        return false;
+    }
+    let speak = buf[*i - 1];
+    if !matches!(speak, 1 | 2 | 3 | 0x10 | 0x11) || !take(buf, i, 5) || !skip_len_string(buf, i) {
+        *i = start;
+        return false;
+    }
+    true
 }
 
 fn read_pos(buf: &[u8], i: usize) -> Position {
@@ -998,6 +1315,56 @@ mod tests {
         assert_eq!(s.pos, Some(player));
         assert_eq!(s.magic_effects, 1);
         assert_eq!(s.bytes_discarded, 0);
+    }
+
+    #[test]
+    fn leftover_ff_before_magic_effect_is_skipped() {
+        let mut s = InboundState::default();
+        let player = Position::new(32369, 32241, 7);
+        let mut known = HashSet::new();
+        let mut get_tile = |_x: i32, _y: i32, _z: i32| -> Option<TileContent> { None };
+        let mut can_see = |_id: u32| true;
+        let map = send_map_description_packet(
+            &codec_772(),
+            player,
+            player,
+            &mut get_tile,
+            &mut known,
+            &mut can_see,
+            false,
+        );
+        let mut p = map.into_bytes();
+        p.push(0xFF);
+        p.extend_from_slice(&magic_effect_bytes(player, 11));
+
+        let ev = s.feed(&p);
+        assert_eq!(ev.len(), 1);
+        assert_eq!(s.magic_effects, 1);
+        assert_eq!(s.skip_failures, 0);
+        assert_eq!(s.unknown_opcodes, 0);
+        assert_eq!(s.bytes_discarded, 0);
+    }
+
+    #[test]
+    fn leftover_ff_after_container_remove_then_ping() {
+        let mut s = InboundState::default();
+        let p = vec![OP_CONTAINER_REMOVE, 0, 0, 0xFF, OP_PING];
+        let ev = s.feed(&p);
+        assert_eq!(ev, vec![InboundEvent::Ping(OP_PING)]);
+        assert_eq!(s.unknown_opcodes, 0);
+        assert_eq!(s.bytes_discarded, 0);
+    }
+
+    #[test]
+    fn ff_then_skip_stream_stays_unknown() {
+        // `20260919T221503Z` peek `980100ff…` after eating 0xFF. Next byte is
+        // not a known opcode — leave the 0xFF as unknown.
+        let mut s = InboundState::default();
+        let ev = s.feed(&[0xFF, 0x98, 0x01, 0x00, 0xFF]);
+        assert!(ev.is_empty());
+        assert_eq!(s.unknown_opcodes, 1);
+        assert_eq!(s.unknown_opcode_first, Some(0xFF));
+        assert!(s.bytes_discarded > 0);
     }
 
     #[test]
@@ -1183,6 +1550,462 @@ mod tests {
     }
 
     #[test]
+    fn notify_go_ladder_up_skips() {
+        let orig = Position::new(100, 100, 8);
+        let dest = Position::new(100, 100, 7);
+        let mut s = InboundState {
+            self_id: Some(1),
+            pos: Some(orig),
+            ..InboundState::default()
+        };
+        let mut known = HashSet::new();
+        let mut get_tile = |_x: i32, _y: i32, _z: i32| -> Option<TileContent> { None };
+        let mut can_see = |_id: u32| true;
+        let mut p = send_notify_go(
+            &codec_772(),
+            orig,
+            dest,
+            0,
+            1,
+            &mut get_tile,
+            &mut known,
+            &mut can_see,
+            false,
+        )
+        .into_bytes();
+        p.extend_from_slice(&magic_effect_bytes(dest, 11));
+        let ev = s.feed(&p);
+        assert_eq!(s.skip_failures, 0, "peek={:?} z={:?}", s.skip_failure_first_peek, s.skip_failure_player_z);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.unknown_opcodes, 0);
+        assert_eq!(s.pos.map(|p| p.z), Some(7));
+        assert_eq!(s.magic_effects, 1);
+        assert!(ev.contains(&InboundEvent::WalkAck));
+    }
+
+    #[test]
+    fn notify_go_underground_up_skips() {
+        let orig = Position::new(100, 100, 9);
+        let dest = Position::new(100, 100, 8);
+        let mut s = InboundState {
+            self_id: Some(1),
+            pos: Some(orig),
+            ..InboundState::default()
+        };
+        let mut known = HashSet::new();
+        let mut get_tile = |_x: i32, _y: i32, _z: i32| -> Option<TileContent> { None };
+        let mut can_see = |_id: u32| true;
+        let mut p = send_notify_go(
+            &codec_772(),
+            orig,
+            dest,
+            0,
+            1,
+            &mut get_tile,
+            &mut known,
+            &mut can_see,
+            false,
+        )
+        .into_bytes();
+        p.extend_from_slice(&magic_effect_bytes(dest, 11));
+        let ev = s.feed(&p);
+        assert_eq!(s.skip_failures, 0, "peek={:?} z={:?}", s.skip_failure_first_peek, s.skip_failure_player_z);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.pos, Some(dest), "0x6D dest z must not be bumped again on 0xBE");
+        assert_eq!(s.magic_effects, 1);
+        assert!(ev.contains(&InboundEvent::WalkAck));
+    }
+
+    #[test]
+    fn notify_go_underground_up_split_frames_does_not_bump() {
+        // `0x6D` dest z=8 in one frame, `0xBE` in the next — must still skip 1 floor.
+        let orig = Position::new(100, 100, 9);
+        let dest = Position::new(100, 100, 8);
+        let mut known = HashSet::new();
+        let mut get_tile = |_x: i32, _y: i32, _z: i32| -> Option<TileContent> { None };
+        let mut can_see = |_id: u32| true;
+        let full = send_notify_go(
+            &codec_772(),
+            orig,
+            dest,
+            0,
+            1,
+            &mut get_tile,
+            &mut known,
+            &mut can_see,
+            false,
+        )
+        .into_bytes();
+        let be = full
+            .iter()
+            .position(|&b| b == OP_FLOOR_UP)
+            .expect("0xBE after 0x6D");
+        let mut s = InboundState {
+            self_id: Some(1),
+            pos: Some(orig),
+            ..InboundState::default()
+        };
+        let ev1 = s.feed(&full[..be]);
+        assert!(ev1.contains(&InboundEvent::WalkAck));
+        assert_eq!(s.pos, Some(dest));
+        let mut rest = full[be..].to_vec();
+        rest.extend_from_slice(&magic_effect_bytes(dest, 11));
+        let ev2 = s.feed(&rest);
+        assert_eq!(s.skip_failures, 0, "peek={:?} z={:?}", s.skip_failure_first_peek, s.skip_failure_player_z);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.unknown_opcodes, 0);
+        assert_eq!(s.pos, Some(dest), "split-frame 9→8 must not bump 8→7 on 0xBE");
+        assert_eq!(s.magic_effects, 1);
+        assert!(!ev2.contains(&InboundEvent::WalkAck));
+    }
+
+    #[test]
+    fn floor_up_at_z8_without_6d_skips_six_floors() {
+        // Production leftover after 0xBE at inbound z=8: encoder 8→7 wrote 6 floors.
+        let orig = Position::new(100, 100, 8);
+        let dest = Position::new(100, 100, 7);
+        let mut known = HashSet::new();
+        let mut get_tile = |_x: i32, _y: i32, _z: i32| -> Option<TileContent> { None };
+        let mut can_see = |_id: u32| true;
+        let full = send_notify_go(
+            &codec_772(),
+            orig,
+            dest,
+            0,
+            1,
+            &mut get_tile,
+            &mut known,
+            &mut can_see,
+            false,
+        )
+        .into_bytes();
+        let be = full
+            .iter()
+            .position(|&b| b == OP_FLOOR_UP)
+            .expect("0xBE after 0x6D");
+        let mut p = full[be..].to_vec();
+        p.extend_from_slice(&magic_effect_bytes(dest, 11));
+        let mut s = InboundState {
+            self_id: Some(1),
+            pos: Some(orig),
+            ..InboundState::default()
+        };
+        let ev = s.feed(&p);
+        assert_eq!(s.skip_failures, 0, "peek={:?} z={:?}", s.skip_failure_first_peek, s.skip_failure_player_z);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.unknown_opcodes, 0);
+        assert_eq!(s.pos.map(|p| p.z), Some(7));
+        assert_eq!(s.magic_effects, 1);
+        assert!(ev.contains(&InboundEvent::WalkAck));
+    }
+
+    #[test]
+    fn notify_go_underground_down_split_frames_does_not_bump() {
+        // `0x6D` dest z=9 in one frame, `0xBF` in the next — must still skip 1 floor.
+        let orig = Position::new(100, 100, 8);
+        let dest = Position::new(100, 100, 9);
+        let mut known = HashSet::new();
+        let mut get_tile = |_x: i32, _y: i32, _z: i32| -> Option<TileContent> { None };
+        let mut can_see = |_id: u32| true;
+        let full = send_notify_go(
+            &codec_772(),
+            orig,
+            dest,
+            0,
+            1,
+            &mut get_tile,
+            &mut known,
+            &mut can_see,
+            false,
+        )
+        .into_bytes();
+        let bf = full
+            .iter()
+            .position(|&b| b == OP_FLOOR_DOWN)
+            .expect("0xBF after 0x6D");
+        let mut s = InboundState {
+            self_id: Some(1),
+            pos: Some(orig),
+            ..InboundState::default()
+        };
+        let ev1 = s.feed(&full[..bf]);
+        assert!(ev1.contains(&InboundEvent::WalkAck));
+        assert_eq!(s.pos, Some(dest));
+        let mut rest = full[bf..].to_vec();
+        rest.extend_from_slice(&magic_effect_bytes(dest, 11));
+        let ev2 = s.feed(&rest);
+        assert_eq!(s.skip_failures, 0, "peek={:?} z={:?}", s.skip_failure_first_peek, s.skip_failure_player_z);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.unknown_opcodes, 0);
+        assert_eq!(s.pos, Some(dest), "split-frame 8→9 must not bump 9→10 on 0xBF");
+        assert_eq!(s.magic_effects, 1);
+        assert!(!ev2.contains(&InboundEvent::WalkAck));
+    }
+
+    fn update_tile_thing_item(pos: Position, stackpos: u8, client_id: u16) -> Vec<u8> {
+        let mut p = vec![OP_UPDATE_TILE_THING];
+        p.extend_from_slice(&pos.x.to_le_bytes());
+        p.extend_from_slice(&pos.y.to_le_bytes());
+        p.push(pos.z);
+        p.push(stackpos);
+        p.extend_from_slice(&client_id.to_le_bytes());
+        p
+    }
+
+    fn leftover_skip_tile_bytes() -> Vec<u8> {
+        // `20260920T010424Z` peek `2f11711100ff` after `0x68`.
+        let mut p = Vec::new();
+        p.extend_from_slice(&0x112Fu16.to_le_bytes());
+        p.extend_from_slice(&0x1171u16.to_le_bytes());
+        p.extend_from_slice(&0xFF00u16.to_le_bytes());
+        p
+    }
+
+    #[test]
+    fn floor_down_zero_floors_then_update_tile_thing() {
+        // `20260920T010424Z`: 0-floor `0xBF` then `0x6B` (peek `6bfa7d…`).
+        let pos = Position::new(0x7DFA, 0x7D8A, 8);
+        let mut s = InboundState {
+            self_id: Some(1),
+            pos: Some(pos),
+            ..InboundState::default()
+        };
+        let mut p = vec![OP_FLOOR_DOWN];
+        p.extend_from_slice(&update_tile_thing_item(
+            Position::new(0x7DFA, 0x7D8A, 7),
+            2,
+            100,
+        ));
+        p.push(OP_PING);
+        let ev = s.feed(&p);
+        assert_eq!(s.skip_failures, 0, "peek={:?} z={:?}", s.skip_failure_first_peek, s.skip_failure_player_z);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.unknown_opcodes, 0);
+        assert_eq!(s.pos, Some(pos));
+        assert_eq!(ev, vec![InboundEvent::Ping(OP_PING)]);
+    }
+
+    #[test]
+    fn west_row_leftover_skip_tile_then_magic() {
+        // `20260920T010424Z`: counted `0x68` skip then leftover client-id tile.
+        let orig = Position::new(100, 100, 8);
+        let dest = Position::new(99, 100, 8);
+        let mut known = HashSet::new();
+        let mut get_tile = |_x: i32, _y: i32, _z: i32| -> Option<TileContent> { None };
+        let mut can_see = |_id: u32| true;
+        let mut p = send_notify_go(
+            &codec_772(),
+            orig,
+            dest,
+            0,
+            1,
+            &mut get_tile,
+            &mut known,
+            &mut can_see,
+            false,
+        )
+        .into_bytes();
+        p.extend_from_slice(&leftover_skip_tile_bytes());
+        p.extend_from_slice(&magic_effect_bytes(dest, 11));
+        let mut s = InboundState {
+            self_id: Some(1),
+            pos: Some(orig),
+            ..InboundState::default()
+        };
+        let ev = s.feed(&p);
+        assert_eq!(s.skip_failures, 0, "peek={:?} z={:?}", s.skip_failure_first_peek, s.skip_failure_player_z);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.unknown_opcodes, 0);
+        assert_eq!(s.pos, Some(dest));
+        assert_eq!(s.magic_effects, 1);
+        assert!(ev.contains(&InboundEvent::WalkAck));
+    }
+
+    fn player_stats_bytes() -> Vec<u8> {
+        let mut p = vec![OP_PLAYER_STATS];
+        p.extend_from_slice(&[0u8; PLAYER_STATS_LEN]);
+        p
+    }
+
+    #[test]
+    fn west_row_leftover_skip_pair_then_magic() {
+        // `20260920T011720Z`: trailing `[0x68, 0xFF]` is leftover empty tiles, not SendRow.
+        let orig = Position::new(100, 100, 8);
+        let dest = Position::new(99, 100, 8);
+        let mut known = HashSet::new();
+        let mut get_tile = |_x: i32, _y: i32, _z: i32| -> Option<TileContent> { None };
+        let mut can_see = |_id: u32| true;
+        let mut p = send_notify_go(
+            &codec_772(),
+            orig,
+            dest,
+            0,
+            1,
+            &mut get_tile,
+            &mut known,
+            &mut can_see,
+            false,
+        )
+        .into_bytes();
+        p.push(OP_MAP_WEST);
+        p.push(0xFF);
+        p.extend_from_slice(&magic_effect_bytes(dest, 11));
+        let mut s = InboundState {
+            self_id: Some(1),
+            pos: Some(orig),
+            ..InboundState::default()
+        };
+        let ev = s.feed(&p);
+        assert_eq!(s.skip_failures, 0, "peek={:?} z={:?}", s.skip_failure_first_peek, s.skip_failure_player_z);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.unknown_opcodes, 0);
+        assert_eq!(s.magic_effects, 1);
+        assert!(ev.contains(&InboundEvent::WalkAck));
+    }
+
+    #[test]
+    fn player_stats_then_leftover_skip_tile_then_ping() {
+        // `20260920T011720Z`: unread skip-stream after `0xA0` (peek `0400ff…`).
+        let mut s = InboundState {
+            pos: Some(Position::new(100, 100, 8)),
+            ..InboundState::default()
+        };
+        let mut p = player_stats_bytes();
+        p.extend_from_slice(&leftover_skip_tile_bytes());
+        p.push(OP_PING);
+        let ev = s.feed(&p);
+        assert_eq!(s.skip_failures, 0, "peek={:?}", s.skip_failure_first_peek);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.unknown_opcodes, 0);
+        assert_eq!(ev, vec![InboundEvent::Ping(OP_PING)]);
+    }
+
+    fn test22_say_body() -> Vec<u8> {
+        // `20260920T013342Z` peek `00000600Test22…01` + pos + `bots bots bots`.
+        let pos = Position::new(0x7E6A, 0x7DF2, 7);
+        let mut p = Vec::new();
+        p.extend_from_slice(&0u16.to_le_bytes());
+        p.extend_from_slice(&6u16.to_le_bytes());
+        p.extend_from_slice(b"Test22");
+        p.push(1); // TALKTYPE_SAY
+        p.extend_from_slice(&pos.x.to_le_bytes());
+        p.extend_from_slice(&pos.y.to_le_bytes());
+        p.push(pos.z);
+        p.extend_from_slice(&14u16.to_le_bytes());
+        p.extend_from_slice(b"bots bots bots");
+        p
+    }
+
+    #[test]
+    fn player_stats_then_ff_skip_stream_then_ping() {
+        // `20260920T013342Z`: leftover `0xFF` then skip-stream after `0xA0` (peek `ff2a11…`).
+        let mut s = InboundState {
+            pos: Some(Position::new(100, 100, 8)),
+            ..InboundState::default()
+        };
+        let mut p = player_stats_bytes();
+        p.push(0xFF);
+        p.extend_from_slice(&leftover_skip_tile_bytes());
+        p.push(OP_PING);
+        let ev = s.feed(&p);
+        assert_eq!(s.skip_failures, 0, "peek={:?}", s.skip_failure_first_peek);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.unknown_opcodes, 0);
+        assert_eq!(ev, vec![InboundEvent::Ping(OP_PING)]);
+    }
+
+    #[test]
+    fn west_opcode_then_test22_say_then_ping() {
+        let mut s = InboundState {
+            pos: Some(Position::new(100, 100, 7)),
+            ..InboundState::default()
+        };
+        let mut p = vec![OP_MAP_WEST];
+        p.extend_from_slice(&test22_say_body());
+        p.push(OP_PING);
+        let ev = s.feed(&p);
+        assert_eq!(s.skip_failures, 0, "peek={:?}", s.skip_failure_first_peek);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.unknown_opcodes, 0);
+        assert_eq!(ev, vec![InboundEvent::Ping(OP_PING)]);
+    }
+
+    #[test]
+    fn west_opcode_then_ping_is_zero_floor_row() {
+        let mut s = InboundState {
+            pos: Some(Position::new(100, 100, 8)),
+            ..InboundState::default()
+        };
+        let ev = s.feed(&[OP_MAP_WEST, OP_PING]);
+        assert_eq!(s.skip_failures, 0, "peek={:?}", s.skip_failure_first_peek);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.unknown_opcodes, 0);
+        assert_eq!(ev, vec![InboundEvent::Ping(OP_PING)]);
+    }
+
+    #[test]
+    fn floor_down_zero_floors_then_magic_skips() {
+        // `20260919T223936Z`: 0-floor `0xBF` then a top-level opcode (not 3 floors at z=8).
+        let pos = Position::new(100, 100, 8);
+        let mut s = InboundState {
+            self_id: Some(1),
+            pos: Some(pos),
+            ..InboundState::default()
+        };
+        let mut p = vec![OP_FLOOR_DOWN];
+        p.extend_from_slice(&magic_effect_bytes(pos, 11));
+        let ev = s.feed(&p);
+        assert_eq!(s.skip_failures, 0, "peek={:?} z={:?}", s.skip_failure_first_peek, s.skip_failure_player_z);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.unknown_opcodes, 0);
+        assert_eq!(s.pos, Some(pos));
+        assert_eq!(s.magic_effects, 1);
+        assert!(!ev.contains(&InboundEvent::WalkAck));
+    }
+
+    #[test]
+    fn floor_up_zero_floors_then_map_south_skips() {
+        // Encoder omitted floor bytes; next is `SendRow` `0x67` (`20260919T223936Z` peek).
+        let orig = Position::new(100, 100, 8);
+        let dest = Position::new(100, 101, 8);
+        let mut known = HashSet::new();
+        let mut get_tile = |_x: i32, _y: i32, _z: i32| -> Option<TileContent> { None };
+        let mut can_see = |_id: u32| true;
+        let full = send_notify_go(
+            &codec_772(),
+            orig,
+            dest,
+            0,
+            1,
+            &mut get_tile,
+            &mut known,
+            &mut can_see,
+            false,
+        )
+        .into_bytes();
+        let south = full
+            .iter()
+            .position(|&b| b == OP_MAP_SOUTH)
+            .expect("0x67 after same-z south");
+        let mut p = vec![OP_FLOOR_UP];
+        p.extend_from_slice(&full[south..]);
+        p.extend_from_slice(&magic_effect_bytes(dest, 11));
+        let mut s = InboundState {
+            self_id: Some(1),
+            pos: Some(orig),
+            awaiting_move_up_one_floor: true,
+            ..InboundState::default()
+        };
+        let ev = s.feed(&p);
+        assert_eq!(s.skip_failures, 0, "peek={:?} z={:?}", s.skip_failure_first_peek, s.skip_failure_player_z);
+        assert_eq!(s.bytes_discarded, 0);
+        assert_eq!(s.unknown_opcodes, 0);
+        assert_eq!(s.pos, Some(orig), "0-floor 0xBE must not bump when dest already applied");
+        assert_eq!(s.magic_effects, 1);
+        assert!(!ev.contains(&InboundEvent::WalkAck));
+    }
+
+    #[test]
     fn walk_ack_ffff_self_id() {
         let mut s = InboundState {
             self_id: Some(99),
@@ -1343,6 +2166,33 @@ mod tests {
     }
 
     #[test]
+    fn walk_sorry_then_snapback_emits_rejected_then_cancel() {
+        let mut s = InboundState::default();
+        let mut p = text_message_bytes("Sorry, not possible.");
+        p.push(OP_CANCEL_WALK);
+        p.push(0);
+        let ev = s.feed(&p);
+        assert_eq!(
+            ev,
+            vec![InboundEvent::WalkRejected, InboundEvent::CancelWalk]
+        );
+    }
+
+    #[test]
+    fn throw_text_then_snapback_does_not_emit_walk_rejected() {
+        let mut s = InboundState::default();
+        let mut p = text_message_bytes("You cannot throw there.");
+        p.push(OP_CANCEL_WALK);
+        p.push(0);
+        let ev = s.feed(&p);
+        assert_eq!(ev, vec![InboundEvent::CancelWalk]);
+        assert_eq!(
+            s.text_reject_counts.get("You cannot throw there.").copied(),
+            Some(1)
+        );
+    }
+
+    #[test]
     fn broadcast_text_is_not_a_rejection() {
         let mut s = InboundState::default();
         let ev = s.feed(&text_message_bytes("Beware, beware the halloween hare."));
@@ -1495,6 +2345,10 @@ mod tests {
         assert_eq!(s.unknown_opcodes, 1);
         assert_eq!(s.unknown_opcode_first, Some(0x15));
         assert_eq!(s.unknown_opcode_counts.get(&0x15).copied(), Some(1));
+        assert_eq!(s.unknown_opcode_prev, None);
+        assert_eq!(s.unknown_opcode_player_z, Some(7));
+        let peek = s.unknown_opcode_peek.as_deref().unwrap_or("");
+        assert!(peek.starts_with("15"), "peek={peek}");
         assert!(s.bytes_discarded > 0);
     }
 

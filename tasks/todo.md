@@ -1,3 +1,139 @@
+# Map-skip other-bot speak body + leftover 0xFF skip-stream (2026-09-20)
+
+1000-bot `20260920T013342Z`: skip=9 (`0x68`×8 + `0x65`×1), discarded=1242, unknown=14 (`255`×10). First skip peek `00000600Test22…` at z=7 is a speak-shaped body after an omitted `SendRow` (name + SAY + pos + `bots bots bots`), not eof. First unknown `0xFF` after `0xA0`, peek `ff2a11…` — drain returned on leftover `0xFF` instead of skip-tile. Drain leftover `0xFF` as skip-stream when `prev` is set; 0-floor map skip if the body is speak-shaped. Do not eat first-opcode `ff98…`. `mixed_300.ron` frozen. Quote p99 only if both decoder fields are 0. No 3-rep A/B until both-zero.
+
+- [x] `inbound.rs`: drain `0xFF` via skip-tile; omitted-row speak body on map skip fail
+- [x] Tests: `0xA0`+`0xFF`+tile+ping; `0x68`+Test22 say+ping; `0xFF`+`0x98` still unknown
+- [x] `cargo test -p tfs-loadgen` — 94 passed
+- [x] 50-bot `20260920T014520Z`: skip=0 discarded=0 unknown=0. Walk **p50 29.5 ms / p95 41.7 ms / p99 284 ms**. Spell **p50 59.1 ms / p95 4.58 s / p99 5.83 s**. 1 disconnect.
+- [x] 1000-bot `20260920T014718Z`: 1000 in-world, 0 disconnects. **skip_failures=2** (`0x65`+`0x68`), **bytes_discarded=720**, unknown=2 (`0x20`/`0x62`). First skip peek `0400ff68…` at z=8 (real skip-stream). First unknown `0x20` after `0xB3`, peek `20626f6f70` (` boop`). No Test22, no opcode 255. Not both-zero — do not quote p99.
+- [x] lessons.md + todo cell result
+
+# 0x68 eof + leftover skip after 0xA0 (2026-09-20)
+
+1000-bot `20260920T011720Z`: skip=7 (`0x68` peek `eof` z=8), discarded=1942, unknown=20 (first `0x04` after `0xA0`, peek `0400ff…`). Trailing skip pair `[n, 0xFF]` with `n=0x68` is parsed as SendRow (over-read to eof). Extra skip tiles after `0xA0` stay at top-level because drain stops on a known opcode. Eat leftover skip pairs when the following byte is a known opcode; drain unread skip tiles after a parsed packet (not only after map skip). Do not eat `0x6D 0xFFFF` or `ff98…`. `mixed_300.ron` frozen. Quote p99 only if both decoder fields are 0. No 3-rep A/B until both-zero.
+
+- [x] `inbound.rs`: leftover skip-pair drain; drain after non-known byte when `prev` is set; 0-floor `0x68` if body starts with a known opcode or eof
+- [x] Tests: `[0x68,0xFF]` after west row; `0xA0` then leftover tile then ping; `0x68` then ping; `0x15` still unknown
+- [x] `cargo test -p tfs-loadgen` — 92 passed
+- [x] 50-bot `20260920T013144Z`: skip=0 discarded=0 unknown=0. Walk **p50 28.0 ms / p95 51.8 ms / p99 149 ms**. Spell **p50 49.2 ms / p95 78.8 ms / p99 3.57 s**. Outstanding 14.
+- [x] 1000-bot `20260920T013342Z`: **skip_failures=9** (`0x68`×8 + `0x65`×1), **bytes_discarded=1242**, unknown=14 (`255`×10 first). First skip peek `00000600Test22…` at z=7 (other-bot name in the strip, not eof). First unknown `0xFF` after `0xA0`, peek `ff2a11…` (skip-stream; next is not a known opcode). 1 disconnect. Not both-zero — do not quote p99.
+- [x] lessons.md + todo cell result
+
+# 0xBF 0-floor then 0x6B + leftover skip after 0x68 (2026-09-20)
+
+1000-bot `20260920T010424Z`: no opcode 255. skip=3 (`0xBF` z=8 peek `6bfa7d…` = `0x6B` update-tile-thing, not skip-stream). discarded=150. unknown=1 (`0x2F` after `0x68`, peek `2f1171…` client id). Add `0x69`/`0x6A`/`0x6B` to `send_floors_omitted_body`. After a successful map skip, drain extra skip tiles until a known opcode. `mixed_300.ron` frozen. Quote p99 only if both decoder fields are 0. No 3-rep A/B until both-zero.
+
+- [x] `inbound.rs`: omitted-body rewind includes tile-update opcodes; drain leftover skip tiles after map/floor skip
+- [x] Tests: `0xBF` then `0x6B`+ping at z=8; `0x68` then leftover tile then magic
+- [x] `cargo test -p tfs-loadgen` — 89 passed
+- [x] 50-bot `20260920T011518Z`: skip=0 discarded=0 unknown=0. Walk **p50 37.9 ms / p95 45.5 ms / p99 266 ms**. Spell **p50 42.4 ms / p95 691 ms / p99 4.35 s**. Outstanding 17.
+- [x] 1000-bot `20260920T011720Z`: 1000 in-world, 0 disconnects. **skip_failures=7** (`0x68` peek `eof` z=8), **bytes_discarded=1942**, unknown=20 (first `0x04` after `0xA0`, peek `0400ff…`; counts `4`×7 / `255`×5 / `5`×3 / `7`×2 / `0`/`1`/`17`). **No `0xBF` skip, no `0x2F` unknown.** Not both-zero — do not quote p99.
+- [x] lessons.md + todo cell result
+
+# Leftover top-level 0xFF (2026-09-20)
+
+1000-bot `20260920T005241Z`: skip=0, discarded=877, unknown=7, first `0xFF` at z=8 after `0x72`, peek `ff66…`. Skip high byte of `[n, 0xFF]` left at top-level; next byte is real `0x66`. Eat `0xFF` **only** when the following byte is a known inbound opcode. Do **not** eat when next is skip-stream (`ff98…`, `20260919T221503Z`). Do **not** eat inside `map_skip` (`20260919T214742Z`). `mixed_300.ron` frozen. Quote p99 only if both decoder fields are 0.
+
+- [x] `inbound.rs`: skip leftover `0xFF` iff `is_known_inbound_opcode(next)`
+- [x] Tests: `0x72`+`0xFF`+ping; `0xFF`+`0x98` stays unknown; map+`0xFF`+`0x83` parses effect
+- [x] `cargo test -p tfs-loadgen` — 87 passed
+- [x] 50-bot `20260920T010200Z`: skip=0 discarded=0 unknown=0 (no 214742Z regression)
+- [x] 1000-bot `20260920T010424Z`: **no more `0xFF` unknowns**. skip=3 (`0xBF` z=8), discarded=150, unknown=1 (`0x2F` after `0x68`). Not both-zero — do not quote p99.
+
+# 1000-bot rust-only ms_swarm (2026-09-20)
+
+Decoder + FIFO accounting are done (50-bot both-zero; 1-bot walk/spell p99 ~46 ms). First scale cell: 1-rep rust-only `ms_swarm`, `--duration-s 120`, `--disable-saves`, `env -u CARGO_TARGET_DIR`. Quote walk/spell p99 only if `skip_failures==0` and `bytes_discarded==0`. `mixed_300.ron` frozen. No 3-rep A/B in this cell.
+
+- [x] 1000-bot 120s rust-only `ms_swarm` — `results/20260920T005241Z`: 1000 in-world, 0 disconnects, **skip_failures=0**, **bytes_discarded=877**, unknown=7 (255×3, 15×2, 116×2). First unknown `0xFF` at z=8 after `0x72`, peek `ff66…`. **Not both-zero — do not quote walk/spell p99.**
+- [x] lessons.md + todo cell result
+
+# Spell FIFO cap-1 (2026-09-20)
+
+Walk pairing is done (1-bot p99 46.4 ms). Spell p99 ~25 s at 50 bots (`20260919T234241Z`) is the same open-loop FIFO: `say_period_ms=2500` piles `outstanding_spell` until a later `0x83` matches the oldest same-tile head. Cap outstanding spells at 1 (drop unacked head on send). Suppress the following `0xB4` spell reject (mana/PZ for the superseded cast), not the next magic effect. `mixed_300.ron` frozen. Quote p99 only if both decoder fields are 0.
+
+- [x] `latency.rs`: cap-1 `outstanding_spell`; `suppress_paired_spell_reject`
+- [x] Tests: second send drops head; lone `0xB4` still rejects
+- [x] `cargo test -p tfs-loadgen` — 85 passed
+- [x] 50-bot 60s rust-only `ms_swarm` — `results/20260920T003509Z`: skip=0 discarded=0. Spell **p50 79 ms / p95 181 ms / p99 4.08 s** (was ~25 s). Walk p99 131 ms. Outstanding 20.
+
+# 1-bot ms_swarm walk p99 split (2026-09-20)
+
+50-bot both-zero walk p99 is **150 ms** (`20260919T234241Z`), above 1-bot isolation ~35–45 ms. Next: 1-bot 60s rust-only `ms_swarm` with the current loadgen. If 1-bot is ~35–45 ms, the 50-bot tail is N-bot load. If 1-bot is still ~150 ms, pairing is still wrong. Spell FIFO parked. `mixed_300.ron` frozen. Quote p99 only if both decoder fields are 0. No 1000-bot A/B.
+
+- [x] 1-bot 60s rust-only `ms_swarm` — `results/20260920T000007Z`: skip=0 discarded=0. Walk **p50 46.0 ms / p95 46.3 ms / p99 46.4 ms**, outstanding 0. Isolation band holds. 50-bot p99 150 ms is N-bot load, not pairing.
+- [x] lessons.md + todo cell result
+
+# WalkRejected same-payload 0xB5 gate (2026-09-20)
+
+`0xB4` Sorry retire without a peek gate stole unpaired `NotPossible` (`20260919T225517Z`). Bump path is `0xB4` then `0xB5` in **one** XTEA frame (`on_walk_step_rejected` + `encode_one_coalesced_frame`). Emit `WalkRejected` only when a walk-bump string is followed by `0xB5` in the same payload; unpaired Sorry stays histogram-only. Cap-1 stays. Do not clear `suppress_paired_snapback` on `on_send` when the queue was empty. Throw/room strings stay off the walk FIFO. `mixed_300.ron` frozen. Quote walk p99 only if both decoder fields are 0.
+
+- [x] `inbound.rs`: `WalkRejected` iff walk-bump text + peek `0xB5`; unpaired Sorry emits nothing
+- [x] `latency.rs`: `on_walk_text_reject` pops + suppress; `on_send` does not clear suppress
+- [x] `session.rs`: wire `WalkRejected`
+- [x] Tests: unpaired Sorry; Sorry+`0xB5`; text-reject then cancel = 1 rejection
+- [x] `cargo test -p tfs-loadgen` — 82 passed
+- [x] 50-bot 60s rust-only `ms_swarm` — `results/20260919T234241Z`: skip=0 discarded=0. Walk **p50 28.5 ms / p95 51.7 ms / p99 150 ms** (was 414 ms). Outstanding 53. Spell p99 still ~25 s.
+
+# Walk p99 FIFO (2026-09-20)
+
+Decoder both-zero (`20260919T224609Z`) walk **p99 18.0 s**. `0xB4` Sorry retire **regressed** (`20260919T225517Z` p99 27.5 s). **Not** send-interleave: `on_walk_step_rejected` enqueues `0xB4` then `0xB5` in one tick; `encode_one_coalesced_frame` puts them in **one** XTEA payload, so `feed()` sees both before the next `on_send`. **Not** inventory: `ms_swarm` is 100% Caster, `use_cmds=0`, cell texts were Sorry/PZ/mana only. Extra pops are unpaired `SendResult(NotPossible)` (`0xB4` without a popping `0xB5`) stealing walk FIFO heads. Cap-1 stays; do **not** restore `WalkRejected` until Sorry is walk-bump-only (require trailing `0xB5` in the same payload, or ignore Sorry). `mixed_300.ron` frozen. Quote walk p99 only if both decoder fields are 0.
+
+- [x] Revert `0xB4` walk-text retire (`20260919T225517Z`)
+- [x] `latency.rs`: cap outstanding walks at 1; suppress paired `0xB5`
+- [x] Tests: second send drops head; lone `0xB5` still rejects
+- [x] `cargo test -p tfs-loadgen` — 78 passed
+- [x] Rerun 50-bot 60s rust-only `ms_swarm` — `results/20260919T225848Z`: skip=0 discarded=0. Walk **p50 36.8 ms / p95 44.4 ms / p99 414 ms** (was 18 s). Outstanding 87. Spell p99 still 25 s (uncapped FIFO).
+
+
+
+# 0-floor SendFloors then SendRow (2026-09-20)
+
+Unconditional `0xBF` bump at z=8 was wrong (`20260919T223936Z`: skip 10→17, discarded 1→8533). Body-start peek `6799013e0800ff…` is `0x67` SendRow after encoder wrote **no** floor bytes. If skip-floors fails and the body starts with `0x65`–`0x68` (or `0x83`/`0xBE`/`0xBF`/`0x6D`/`0x6C`/`0x64`), rewind and treat as 0 floors. Do **not** eat `0xFF`. Do **not** bump `0xBF` at z=8. `mixed_300.ron` frozen.
+
+- [x] `inbound.rs`: `send_floors_omitted_body` rewind on `0xBE`/`0xBF`
+- [x] Tests: `0xBF` then magic at z=8; `0xBE` then encoder `0x67` row
+- [x] `cargo test -p tfs-loadgen inbound` — 38 passed
+- [x] Rerun 50-bot 60s rust-only `ms_swarm` — `results/20260919T224609Z`: **skip_failures=0**, **bytes_discarded=0**, unknown=0, 50 in-world, 0 disconnects. Walk p50 26.4 ms / p95 1.03 s / **p99 18.0 s** (outstanding 279). Decoder gate is both-zero — p99 is quoted; it is still not a 1000-bot CPU story.
+
+
+# 0xBF leftover at z=8 (2026-09-20)
+
+Persist-flag cell `20260919T223328Z`: skip 33→10, discarded 6→1, unknown=0. Residual `0xBE`×2 + `0xBF`×8 at z=8, peek `eof` (skip consumed then wanted more floors). Unconditional `0xBF` bump at z=8 **regressed** (`20260919T223936Z`). Reverted; next is 0-floor SendFloors.
+
+- [x] Diagnosed: peek `67…` is SendRow, not leftover 8→9 1-floor
+- [x] Revert `0xBF` bump at z=8
+
+# 0xBE skip at z=8 (2026-09-20)
+
+Payload-local `self_move_this_payload` left `skip_failures=33` (`20260919T222725Z`) when `0x6D` dest and `0xBE` are in different frames. Persist `awaiting_move_up_one_floor` on self `0x6D` dest z>7 && dest<old (9→8). On `0xBE` at z=8 bump only if that flag is clear. `mixed_300.ron` frozen. Do not quote walk p99 unless both decoder fields are 0.
+
+- [x] `inbound.rs`: session flag across `feed()` calls; skip_failed peek `eof` when cursor at end
+- [x] Tests: 9→8 `0x6D` then `0xBE` in a second `feed` does not bump; 8→7 without `0x6D` still bumps
+- [x] `cargo test -p tfs-loadgen inbound` — 35 passed
+- [x] Rerun 50-bot 60s rust-only `ms_swarm` — `results/20260919T223328Z`: **unknown_opcodes=0**, `bytes_discarded=1`, **`skip_failures=10`** (`0xBE`×2 + `0xBF`×8, peek `eof`, z=8). Not both-zero — do not quote walk p99
+
+# 0xBE skip at z=8 payload-local (2026-09-20)
+
+Encoder `MoveUpCreature` / `SendFloors` uses **new** z: 6 floors at z=7, 1 floor at z=8. Inbound `0xBE` at z=8 skipped 1 floor when dest was not applied (8→7 leftover skip-stream, unknown 255/`0xBC`). Bump z 8→7 on `0xBE` only when this payload did **not** already apply a self `0x6D` (9→8 dest z=8 must still skip 1). `mixed_300.ron` frozen. Do not quote walk p99 unless both decoder fields are 0.
+
+- [x] `inbound.rs`: `self_move_this_payload`; on `0xBE` if `player_z==8 && !self_move` bump z-1 then skip
+- [x] Tests: `send_notify_go` 8→7 + magic; 9→8 no extra bump; `0xBE` without preceding self `0x6D` at z=8 skips 6 floors
+- [x] `cargo test -p tfs-loadgen inbound`
+- [x] Rerun 50-bot 60s rust-only `ms_swarm` — `results/20260919T222725Z`: **unknown_opcodes=0**, `bytes_discarded=6`, **`skip_failures=33`** at z=8 (`0x65`–`0x68`/`0xBE`/`0xBF`, peek empty). Not both-zero — do not quote walk p99
+
+# Lone 0xFF after map skip (2026-09-20)
+
+Unconditional leftover-`0xFF` eat was wrong (`20260919T214742Z` skip 0→27). Targeted last-cell 10-thing eat was also wrong (`20260919T221503Z`): unknown 152/188 after `0xBE` at z=8, peek `980100ff…` is unread skip-stream, skip_failures=5×`0xBF`. Do **not** eat `0xFF`. Instrument unknown (peek/prev/z). Next: `0xBE` at z=8 skips too few floors (inbound z not 7 before SendFloors up). `mixed_300.ron` frozen. Do not quote walk p99 unless both decoder fields are 0.
+
+- [x] Drop blanket and last-cell leftover-`0xFF` eats in `skip_skip_stream` (10-thing `Some(0)` stays)
+- [x] Tests: last-cell 10-thing leaves `0xFF`; empty map does not nibble following `0xFF`/`0x65`
+- [x] `inbound.rs` + `loadgen.json`: `unknown_opcode_peek` / `unknown_opcode_prev` / `unknown_opcode_player_z`
+- [x] `cargo test -p tfs-rust-net --lib map_skip`; `cargo test -p tfs-loadgen inbound`
+- [x] Cell `20260919T221503Z` (with last-cell eat): prev=`0xBE` z=8, peek skip-stream, skip 5×`0xBF` — eat reverted
+- [x] Rerun after revert `20260919T222025Z`: `skip_failures=121` (`0x65`–`0x68`/`0xBE`/`0xBF` at z=8, peek `07`), unknown 188+255, prev=`0xBE` z=8, peek `bc1300ff…` then `0x65`. Not both-zero — do not quote walk p99
+- [ ] Next: `0xBE` skip at z=8 must use 6 floors when climbing to surface (inbound z still 8; encoder used new z==7)
+
 # 50-bot rust ms_swarm decoder gate (2026-09-20)
 
 Prove the 0xBF 10-thing skip on a live cell before quoting walk p99. `mixed_300.ron` frozen. Rebuild loadgen (uncommitted `map_skip.rs` / `inbound.rs`).

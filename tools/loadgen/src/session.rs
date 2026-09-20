@@ -225,6 +225,7 @@ pub async fn run_bot(
                             match ev {
                                 InboundEvent::WalkAck => latency.on_walk_ack(t),
                                 InboundEvent::CancelWalk => latency.on_walk_cancel(),
+                                InboundEvent::WalkRejected => latency.on_walk_text_reject(),
                                 InboundEvent::MagicEffect { pos, effect } => {
                                     latency.on_magic_effect(t, pos, effect);
                                 }

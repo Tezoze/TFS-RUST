@@ -21,6 +21,10 @@ pub struct LatencySet {
     outstanding_spell: Vec<(Instant, tfs_rust_common::Position, Option<u8>)>,
     walk_rejections: u64,
     spell_rejections: u64,
+    /// `0xB4` walk text already retired; the following `0xB5` is the paired Snapback.
+    suppress_paired_snapback: bool,
+    /// Next `0xB4` spell reject belongs to a superseded cast (`on_send` cap-1).
+    suppress_paired_spell_reject: bool,
 }
 
 impl LatencySet {
@@ -32,6 +36,8 @@ impl LatencySet {
             outstanding_spell: Vec::new(),
             walk_rejections: 0,
             spell_rejections: 0,
+            suppress_paired_snapback: false,
+            suppress_paired_spell_reject: false,
         })
     }
 
@@ -44,9 +50,32 @@ impl LatencySet {
         effect: Option<u8>,
     ) {
         match kind {
-            Correlate::Walk => self.outstanding_walk.push(intended),
+            Correlate::Walk => {
+                // Open-loop may send the next `CGo` before the previous acks.
+                // Server `CGoDirection` `ToDoClear` + `SendSnapback` replaces the
+                // pending Go (`receiving.cc:120-199`); keep only the latest intended
+                // so FIFO depth is not (period × stuck-seconds). The following `0xB5`
+                // is suppressed. `20260919T224609Z` p99 18 s; unpaired `0xB4` Sorry
+                // retire made it worse (`20260919T225517Z`). Do not clear suppress
+                // here — a same-payload `WalkRejected` may still need the following
+                // `0xB5` coalesced (`lesson 497`).
+                if !self.outstanding_walk.is_empty() {
+                    let _ = self.pop_walk_head();
+                    self.suppress_paired_snapback = true;
+                }
+                self.outstanding_walk.push(intended);
+            }
             Correlate::SpellRune => {
+                // Same open-loop pile as walk: `say_period_ms=2500` leaves the
+                // oldest same-tile head to age until a later `0x83`
+                // (`20260919T234241Z` spell p99 25 s). Keep the latest intended.
+                // The following `0xB4` (mana/PZ for the dropped cast) is
+                // suppressed; a later `0x83` still matches this send.
                 if let Some(pos) = tile {
+                    if !self.outstanding_spell.is_empty() {
+                        let _ = self.outstanding_spell.remove(0);
+                        self.suppress_paired_spell_reject = true;
+                    }
                     self.outstanding_spell.push((intended, pos, effect));
                 }
             }
@@ -54,6 +83,7 @@ impl LatencySet {
     }
 
     pub fn on_walk_ack(&mut self, now: Instant) {
+        self.suppress_paired_snapback = false;
         if let Some(intended) = self.pop_walk_head() {
             record(&mut self.walk, now.saturating_duration_since(intended));
         }
@@ -61,8 +91,21 @@ impl LatencySet {
 
     /// Retire the oldest outstanding walk as a rejection (`0xB5`), not a sample.
     pub fn on_walk_cancel(&mut self) {
+        if self.suppress_paired_snapback {
+            self.suppress_paired_snapback = false;
+            return;
+        }
         if self.pop_walk_head().is_some() {
             self.walk_rejections += 1;
+        }
+    }
+
+    /// Same-payload walk bump (`0xB4` + trailing `0xB5`). The following
+    /// [`Self::on_walk_cancel`] is the paired Snapback.
+    pub fn on_walk_text_reject(&mut self) {
+        if self.pop_walk_head().is_some() {
+            self.walk_rejections += 1;
+            self.suppress_paired_snapback = true;
         }
     }
 
@@ -80,15 +123,21 @@ impl LatencySet {
             .iter()
             .position(|(_, p, want)| *p == pos && want.is_none_or(|e| e == effect))
         {
+            self.suppress_paired_spell_reject = false;
             let (intended, _, _) = self.outstanding_spell.remove(idx);
             record(&mut self.spell, now.saturating_duration_since(intended));
         }
     }
 
-    /// Retire the oldest outstanding spell/rune as a rejection (`0xB5`-style
-    /// cancel text on `0xB4`), not a sample. No-op with an empty queue so
-    /// login MOTD / broadcast text never counts.
+    /// Retire the oldest outstanding spell/rune as a rejection (`0xB4` cancel
+    /// text), not a sample. No-op with an empty queue so login MOTD / broadcast
+    /// text never counts. After cap-1 drop, the next reject is the superseded
+    /// cast and is ignored.
     pub fn on_spell_reject(&mut self) {
+        if self.suppress_paired_spell_reject {
+            self.suppress_paired_spell_reject = false;
+            return;
+        }
         if !self.outstanding_spell.is_empty() {
             self.outstanding_spell.remove(0);
             self.spell_rejections += 1;
@@ -112,6 +161,10 @@ impl LatencySet {
             .extend_from_slice(&other.outstanding_spell);
         self.walk_rejections += other.walk_rejections;
         self.spell_rejections += other.spell_rejections;
+        self.suppress_paired_snapback =
+            self.suppress_paired_snapback || other.suppress_paired_snapback;
+        self.suppress_paired_spell_reject =
+            self.suppress_paired_spell_reject || other.suppress_paired_spell_reject;
         Ok(())
     }
 
@@ -201,6 +254,9 @@ pub struct RunReport {
     pub text_reject_counts: HashMap<String, u64>,
     pub skip_failure_first_peek: Option<String>,
     pub skip_failure_player_z: Option<u8>,
+    pub unknown_opcode_peek: Option<String>,
+    pub unknown_opcode_prev: Option<u8>,
+    pub unknown_opcode_player_z: Option<u8>,
     /// Game sessions that dropped before the measurement window ended.
     pub disconnects: u64,
     /// Always 0: loadgen does not auto-reconnect during a run.
@@ -256,7 +312,7 @@ fn str_histogram_json(map: &HashMap<String, u64>) -> String {
 impl RunReport {
     pub fn to_json(&self) -> String {
         format!(
-            "{{\n  \"bots\": {},\n  \"duration_s\": {},\n  \"warmup_s\": {},\n  \"walk\": {},\n  \"spell_rune\": {},\n  \"bytes_in\": {},\n  \"frames_in\": {},\n  \"bytes_out\": {},\n  \"outstanding_at_end\": {},\n  \"sends\": {},\n  \"magic_effects\": {},\n  \"animated_texts\": {},\n  \"damage_sum\": {},\n  \"damage_samples\": {},\n  \"distance_shoots\": {},\n  \"creature_health\": {},\n  \"other_creature_moves\": {},\n  \"unique_creatures\": {},\n  \"bytes_discarded\": {},\n  \"skip_failures\": {},\n  \"unknown_opcodes\": {},\n  \"unknown_opcode_first\": {},\n  \"skip_failure_opcodes\": {},\n  \"unknown_opcode_counts\": {},\n  \"text_reject_counts\": {},\n  \"skip_failure_first_peek\": {},\n  \"skip_failure_player_z\": {},\n  \"disconnects\": {},\n  \"reconnects\": {}\n}}\n",
+            "{{\n  \"bots\": {},\n  \"duration_s\": {},\n  \"warmup_s\": {},\n  \"walk\": {},\n  \"spell_rune\": {},\n  \"bytes_in\": {},\n  \"frames_in\": {},\n  \"bytes_out\": {},\n  \"outstanding_at_end\": {},\n  \"sends\": {},\n  \"magic_effects\": {},\n  \"animated_texts\": {},\n  \"damage_sum\": {},\n  \"damage_samples\": {},\n  \"distance_shoots\": {},\n  \"creature_health\": {},\n  \"other_creature_moves\": {},\n  \"unique_creatures\": {},\n  \"bytes_discarded\": {},\n  \"skip_failures\": {},\n  \"unknown_opcodes\": {},\n  \"unknown_opcode_first\": {},\n  \"skip_failure_opcodes\": {},\n  \"unknown_opcode_counts\": {},\n  \"text_reject_counts\": {},\n  \"skip_failure_first_peek\": {},\n  \"skip_failure_player_z\": {},\n  \"unknown_opcode_peek\": {},\n  \"unknown_opcode_prev\": {},\n  \"unknown_opcode_player_z\": {},\n  \"disconnects\": {},\n  \"reconnects\": {}\n}}\n",
             self.bots,
             self.duration_s,
             self.warmup_s,
@@ -287,6 +343,15 @@ impl RunReport {
                 None => "null".into(),
             },
             match self.skip_failure_player_z {
+                Some(z) => z.to_string(),
+                None => "null".into(),
+            },
+            match &self.unknown_opcode_peek {
+                Some(s) => format!("\"{}\"", json_escape(s)),
+                None => "null".into(),
+            },
+            unknown_opcode_json(self.unknown_opcode_prev),
+            match self.unknown_opcode_player_z {
                 Some(z) => z.to_string(),
                 None => "null".into(),
             },
@@ -361,6 +426,58 @@ mod tests {
     }
 
     #[test]
+    fn second_spell_send_drops_unacked_head() {
+        let mut set = LatencySet::new().expect("hist");
+        let t0 = Instant::now();
+        let tile = Position::new(3, 4, 7);
+        set.on_send(Correlate::SpellRune, t0, Some(tile), None);
+        set.on_send(
+            Correlate::SpellRune,
+            t0 + Duration::from_millis(2500),
+            Some(tile),
+            None,
+        );
+        set.on_magic_effect(t0 + Duration::from_millis(2546), tile, 11);
+        let s = set.spell_summary();
+        assert_eq!(s.samples, 1);
+        assert_eq!(s.rejections, 0);
+        assert!(s.p50_us >= 40_000);
+        assert!(s.p50_us < 200_000);
+        assert_eq!(set.outstanding_count(), 0);
+    }
+
+    #[test]
+    fn spell_reject_after_supersede_is_suppressed() {
+        let mut set = LatencySet::new().expect("hist");
+        let t0 = Instant::now();
+        let tile = Position::new(3, 4, 7);
+        set.on_send(Correlate::SpellRune, t0, Some(tile), None);
+        set.on_send(
+            Correlate::SpellRune,
+            t0 + Duration::from_millis(2500),
+            Some(tile),
+            None,
+        );
+        set.on_spell_reject();
+        set.on_magic_effect(t0 + Duration::from_millis(2546), tile, 11);
+        let s = set.spell_summary();
+        assert_eq!(s.samples, 1);
+        assert_eq!(s.rejections, 0);
+        assert_eq!(set.outstanding_count(), 0);
+    }
+
+    #[test]
+    fn spell_reject_without_supersede_still_rejects() {
+        let mut set = LatencySet::new().expect("hist");
+        let t0 = Instant::now();
+        let tile = Position::new(3, 4, 7);
+        set.on_send(Correlate::SpellRune, t0, Some(tile), None);
+        set.on_spell_reject();
+        assert_eq!(set.spell_summary().rejections, 1);
+        assert_eq!(set.outstanding_count(), 0);
+    }
+
+    #[test]
     fn cancel_then_ack_one_sample_one_rejection() {
         let mut set = LatencySet::new().expect("hist");
         let t0 = Instant::now();
@@ -381,6 +498,59 @@ mod tests {
         let mut set = LatencySet::new().expect("hist");
         set.on_walk_cancel();
         assert_eq!(set.walk_summary().rejections, 0);
+    }
+
+    #[test]
+    fn second_walk_send_drops_unacked_head() {
+        let mut set = LatencySet::new().expect("hist");
+        let t0 = Instant::now();
+        set.on_send(Correlate::Walk, t0, None, None);
+        set.on_send(Correlate::Walk, t0 + Duration::from_millis(500), None, None);
+        set.on_walk_cancel();
+        set.on_walk_ack(t0 + Duration::from_millis(700));
+        let s = set.walk_summary();
+        assert_eq!(s.samples, 1);
+        assert_eq!(s.rejections, 0);
+        assert!(s.p50_us >= 100_000);
+        assert!(s.p50_us < 500_000);
+        assert_eq!(set.outstanding_count(), 0);
+    }
+
+    #[test]
+    fn snapback_without_supersede_still_rejects() {
+        let mut set = LatencySet::new().expect("hist");
+        let t0 = Instant::now();
+        set.on_send(Correlate::Walk, t0, None, None);
+        set.on_walk_cancel();
+        assert_eq!(set.walk_summary().rejections, 1);
+        assert_eq!(set.outstanding_count(), 0);
+    }
+
+    #[test]
+    fn walk_text_reject_then_cancel_is_one_rejection() {
+        let mut set = LatencySet::new().expect("hist");
+        let t0 = Instant::now();
+        set.on_send(Correlate::Walk, t0, None, None);
+        set.on_walk_text_reject();
+        set.on_walk_cancel();
+        let s = set.walk_summary();
+        assert_eq!(s.samples, 0);
+        assert_eq!(s.rejections, 1);
+        assert_eq!(set.outstanding_count(), 0);
+    }
+
+    #[test]
+    fn walk_text_reject_does_not_clear_on_empty_send() {
+        let mut set = LatencySet::new().expect("hist");
+        let t0 = Instant::now();
+        set.on_send(Correlate::Walk, t0, None, None);
+        set.on_walk_text_reject();
+        set.on_send(Correlate::Walk, t0 + Duration::from_millis(500), None, None);
+        set.on_walk_cancel();
+        let s = set.walk_summary();
+        assert_eq!(s.samples, 0);
+        assert_eq!(s.rejections, 1);
+        assert_eq!(set.outstanding_count(), 1);
     }
 
     #[test]
@@ -435,6 +605,9 @@ mod tests {
             text_reject_counts: HashMap::from([("You are exhausted.".into(), 4)]),
             skip_failure_first_peek: Some("6301abcd".into()),
             skip_failure_player_z: Some(7),
+            unknown_opcode_peek: Some("15aabb".into()),
+            unknown_opcode_prev: Some(0x64),
+            unknown_opcode_player_z: Some(8),
             disconnects: 1,
             reconnects: 0,
         };
@@ -449,6 +622,9 @@ mod tests {
         );
         assert!(json.contains("\"skip_failure_first_peek\": \"6301abcd\""), "{json}");
         assert!(json.contains("\"skip_failure_player_z\": 7"), "{json}");
+        assert!(json.contains("\"unknown_opcode_peek\": \"15aabb\""), "{json}");
+        assert!(json.contains("\"unknown_opcode_prev\": 100"), "{json}");
+        assert!(json.contains("\"unknown_opcode_player_z\": 8"), "{json}");
         assert!(json.contains("\"rejections\":0"), "{json}");
         assert!(json.contains("\"disconnects\": 1"), "{json}");
         assert!(json.contains("\"reconnects\": 0"), "{json}");
