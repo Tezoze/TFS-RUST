@@ -35,8 +35,7 @@ use tfs_rust_common::Position;
 use tfs_rust_common::enums::{ConditionType, Direction};
 use tfs_rust_content::items::ItemDatabase;
 use tfs_rust_net::map_description::{
-    TileContent, send_map_description_packet, send_move_creature_player,
-    send_move_creature_spectator, send_notify_go,
+    TileContent, send_move_creature_player_fill, send_move_creature_spectator, send_notify_go_fill,
 };
 use tfs_rust_net::outgoing_extra::send_text_message_simple;
 
@@ -45,11 +44,11 @@ use crate::creature::{CreatureKind, NpcActivity};
 use crate::creature_todo::{CreatureAction, trace_creature_todo};
 use crate::game_world::{DeferredTurnBroadcast, GameWorld};
 use crate::ids::{CreatureId, ItemId};
-use crate::login_out::{creature_wire_id, map_tile_content};
-use crate::return_value::ReturnValue;
-use crate::tile::{
-    client_creature_stack_pos, client_creature_stack_pos_cip, creature_stack_pos_for_viewer,
+use crate::login_out::{
+    MapDescribeCtx, creature_omitted_from_other_clients, creature_wire_id, map_tile_content_into,
 };
+use crate::return_value::ReturnValue;
+use crate::tile::{CreatureStackIndex, CreatureStackSnapshot, creature_stack_pos_for_viewer};
 use tfs_rust_common::ConnId;
 
 /// C++ `cylinder.h` — `Tile::queryAdd` / `internalMoveCreature` flags.
@@ -70,17 +69,14 @@ pub(crate) const PATHFIND_WALK_FLAGS: u32 = FLAG_PATHFINDING;
 
 /// Self-move / segment `oldStackPos` for the moving creature's own connection.
 fn self_move_stack_pos(world: &GameWorld, cid: CreatureId, body: &crate::tile::TileBody) -> i32 {
-    let is_772 = !world.codec.caps().move_creature_self_packet;
-    let is_otc = world
-        .creatures
-        .get(cid)
-        .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.is_otclient()));
-    if is_772 && !is_otc {
-        let bottom_downs = cip_bottom_down_count(world, body);
-        client_creature_stack_pos_cip(body, cid, bottom_downs)
-    } else {
-        client_creature_stack_pos(body, cid)
-    }
+    let snap = CreatureStackSnapshot {
+        creatures: body.creatures().to_vec(),
+        ground_present: body.ground.is_some(),
+        bottom_down_count: cip_bottom_down_count(world, body),
+        top_item_count: body.top_items().len(),
+    };
+    let (stack_772, stack_otc) = stack_indexes_for_snapshot(world, &snap, cid);
+    stack_for_viewer(world, &stack_772, &stack_otc, cid)
 }
 
 /// Count `down_items` that are Cip `PRIORITY_BOTTOM` (fields / pools).
@@ -95,6 +91,79 @@ fn cip_bottom_down_count(world: &GameWorld, body: &crate::tile::TileBody) -> usi
                 .is_some_and(|t| t.is_cip_priority_bottom())
         })
         .count()
+}
+
+/// Origin-tile chain captured before `MoveObject` (`GetObjectRNum` / `operate.cc:1422`).
+pub(crate) fn capture_creature_stack_snapshot(
+    world: &GameWorld,
+    pos: Position,
+) -> CreatureStackSnapshot {
+    world
+        .map
+        .get_tile(pos)
+        .map(|t| {
+            let body = t.body();
+            CreatureStackSnapshot {
+                creatures: body.creatures().to_vec(),
+                ground_present: body.ground.is_some(),
+                bottom_down_count: cip_bottom_down_count(world, body),
+                top_item_count: body.top_items().len(),
+            }
+        })
+        .unwrap_or_default()
+}
+
+fn occupies_shared_map_slot(world: &GameWorld, cid: CreatureId) -> bool {
+    world
+        .creatures
+        .get(cid)
+        .is_some_and(|k| !creature_omitted_from_other_clients(k))
+}
+
+/// One 772 index and one OTC index. Hidden bodies above the target are
+/// `own_client_only` on both (same creature walk, different item prefix).
+pub(crate) fn stack_indexes_for_snapshot(
+    world: &GameWorld,
+    snap: &CreatureStackSnapshot,
+    target: CreatureId,
+) -> (CreatureStackIndex, CreatureStackIndex) {
+    let stack_772 = creature_stack_pos_for_viewer(
+        snap.ground_present,
+        snap.bottom_down_count + snap.top_item_count,
+        &snap.creatures,
+        target,
+        |c| occupies_shared_map_slot(world, c),
+    );
+    let stack_otc = creature_stack_pos_for_viewer(
+        snap.ground_present,
+        snap.top_item_count,
+        &snap.creatures,
+        target,
+        |c| occupies_shared_map_slot(world, c),
+    );
+    (stack_772, stack_otc)
+}
+
+pub(crate) fn stack_for_viewer(
+    world: &GameWorld,
+    stack_772: &CreatureStackIndex,
+    stack_otc: &CreatureStackIndex,
+    viewer: CreatureId,
+) -> i32 {
+    let idx = if world.uses_cip_map_order(viewer) {
+        stack_772
+    } else {
+        stack_otc
+    };
+    idx.for_viewer(viewer)
+}
+
+fn stack_u8_for_turn(stack: i32) -> u8 {
+    if (0..10).contains(&stack) {
+        stack as u8
+    } else {
+        10u8
+    }
 }
 
 /// One movement segment emitted by `internal_move_creature_step`.
@@ -310,11 +379,7 @@ pub(crate) fn internal_teleport_player(
         .map(|t| self_move_stack_pos(world, cid, t.body()))
         .filter(|s| *s >= 0)
         .unwrap_or(1);
-    let old_creatures = world
-        .map
-        .get_tile(old_pos)
-        .map(|t| t.body().creatures().to_vec())
-        .unwrap_or_default();
+    let old_snap = capture_creature_stack_snapshot(world, old_pos);
 
     // C++ `Map::moveCreature`: `teleport = forceTeleport || !ground || !areInRange<1,1,0>`.
     let has_ground = to_tile.body().ground.is_some();
@@ -329,7 +394,7 @@ pub(crate) fn internal_teleport_player(
     if teleport {
         world.emit_teleport_move_packet(cid, conn_id, old_pos, new_pos, old_stack);
         // Self is excluded from spectator fan-out (`viewer == mover`).
-        world.broadcast_spectator_move(cid, old_pos, new_pos, &old_creatures);
+        world.broadcast_spectator_move(cid, old_pos, new_pos, &old_snap);
     } else {
         // Walk animation path — same self-packet routing as `on_walk`.
         let is_772 = !world.codec.caps().move_creature_self_packet;
@@ -351,7 +416,7 @@ pub(crate) fn internal_teleport_player(
     // below).  See `on_walk` path for the full rationale.
     world.flush_pending_creature_step_events();
     if !teleport {
-        world.broadcast_spectator_move(cid, old_pos, new_pos, &old_creatures);
+        world.broadcast_spectator_move(cid, old_pos, new_pos, &old_snap);
     }
     ReturnValue::NoError
 }
@@ -444,32 +509,34 @@ fn internal_creature_turn_broadcast_only(world: &mut GameWorld, cid: CreatureId,
         Some(k) => (creature_wire_id(cid, k), k.position()),
         None => return,
     };
-    let stack_u8 = world
-        .map
-        .get_tile(pos)
-        .map(|t| {
-            let raw = client_creature_stack_pos(t.body(), cid);
-            if !(0..10).contains(&raw) {
-                10u8
-            } else {
-                raw as u8
-            }
-        })
-        .unwrap_or(10);
+    let omitted = world
+        .creatures
+        .get(cid)
+        .is_some_and(creature_omitted_from_other_clients);
+    let snap = capture_creature_stack_snapshot(world, pos);
+    let (stack_772, stack_otc) = stack_indexes_for_snapshot(world, &snap, cid);
 
     // Broadcast `0x6B` to ALL spectators (inc. the mover) that can see the position.
     // C++ `map.getSpectators(spectators, pos, true, true)` → players only.
     // Grid-based fan-out (audit #4) — `spectator_conns_via_grid` applies `can_see_position`.
     let spectators: Vec<ConnId> = world.spectator_conns_via_grid(pos);
 
-    let packet = world
-        .codec
-        .encode_creature_turn(wire_id, stack_u8, pos, dir as u8, false)
-        .into_bytes();
     for conn in spectators {
-        if world.is_creature_fully_sent_to_conn(conn, wire_id) {
-            world.enqueue_outgoing(conn, packet.clone());
+        let Some(&viewer) = world.conn_to_creature.get(&conn) else {
+            continue;
+        };
+        if omitted && viewer != cid {
+            continue;
         }
+        if !world.is_creature_fully_sent_to_conn(conn, wire_id) {
+            continue;
+        }
+        let stack_u8 = stack_u8_for_turn(stack_for_viewer(world, &stack_772, &stack_otc, viewer));
+        let packet = world
+            .codec
+            .encode_creature_turn(wire_id, stack_u8, pos, dir as u8, false)
+            .into_bytes();
+        world.enqueue_outgoing(conn, packet);
     }
 }
 
@@ -688,13 +755,35 @@ impl GameWorld {
         let DeferredTurnBroadcast {
             guid,
             pos,
-            stack_u8,
+            stack_772,
+            stack_otc,
+            own_client_only,
             dir,
         } = data;
+        let stack_772 = CreatureStackIndex {
+            shared: stack_772,
+            own_client_only: own_client_only.clone(),
+        };
+        let stack_otc = CreatureStackIndex {
+            shared: stack_otc,
+            own_client_only,
+        };
+        let omitted = self
+            .creatures
+            .get(cid)
+            .is_some_and(creature_omitted_from_other_clients);
         // Grid-based fan-out (audit #4) — `spectator_conns_via_grid` already applies
         // `can_see_position`, so every conn here can see `pos`.
         let spectators: Vec<ConnId> = self.spectator_conns_via_grid(pos);
         for conn in spectators {
+            let Some(&viewer) = self.conn_to_creature.get(&conn) else {
+                continue;
+            };
+            if omitted && viewer != cid {
+                continue;
+            }
+            let stack_u8 =
+                stack_u8_for_turn(stack_for_viewer(self, &stack_772, &stack_otc, viewer));
             let packet = self
                 .codec
                 .encode_creature_turn(guid, stack_u8, pos, dir as u8, false)
@@ -917,25 +1006,17 @@ impl GameWorld {
             return;
         }
 
-        let stack_u8 = self
-            .map
-            .get_tile(pos)
-            .map(|t| {
-                let raw = client_creature_stack_pos(t.body(), cid);
-                if !(0..10).contains(&raw) {
-                    10u8
-                } else {
-                    raw as u8
-                }
-            })
-            .unwrap_or(10);
+        let snap = capture_creature_stack_snapshot(self, pos);
+        let (stack_772, stack_otc) = stack_indexes_for_snapshot(self, &snap, cid);
 
         self.deferred_turn_broadcast.insert(
             cid,
             DeferredTurnBroadcast {
                 guid,
                 pos,
-                stack_u8,
+                stack_772: stack_772.shared,
+                stack_otc: stack_otc.shared,
+                own_client_only: stack_772.own_client_only,
                 dir,
             },
         );
@@ -1014,17 +1095,18 @@ impl GameWorld {
         let with_description = p.item_with_description();
         let guid = p.guid;
 
-        let mut known = self
-            .known_creatures_by_conn
-            .remove(&conn_id)
-            .unwrap_or_default();
+        let mut known = self.take_known_creatures_for_send(conn_id);
         self.reconcile_known_creatures_for_send(conn_id, &mut known);
+        let Some(ctx) = MapDescribeCtx::from_world(self, cid, new_pos) else {
+            self.commit_known_creatures_after_send(conn_id, &known);
+            return;
+        };
         let packet = {
-            let mut get_tile = |tx: i32, ty: i32, tz: i32| -> Option<TileContent> {
-                map_tile_content(self, cid, new_pos, tx, ty, tz)
+            let mut get_tile = |tx: i32, ty: i32, tz: i32, out: &mut TileContent| -> bool {
+                map_tile_content_into(self, &ctx, tx, ty, tz, out)
             };
             let mut can_see = |id: u32| self.can_see_creature_for_known_set(cid, id);
-            send_move_creature_player(
+            send_move_creature_player_fill(
                 &self.codec,
                 old_pos,
                 new_pos,
@@ -1062,17 +1144,18 @@ impl GameWorld {
         let with_description = p.item_with_description();
         let guid = p.guid;
 
-        let mut known = self
-            .known_creatures_by_conn
-            .remove(&conn_id)
-            .unwrap_or_default();
+        let mut known = self.take_known_creatures_for_send(conn_id);
         self.reconcile_known_creatures_for_send(conn_id, &mut known);
+        let Some(ctx) = MapDescribeCtx::from_world(self, cid, new_pos) else {
+            self.commit_known_creatures_after_send(conn_id, &known);
+            return;
+        };
         let packet = {
-            let mut get_tile = |tx: i32, ty: i32, tz: i32| -> Option<TileContent> {
-                map_tile_content(self, cid, new_pos, tx, ty, tz)
+            let mut get_tile = |tx: i32, ty: i32, tz: i32, out: &mut TileContent| -> bool {
+                map_tile_content_into(self, &ctx, tx, ty, tz, out)
             };
             let mut can_see = |id: u32| self.can_see_creature_for_known_set(cid, id);
-            send_notify_go(
+            send_notify_go_fill(
                 &self.codec,
                 old_pos,
                 new_pos,
@@ -1128,27 +1211,13 @@ impl GameWorld {
         }
 
         // 2) sendMapDescription(newPos)
-        let mut known = self
-            .known_creatures_by_conn
-            .remove(&conn_id)
-            .unwrap_or_default();
+        let mut known = self.take_known_creatures_for_send(conn_id);
         self.reconcile_known_creatures_for_send(conn_id, &mut known);
-        let map_pkt = {
-            let mut get_tile = |tx: i32, ty: i32, tz: i32| -> Option<TileContent> {
-                map_tile_content(self, cid, new_pos, tx, ty, tz)
-            };
-            let mut can_see = |id: u32| self.can_see_creature_for_known_set(cid, id);
-            send_map_description_packet(
-                &self.codec,
-                new_pos,
-                new_pos,
-                &mut get_tile,
-                &mut known,
-                &mut can_see,
-                with_description,
-            )
-            .into_bytes()
+        let Some(ctx) = MapDescribeCtx::from_world(self, cid, new_pos) else {
+            self.commit_known_creatures_after_send(conn_id, &known);
+            return;
         };
+        let map_pkt = crate::map_point::encode_fullscreen(self, &ctx, &mut known, with_description);
         self.commit_known_creatures_after_send(conn_id, &known);
         self.enqueue_outgoing(conn_id, map_pkt);
     }
@@ -1311,13 +1380,22 @@ impl GameWorld {
         mover: CreatureId,
         old_pos: Position,
         new_pos: Position,
-        old_creatures: &[CreatureId],
+        old_stack: &CreatureStackSnapshot,
     ) {
         if self.flushing_step_creature == Some(mover) {
             // Nested `doRelocate`/`teleportTo` during StepIn: spectators still have
             // this creature on the *walk origin*. A 0x6D from the land tile is
             // stock 772 `bug0000017` (`Communication.cpp:1879`). Outer walk/kick
             // broadcasts origin → live after flush.
+            return;
+        }
+        // Omitted movers were never written into other clients' tiles
+        // (`creature_hidden_from_map`). A `0x6D` would hit the next object.
+        if self
+            .creatures
+            .get(mover)
+            .is_some_and(creature_omitted_from_other_clients)
+        {
             return;
         }
         let wire_id = match self.creatures.get(mover) {
@@ -1348,49 +1426,20 @@ impl GameWorld {
             })
             .collect();
 
-        // C++ `Map::moveCreature` captures per-viewer `oldStackPos` BEFORE removing the
-        // creature from the old tile (`map.cpp:292-301`), and `Tile::getClientIndexOfCreature`
-        // only counts creatures the viewer can see (`tile.cpp:1207-1214`). The ground and
-        // top_items counts don't change during a creature move, so we read them from the old
-        // tile after the move (the creature has been removed, but ground/top_items are intact).
-        //
-        // 772 decompile `GetObjectRNum` (`info.cc:205`) counts Bank→Bottom→Top→Creature
-        // (not PRIORITY_LOW downs). TVP/OTC `getClientIndexOfCreature` skips all downs.
-        let (ground_present, bottom_down_count, top_item_count) = self
-            .map
-            .get_tile(old_pos)
-            .map(|t| {
-                let body = t.body();
-                (
-                    body.ground.is_some(),
-                    cip_bottom_down_count(self, body),
-                    body.top_items().len(),
-                )
-            })
-            .unwrap_or((true, 0, 0));
+        // Pre-move snapshot (`GetObjectRNum` before `MoveObject`, `operate.cc:1422`).
+        // One 772 index (BOTTOM + tops) and one OTC index (tops only). Hidden bodies
+        // above the mover occupy a slot only on that hidden creature's own client.
+        let (stack_772, stack_otc) = stack_indexes_for_snapshot(self, old_stack, mover);
 
-        // First pass: compute per-viewer data using only `&self` borrows.
-        // C++ `map.cpp:295` — `tmpPlayer->canSeeCreature(&creature)` gates the entire
-        // packet: viewers who can't see the moving creature (invisible/ghost) get no
-        // move packet at all (stackpos = -1).
+        // First pass: per-viewer visibility only (`&self`). Invisible/ghost movers
+        // still get no packet (`map.cpp` `canSeeCreature` on the mover, not the stack).
         let viewer_data: Vec<(ConnId, CreatureId, i32, bool, bool)> = spectators
             .into_iter()
             .filter_map(|(conn, viewer)| {
                 if !self.can_see_creature(viewer, mover) {
                     return None;
                 }
-                let otc = self
-                    .creatures
-                    .get(viewer)
-                    .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.is_otclient()));
-                let downs = if otc { 0 } else { bottom_down_count };
-                let viewer_stack = creature_stack_pos_for_viewer(
-                    ground_present,
-                    downs + top_item_count,
-                    old_creatures,
-                    mover,
-                    |c| self.can_see_creature(viewer, c),
-                );
+                let viewer_stack = stack_for_viewer(self, &stack_772, &stack_otc, viewer);
                 let can_see_old = self.can_see_position(viewer, old_pos);
                 let can_see_new = self.can_see_position(viewer, new_pos);
                 Some((conn, viewer, viewer_stack, can_see_old, can_see_new))
@@ -1872,15 +1921,11 @@ impl GameWorld {
                     }
                     crate::monster_push::MonsterKickOutcome::Proceed => {}
                 }
-                // C++ `Map::moveCreature` captures per-viewer `oldStackPos` BEFORE removing
-                // the creature from the old tile (`map.cpp:292-301`). Snapshot the old tile's
-                // creature list now — `broadcast_spectator_move` needs it for per-viewer
-                // stack position computation (`Tile::getClientIndexOfCreature`).
-                let old_creatures = self
-                    .map
-                    .get_tile(old_pos)
-                    .map(|t| t.body().creatures().to_vec())
-                    .unwrap_or_default();
+                // Snapshot the old tile before the step removes the mover.
+                // `broadcast_spectator_move` uses it for one `GetObjectRNum` (`info.cc:205`),
+                // shared by every spectator. Prefix counts are taken here so StepIn
+                // cannot change the origin byte (`operate.cc:1422` before `MoveObject`).
+                let old_snap = capture_creature_stack_snapshot(self, old_pos);
                 let result = self.internal_move_creature_step(cid, dir, now);
                 match result {
                     Err(ret) => {
@@ -1968,7 +2013,7 @@ impl GameWorld {
                             .get(cid)
                             .map(|k| k.position())
                             .unwrap_or(new_pos);
-                        self.broadcast_spectator_move(cid, old_pos, spectate_to, &old_creatures);
+                        self.broadcast_spectator_move(cid, old_pos, spectate_to, &old_snap);
 
                         // TFS `Tile::postAddNotification` teleport — after walk packets.
                         // Pad specials must not emit 0x64 before NotifyGo (official 772 crash).
@@ -2474,8 +2519,12 @@ impl GameWorld {
 
         // Snapshot tile items before unregister (StepOut) and after register (StepIn).
         let step_out_items = self.tile_move_event_items(from);
+        let is_player = matches!(
+            self.creatures.get(cid),
+            Some(crate::creature::CreatureKind::Player(_))
+        );
         self.map.unregister_creature_at(from, cid);
-        self.map.register_creature_at(to, cid);
+        self.map.register_creature_role_at(to, cid, is_player);
         if let Some(k) = self.creatures.get_mut(cid) {
             k.set_position(to);
         }
@@ -3222,11 +3271,7 @@ mod monster_walk_tests {
             .or_default()
             .insert(wire_id);
 
-        let old_creatures = world
-            .map
-            .get_tile(walk_from)
-            .map(|t| t.body().creatures().to_vec())
-            .unwrap_or_default();
+        let old_snap = super::capture_creature_stack_snapshot(&world, walk_from);
         world.pending_outgoing.clear();
 
         world.move_creature_on_map(walker, walk_from, bridge);
@@ -3238,7 +3283,7 @@ mod monster_walk_tests {
 
         let live = world.creatures.get(walker).map(|k| k.position()).unwrap();
         assert_eq!(live, dest);
-        world.broadcast_spectator_move(walker, walk_from, live, &old_creatures);
+        world.broadcast_spectator_move(walker, walk_from, live, &old_snap);
 
         let packets = world
             .pending_outgoing
@@ -3316,7 +3361,7 @@ mod monster_walk_tests {
             world
                 .known_creatures_by_conn
                 .get(&conn)
-                .is_some_and(|s| s.contains(&wire_id)),
+                .is_some_and(|s| s.contains(wire_id)),
             "0x6C must not FREE the known-creature slot"
         );
 

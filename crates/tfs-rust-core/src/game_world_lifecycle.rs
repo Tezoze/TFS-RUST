@@ -137,6 +137,7 @@ impl GameWorld {
         self.deferred_turn_broadcast.remove(&id);
         self.sleep_until_damage.remove(&id);
         self.stop_event_walk(id);
+        self.unindex_creature_wire(id);
         self.creatures.remove(id);
     }
 
@@ -329,8 +330,7 @@ impl GameWorld {
         if let Some(old) = old_conn {
             // `ClearConnection` — do not `StartLogout` (CharacterID already conceptually 0).
             self.unregister_conn_mapping(old);
-            self.known_creatures_by_conn.remove(&old);
-            self.creature_fully_sent_by_conn.remove(&old);
+            self.forget_known_creatures_for_conn(old);
         }
 
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
@@ -433,8 +433,7 @@ impl GameWorld {
         self.creature_begin_logout(cid, forced, true);
 
         self.unregister_conn_mapping(conn_id);
-        self.known_creatures_by_conn.remove(&conn_id);
-        self.creature_fully_sent_by_conn.remove(&conn_id);
+        self.forget_known_creatures_for_conn(conn_id);
 
         // `LogoutPossible` already succeeded in `player_logout_allowed` → remove now.
         if self.player_logout_possible(cid) == LogoutPossible::Ok {

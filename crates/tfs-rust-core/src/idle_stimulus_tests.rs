@@ -22,6 +22,7 @@ use crate::test_world::support::{
     ensure_walkable_tile, insert_monster, insert_monster_with_config, insert_player,
     insert_spectator_player, test_player,
 };
+use tfs_rust_net::creature_known::KnownCreatureTable;
 
 /// Same-floor creature outside the 10-tile targeting box — `CanSeeFloor` awake without a target.
 fn register_distant_floor_spectator(world: &mut GameWorld, near: Position) -> CreatureId {
@@ -4496,7 +4497,7 @@ fn monster_talk_emits_packet_on_gate_hit() {
         let v =
             insert_spectator_player(&mut w, cn, test_player("Spec", Position::new(101, 100, 7)));
         w.known_creatures_by_conn
-            .insert(cn, std::collections::HashSet::new());
+            .insert(cn, KnownCreatureTable::default());
         w.pending_outgoing.clear();
         w.monster_idle_stimulus(m);
         if let Some(pkts) = w.pending_outgoing.get(&cn) {
@@ -4531,7 +4532,7 @@ fn monster_no_talk_when_talk_texts_empty() {
     );
     world
         .known_creatures_by_conn
-        .insert(conn, std::collections::HashSet::new());
+        .insert(conn, KnownCreatureTable::default());
     world.pending_outgoing.clear();
     world.monster_idle_stimulus(monster);
     let pkts = world.pending_outgoing.get(&conn);
@@ -4836,7 +4837,7 @@ fn test_772_dragon_fire_wave_angle_casts_toward_target() {
     let player = insert_spectator_player(&mut world, conn, player);
     world
         .known_creatures_by_conn
-        .insert(conn, std::collections::HashSet::new());
+        .insert(conn, KnownCreatureTable::default());
 
     // Dragon fire wave: Angle, length=8, spread=3 (→ 772 Angle=30/Range=8), delay=1 (always
     // casts), firearea graphical effect (CONST_ME_FIREAREA = 7).
@@ -4931,7 +4932,7 @@ fn setup_player_world_with_conn() -> (GameWorld, CreatureId, tfs_rust_common::Co
     let player = insert_spectator_player(&mut world, conn, test_player("Hero", ppos));
     world
         .known_creatures_by_conn
-        .insert(conn, std::collections::HashSet::new());
+        .insert(conn, KnownCreatureTable::default());
     (world, player, conn)
 }
 
@@ -7161,7 +7162,7 @@ fn setup_south_stair_world(
     let player = insert_spectator_player(&mut world, conn, player);
     world
         .known_creatures_by_conn
-        .insert(conn, std::collections::HashSet::new());
+        .insert(conn, KnownCreatureTable::default());
     (world, player, conn)
 }
 

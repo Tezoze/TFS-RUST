@@ -249,18 +249,17 @@ fn take(buf: &[u8], i: &mut usize, n: usize) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
     use tfs_rust_common::protocol_constants::{client_viewport_height, client_viewport_width};
     use tfs_rust_common::{Position, ProtocolVersion};
 
     use super::*;
     use crate::NetworkMessage;
     use crate::codec::Codec;
+    use crate::creature_encode::AddCreatureWire;
+    use crate::creature_known::KnownCreatureTable;
     use crate::map_description::{
         ItemStack, TileContent, send_map_description_packet, write_map_description_body,
     };
-    use crate::creature_encode::AddCreatureWire;
 
     fn codec_772() -> Codec {
         Codec::from_version(ProtocolVersion::V772).expect("772 codec")
@@ -273,7 +272,7 @@ mod tests {
     #[test]
     fn skip_empty_full_map_then_magic_effect_byte() {
         let player = Position::new(32369, 32241, 7);
-        let mut known = HashSet::new();
+        let mut known = KnownCreatureTable::default();
         let mut get_tile = empty_tile;
         let mut can_see = |_id: u32| true;
         let msg = send_map_description_packet(
@@ -310,7 +309,7 @@ mod tests {
     #[test]
     fn skip_empty_north_strip() {
         let mut msg = NetworkMessage::new();
-        let mut known = HashSet::new();
+        let mut known = KnownCreatureTable::default();
         let mut get_tile = empty_tile;
         let mut can_see = |_id: u32| true;
         write_map_description_body(
@@ -342,7 +341,7 @@ mod tests {
     #[test]
     fn skip_ground_tile_without_extra_byte() {
         let center = Position::new(100, 200, 7);
-        let mut known = HashSet::new();
+        let mut known = KnownCreatureTable::default();
         let mut get_tile = |x: i32, y: i32, z: i32| -> Option<TileContent> {
             if x == i32::from(center.x) && y == i32::from(center.y) && z == i32::from(center.z) {
                 Some(TileContent {
@@ -386,7 +385,7 @@ mod tests {
     fn skip_stackable_needs_extra_byte() {
         let center = Position::new(100, 200, 7);
         let gold = 3031u16;
-        let mut known = HashSet::new();
+        let mut known = KnownCreatureTable::default();
         let mut get_tile = |x: i32, y: i32, z: i32| -> Option<TileContent> {
             if x == i32::from(center.x) && y == i32::from(center.y) && z == i32::from(center.z) {
                 Some(TileContent {
@@ -452,7 +451,7 @@ mod tests {
     fn skip_south_row_with_ground_and_uptodate_creature() {
         let gold = 3031u16;
         let mut msg = NetworkMessage::new();
-        let mut known = HashSet::new();
+        let mut known = KnownCreatureTable::default();
         known.insert(42);
         let mut get_tile = |x: i32, y: i32, z: i32| -> Option<TileContent> {
             if z != 7 || y != 200 {
@@ -513,14 +512,8 @@ mod tests {
         let body = msg.into_bytes();
         let mut i = 0usize;
         assert!(
-            skip_772_map_description_body(
-                &body,
-                &mut i,
-                7,
-                client_viewport_width(),
-                1,
-                |id| id == gold,
-            ),
+            skip_772_map_description_body(&body, &mut i, 7, client_viewport_width(), 1, |id| id
+                == gold,),
             "south row with 0x63/0x61/stackable must skip to end"
         );
         assert_eq!(i, body.len());
@@ -539,7 +532,7 @@ mod tests {
             });
         }
         let mut msg = NetworkMessage::new();
-        let mut known = HashSet::new();
+        let mut known = KnownCreatureTable::default();
         let mut get_tile = |x: i32, y: i32, z: i32| -> Option<TileContent> {
             if x == 100 && y == 200 && z == 7 {
                 Some(TileContent {
@@ -596,10 +589,7 @@ mod tests {
             Some(0),
             "10 things must end the tile without requiring 0xFF00"
         );
-        assert_eq!(
-            skip_772_tile_description(&buf, &mut i, |_| false),
-            Some(0)
-        );
+        assert_eq!(skip_772_tile_description(&buf, &mut i, |_| false), Some(0));
         assert_eq!(i, buf.len());
     }
 
@@ -619,14 +609,9 @@ mod tests {
         buf.push(0x83);
 
         let mut i = 0usize;
-        assert!(skip_772_map_description_body(
-            &buf,
-            &mut i,
-            7,
-            1,
-            1,
-            |_| false,
-        ));
+        assert!(skip_772_map_description_body(&buf, &mut i, 7, 1, 1, |_| {
+            false
+        },));
         assert_eq!(buf[i], 0xFF);
         assert_eq!(buf[i + 1], 0x83);
     }
@@ -637,7 +622,7 @@ mod tests {
         // `0x65`/`0xBF` body (`20260919T214742Z`). Last tile here is a skip pair, not
         // an unterminated 10-thing — leave `0xFF` for inbound.
         let player = Position::new(32369, 32241, 7);
-        let mut known = HashSet::new();
+        let mut known = KnownCreatureTable::default();
         let mut get_tile = empty_tile;
         let mut can_see = |_id: u32| true;
         let msg = send_map_description_packet(

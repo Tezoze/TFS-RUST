@@ -54,10 +54,12 @@ If any control here is skipped, the numbers are not publishable.
 - Same machine. Alternating cells `rust/tvp/rust/tvp`, never concurrent.
 - `--reps 3` minimum; report **median** and spread (min/max or IQR).
 - Server on `--cpuset-server`, loadgen on a disjoint `--cpuset-loadgen`.
-  Record loadgen CPU to prove it is not the bottleneck. A second machine for
-  loadgen is acceptable if its CPU is still recorded.
+  `--pin` splits logical CPUs in half when both flags are omitted (16-thread
+  box → `0-7` / `8-15`). Record loadgen CPU (`loadgen_proc.csv`) to prove it
+  is not the bottleneck. A second machine for loadgen is acceptable if its
+  CPU is still recorded. Host idle/iowait/MemAvailable/freq live in `host.csv`.
 - CPU governor `performance`. `run_comparison.py` writes CPU model, kernel,
-  RAM to `meta.json`.
+  RAM, `nproc`, and `db_pid` to `meta.json`.
 - All client-side timing is `CLOCK_MONOTONIC` (`std::time::Instant`;
   `sample_proc.py` uses `clock_gettime(CLOCK_MONOTONIC)`).
 - Warmup (`warmup_s`, default 30 s) generates load but is discarded from
@@ -316,7 +318,7 @@ compares rejection rate as well.
 ### 6.3 Sampling
 
 `scripts/bench/sample_proc.py` at 1 Hz from `/proc/<pid>`, identical on both
-servers:
+servers (`proc.csv` + `threads.csv`):
 
 - `utime`/`stime` → CPU-seconds and CPU%
 - RSS (`stat`) and PSS (`smaps_rollup`)
@@ -325,12 +327,21 @@ servers:
 - `/proc/<pid>/io`
 - bytes/packets from `/proc/<pid>/net/dev` (netns-wide, includes `lo`)
 
+Each cell also writes:
+
+- `host.csv` — `sample_host.py`: loadavg, `/proc/stat` idle/iowait/user/system
+  %, MemAvailable/swap, `scaling_cur_freq`, k10temp `temp_c`, RAPL
+  `energy_uj`/`power_w` when the kernel exposes the powercap node
+- `loadgen_proc.csv` — same pid sampler on `tfs-loadgen`
+- `mysql_proc.csv` — first `mariadbd`/`mysqld` in `/proc`, skipped if none
+
 Game-thread CPU vs process CPU (diagnosis only): Rust names the game OS
 thread `game` (`std::thread::Builder::name` in `run_server.rs`) so
 `threads.csv` `comm` is stable. TVP `comm` names (dispatcher vs asio workers)
 must be read from a live `threads.csv` on the pinned host — do not guess.
 Optional overlay in `plot_results.py` on the time-series CPU panel, never on
-the publication CPU chart or `cpu_per_action.png`. Do not add
+the publication CPU chart or `cpu_per_action.png`. Host idle/iowait/loadavg
+and loadgen/mysql CPU overlay on `series_*.png` / `host_*.png`. Do not add
 `CLOCK_THREAD_CPUTIME_ID` sampling inside the game loop for A/B.
 `GameObs` (`RUST_LOG` must include `tfs_obs=info`; the runner appends it)
 splits game-thread work the beat wall misses: `command_dispatch_us`,

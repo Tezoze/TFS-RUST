@@ -902,7 +902,7 @@ impl GameWorld {
         // Announce the outfit change so spectators see the creature reappear.
         // Mirrors C++ `AnnounceChangedCreature(CREATURE_OUTFIT_CHANGED)`.
         let msg = self.codec.encode_creature_outfit(wire_id, &outfit_wire);
-        self.broadcast_to_spectators(pos, msg.into_bytes());
+        self.broadcast_to_knowers(cid, pos, wire_id, msg.into_bytes());
     }
 
     /// C++ `TMonster::DamageStimulus` — `crnonpl.cc:2278`.
@@ -1341,21 +1341,26 @@ impl GameWorld {
         let mut best_id = None;
         let mut best_tie = 0i32;
 
-        // C++ `TFindCreatures Search(12, 12, …, FIND_PLAYERS | FIND_MONSTERS)` — XY box only;
-        // chain membership spans floors, so scan the CanSeeFloor-relevant Z set.
+        // C++ `TFindCreatures Search(12, 12, …, FIND_PLAYERS | FIND_MONSTERS)` — XY box;
+        // sector lists span floors (`crmain.cc:101–144`). Filter Z below.
         // IDLE-3: 16×16 sector order + generation-marked dedup (no SlotMap-key sort).
         self.scratch_spectators.clear();
         let spectator_gen = self.bump_spectator_gen();
+        let z_ok = Self::idle_acquire_search_z_range(pos.z);
         let mut sector_buf = std::mem::take(&mut self.scratch_sector_buf);
         sector_buf.clear();
-        for z in Self::idle_acquire_search_z_range(pos.z) {
-            self.map
-                .grid
-                .collect_spectators_sector_order(pos.x, pos.y, z, 12, 12, &mut sector_buf);
-            for target_id in sector_buf.drain(..) {
-                if self.spectator_mark_new(target_id, spectator_gen) {
-                    self.scratch_spectators.push(target_id);
-                }
+        self.map
+            .grid
+            .collect_spectators_sector_order(pos.x, pos.y, pos.z, 12, 12, &mut sector_buf);
+        for target_id in sector_buf.drain(..) {
+            let Some(tz) = self.creatures.get(target_id).map(|k| k.position().z) else {
+                continue;
+            };
+            if !z_ok.contains(&tz) {
+                continue;
+            }
+            if self.spectator_mark_new(target_id, spectator_gen) {
+                self.scratch_spectators.push(target_id);
             }
         }
         self.scratch_sector_buf = sector_buf;

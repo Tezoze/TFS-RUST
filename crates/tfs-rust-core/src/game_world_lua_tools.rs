@@ -296,15 +296,18 @@ impl GameWorld {
             self.enqueue_outgoing(own, outfit_bytes.clone());
         }
 
+        let remove_indexes = if enabled {
+            let snap = crate::walk::capture_creature_stack_snapshot(self, pos);
+            Some(crate::walk::stack_indexes_for_snapshot(self, &snap, cid))
+        } else {
+            None
+        };
+
         for (conn, viewer) in spectators {
             if self.can_see_creature(viewer, cid) {
                 self.enqueue_outgoing(conn, outfit_bytes.clone());
-            } else if enabled {
-                let stack_raw = self
-                    .map
-                    .get_tile(pos)
-                    .map(|t| crate::tile::client_creature_stack_pos(t.body(), cid))
-                    .unwrap_or(-1);
+            } else if let Some((ref stack_772, ref stack_otc)) = remove_indexes {
+                let stack_raw = crate::walk::stack_for_viewer(self, stack_772, stack_otc, viewer);
                 self.send_creature_remove_to_conn(conn, cid, pos, stack_raw);
             } else {
                 self.send_creature_appear_to_conn(conn, viewer, cid, pos);

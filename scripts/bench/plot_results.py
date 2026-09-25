@@ -120,6 +120,32 @@ def summarize_proc(path: Path) -> tuple[float, float, float]:
     return cpu_s, mean_pct, rss
 
 
+def collect_csv_xy(path: Path, x: str, y: str) -> list[tuple[float, float]]:
+    if not path.is_file():
+        return []
+    rows: list[tuple[float, float]] = []
+    with path.open(encoding="utf-8", newline="") as fh:
+        for row in csv.DictReader(fh):
+            try:
+                rows.append((float(row.get(x) or 0), float(row.get(y) or 0)))
+            except ValueError:
+                continue
+    return rows
+
+
+def bot_counts_in(tree: Path) -> list[int]:
+    counts: set[int] = set()
+    for server in ("rust", "tvp"):
+        d = tree / server
+        if not d.is_dir():
+            continue
+        for p in d.iterdir():
+            n = _int_or_none(p.name)
+            if n is not None and p.is_dir():
+                counts.add(n)
+    return sorted(counts)
+
+
 def collect_series(root: Path, server: str, bots: int) -> list[tuple[float, float, float]]:
     """elapsed_s, cpu_pct, rss_kb from the first rep."""
     d = root / server / str(bots)
@@ -244,9 +270,15 @@ def main() -> int:
         print(f"wrote {dest}")
 
     trees = result_trees(root)
-    for bots in (200, 300):
+    bots_all: set[int] = set()
+    for _, tree in trees:
+        bots_all.update(bot_counts_in(tree))
+    for bots in sorted(bots_all) or (200, 300):
         fig, axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
         drawn = False
+        host_drawn = False
+        host_fig, host_axes = plt.subplots(3, 1, figsize=(8, 8), sharex=True)
+        mem_ax = None
         for stem, tree in trees:
             suffix = f"/{stem}" if stem else ""
             for server in ("rust", "tvp"):
@@ -257,19 +289,77 @@ def main() -> int:
                 t = [r[0] for r in series]
                 axes[0].plot(t, [r[1] for r in series], label=f"{server}{suffix}")
                 axes[1].plot(t, [r[2] / 1024.0 for r in series], label=f"{server}{suffix}")
+                rep = _first_rep_dir(tree, server, bots)
+                if rep is None:
+                    continue
                 if server == "rust":
-                    rep = _first_rep_dir(tree, server, bots)
-                    if rep is not None:
-                        game = game_thread_cpu_series(rep / "threads.csv")
-                        if game:
-                            axes[0].plot(
-                                [g[0] for g in game],
-                                [g[1] for g in game],
-                                linestyle="--",
-                                label=f"rust game thread{suffix}",
-                            )
+                    game = game_thread_cpu_series(rep / "threads.csv")
+                    if game:
+                        axes[0].plot(
+                            [g[0] for g in game],
+                            [g[1] for g in game],
+                            linestyle="--",
+                            label=f"rust game thread{suffix}",
+                        )
+                lg = collect_csv_xy(rep / "loadgen_proc.csv", "elapsed_s", "cpu_pct")
+                if lg:
+                    axes[0].plot(
+                        [p[0] for p in lg],
+                        [p[1] for p in lg],
+                        linestyle=":",
+                        label=f"{server} loadgen{suffix}",
+                    )
+                mysql = collect_csv_xy(rep / "mysql_proc.csv", "elapsed_s", "cpu_pct")
+                if mysql:
+                    axes[0].plot(
+                        [p[0] for p in mysql],
+                        [p[1] for p in mysql],
+                        linestyle="-.",
+                        label=f"{server} mysql{suffix}",
+                    )
+                host = rep / "host.csv"
+                idle = collect_csv_xy(host, "elapsed_s", "cpu_idle_pct")
+                if idle:
+                    host_drawn = True
+                    tag = f"{server}{suffix}"
+                    host_axes[0].plot([p[0] for p in idle], [p[1] for p in idle], label=f"{tag} idle")
+                    iow = collect_csv_xy(host, "elapsed_s", "cpu_iowait_pct")
+                    if iow:
+                        host_axes[0].plot(
+                            [p[0] for p in iow],
+                            [p[1] for p in iow],
+                            linestyle="--",
+                            label=f"{tag} iowait",
+                        )
+                    load = collect_csv_xy(host, "elapsed_s", "loadavg_1")
+                    mem = collect_csv_xy(host, "elapsed_s", "mem_available_kb")
+                    if load:
+                        host_axes[1].plot([p[0] for p in load], [p[1] for p in load], label=f"{tag} loadavg1")
+                    if mem:
+                        if mem_ax is None:
+                            mem_ax = host_axes[1].twinx()
+                            mem_ax.set_ylabel("GiB")
+                        mem_ax.plot(
+                            [p[0] for p in mem],
+                            [p[1] / (1024.0 * 1024.0) for p in mem],
+                            linestyle="--",
+                            color="tab:gray",
+                            label=f"{tag} MemAvail GiB",
+                        )
+                    freq = collect_csv_xy(host, "elapsed_s", "freq_mhz_avg")
+                    power = collect_csv_xy(host, "elapsed_s", "power_w")
+                    if freq:
+                        host_axes[2].plot([p[0] for p in freq], [p[1] for p in freq], label=f"{tag} MHz")
+                    if power and any(p[1] > 0 for p in power):
+                        host_axes[2].plot(
+                            [p[0] for p in power],
+                            [p[1] for p in power],
+                            linestyle="--",
+                            label=f"{tag} RAPL W",
+                        )
         if not drawn:
             plt.close(fig)
+            plt.close(host_fig)
             continue
         axes[0].set_ylabel("CPU %")
         axes[1].set_ylabel("RSS (MiB)")
@@ -283,6 +373,20 @@ def main() -> int:
         fig.savefig(dest, dpi=120)
         plt.close(fig)
         print(f"wrote {dest}")
+        if host_drawn:
+            host_axes[0].set_ylabel("%")
+            host_axes[1].set_ylabel("loadavg")
+            host_axes[2].set_ylabel("MHz / W")
+            host_axes[2].set_xlabel("elapsed s")
+            host_axes[0].set_title(f"host load ({bots} bots)")
+            for ax in host_axes:
+                ax.grid(True, alpha=0.3)
+                ax.legend()
+            host_fig.tight_layout()
+            hdest = out / f"host_{bots}.png"
+            host_fig.savefig(hdest, dpi=120)
+            print(f"wrote {hdest}")
+        plt.close(host_fig)
 
     return 0
 

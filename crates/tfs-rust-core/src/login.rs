@@ -6,7 +6,7 @@
 //! - 772 outcomes: `connections.cc:224-253` (existing body / reject / TakeOver),
 //!   `TPlayer::TakeOver` — `crplayer.cc:721-775`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tfs_rust_common::ConnId;
@@ -344,8 +344,80 @@ fn apply_offline_food_drain(food_remaining: u32, lastlogout: u64) -> u32 {
     food_remaining.saturating_sub(regen * 3)
 }
 
-/// Max concurrent `load_player_full` tasks. Excess logins are rejected off the sim await path.
+/// Max concurrent `load_player_full` tasks (Tokio spawn + game-thread apply).
+/// Overflow `PlayerLogin` waits with TCP held; only a full wait queue rejects.
 pub const MAX_CONCURRENT_LOGIN_LOADS: usize = 8;
+
+/// Ceiling on queued game-logins waiting for an in-flight slot. DoS backstop —
+/// 1000-bot A/B fits; excess still `PlayerLoadFailed` (TVP has no cap-reject).
+pub const MAX_QUEUED_LOGIN_LOADS: usize = 2048;
+
+/// One game-port login waiting for an in-flight DB/apply slot.
+#[derive(Debug)]
+pub struct QueuedLoginLoad {
+    pub conn_id: ConnId,
+    pub name: String,
+    pub operating_system: u16,
+    pub otclient_v8: u16,
+    pub peer_ip: u32,
+}
+
+/// In-flight login loads plus FIFO waiters. `len()` is the concurrent cap
+/// (in-flight only); `contains` is in-flight or queued.
+#[derive(Debug, Default)]
+pub struct LoginIngest {
+    in_flight: HashSet<ConnId>,
+    wait: VecDeque<QueuedLoginLoad>,
+}
+
+impl LoginIngest {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// In-flight DB/apply count — the concurrent cap.
+    pub fn len(&self) -> usize {
+        self.in_flight.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.in_flight.is_empty() && self.wait.is_empty()
+    }
+
+    pub fn wait_len(&self) -> usize {
+        self.wait.len()
+    }
+
+    pub fn contains(&self, id: &ConnId) -> bool {
+        self.in_flight.contains(id) || self.wait.iter().any(|q| q.conn_id == *id)
+    }
+
+    /// Track a newly spawned load. Returns whether `id` was not already in-flight.
+    pub fn insert(&mut self, id: ConnId) -> bool {
+        self.in_flight.insert(id)
+    }
+
+    /// Drop in-flight and/or wait entry for this connection.
+    pub fn remove(&mut self, id: &ConnId) -> bool {
+        let in_flight = self.in_flight.remove(id);
+        let before = self.wait.len();
+        self.wait.retain(|q| q.conn_id != *id);
+        in_flight || self.wait.len() != before
+    }
+
+    /// FIFO wait. False when the wait ceiling is full (caller may reject).
+    pub fn try_enqueue(&mut self, q: QueuedLoginLoad) -> bool {
+        if self.wait.len() >= MAX_QUEUED_LOGIN_LOADS {
+            return false;
+        }
+        self.wait.push_back(q);
+        true
+    }
+
+    pub fn pop_wait(&mut self) -> Option<QueuedLoginLoad> {
+        self.wait.pop_front()
+    }
+}
 
 /// I/O-thread (or Tokio task) load — never call while holding the game loop.
 pub async fn load_player_data(db: &tfs_rust_db::DbPool, name: &str) -> Result<LoadedPlayerData> {
@@ -625,5 +697,51 @@ mod tests {
         stamp_last_login_saved(&mut world, cid);
         let second = lastlogin(&world, cid);
         assert!(second > first, "TFS max(now, lastLoginSaved + 1)");
+    }
+
+    fn queued(id: u32, name: &str) -> QueuedLoginLoad {
+        QueuedLoginLoad {
+            conn_id: ConnId(id),
+            name: name.to_string(),
+            operating_system: 0,
+            otclient_v8: 0,
+            peer_ip: 0,
+        }
+    }
+
+    #[test]
+    fn login_ingest_queues_when_cap_full() {
+        let mut q = LoginIngest::new();
+        for i in 0..MAX_CONCURRENT_LOGIN_LOADS {
+            assert!(q.insert(ConnId(i as u32)));
+        }
+        assert_eq!(q.len(), MAX_CONCURRENT_LOGIN_LOADS);
+        assert!(q.try_enqueue(queued(99, "Overflow")));
+        assert_eq!(q.wait_len(), 1);
+        assert!(q.contains(&ConnId(99)));
+        assert!(q.remove(&ConnId(0)));
+        assert_eq!(q.len(), MAX_CONCURRENT_LOGIN_LOADS - 1);
+        let next = q.pop_wait().expect("waiter");
+        assert_eq!(next.conn_id, ConnId(99));
+        assert_eq!(q.wait_len(), 0);
+    }
+
+    #[test]
+    fn login_ingest_queue_full_rejects() {
+        let mut q = LoginIngest::new();
+        for i in 0..MAX_QUEUED_LOGIN_LOADS {
+            assert!(q.try_enqueue(queued(i as u32, "Wait")));
+        }
+        assert!(!q.try_enqueue(queued(u32::MAX, "Rejected")));
+        assert_eq!(q.wait_len(), MAX_QUEUED_LOGIN_LOADS);
+    }
+
+    #[test]
+    fn login_ingest_remove_drops_waiter() {
+        let mut q = LoginIngest::new();
+        assert!(q.try_enqueue(queued(7, "Queued")));
+        assert!(q.remove(&ConnId(7)));
+        assert!(q.pop_wait().is_none());
+        assert!(!q.contains(&ConnId(7)));
     }
 }

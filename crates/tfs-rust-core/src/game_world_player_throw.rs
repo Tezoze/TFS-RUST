@@ -203,11 +203,7 @@ impl GameWorld {
         // is `Unpass` but not `Unmove`, so `JumpPossible(dest, false)` passes and
         // `MovePossible` is skipped for monster floor-changes via C5).
 
-        let old_creatures = self
-            .map
-            .get_tile(from_pos)
-            .map(|t| t.body().creatures().to_vec())
-            .unwrap_or_default();
+        let old_snap = crate::walk::capture_creature_stack_snapshot(self, from_pos);
         let old_stack = self.creature_self_stack_at(moving_creature, from_pos);
 
         let kick_dir = crate::walk::direction_from_positions(from_pos, to_pos);
@@ -231,7 +227,7 @@ impl GameWorld {
             .map(|k| k.position())
             .unwrap_or(to_pos);
         self.emit_player_relocate_self_packets(moving_creature, from_pos, final_pos, old_stack);
-        self.broadcast_spectator_move(moving_creature, from_pos, final_pos, &old_creatures);
+        self.broadcast_spectator_move(moving_creature, from_pos, final_pos, &old_snap);
 
         // 772 `NotifyGo` after `MoveObject` (destination = live tile after chain/Lua).
         self.apply_notify_go_after_relocate(moving_creature, from_pos, final_pos, kick_dir, false);

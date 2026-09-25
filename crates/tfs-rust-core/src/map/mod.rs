@@ -4,6 +4,7 @@
 mod grid;
 mod los;
 mod otbm_load;
+mod sector_index;
 
 use std::collections::HashMap;
 
@@ -108,13 +109,18 @@ impl Map {
         }
     }
 
-    /// Update tile stack + chunk spatial index (`Map::moveCreature` creature lists — `map.cpp`).
+    /// Update tile stack + 16×16 sector spatial index (`Map::moveCreature` — `map.cpp`).
     ///
     /// Audit #3: a creature placed on a void (unloaded) tile would be silently dropped from
     /// both the tile stack and the chunk spatial index. Surface the violation instead —
     /// `tracing::error!` in release, `debug_assert!` panic in debug/test. Never panics in
     /// release (per `tfs-packets.md` validation rules).
     pub fn register_creature_at(&mut self, pos: Position, id: CreatureId) {
+        self.register_creature_role_at(pos, id, false);
+    }
+
+    /// Same as [`Self::register_creature_at`] with player-list membership for sector find.
+    pub fn register_creature_role_at(&mut self, pos: Position, id: CreatureId, is_player: bool) {
         let tile_present = self.get_tile(pos).is_some();
         if let Some(t) = self.get_tile_mut(pos) {
             let body = t.body();
@@ -122,12 +128,13 @@ impl Map {
                 t.add_creature(id);
             }
         }
-        self.grid.register_creature(pos.x, pos.y, pos.z, id);
+        self.grid
+            .register_creature_role(pos.x, pos.y, pos.z, id, is_player);
         if !tile_present {
             tracing::error!(
                 x = pos.x, y = pos.y, z = pos.z, creature = ?id,
                 "register_creature_at: target tile is void (unloaded); \
-                 creature dropped from tile stack + chunk spatial index"
+                 creature dropped from tile stack + sector spatial index"
             );
             debug_assert!(
                 tile_present,

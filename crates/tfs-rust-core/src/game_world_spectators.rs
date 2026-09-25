@@ -4,7 +4,7 @@
 //! - `Creature::canSeeCreature` — `creature.cpp` / `player.cpp`.
 //! - `Game::internalCreatureSay`, magic effect broadcasts — `game.cpp`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use slotmap::Key;
 use tfs_rust_common::enums::{CombatType, ConditionType};
@@ -12,6 +12,7 @@ use tfs_rust_common::protocol_constants::{MAX_CLIENT_VIEWPORT_X, MAX_CLIENT_VIEW
 use tfs_rust_common::{ConnId, Position};
 use tfs_rust_net::NetworkMessage;
 use tfs_rust_net::codec::ItemTemplateArgs;
+use tfs_rust_net::creature_known::KnownCreatureTable;
 
 use crate::condition::ActiveCondition;
 use crate::creature::CreatureKind;
@@ -159,6 +160,9 @@ impl GameWorld {
     pub fn register_conn_mapping(&mut self, conn: ConnId, cid: CreatureId) {
         self.conn_to_creature.insert(conn, cid);
         self.creature_to_conn.insert(cid, conn);
+        if let Some(pos) = self.creatures.get(cid).map(|k| k.position()) {
+            self.map.grid.note_sector_player(pos.x, pos.y, cid);
+        }
         // Connection attach is `ResetTimer` (`connections.cc:53`): `LastCommand`/`LastAction`
         // start at current `RoundNr`. Leaving them at 0 makes `ProcessConnections` treat a
         // fresh login as `LastCommand >= 90` after the server has been up ~90 Other rounds
@@ -172,6 +176,7 @@ impl GameWorld {
     pub fn unregister_conn_mapping(&mut self, conn: ConnId) {
         if let Some(cid) = self.conn_to_creature.remove(&conn) {
             self.creature_to_conn.remove(&cid);
+            self.map.grid.forget_sector_player(cid);
         }
     }
 
@@ -188,30 +193,25 @@ impl GameWorld {
 
     /// Grid-based spectator connection resolution (audit #4).
     ///
-    /// Walks the chunk spatial index over the multi-floor Z span
-    /// ([`Self::spectator_z_range`], shared with the monster fan-out path), collects
-    /// all creatures in the overlapping chunks, then keeps only those that (a) hold a
-    /// `ConnId` (i.e. are online players) and (b) pass `ProtocolGame::canSee` for `pos`.
+    /// Walks 16×16 XY sector player lists (all floors; `crmain.cc` `TFindCreatures`), then
+    /// keeps those that (a) still hold a `ConnId` and (b) pass `ProtocolGame::canSee` for `pos`.
     /// Sorted + deduped by SlotMap key for deterministic fan-out order.
     pub(crate) fn spectator_conns_via_grid(&self, pos: Position) -> Vec<ConnId> {
         let mut creature_ids: Vec<CreatureId> = Vec::new();
-        for z in Self::spectator_z_range(pos.z, true) {
-            self.map.grid.collect_spectators(
-                pos.x,
-                pos.y,
-                z,
-                MAX_CLIENT_VIEWPORT_X as u16,
-                MAX_CLIENT_VIEWPORT_Y as u16,
-                &mut creature_ids,
-            );
-        }
+        self.map.grid.collect_spectator_players(
+            pos.x,
+            pos.y,
+            MAX_CLIENT_VIEWPORT_X as u16,
+            MAX_CLIENT_VIEWPORT_Y as u16,
+            &mut creature_ids,
+        );
         creature_ids.sort_by_key(|id| id.data().as_ffi());
         creature_ids.dedup();
 
         let mut conns: Vec<ConnId> = Vec::with_capacity(creature_ids.len());
         for cid in creature_ids {
             let Some(&viewer_conn) = self.creature_to_conn.get(&cid) else {
-                continue; // monster / NPC — not a player spectator
+                continue;
             };
             if self.can_see_position(cid, pos) {
                 conns.push(viewer_conn);
@@ -235,14 +235,13 @@ impl GameWorld {
         multifloor: bool,
     ) -> Vec<(ConnId, CreatureId, Position)> {
         let mut creature_ids: Vec<CreatureId> = Vec::new();
-        for z in Self::spectator_z_range(pos.z, multifloor) {
-            self.map
-                .grid
-                .collect_spectators(pos.x, pos.y, z, range_x, range_y, &mut creature_ids);
-        }
+        self.map
+            .grid
+            .collect_spectator_players(pos.x, pos.y, range_x, range_y, &mut creature_ids);
         creature_ids.sort_by_key(|id| id.data().as_ffi());
         creature_ids.dedup();
 
+        let z_range = Self::spectator_z_range(pos.z, multifloor);
         let mut out: Vec<(ConnId, CreatureId, Position)> = Vec::with_capacity(creature_ids.len());
         for cid in creature_ids {
             let Some(&viewer_conn) = self.creature_to_conn.get(&cid) else {
@@ -251,6 +250,9 @@ impl GameWorld {
             let Some(viewer_pos) = self.creatures.get(cid).map(|k| k.position()) else {
                 continue;
             };
+            if !z_range.contains(&viewer_pos.z) {
+                continue;
+            }
             out.push((viewer_conn, cid, viewer_pos));
         }
         out
@@ -266,8 +268,8 @@ impl GameWorld {
     }
 
     /// C++ `AnnounceChangedCreature(CREATURE_SPEED_CHANGED)` → `SendCreatureSpeed`
-    /// (`operate.cc:82`, `sending.cc:1028`). Broadcasts the creature's current `GetSpeed()`
-    /// to all spectators who can see the creature's tile.
+    /// (`operate.cc:82`, `sending.cc:1028`). Fan-out is knowers who can see the tile
+    /// (`FirstKnowingConnection`), plus the creature's own connection.
     pub(crate) fn announce_creature_speed(&mut self, cid: CreatureId) {
         use tfs_rust_net::codec::wire::CreatureSpeedWire;
         let (pos, wire_speed, base_speed, creature_id) = match self.creatures.get(cid) {
@@ -293,7 +295,7 @@ impl GameWorld {
                 base_speed,
             })
             .into_bytes();
-        self.broadcast_to_spectators(pos, packet);
+        self.broadcast_to_knowers(cid, pos, creature_id, packet);
     }
 
     /// C++ `++statementId` before each `sendCreatureSay` / related speech packet.
@@ -695,18 +697,28 @@ impl GameWorld {
 
     /// Strip wire ids from `known` that this conn never received as a full `AddCreature` block.
     /// C++ `ProtocolGame::knownCreatureSet` only marks known after the client got full data.
-    pub fn reconcile_known_creatures_for_send(&self, conn_id: ConnId, known: &mut HashSet<u32>) {
+    pub fn reconcile_known_creatures_for_send(
+        &self,
+        conn_id: ConnId,
+        known: &mut KnownCreatureTable,
+    ) {
         let Some(sent) = self.creature_fully_sent_by_conn.get(&conn_id) else {
             return;
         };
-        known.retain(|id| sent.contains(id));
+        known.retain(|id| sent.contains(&id));
     }
 
-    /// Persist post-packet known set and record all ids as fully sent to this conn.
-    pub fn commit_known_creatures_after_send(&mut self, conn_id: ConnId, known: &HashSet<u32>) {
+    /// Persist post-packet known table and record occupied ids as fully sent to this conn.
+    pub fn commit_known_creatures_after_send(
+        &mut self,
+        conn_id: ConnId,
+        known: &KnownCreatureTable,
+    ) {
+        self.unindex_known_conn(conn_id);
         self.known_creatures_by_conn.insert(conn_id, known.clone());
         self.creature_fully_sent_by_conn
-            .insert(conn_id, known.clone());
+            .insert(conn_id, known.iter().collect());
+        self.index_known_conn(conn_id, known);
     }
 
     /// Whether `viewer` may treat `target_protocol_id` as still on-screen for
@@ -1223,9 +1235,7 @@ mod known_set_can_see_tests {
     use crate::test_support::{
         insert_monster, insert_spectator_player, minimal_world, test_player,
     };
-    use std::collections::HashSet;
-    use tfs_rust_common::{ConnId, Position};
-    use tfs_rust_net::creature_known::check_creature_known;
+    use tfs_rust_net::creature_known::{KnownCreatureTable, check_creature_known};
 
     #[test]
     fn missing_id_is_not_visible() {
@@ -1281,16 +1291,19 @@ mod known_set_can_see_tests {
         let new_cid = insert_monster(&mut world, "Dog", Position::new(100, 101, 7), 200);
         let new_wire = creature_wire_id(new_cid, world.creatures.get(new_cid).expect("new"));
 
-        let mut known: HashSet<u32> = (10_000u32..10_149).collect();
+        let mut known = KnownCreatureTable::with_limit(150);
+        for id in 10_000u32..10_149 {
+            known.insert(id);
+        }
         known.insert(near_wire);
-        assert_eq!(known.len(), 150);
+        assert_eq!(known.occupied_len(), 150);
 
         let mut can_see = |id: u32| world.can_see_creature_for_known_set(viewer, id);
         let (known_flag, remove) = check_creature_known(new_wire, &mut known, &mut can_see, 150);
         assert!(!known_flag);
         assert_eq!(remove, 10_000);
-        assert!(known.contains(&near_wire));
-        assert!(known.contains(&new_wire));
-        assert!(!known.contains(&10_000));
+        assert!(known.contains(near_wire));
+        assert!(known.contains(new_wire));
+        assert!(!known.contains(10_000));
     }
 }

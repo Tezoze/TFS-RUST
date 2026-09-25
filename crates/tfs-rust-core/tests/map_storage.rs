@@ -3,7 +3,7 @@
 //! - `register_creature_at` on a void tile must be a no-op that is observable
 //!   (`tracing::error!` in release, `debug_assert!` panic in debug) — audit #3.
 //! - After a batch of register/move/unregister calls through the `*_at` seam,
-//!   `TileBody.creatures` and `Chunk.creatures` must agree — audit #7.
+//!   `TileBody.creatures` and the 16×16 sector lists must agree — audit #7.
 
 use slotmap::SlotMap;
 use tfs_rust_common::Position;
@@ -115,7 +115,7 @@ fn unregister_creature_at_on_void_tile_is_noop() {
 }
 
 /// Audit #7 — after a batch of register / move / unregister calls routed through the
-/// `*_at` seam, the dual `TileBody.creatures` and `Chunk.creatures` lists must agree.
+/// `*_at` seam, the dual `TileBody.creatures` and 16×16 sector lists must agree.
 #[test]
 fn creature_lists_agree_after_batch_of_moves() {
     let mut map = flat_map(8, 8);

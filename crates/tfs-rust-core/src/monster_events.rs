@@ -67,19 +67,24 @@ impl GameWorld {
         // Sector collect writes into a drain buffer so we can mark/filter without aliasing.
         let mut sector_buf = std::mem::take(&mut self.scratch_sector_buf);
         sector_buf.clear();
-        for z in Self::spectator_z_range(center.z, multifloor) {
-            self.map.grid.collect_spectators_sector_order(
-                center.x,
-                center.y,
-                z,
-                MAP_MAX_VIEWPORT,
-                MAP_MAX_VIEWPORT,
-                &mut sector_buf,
-            );
-            for id in sector_buf.drain(..) {
-                if self.spectator_mark_new(id, spectator_gen) {
-                    self.scratch_spectators.push(id);
-                }
+        self.map.grid.collect_spectators_sector_order(
+            center.x,
+            center.y,
+            center.z,
+            MAP_MAX_VIEWPORT,
+            MAP_MAX_VIEWPORT,
+            &mut sector_buf,
+        );
+        let z_ok = Self::spectator_z_range(center.z, multifloor);
+        for id in sector_buf.drain(..) {
+            let Some(z) = self.creatures.get(id).map(|k| k.position().z) else {
+                continue;
+            };
+            if !z_ok.contains(&z) {
+                continue;
+            }
+            if self.spectator_mark_new(id, spectator_gen) {
+                self.scratch_spectators.push(id);
             }
         }
         self.scratch_sector_buf = sector_buf;

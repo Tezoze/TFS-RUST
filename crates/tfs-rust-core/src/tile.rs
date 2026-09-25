@@ -601,41 +601,85 @@ where
     body.ground.map(LookTarget::Ground)
 }
 
-/// C++ `Tile::getClientIndexOfCreature` — viewer-aware stack position.
+/// Pre-move tile prefix for spectator `0x6D` / turn `0x6B` / remove `0x6C`.
 ///
-/// Only counts creatures the viewer can see (`player->canSeeCreature(c)`,
-/// `tile.cpp:1207-1214`). The `creatures` slice is the tile's creature list
-/// **before** the move (including the moving creature). Invisible creatures
-/// below the target are skipped in the count — matching the gameserver which
-/// gates each increment on `player->canSeeCreature(c)`.
+/// Captured before `MoveObject` (`operate.cc:1414-1425` `GetObjectRNum`) so a
+/// StepIn that adds or removes a bottom/top item cannot change the origin byte.
+#[derive(Clone, Debug, Default)]
+pub struct CreatureStackSnapshot {
+    pub creatures: Vec<CreatureId>,
+    pub ground_present: bool,
+    /// Cip `PRIORITY_BOTTOM` downs only (pools/splashes). LOW downs sit after creatures.
+    pub bottom_down_count: usize,
+    pub top_item_count: usize,
+}
+
+/// Shared stack index plus omitted creatures above the target.
+///
+/// `occupies_shared_slot` is the encoded-tile rule (`creature_omitted_from_other_clients`
+/// inverted): a hidden creature is not on other clients' tiles. That creature's own
+/// client still has their body, so [`CreatureStackIndex::for_viewer`] adds 1.
+#[derive(Clone, Debug, Default)]
+pub struct CreatureStackIndex {
+    pub shared: i32,
+    pub own_client_only: Vec<CreatureId>,
+}
+
+impl CreatureStackIndex {
+    /// Stack byte for `viewer`. Hidden bodies above the target occupy a slot only
+    /// on that hidden creature's own client.
+    pub fn for_viewer(&self, viewer: CreatureId) -> i32 {
+        if self.shared >= 0 && self.own_client_only.iter().any(|&c| c == viewer) {
+            self.shared + 1
+        } else {
+            self.shared
+        }
+    }
+}
+
+/// Creature chain index matching the bytes written into the tile.
+///
+/// Walks `creatures` newest-first (`iter().rev()`, `add_creature` pushes). A
+/// creature with `occupies_shared_slot == false` is remembered when it sits
+/// above the target and does not increment `shared`.
 ///
 /// `items_before_creatures` is ground-relative item count before the creature
-/// section: TVP = `top_items.len()`; Cip `GetObjectRNum` = BOTTOM downs + `top_items`
-/// (not PRIORITY_LOW downs).
-// C++ reference: `gameserver/src/tile.cpp` `Tile::getClientIndexOfCreature`.
+/// section: TVP / OTC = `top_items.len()`; 772 = BOTTOM downs + `top_items`.
+// C++ reference: `info.cc:205` `GetObjectRNum`; encoded tile via `login_out.rs`
+// `creature_hidden_from_map` / `SendMapPoint` (`sending.cc:271`).
 pub fn creature_stack_pos_for_viewer(
     ground_present: bool,
     items_before_creatures: usize,
     creatures: &[CreatureId],
     creature: CreatureId,
-    can_see: impl Fn(CreatureId) -> bool,
-) -> i32 {
+    occupies_shared_slot: impl Fn(CreatureId) -> bool,
+) -> CreatureStackIndex {
     let mut n: i32 = if ground_present { 1 } else { 0 };
     n += items_before_creatures as i32;
+    let mut own_client_only = Vec::new();
     for &c in creatures.iter().rev() {
         if c == creature {
-            return n;
+            return CreatureStackIndex {
+                shared: n,
+                own_client_only,
+            };
         }
-        if can_see(c) {
+        if occupies_shared_slot(c) {
             n += 1;
+        } else {
+            own_client_only.push(c);
         }
     }
-    -1
+    CreatureStackIndex {
+        shared: -1,
+        own_client_only,
+    }
 }
 
-/// TFS / TVP `Tile::getClientIndexOfCreature` (simplified: all creatures visible).
+/// TFS / TVP `Tile::getClientIndexOfCreature` (simplified: all creatures occupy a slot).
 ///
-/// Does **not** count `down_items` (emitted after creatures on the wire).
+/// Used by appear (`0x6A`) — 772 ignores stackpos on add. Does **not** count
+/// `down_items` (emitted after creatures on the wire).
 // C++ reference: `src/tile.cpp` `Tile::getClientIndexOfCreature`.
 pub fn client_creature_stack_pos(body: &TileBody, creature: CreatureId) -> i32 {
     creature_stack_pos_for_viewer(
@@ -645,6 +689,7 @@ pub fn client_creature_stack_pos(body: &TileBody, creature: CreatureId) -> i32 {
         creature,
         |_| true,
     )
+    .shared
 }
 
 /// Cip `GetObjectRNum` creature index — only BOTTOM downs (+ tops) before creatures.
@@ -664,6 +709,7 @@ pub fn client_creature_stack_pos_cip(
         creature,
         |_| true,
     )
+    .shared
 }
 
 #[cfg(test)]
@@ -786,6 +832,28 @@ mod look_tests {
             Tile::Normal(body_low.clone()).get_item_stack_pos_cip(low, true, |_| false),
             Some(2) // ground + creature + low
         );
+    }
+
+    #[test]
+    fn spectator_stack_index_skips_creatures_omitted_from_the_tile() {
+        // Encoded tile omits invisible/ghost bodies (`creature_hidden_from_map`).
+        // Shared index skips them; that creature's own client still has the body.
+        let mut creatures: SlotMap<CreatureId, _> = SlotMap::with_key();
+        let hidden = creatures.insert(());
+        let mover = creatures.insert(());
+        // Newest creature is the top (`add_creature` pushes). `iter().rev()` sees
+        // `hidden` above the mover.
+        let body = tile_body(Some(106), vec![], vec![], vec![mover, hidden]);
+        let omitted =
+            creature_stack_pos_for_viewer(true, 0, body.creatures(), mover, |c| c != hidden);
+        assert_eq!(omitted.shared, 1);
+        assert_eq!(omitted.own_client_only, vec![hidden]);
+        assert_eq!(omitted.for_viewer(hidden), 2);
+        assert_eq!(omitted.for_viewer(mover), 1);
+
+        let all_visible = creature_stack_pos_for_viewer(true, 0, body.creatures(), mover, |_| true);
+        assert_eq!(all_visible.shared, 2);
+        assert!(all_visible.own_client_only.is_empty());
     }
 
     /// `PlaceObject` (`map.cc:2040`) does not append LOW objects, so the most recently

@@ -524,14 +524,10 @@ impl GameWorld {
             // leaving the creature visibly alive after it has died server-side (the reported
             // cyclops-walks-over-wolf desync). The creature list is needed for per-viewer stack
             // position computation (`Tile::getClientIndexOfCreature`, `tile.cpp:1207-1214`).
-            let old_creatures = self
-                .map
-                .get_tile(blocker_pos)
-                .map(|t| t.body().creatures().to_vec())
-                .unwrap_or_default();
+            let old_snap = crate::walk::capture_creature_stack_snapshot(self, blocker_pos);
             // Walk order: NotifyTurn → MoveObject → queryDestination chain → CollisionEvent
             // → spectator `from → final` (`game.cpp` ~863–880). Broadcast after the chain so
-            // a kick onto a hole is not frozen on the hole tile. `old_creatures` still
+            // a kick onto a hole is not frozen on the hole tile. `old_snap` still
             // matches C++ `GetObjectRNum` while CrObject is on the old field.
             let kick_dir = dir;
             if let Some(k) = self.creatures.get_mut(blocker) {
@@ -546,7 +542,7 @@ impl GameWorld {
                 .get(blocker)
                 .map(|k| k.position())
                 .unwrap_or(try_pos);
-            self.broadcast_spectator_move(blocker, blocker_pos, final_pos, &old_creatures);
+            self.broadcast_spectator_move(blocker, blocker_pos, final_pos, &old_snap);
             // C++ `KickCreature` → `::Move` relocates the creature but does NOT clear its
             // ToDoList (`operate.cc:1403-1446`). The displacement is detected on the next
             // `Execute` when `Go(oldDestX, oldDestY, oldDestZ)` checks `Distance > 1`

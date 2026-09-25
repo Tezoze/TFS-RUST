@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
@@ -11,7 +11,7 @@ use tfs_loadgen::inbound::InboundState;
 use tfs_loadgen::item_extra::shared_item_extra;
 use tfs_loadgen::latency::{LatencySet, RunReport};
 use tfs_loadgen::progress::{LiveCounters, run_progress_ticker};
-use tfs_loadgen::ramp::LoginGate;
+use tfs_loadgen::ramp::{LoginGate, login_start_delay};
 use tfs_loadgen::roles::bot_seed;
 use tfs_loadgen::scenario::{BotRng, Scenario};
 use tfs_loadgen::session::{BotConfig, load_rsa_pem, run_bot, v772_caps};
@@ -33,6 +33,13 @@ struct Args {
     /// Measurement window in seconds (overrides scenario `duration_s` when set).
     #[arg(long)]
     duration_s: Option<u64>,
+    /// Histogram warmup (overrides scenario `warmup_s` when set).
+    #[arg(long)]
+    warmup_s: Option<u64>,
+    /// Spread 7171 starts of N bots over this many seconds (first at 0, last at spread).
+    /// Cap stays 8 in flight. Default 0 = current burst + 8-slot gate.
+    #[arg(long, default_value_t = 0)]
+    login_spread_s: u64,
     /// Spike walk count (implies `--walk-ns`).
     #[arg(long)]
     beats: Option<u32>,
@@ -83,6 +90,9 @@ async fn main() -> Result<()> {
     if let Some(d) = args.duration_s {
         scenario.duration_s = d;
     }
+    if let Some(w) = args.warmup_s {
+        scenario.warmup_s = w;
+    }
     if let Some(beats) = args.beats {
         let need_s = (u64::from(beats) * args.walk_period_ms).div_ceil(1000) + 2;
         scenario.duration_s = scenario.duration_s.max(need_s);
@@ -97,8 +107,25 @@ async fn main() -> Result<()> {
         .max(1);
     scenario.bots = bots;
 
+    let spread = Duration::from_secs(args.login_spread_s);
+    let origin = Instant::now();
+    let (record_from, run_until) = if !spread.is_zero() {
+        let warmup = Duration::from_secs(scenario.warmup_s);
+        let measure = Duration::from_secs(scenario.duration_s.max(1));
+        (
+            Some(origin + spread + warmup),
+            Some(origin + spread + warmup + measure),
+        )
+    } else {
+        (None, None)
+    };
+
     let key = Arc::new(load_rsa_pem(args.rsa.as_deref())?);
-    let gate = Arc::new(LoginGate::phase_d_default());
+    let gate = Arc::new(if spread.is_zero() {
+        LoginGate::phase_d_default()
+    } else {
+        LoginGate::concurrent_only()
+    });
     let caps = v772_caps();
     let bounce_ns = args.walk_ns || args.beats.is_some();
     let item_extra = shared_item_extra();
@@ -134,6 +161,9 @@ async fn main() -> Result<()> {
             walk_count: args.beats,
             item_extra: Arc::clone(&item_extra),
             live: Arc::clone(&live),
+            login_delay: login_start_delay(i, bots, spread),
+            record_from,
+            run_until,
         };
         let key = Arc::clone(&key);
         let gate = Arc::clone(&gate);

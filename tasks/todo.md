@@ -1,3 +1,271 @@
+# 1000-bot 1h A/B after stack-index fix (2026-09-24)
+
+Same cell as `20260923T224624Z`. Cap stays 8. Re-seed r=17 both. Quote p99 per side only if that side is both-zero. No 3-rep.
+
+```
+env -u CARGO_TARGET_DIR python3 scripts/seed_bench_accounts.py --preset ms-swarm --layout cluster --cluster-radius 17 --count 1000 --apply --target both
+env -u CARGO_TARGET_DIR python3 scripts/bench/run_comparison.py --mode soak --servers rust,tvp --reps 1 --bots 1000 --duration-s 3600 --login-spread-s 120 --scenario bench/scenarios/ms_swarm.ron --disable-saves --cpuset-server 0-7 --cpuset-loadgen 8-15
+```
+
+- [x] Re-seed both (1000 cluster r=17, center 32776,32240,7)
+- [x] 1h A/B `results/20260924T102252Z` (exit 0, ~2.1 h)
+- [x] Quote p99 per side iff both-zero; lessons.md #537 — neither both-zero
+
+# Spectator stack bytes match the encoded tile (2026-09-24)
+
+`0x6D` counted every server creature and re-read origin items after StepIn. Tile description omits invisible/ghost bodies; `GetObjectRNum` runs before `MoveObject`. Turn `0x6B` and death `0x6C` still used the TVP index (no bottoms).
+
+- [x] Shared index skips creatures omitted from the tile; own client of those bodies gets +1
+- [x] Omitted mover: no spectator `0x6D` / remove
+- [x] Snapshot ground / BOTTOM / tops with the pre-move creature list
+- [x] Same 772/OTC pair for turn `0x6B`, death/logout `0x6C`, ghost remove
+- [x] Test: hidden creature above the mover does not increment shared; does increment for that client
+- [x] `cargo test -p tfs-rust-core --lib`
+
+# Spectator stack index once per step (2026-09-24)
+
+`broadcast_spectator_move` walked the tile stack with `can_see` for every viewer (`20260923T224624Z` temple crowd). Decompile `GetObjectRNum` is one index for every `SendMoveCreature`.
+
+- [x] One 772 index + one OTC index per step
+- [x] Test: hidden creature still counts in the shared index
+- [x] `cargo test` stack-pos helper
+
+# Decoder z=1 steal + 1h A/B rerun (2026-09-24)
+
+`20260923T111647Z` rust skip=1003 / z=1 — spectator `0x6D` pos+stack from a shared tile was applied as self, dest z=1 stole the skipper. Fix loadgen `is_self_move`. Then the same 1h A/B. Cap stays 8. `mixed_300.ron` frozen. r=17. Quote p99 iff both-zero.
+
+```
+env -u CARGO_TARGET_DIR python3 scripts/seed_bench_accounts.py --preset ms-swarm --layout cluster --cluster-radius 17 --count 1000 --apply --target both
+env -u CARGO_TARGET_DIR python3 scripts/bench/run_comparison.py --mode soak --servers rust,tvp --reps 1 --bots 1000 --duration-s 3600 --login-spread-s 120 --scenario bench/scenarios/ms_swarm.ron --disable-saves --cpuset-server 0-7 --cpuset-loadgen 8-15
+```
+
+- [x] loadgen: pos-only `0x6D` is self only if NotifyGo map follows or dest is adjacent (`|d|≤1`)
+- [x] tests: far dest z=1 from our tile does not move `pos`
+- [x] 1h A/B `results/20260923T224624Z` (re-seed SQL blocked; used last r=17 both seed)
+- [x] Quote p99 per side iff both-zero; lessons.md #534 — neither both-zero
+
+# 1000-bot 1h A/B, login spread 2 min (2026-09-23)
+
+Rust vs TVP, 1 hour measure each after 1000 logins spread over 120 s (cap stays 8). Warmup 30 s after last login so p99 is hunt, not ingest. 1 rep. `--disable-saves`. Mana re-seed r=17 **both**. Quote p99 per side only if that side is both-zero. `mixed_300.ron` frozen. No 3-rep. Do not raise the login cap.
+
+Wall ≈ 120 + 30 + 3600 + 140 s per server (~65 min) × 2 ≈ 2.2 h.
+
+Host load is now in each cell: `host.csv` (idle/iowait/loadavg/MemAvailable/freq/RAPL), `loadgen_proc.csv`, `mysql_proc.csv` when mariadbd is up. Pin disjoint cpusets on this 16-thread box.
+
+```
+env -u CARGO_TARGET_DIR python3 scripts/seed_bench_accounts.py --preset ms-swarm --layout cluster --cluster-radius 17 --count 1000 --apply --target both
+env -u CARGO_TARGET_DIR python3 scripts/bench/run_comparison.py --mode soak --servers rust,tvp --reps 1 --bots 1000 --duration-s 3600 --login-spread-s 120 --scenario bench/scenarios/ms_swarm.ron --disable-saves --cpuset-server 0-7 --cpuset-loadgen 8-15
+```
+
+- [x] loadgen `--login-spread-s` / `--warmup-s`; `LoginGate::concurrent_only` when spread > 0; global `record_from` / `run_until`
+- [x] `run_comparison.py --login-spread-s` (wall clock includes spread)
+- [x] `sample_host.py` + loadgen/mysql proc CSVs; `--pin` auto-split; plot `host_*.png`
+- [x] Re-seed both + run the cell (`results/20260923T111647Z`, exit 0, ~2.1 h wall)
+- [x] Compare rust vs TVP 0–20s vs 20s–end CPU; quote p99 per side iff both-zero
+- [x] lessons.md #532
+- [x] lessons.md #530
+- [x] lessons.md #531
+
+# Known-creature slot table 30s cell (2026-09-23)
+
+1-rep rust-only `ms_swarm` 30s after the slot table + `creature_by_wire` hash. Built, `--disable-saves`, mana re-seed r=17. Cap stays 8. No 3-rep.
+
+- [x] Re-seed 1000 `--preset ms-swarm --layout cluster --cluster-radius 17 --apply --target rust`
+- [x] `results/20260923T105451Z` — `--mode steady --servers rust --bots 1000 --reps 1 --duration-s 30 --scenario bench/scenarios/ms_swarm.ron`
+- [x] Compare vs `20260923T102346Z` (full scan) and `20260920T111054Z` (fill)
+- [x] lessons.md #529
+
+**0 disconnects**, **1000/1000**. skip=0 discarded=0 unknown=0 — decoder both-zero. Login 0–20s **14.1 CPU-s / mean 70% / peak 135%** (scan cell 16.3 / 81% / 141%; fill 12.3 / 61% / 121%) on **329 MB** tx (scan 263; fill 319). `game` 0–20s **7.4** (was 10.8 / 6.7). 20–40s `game` **2.1** (scan was **19.6**; fill 2.0) — plateau gone. Walk p50 30 ms / p95 53 ms / p99 152 ms; spell p50 73 ms / p95 2.1 s / p99 4.2 s.
+
+# Known-creature slot table (2026-09-23)
+
+Decompile `NewKnownCreature` (`connections.cc:400-454`) walks `KnownCreatureTable[150]` from slot 0: already known, first free (`0`), first `!IsVisible`, else no insert. The HashSet + full `can_see` scan on every over-limit insert is what kept `game` at ~105% after login maps. Cap stays 8. No loadgen cell.
+
+- [x] `KnownCreatureTable` slots; `check_creature_known` stops at first free / first unseen; full-visible does not evict
+- [x] `known_creatures_by_conn` stores the table; `creature_fully_sent_by_conn` stays a set of occupied ids
+- [x] `creature_by_wire` hash (`GetCreature`); SlotMap scan only if both maps miss
+- [x] `cargo test` creature_known / map_description / known_set_can_see / inbound skip
+- [x] lessons.md #528
+
+# Login-spike cell after block XTEA + direct 0x64 (2026-09-23)
+
+1-rep rust-only `ms_swarm` 30s, built, `--disable-saves`, mana re-seed r=17. Cap stays 8. Do not retouch loadgen gates. No 3-rep. Quote p99 only if decoder both-zero.
+
+- [x] Re-seed 1000 `--preset ms-swarm --layout cluster --cluster-radius 17 --apply --target rust`
+- [x] `results/20260923T102346Z` — `--mode steady --servers rust --bots 1000 --reps 1 --duration-s 30 --scenario bench/scenarios/ms_swarm.ron`
+- [x] Compare login 0–20s vs `20260920T111054Z`
+- [x] lessons.md #527
+
+**0 disconnects**, **1000/1000**. skip=11 discarded=33109 unknown=6. Not both-zero — do not quote p99. Login 0–20s **81% / 16.3 CPU-s / peak 141%** (was 60.7% / 12.3 / 121%) on **less** tx (263 MB vs 319 MB). `io` flat (5.52 vs 5.57). `game` 0–20s **10.8** (was 6.7) and **19.6 CPU-s in 20–40s** (was 2.0) while tx had already fallen to ~2–4 MB/s. Process stayed ~105% until t≈41s.
+
+# Login spike: block XTEA, direct 0x64, known-set scan (2026-09-23)
+
+`results/20260920T111054Z` login 0–20s is 12.3 CPU-s (peak 121%) vs TVP 5.7 CPU-s (peak 49%) on the same hunt. `game` alone exceeds all of TVP; `io` adds almost as much again. Fill-tile reuse did not move it. Cap stays 8. Do not retouch loadgen gates. Same wire.
+
+- [x] XTEA: one 8-byte block, 32 rounds in registers (`communication.cc` `SymmetricKey.encrypt`). Append frames into the send buffer (no scratch copy).
+- [x] `0x64`: `SendMapPoint` write into the message. One reused creature wire. No per-creature `name.clone` / `AddCreatureWire` clone. Skip `0xFF` and the 10-thing cap stay. Debug-assert bytes match the fill encoder.
+- [x] Known set: linear min-id eviction, no `Vec`+sort (`KnownCreatureTable` choice).
+- [x] `cargo test` map_description / frame_coalesce / xtea / creature_known + core lib (teleport `0x64` debug-assert held)
+- [x] lessons.md #526
+
+# SendFullScreen 0x64 30s rust-only sniff (2026-09-20)
+
+Quick check after fill encode: 1000-bot rust-only `ms_swarm` 30s. Cap stays 8. Do not retouch loadgen gates. No ToDo cap. `mixed_300.ron` frozen. Hunt seed r=17. Quote p99 only if decoder both-zero. Build (not skip-build). `env -u CARGO_TARGET_DIR`. `--disable-saves`. Re-seed mana (last 120s cell). No 3-rep. Rust only.
+
+- [x] Re-seed 1000 `--preset ms-swarm --layout cluster --cluster-radius 17 --apply --target rust`
+- [x] 1-rep rust-only `ms_swarm` `--duration-s 30` (built) — `results/20260920T111054Z`
+- [x] Compare login 0–20s CPU / `login_us` vs `20260920T103807Z` (2 I/O workers)
+- [x] lessons.md + todo cell result
+
+Rust: **0 disconnects**, **1000/1000** held. skip=5 discarded=2044 unknown=0 (opcodes `100`×3 + `103`×2, peek leftover skip-tiles z=1). Discarded **stopped at 2044** once ingest finished (was 43731 and still growing at 120s). Not both-zero — do not quote p99. Login 0–20s CPU **60.7%** / 12.3 CPU-s (was 60.4% / 12.2). `login_us` first 10s p50 8 ms / **p95 16 ms** (was p95 32 ms); second 10s p50 16 / p95 65 / p99 131 ms — same buckets as before. Threads: `game` 12.0 s + 2× `io` 8.7 s (shorter wall). Fill encode did not cut the login CPU spike; leftover skip-stream after `0x64` is much smaller.
+
+# SendFullScreen-style 0x64 encode (2026-09-20)
+
+Login spike still spends `login_us` 8–16 ms building `TileContent` per viewport tile (`map_tile_content` rebuilds `self_wire` ~2000 times). Decompile `SendFullScreen` / `SendMapPoint` (`sending.cc`) walks tiles, skip-runs empties, writes objects into `OutData[16384]`. Same wire; keep 16 KiB split send (do not copy Overflow drop). Cap stays 8. Do not retouch loadgen gates.
+
+- [x] `TileContent::clear` + fill `get_floor_description` (`FnMut(x,y,z,&mut TileContent)->bool`); Option wrappers for tests/loadgen
+- [x] `MapDescribeCtx` + `map_tile_content_into`; `self_wire` once per packet; production `*_fill` in login_out / walk
+- [x] `NetworkMessage::with_capacity(16384)`; still split at 16 KiB
+- [x] `cargo test -p tfs-rust-net map_description map_skip` + `cargo test -p tfs-rust-core --lib` walk/login + clippy
+- [x] lessons.md
+
+# Tokio I/O 1000-bot A/B (2026-09-20)
+
+Measure `20260920T101600Z` after 2 I/O workers + one `write_all` per batch + inline SHA1 verify. Cap stays 8. Do not retouch loadgen gates. No ToDo cap. `mixed_300.ron` frozen. Hunt seed r=17. Quote p99 per side only if that side is both-zero. TVP stock `-Og`. Build (not skip-build). `env -u CARGO_TARGET_DIR`. `--disable-saves`. Re-seed mana (last cell drained casters). No 3-rep until this 1-rep is clean both sides.
+
+- [x] Re-seed 1000 `--preset ms-swarm --layout cluster --cluster-radius 17 --apply --target both`
+- [x] 1-rep `20260920T103807Z` rust,tvp `ms_swarm` 120s on r=17 (built)
+- [x] lessons.md + todo cell result (CPU-s / `io` thread count vs 16 `tokio-rt-worker`)
+
+Rust: **0 disconnects**, **1000/1000** held. skip=24 discarded=43731 unknown=5 (first 21 after `0x6C`, peek `1580ef7d0701`, z=1). Not both-zero — do not quote rust p99. Process CPU **25.8 s** (was 98.3), mean **14.3%** (was 57.4). Login 0–20s **60%** (was 283%). Steady 20–140s **8.4%** (was 30%; TVP 11.3%). Threads: `game` 14.5 s + **2× `io` 10.9 s** + 6 leftover `tokio-rt-worker` 0.44 s (was 27 tokio-rt-worker 81.4 s). Beats 200/10s, `todo_us` p50 1–8 ms.
+
+TVP: skip=0 discarded=106 unknown=1 (opcode 20, peek account-banned text, z=7). **995 in-world**, 5 disconnects. Not both-zero — do not quote TVP p99. Process CPU 24.0 s / 12.7% mean.
+
+No 3-rep. Decoder both-zero is still open (rust skips rose vs `20260920T101600Z`).
+
+# Tokio I/O: 2 workers + one send per batch (2026-09-20)
+
+`20260920T101600Z` rust process CPU ~57% vs TVP ~13%. Game thread 16.6 CPU-s ≈ TVP busiest 16.0. Extra ~74 CPU-s is 16–26 `tokio-rt-worker`s (default `#[tokio::main]` ≈ SMT count), 64% stime. Login 0–20s tokio **254%**. SHA1→bcrypt already off in A/B. Lesson 479 still holds (this is not a bcrypt cap). Lesson 483: remaining cost is `send()` on `lo`; login map still `write_all`s every 16 KiB XTEA frame. Cap stays 8. Do not retouch loadgen gates. `mixed_300.ron` frozen. Hunt r=17.
+
+- [x] `rust-src/main.rs`: multi-thread I/O runtime `worker_threads=2` (env `TFS_IO_WORKER_THREADS`), `max_blocking_threads=16`, thread name `io`
+- [x] `server.rs` writer: one `write_all` per mpsc batch (`encode_coalesced_frames`)
+- [x] `password.rs`: SHA1/unknown verify inline; bcrypt still `spawn_blocking`
+- [x] tests: frame concat; SHA1 verify without pool
+- [x] `cargo test -p tfs-rust-net frame_coalesce` + `cargo test -p tfs-rust-db password` + clippy
+- [x] lessons.md #522
+
+# 16×16 sector lists 1000-bot A/B (2026-09-20)
+
+`20260920T091425Z` rust stalled after ~600 hunters (`todo_us` p50 1–2s). 16×16 XY sector `Vec` lists + known-conn reverse landed. Bots were at 0 mana after prior cells — re-seeded `--preset ms-swarm` (mana 200000) on r=17 before the run. Cap stays 8. Do not retouch loadgen gates. No ToDo cap. `mixed_300.ron` frozen. Hunt seed `--cluster-radius 17`. Quote p99 per side only if that side is both-zero. TVP stock `-Og`. Build (not skip-build). `env -u CARGO_TARGET_DIR`. `--disable-saves`. No 3-rep until this 1-rep is clean both sides.
+
+- [x] Re-seed 1000 `--preset ms-swarm --layout cluster --cluster-radius 17 --apply --target both` (mana/manamax 200000 × 1000)
+- [x] 1-rep `20260920T101600Z` rust,tvp `ms_swarm` 120s on r=17 (built)
+- [x] lessons.md #521 + todo cell result
+
+Rust: **0 disconnects**. Peak **1000/1000** connected/in-world (held the window). skip=3 discarded=7013 unknown=3 (first opcode 7 after `0x6A`, peek `070d8cd203000064`, z=7). Skip opcode `100`×3 peek skip-stream at z=1. Not both-zero — do not quote rust p99. Login ingest is 1000 (was ~649). Steady `todo_us` p50 1–32 ms, heap ~130–340, **200 beats/10s** (was p50 1–2s / heap 2200–3000 / ~14 beats).
+
+TVP: skip=0 discarded=0 unknown=0. Peak **999 in-world**, 1 disconnect. Walk **p50 56.7 / p95 62.0 / p99 151 ms**. Spell **p50 57.9 / p95 2.44 s / p99 4.91 s**. Outstanding 1566. Quote TVP p99.
+
+No 3-rep. Next is rust decoder both-zero at 1000 in-world (skip `0x64`/opcode 7), not another spatial-index pass.
+
+# 16×16 sector creature lists + known-conn reverse (2026-09-20)
+
+`20260920T091425Z` rust in-world crawls after ~600 hunters: `todo_us` p50 1–2s, heap 2200–3000, ~14 beats/10s. Cost is per-Execute spatial find (`collect_spectators` 64×64 dump + `collect_spectators_sector_order` tile walk), not Beat/login cap/sink. Corpus `TFindCreatures` is 16×16 `blockx`/`blocky` chains spanning floors (`crmain.cc:101–144`). Do not raise the 8-cap. Do not retouch loadgen gates. No per-beat ToDo cap. `mixed_300.ron` frozen. Hunt seed r=17.
+
+- [x] `map/sector_index.rs`: XY 16×16 `Vec<CreatureId>` creatures + players (all floors; not TVP 8×8 / `NextChainCreature`)
+- [x] Maintain on `register_creature` / `unregister_creature` / conn mapping; keep `CHUNK_SIZE=64` for tiles
+- [x] Switch idle 12×12, `fill_spatial_spectators`, `spectator_conns_via_grid` onto sector walk
+- [x] Known-conn reverse for `AnnounceChangedCreature` (speed / outfit)
+- [x] Tests: sector vs chunk over-collect, IDLE-3 order, spectator fan-out, player list
+- [x] `cargo test -p tfs-rust-core --lib` (grid / idle / spectators / known)
+- [x] lessons.md #520
+
+# Purge `pending_outgoing` on sink close (2026-09-20)
+
+`20260920T090253Z` rust login stalled (~71 immortal batches). `flush_output_buffers` `mem::take`s the map every beat; `flush_conn_outgoing` / Closed shed re-queue when the writer is gone; `close_output_connection` drops the sink but not the map entry. Next beat re-takes the same 71 conn batches (~1.4k warn/s, ~5M Vec moves/s on the game thread). Login ingest then cannot finish 1000. Cap stays 8. `mixed_300.ron` frozen. Hunt seed r=17. No 1000-bot until this lands.
+
+- [x] `game_loop.rs` `close_output_connection`: take `&mut GameWorld`, `pending_outgoing.remove`
+- [x] Call sites: disconnect + takeover `old_conn`
+- [x] Test: disconnect with no sink leaves `pending_outgoing` empty; Closed shed + drain does the same
+- [x] `cargo test -p tfs-rust-core --lib game_loop_disconnect_tests` — 6 passed
+- [x] lessons.md #518
+- [x] 1-rep `20260920T091425Z` rust,tvp `ms_swarm` 120s on r=17 (built, not skip-build)
+- [x] lessons.md + todo cell result
+
+Rust: **0 disconnects**. Peak **727 connected / 649 in-world**. skip=2 discarded=1583 unknown=0 (peek leftover, z=125). Not both-zero — do not quote rust p99. `no output sink` pending-batch orphans are gone (log 1.4 MiB vs 24 MiB). In-world still crawls after the think cliff.
+
+TVP: skip=0 discarded=20 unknown=1 (opcode 7 after `0x72`, peek `the swarm is here`). **1000 in-world**, 0 disconnects. Not both-zero — do not quote TVP p99.
+
+No 3-rep. Next is apply/think turnover, not another sink-close pass.
+
+# Drop loadgen gate at 7172 connect, not self-appear (2026-09-20)
+
+`20260920T074705Z` rust 0 disconnects but peak 631 in-world: gate held until `self_id`, so after the ~600-player think cliff (login p50 ~33 s) 8 permits stuck and ~365 never left 7171. Old 1000-in-world cells finished apply in the first ~12 s (login p50 ~16 ms) because 7172 was ungated after char list. Keep server queue. Drop permit after game-port first packet. Cap stays 8. Do not retry. `mixed_300.ron` frozen. Hunt seed r=17. Quote p99 per side only if both-zero.
+
+- [x] Loadgen: drop `LoginGate` after 7172 first packet, not `self_id`
+- [x] `cargo test -p tfs-loadgen`
+- [x] 1-rep `20260920T090253Z` rust,tvp `ms_swarm` 120s on r=17
+- [x] lessons.md + todo cell result
+
+Rust: **0 disconnects**. Peak **713 connected / 622 in-world**. skip=0 discarded=7 unknown=1 (opcode 7, z=125). Not both-zero — do not quote rust p99. 7172 gate-drop raised connected vs 635; in-world still crawls after the think cliff.
+
+TVP: skip=0 discarded=0 unknown=0, **1000 in-world**, 0 disconnects. Walk **p50 60.5 / p95 70.2 / p99 205 ms**. Spell **p50 551 / p95 3.99 s / p99 5.36 s**. Outstanding 237. Quote TVP p99.
+
+No 3-rep. Next is apply/think turnover (login p50 ~33 s after ~600), not another gate tweak.
+
+# Login ingest: queue overflow, hold loadgen gate through in-world (2026-09-20)
+
+`20260920T040310Z` rust peaked ~666 in-world / 123 disconnects because `MAX_CONCURRENT_LOGIN_LOADS = 8` **rejected** overflow `PlayerLogin` (`game_loop.rs` `begin_player_login_load`). Slots free only on `PlayerLoaded` apply; 1s+ beats kept them full. Loadgen `LoginGate` dropped after 7171 char list, so 7172 arrived in ~8-at-a-time ~64/s bursts. TVP holds TCP. Cap stays 8. Do not retry. `mixed_300.ron` frozen. Hunt seed r=17. Quote p99 per side only if both-zero.
+
+- [x] `login.rs`: `LoginIngest` wait queue; queue-full still `PlayerLoadFailed`
+- [x] `game_loop.rs`: overflow queues; pump on `PlayerLoaded` / `PlayerLoadFailed`
+- [x] Loadgen: hold `LoginGate` until `self_id` / in-world
+- [x] Tests: queue not reject; pump starts next; queue-full reject; gate comment
+- [x] 1-rep `20260920T074705Z` rust,tvp `ms_swarm` 120s on r=17 (built, not skip-build)
+- [x] lessons.md + todo cell result
+
+Rust: **0 disconnects**, 0 cap-rejects. Peak **635 connected / 631 in-world**. skip=11 discarded=4185 unknown=5 (first 4, peek leftover, z=125). Not both-zero — do not quote rust p99. Gate-until-self_id left ~8 in the pipeline; ~365 never left 7171 because apply/self-appear stalled.
+
+TVP: skip=0 discarded=0 unknown=0, **1000 in-world**, 0 disconnects. Walk **p50 60.4 / p95 68.4 / p99 153 ms**. Spell **p50 9.8 / p95 63.1 / p99 69.1 ms**. Outstanding 124. Quote TVP p99.
+
+No 3-rep. Next is apply/think turnover (or drop the loadgen permit at 7172 connect so the server queue can fill), not another decoder pass unless rust is both-zero.
+
+# Leftover known opcode at eof (2026-09-20)
+
+1000-bot `20260920T034532Z`: **skip_failures=0**, **bytes_discarded=1**, unknown=0 (no peek — truncated known opcode, not `note_unknown`). Peak ~616 in-world, 91 disconnects. Chat `0xAA`/`0x72` residue is gone. One leftover skip-stream byte that collides with a known opcode at eof (0-floor then `0x72` with no cid/slot). Eat leftover known opcode at eof; keep empty-body ping / cancel-target. Do not drain ASCII. Do not change ClosePrivate `0xB3`. `mixed_300.ron` frozen. Quote p99 only if both decoder fields are 0. No 3-rep A/B until both-zero.
+
+- [x] `inbound.rs` `feed`: leftover known opcode at eof is skip-stream, not discard
+- [x] Tests: `0x68`+`0x72` eof; lone ping; `0x68`+`0xAA` say+`0x72`+ping; `6e02`; Test742
+- [x] `cargo test -p tfs-loadgen` — 104 passed
+- [x] 50-bot `20260920T035401Z`: skip=0 discarded=0 unknown=0. Walk **p50 10.8 ms / p95 42.1 ms / p99 386 ms**. Spell **p50 80.1 ms / p95 2.31 s / p99 6.81 s**. 0 disconnects.
+- [x] 1000-bot `20260920T035659Z`: **skip=0 discarded=0 unknown=0**. Peak ~627 in-world, 99 disconnects. Walk **p50 36.3 ms / p95 406 ms / p99 478 ms**. Spell **p50 378 ms / p95 1.64 s / p99 3.83 s**. Decoder gate is both-zero — p99 is quoted. Login ingest is not 1000 in-world (separate from decoder).
+- [x] lessons.md + todo cell result
+
+# 1000-bot 1-rep rust vs TVP after r=17 decoder both-zero (2026-09-20)
+
+Rust-only `20260920T035659Z` is both-zero (walk p99 **478 ms**, spell p99 **3.83 s**; ~627 in-world). Next is a 1-rep 1000-bot 120s `ms_swarm` A/B (`--servers rust,tvp`), `env -u CARGO_TARGET_DIR`, `--disable-saves`, `--skip-build`. Quote walk/spell p99 **per side** only if that side is both-zero. Hunt seed stays `--cluster-radius 17`. TVP stock is `-Og`. `mixed_300.ron` frozen. No 3-rep until this 1-rep is clean both sides.
+
+- [x] 1-rep `20260920T040310Z` rust,tvp `ms_swarm` 120s on r=17
+- [x] lessons.md + todo cell result
+
+Both sides **both-zero**. Quote p99 per side.
+
+Rust: skip=0 discarded=0 unknown=0. Peak ~666 in-world, 123 disconnects. Walk **p50 34.3 / p95 392 / p99 475 ms**. Spell **p50 459 / p95 1.75 s / p99 3.36 s**. Outstanding 331.
+
+TVP: skip=0 discarded=0 unknown=0. **1000 in-world**, 0 disconnects. Walk **p50 60.4 / p95 68.7 / p99 204 ms**. Spell **p50 13.1 / p95 2.14 s / p99 4.27 s**. Outstanding 312. TVP stock `-Og`.
+
+Login ingest (rust ~666 vs TVP 1000) is not this decoder task. No 3-rep until rust holds 1000 or the user asks.
+
+# Known-opcode leftover skip-tile needs a skip pair (2026-09-20)
+
+1000-bot `20260920T032906Z`: skip=0 discarded=15 unknown=1. Opcode 97 after `0x72`, peek `are a bot swarm`. Skip-tile-before-0-floor on a known first byte ate a real `0xAA` say (10-thing cap, no `[n, 0xFF]`) and stopped at `0x72` (`OP_CONTAINER_REMOVE` / `'r'`). Require a skip-pair terminator when the leftover stream starts at a known opcode (`0x026E` still ends `[00, FF]`). Do not drain ASCII. Do not change ClosePrivate `0xB3`. `mixed_300.ron` frozen. Quote p99 only if both decoder fields are 0. No 3-rep A/B until both-zero.
+
+- [x] `inbound.rs` `skip_orphan_then_skip_stream`: known-opcode skip-tile requires skip-pair terminator
+- [x] Tests: 10-thing `0xAA` not eaten; `6e02` still skip-tile
+- [x] `cargo test -p tfs-loadgen`
+- [x] 50-bot `20260920T034237Z` / 1000-bot `20260920T034532Z` — lessons.md #513
+- [x] lessons.md + todo cell result
+
 # Map-skip other-bot speak body + leftover 0xFF skip-stream (2026-09-20)
 
 1000-bot `20260920T013342Z`: skip=9 (`0x68`×8 + `0x65`×1), discarded=1242, unknown=14 (`255`×10). First skip peek `00000600Test22…` at z=7 is a speak-shaped body after an omitted `SendRow` (name + SAY + pos + `bots bots bots`), not eof. First unknown `0xFF` after `0xA0`, peek `ff2a11…` — drain returned on leftover `0xFF` instead of skip-tile. Drain leftover `0xFF` as skip-stream when `prev` is set; 0-floor map skip if the body is speak-shaped. Do not eat first-opcode `ff98…`. `mixed_300.ron` frozen. Quote p99 only if both decoder fields are 0. No 3-rep A/B until both-zero.

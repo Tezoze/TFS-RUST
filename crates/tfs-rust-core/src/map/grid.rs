@@ -1,17 +1,19 @@
-//! Lazy 64×64 chunk grid — tiles + per-chunk creature spatial index.
+//! Lazy 64×64 chunk grid — tiles only. Spatial creature find is 16×16 sectors.
 //!
 //! Dense `Vec<Tile>` + `[u16; 4096]` slot index (`u16::MAX` = empty). Layout only —
-//! `get_tile` stays O(1); spectator sector order is unchanged (`crmain.cc:101–144`).
+//! `get_tile` stays O(1). Spectator / idle find walks [`SectorIndex`] (`crmain.cc:101–144`).
 //!
 //! Replaces `HashMap<Position, Tile>` and `QTreeNode` (`map.cpp` lazy spatial index outcomes).
 // C++ reference: `map.cpp` `Map::getSpectators`, tile storage (sparse world).
+// Corpus find: `crmain.cc` `TFindCreatures` 16×16 `blockx`/`blocky`.
 
 use rustc_hash::FxHashMap;
-use smallvec::SmallVec;
 use tfs_rust_common::Position;
 
 use crate::ids::CreatureId;
 use crate::tile::Tile;
+
+use super::sector_index::SectorIndex;
 
 pub const CHUNK_SIZE: u16 = 64;
 pub const CHUNK_AREA: usize = (CHUNK_SIZE as usize) * (CHUNK_SIZE as usize);
@@ -55,11 +57,10 @@ fn position_from_chunk_slot(origin_x: u16, origin_y: u16, z: u8, idx: usize) -> 
 
 const EMPTY_SLOT: u16 = u16::MAX;
 
-/// One 64×64 region on a single floor.
+/// One 64×64 region on a single floor (tiles only — creatures live on 16×16 sectors).
 #[derive(Debug)]
 pub(crate) struct Chunk {
     pub tile_count: u16,
-    pub creatures: SmallVec<[CreatureId; 4]>,
     /// Slot → dense `tiles` index; [`EMPTY_SLOT`] means unoccupied.
     slot_index: Box<[u16; CHUNK_AREA]>,
     tiles: Vec<Tile>,
@@ -69,7 +70,6 @@ impl Chunk {
     pub fn new() -> Self {
         Self {
             tile_count: 0,
-            creatures: SmallVec::new(),
             slot_index: Box::new([EMPTY_SLOT; CHUNK_AREA]),
             tiles: Vec::new(),
         }
@@ -106,10 +106,11 @@ impl Chunk {
     }
 }
 
-/// Sparse tile store + chunk-level creature index (replaces quadtree + `HashMap<Position, Tile>`).
+/// Sparse tile store + 16×16 sector creature index (replaces quadtree + `HashMap<Position, Tile>`).
 #[derive(Debug, Default)]
 pub struct SparseGrid {
     chunks: FxHashMap<ChunkKey, Box<Chunk>>,
+    sectors: SectorIndex,
 }
 
 impl SparseGrid {
@@ -168,76 +169,95 @@ impl SparseGrid {
     /// Chunk spatial list only — does not allocate a chunk (tile must exist first).
     ///
     /// `pub(super)`: all creature placement must funnel through `Map::register_creature_at`
-    /// so the dual `TileBody.creatures` / `Chunk.creatures` lists stay in sync (audit #7).
+    /// so the dual `TileBody.creatures` / sector lists stay in sync (audit #7).
     // C++ reference: `map.cpp` `Map::moveCreature` creature-list bookkeeping.
-    pub(super) fn register_creature(&mut self, x: u16, y: u16, z: u8, id: CreatureId) {
+    // Corpus: `TFindCreatures` 16×16 sector chains — `crmain.cc:101–144`.
+    pub(super) fn register_creature_role(
+        &mut self,
+        x: u16,
+        y: u16,
+        z: u8,
+        id: CreatureId,
+        is_player: bool,
+    ) {
         let key = ChunkKey::from_pos(x, y, z);
-        let Some(chunk) = self.chunks.get_mut(&key) else {
+        if !self.chunks.contains_key(&key) {
             return;
-        };
-        if !chunk.creatures.contains(&id) {
-            chunk.creatures.push(id);
         }
+        self.sectors.insert(x, y, id, is_player);
+    }
+
+    /// Conn-mapping hook — player list membership independent of tile register order.
+    pub(crate) fn note_sector_player(&mut self, x: u16, y: u16, id: CreatureId) {
+        self.sectors.note_player(x, y, id);
+    }
+
+    pub(crate) fn forget_sector_player(&mut self, id: CreatureId) {
+        self.sectors.forget_player(id);
     }
 
     /// `pub(super)`: see [`SparseGrid::register_creature`] — route through
     /// `Map::unregister_creature_at` to keep the dual lists in sync (audit #7).
     pub(super) fn unregister_creature(&mut self, x: u16, y: u16, z: u8, id: CreatureId) {
+        self.sectors.remove(x, y, id);
         let key = ChunkKey::from_pos(x, y, z);
-        let Some(chunk) = self.chunks.get_mut(&key) else {
+        let Some(chunk) = self.chunks.get(&key) else {
             return;
         };
-        chunk.creatures.retain(|c| *c != id);
-        if chunk.creatures.is_empty() && chunk.tile_count == 0 {
+        if chunk.tile_count == 0 {
             self.chunks.remove(&key);
         }
     }
 
     /// Debug-only dual-list consistency check (audit #7).
     ///
-    /// Verifies every `Chunk.creatures` entry is on some tile's `TileBody.creatures` list
-    /// within that chunk, and vice versa. All assertions are `debug_assert!` so the entire
-    /// body compiles out in release builds — safe to call from test harnesses.
+    /// Verifies every sector-list creature is on some tile's `TileBody.creatures` list
+    /// in that XY sector (any floor), and vice versa. `debug_assert!` compiles out in
+    /// release.
     pub fn debug_assert_creature_lists_agree(&self) {
-        for (key, chunk) in &self.chunks {
-            // Every chunk-list creature must be on some tile in this chunk.
-            for &cid in &chunk.creatures {
-                let on_tile = chunk
-                    .tiles
-                    .iter()
-                    .any(|t| t.body().creatures().contains(&cid));
+        #[cfg(debug_assertions)]
+        {
+            for (key, chunk) in &self.chunks {
+                let (ox, oy, z) = key.chunk_origin();
+                for (slot, &dense) in chunk.slot_index.iter().enumerate() {
+                    if dense == EMPTY_SLOT {
+                        continue;
+                    }
+                    let tile = &chunk.tiles[usize::from(dense)];
+                    let body = tile.body();
+                    if body.creatures().is_empty() {
+                        continue;
+                    }
+                    let pos = position_from_chunk_slot(ox, oy, z, slot);
+                    for &cid in body.creatures() {
+                        debug_assert!(
+                            self.sectors.contains_creature(pos.x, pos.y, cid),
+                            "creature {:?} on tile {:?} missing from sector spatial list",
+                            cid,
+                            pos
+                        );
+                    }
+                }
+            }
+            self.sectors.for_each_creature(|_, cid| {
+                let on_tile = self.chunks.values().any(|chunk| {
+                    chunk
+                        .tiles
+                        .iter()
+                        .any(|t| t.body().creatures().contains(&cid))
+                });
                 debug_assert!(
                     on_tile,
-                    "creature {:?} in chunk {:?} spatial list but not on any tile",
-                    cid, key
+                    "creature {cid:?} in sector spatial list but not on any tile"
                 );
-            }
-            // Every tile-list creature must be in the chunk spatial list.
-            let (ox, oy, z) = key.chunk_origin();
-            for (slot, &dense) in chunk.slot_index.iter().enumerate() {
-                if dense == EMPTY_SLOT {
-                    continue;
-                }
-                let tile = &chunk.tiles[usize::from(dense)];
-                let body = tile.body();
-                if body.creatures().is_empty() {
-                    continue;
-                }
-                let pos = position_from_chunk_slot(ox, oy, z, slot);
-                for &cid in body.creatures() {
-                    debug_assert!(
-                        chunk.creatures.contains(&cid),
-                        "creature {:?} on tile {:?} missing from chunk spatial list",
-                        cid,
-                        pos
-                    );
-                }
-            }
+            });
         }
     }
 
-    /// Spatial **superset** for spectator fan-out — chunk overlap only; callers filter with `canSee`.
-    // C++ reference: `Map::getSpectators` — `map.cpp` ~386–474.
+    /// Spatial **superset** for spectator fan-out — 16×16 sector overlap, all floors.
+    /// `z` is unused (lists span floors); kept so call sites stay the same. Callers filter
+    /// with `canSee` / same-floor as needed.
+    // C++ reference: `TFindCreatures` — `crmain.cc:101–144`; TFS `Map::getSpectators` pack surface.
     pub fn collect_spectators(
         &self,
         center_x: u16,
@@ -247,32 +267,16 @@ impl SparseGrid {
         range_y: u16,
         out: &mut Vec<CreatureId>,
     ) {
-        let x0 = center_x.saturating_sub(range_x);
-        let y0 = center_y.saturating_sub(range_y);
-        let x1 = center_x.saturating_add(range_x);
-        let y1 = center_y.saturating_add(range_y);
-
-        let ck_x0 = x0 / CHUNK_SIZE;
-        let ck_y0 = y0 / CHUNK_SIZE;
-        let ck_x1 = x1 / CHUNK_SIZE;
-        let ck_y1 = y1 / CHUNK_SIZE;
-
-        for chunk_y in ck_y0..=ck_y1 {
-            for chunk_x in ck_x0..=ck_x1 {
-                let key = ChunkKey::from_pos(chunk_x * CHUNK_SIZE, chunk_y * CHUNK_SIZE, z);
-                if let Some(chunk) = self.chunks.get(&key) {
-                    out.extend_from_slice(&chunk.creatures);
-                }
-            }
-        }
+        let _ = z;
+        self.sectors
+            .collect(center_x, center_y, range_x, range_y, false, out);
     }
 
     /// Viewport creatures in 772 `TFindCreatures::getNext` 16×16 sector order (`crmain.cc:101–144`).
     ///
-    /// Walks `blocky` outer / `blockx` inner over sectors covering the XY box, then tiles
-    /// within each sector (y outer, x inner) appending each tile's creature list.
-    /// Exact LIFO `NextChainCreature` within a sector would need per-sector chains; tile-list
-    /// order is the deterministic stand-in (IDLE-3).
+    /// Walks `blocky` outer / `blockx` inner over XY sectors covering the box and dumps each
+    /// sector's `Vec` (enter order within a sector). Lists span floors; callers filter Z.
+    /// Exact LIFO `NextChainCreature` is not reproduced — `Vec` is the IDLE-3 stand-in.
     pub fn collect_spectators_sector_order(
         &self,
         center_x: u16,
@@ -282,38 +286,22 @@ impl SparseGrid {
         range_y: u16,
         out: &mut Vec<CreatureId>,
     ) {
-        let x0 = center_x.saturating_sub(range_x);
-        let y0 = center_y.saturating_sub(range_y);
-        let x1 = center_x.saturating_add(range_x);
-        let y1 = center_y.saturating_add(range_y);
+        let _ = z;
+        self.sectors
+            .collect(center_x, center_y, range_x, range_y, false, out);
+    }
 
-        let bx0 = x0 / SECTOR_SIZE;
-        let by0 = y0 / SECTOR_SIZE;
-        let bx1 = x1 / SECTOR_SIZE;
-        let by1 = y1 / SECTOR_SIZE;
-
-        for by in by0..=by1 {
-            for bx in bx0..=bx1 {
-                let sx0 = bx * SECTOR_SIZE;
-                let sy0 = by * SECTOR_SIZE;
-                let sx1 = sx0 + SECTOR_SIZE - 1;
-                let sy1 = sy0 + SECTOR_SIZE - 1;
-                let tx0 = sx0.max(x0);
-                let ty0 = sy0.max(y0);
-                let tx1 = sx1.min(x1);
-                let ty1 = sy1.min(y1);
-                for y in ty0..=ty1 {
-                    for x in tx0..=tx1 {
-                        if let Some(tile) = self.get_tile(x, y, z) {
-                            let creatures = tile.body().creatures();
-                            if !creatures.is_empty() {
-                                out.extend_from_slice(creatures);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    /// Player-only sector walk — same XY overlap as [`Self::collect_spectators`].
+    pub fn collect_spectator_players(
+        &self,
+        center_x: u16,
+        center_y: u16,
+        range_x: u16,
+        range_y: u16,
+        out: &mut Vec<CreatureId>,
+    ) {
+        self.sectors
+            .collect(center_x, center_y, range_x, range_y, true, out);
     }
 
     pub fn find_item_position(&self, item_id: crate::ids::ItemId) -> Option<Position> {
@@ -381,7 +369,7 @@ mod tests {
 
         let mut c1 = SlotMap::<CreatureId, ()>::with_key();
         let id1 = c1.insert(());
-        grid.register_creature(70, 70, 7, id1);
+        grid.register_creature_role(70, 70, 7, id1, false);
 
         let mut out = Vec::new();
         grid.collect_spectators(70, 70, 7, 11, 11, &mut out);
@@ -419,7 +407,7 @@ mod tests {
                 zone: tfs_rust_common::ZoneType::Normal,
             });
             grid.insert_tile(x, y, 7, tile);
-            grid.register_creature(x, y, 7, id);
+            grid.register_creature_role(x, y, 7, id, false);
         }
 
         let mut out = Vec::new();
@@ -437,7 +425,79 @@ mod tests {
         assert_ne!(out, by_key);
     }
 
-    /// Audit #7 — a creature in `Chunk.creatures` but not on any tile's `TileBody.creatures`
+    /// Same 64×64 chunk, creature in an adjacent 16×16 sector outside `range` is not collected.
+    #[test]
+    fn collect_spectators_does_not_dump_whole_64_chunk() {
+        let mut grid = SparseGrid::new();
+        let mut sm: SlotMap<CreatureId, ()> = SlotMap::with_key();
+        let near = sm.insert(());
+        let far = sm.insert(());
+        for (x, y, id) in [(8u16, 8u16, near), (48u16, 8u16, far)] {
+            let tile = crate::tile::Tile::Normal(TileBody {
+                ground: Some(100),
+                ground_item: None,
+                stacks: TileBody::stacks_from(vec![], vec![], vec![id]),
+                flags: 0,
+                zone: tfs_rust_common::ZoneType::Normal,
+            });
+            grid.insert_tile(x, y, 7, tile);
+            grid.register_creature_role(x, y, 7, id, false);
+        }
+        let mut out = Vec::new();
+        grid.collect_spectators(8, 8, 7, 11, 11, &mut out);
+        assert!(out.contains(&near));
+        assert!(
+            !out.contains(&far),
+            "48,8 is the same 64×64 chunk but a different 16×16 sector; must not be dumped"
+        );
+    }
+
+    /// Sector lists span floors — find on z=6 when collecting with z=7.
+    #[test]
+    fn collect_spectators_spans_floors_in_xy_sector() {
+        let mut grid = SparseGrid::new();
+        let mut sm: SlotMap<CreatureId, ()> = SlotMap::with_key();
+        let id = sm.insert(());
+        let tile = crate::tile::Tile::Normal(TileBody {
+            ground: Some(100),
+            ground_item: None,
+            stacks: TileBody::stacks_from(vec![], vec![], vec![id]),
+            flags: 0,
+            zone: tfs_rust_common::ZoneType::Normal,
+        });
+        grid.insert_tile(70, 70, 6, tile);
+        grid.register_creature_role(70, 70, 6, id, false);
+        let mut out = Vec::new();
+        grid.collect_spectators(70, 70, 7, 1, 1, &mut out);
+        assert!(out.contains(&id));
+    }
+
+    #[test]
+    fn collect_spectator_players_skips_non_players() {
+        let mut grid = SparseGrid::new();
+        let mut sm: SlotMap<CreatureId, ()> = SlotMap::with_key();
+        let player = sm.insert(());
+        let monster = sm.insert(());
+        for (x, id, is_player) in [(70u16, player, true), (71u16, monster, false)] {
+            let tile = crate::tile::Tile::Normal(TileBody {
+                ground: Some(100),
+                ground_item: None,
+                stacks: TileBody::stacks_from(vec![], vec![], vec![id]),
+                flags: 0,
+                zone: tfs_rust_common::ZoneType::Normal,
+            });
+            grid.insert_tile(x, 70, 7, tile);
+            grid.register_creature_role(x, 70, 7, id, is_player);
+        }
+        let mut out = Vec::new();
+        grid.collect_spectator_players(70, 70, 5, 5, &mut out);
+        assert_eq!(out, vec![player]);
+        out.clear();
+        grid.collect_spectators(70, 70, 7, 5, 5, &mut out);
+        assert!(out.contains(&player) && out.contains(&monster));
+    }
+
+    /// Audit #7 — a creature in the sector list but not on any tile's `TileBody.creatures`
     /// must trip `debug_assert_creature_lists_agree`. Debug-only (`debug_assert!` compiles
     /// out in release).
     #[cfg(debug_assertions)]
@@ -457,21 +517,20 @@ mod tests {
         let mut sm: SlotMap<CreatureId, ()> = SlotMap::with_key();
         let orphan = sm.insert(());
 
-        // Corrupt: push into the chunk spatial list without touching any tile list.
-        let key = ChunkKey::from_pos(70, 70, 7);
-        grid.chunks.get_mut(&key).unwrap().creatures.push(orphan);
+        // Corrupt: push into the sector spatial list without touching any tile list.
+        grid.sectors.insert(70, 70, orphan, false);
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             grid.debug_assert_creature_lists_agree();
         }));
         assert!(
             result.is_err(),
-            "debug_assert_creature_lists_agree must catch a chunk-list creature not on any tile"
+            "debug_assert_creature_lists_agree must catch a sector-list creature not on any tile"
         );
     }
 
     /// Audit #7 — a creature on a tile's `TileBody.creatures` list but missing from the
-    /// chunk spatial list must trip `debug_assert_creature_lists_agree`. Debug-only.
+    /// sector spatial list must trip `debug_assert_creature_lists_agree`. Debug-only.
     #[cfg(debug_assertions)]
     #[test]
     fn debug_assert_catches_tile_list_creature_not_in_chunk() {
@@ -488,12 +547,10 @@ mod tests {
             zone: tfs_rust_common::ZoneType::Normal,
         });
         grid.insert_tile(70, 70, 7, tile);
-        // Corrupt: remove from the chunk spatial list (insert_tile did not add it, and we
-        // deliberately skip register_creature).
-        let key = ChunkKey::from_pos(70, 70, 7);
+        // Corrupt: skip register_creature so the sector list is empty.
         assert!(
-            !grid.chunks.get(&key).unwrap().creatures.contains(&orphan),
-            "precondition: orphan must not be in chunk list"
+            !grid.sectors.contains_creature(70, 70, orphan),
+            "precondition: orphan must not be in sector list"
         );
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -501,14 +558,14 @@ mod tests {
         }));
         assert!(
             result.is_err(),
-            "debug_assert_creature_lists_agree must catch a tile-list creature missing from the chunk"
+            "debug_assert_creature_lists_agree must catch a tile-list creature missing from the sector"
         );
     }
 
-    /// Audit #7 — a clean grid must NOT trip the consistency check. The tile list and chunk
+    /// Audit #7 — a clean grid must NOT trip the consistency check. The tile list and sector
     /// list must both hold the creature (the `*_at` seam keeps them in sync; here we mirror
     /// that by inserting a tile whose `creatures` list already contains the id, then syncing
-    /// the chunk list via `register_creature`).
+    /// the sector list via `register_creature`).
     #[test]
     fn debug_assert_passes_on_clean_grid() {
         let mut grid = SparseGrid::new();
@@ -524,7 +581,7 @@ mod tests {
             zone: tfs_rust_common::ZoneType::Normal,
         });
         grid.insert_tile(70, 70, 7, tile);
-        grid.register_creature(70, 70, 7, id);
+        grid.register_creature_role(70, 70, 7, id, false);
         // No panic expected in either build.
         grid.debug_assert_creature_lists_agree();
     }

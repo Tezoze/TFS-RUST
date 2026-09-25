@@ -107,10 +107,12 @@ def host_meta() -> dict:
     return {
         "cpu_model": cpu,
         "mem_kb": mem_kb,
+        "nproc": os.cpu_count() or 0,
         "governor": gov,
         "kernel": f"{uname.sysname} {uname.release}",
         "git": git,
         "clk": "CLOCK_MONOTONIC",
+        "db_pid": find_db_pid(),
     }
 
 
@@ -140,6 +142,58 @@ def taskset_prefix(cpuset: str | None) -> list[str]:
     if not shutil.which("taskset"):
         raise RuntimeError("taskset not found (util-linux)")
     return ["taskset", "-c", cpuset]
+
+
+def default_pin_cpusets() -> tuple[str, str]:
+    """Split logical CPUs in half: server 0..n/2-1, loadgen the rest."""
+    n = os.cpu_count() or 0
+    if n < 2:
+        raise RuntimeError("--pin needs at least 2 logical CPUs")
+    half = n // 2
+    server = "0" if half == 1 else f"0-{half - 1}"
+    loadgen = str(half) if half == n - 1 else f"{half}-{n - 1}"
+    return server, loadgen
+
+
+def find_db_pid() -> int | None:
+    """First mariadbd/mysqld in /proc. None if the host is not running one."""
+    names = {"mariadbd", "mysqld"}
+    proc = Path("/proc")
+    try:
+        entries = list(proc.iterdir())
+    except OSError:
+        return None
+    for ent in entries:
+        if not ent.name.isdigit():
+            continue
+        try:
+            comm = (ent / "comm").read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            continue
+        if comm in names:
+            return int(ent.name)
+    return None
+
+
+def stop_samplers(procs: list[subprocess.Popen | None]) -> None:
+    for p in procs:
+        if p is None:
+            continue
+        try:
+            p.send_signal(signal.SIGINT)
+        except (ProcessLookupError, PermissionError, OSError):
+            continue
+    for p in procs:
+        if p is None:
+            continue
+        try:
+            p.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            try:
+                p.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass
 
 
 def build_rust(dry: bool) -> list[str]:
@@ -260,7 +314,14 @@ def stop_proc(proc: subprocess.Popen | None) -> None:
         log_fh.close()
 
 
-def start_sampler(pid: int, out_dir: Path, duration: float, dry: bool) -> subprocess.Popen | None:
+def start_sampler(
+    pid: int,
+    out: Path,
+    duration: float,
+    dry: bool,
+    *,
+    threads_out: Path | None = None,
+) -> subprocess.Popen | None:
     cmd = [
         sys.executable,
         str(ROOT / "scripts" / "bench" / "sample_proc.py"),
@@ -271,9 +332,26 @@ def start_sampler(pid: int, out_dir: Path, duration: float, dry: bool) -> subpro
         "--duration",
         str(int(duration) + 30),
         "--out",
-        str(out_dir / "proc.csv"),
-        "--threads-out",
-        str(out_dir / "threads.csv"),
+        str(out),
+    ]
+    if threads_out is not None:
+        cmd.extend(["--threads-out", str(threads_out)])
+    print("sample:", " ".join(cmd), file=sys.stderr)
+    if dry:
+        return None
+    return subprocess.Popen(cmd)
+
+
+def start_host_sampler(out: Path, duration: float, dry: bool) -> subprocess.Popen | None:
+    cmd = [
+        sys.executable,
+        str(ROOT / "scripts" / "bench" / "sample_host.py"),
+        "--interval",
+        "1",
+        "--duration",
+        str(int(duration) + 30),
+        "--out",
+        str(out),
     ]
     print("sample:", " ".join(cmd), file=sys.stderr)
     if dry:
@@ -288,6 +366,8 @@ def loadgen_cmd(
     duration_s: int | None,
     out: Path,
     cpuset: str | None,
+    warmup_s: int | None = None,
+    login_spread_s: int = 0,
 ) -> list[str]:
     cmd = taskset_prefix(cpuset) + [
         str(loadgen_bin()),
@@ -301,6 +381,10 @@ def loadgen_cmd(
     ]
     if duration_s is not None:
         cmd.extend(["--duration-s", str(duration_s)])
+    if warmup_s is not None:
+        cmd.extend(["--warmup-s", str(warmup_s)])
+    if login_spread_s > 0:
+        cmd.extend(["--login-spread-s", str(login_spread_s)])
     return cmd
 
 
@@ -311,15 +395,15 @@ def items_otb_for(server: str) -> Path:
     return ROOT / "data" / "items" / "items.otb"
 
 
-def run_loadgen(cmd: list[str], *, timeout: float, dry: bool, server: str) -> int:
+def start_loadgen(cmd: list[str], *, dry: bool, server: str) -> subprocess.Popen | None:
     print("loadgen:", " ".join(cmd), file=sys.stderr)
     if dry:
-        return 0
+        return None
     env = os.environ.copy()
     otb = items_otb_for(server)
     if otb.is_file():
         env["TFS_ITEMS_OTB"] = str(otb)
-    return subprocess.run(cmd, cwd=ROOT, timeout=timeout, check=False, env=env).returncode
+    return subprocess.Popen(cmd, cwd=str(ROOT), env=env)
 
 
 def cell_dir(root: Path, server: str, bots: int, rep: int) -> Path:
@@ -338,58 +422,74 @@ def run_cell(
     cpuset_loadgen: str | None,
     dry: bool,
     warmup_s: int,
+    login_spread_s: int = 0,
 ) -> None:
     dest = cell_dir(out_root, server, bots, rep)
     dest.mkdir(parents=True, exist_ok=True)
     measure = duration_s if duration_s is not None else 120
-    wall = warmup_s + measure + max(30, bots // 8 + 15)
+    wall = login_spread_s + warmup_s + measure + max(30, bots // 8 + 15)
+    lg_cmd = loadgen_cmd(
+        scenario=scenario,
+        bots=bots,
+        duration_s=duration_s,
+        out=dest / "loadgen.json",
+        cpuset=cpuset_loadgen,
+        warmup_s=warmup_s,
+        login_spread_s=login_spread_s,
+    )
+    db_pid = find_db_pid()
     if dry:
         start_server(server, cpuset=cpuset_server, log_path=dest / "server.log", dry=True)
-        start_sampler(0, dest, wall, True)
-        run_loadgen(
-            loadgen_cmd(
-                scenario=scenario,
-                bots=bots,
-                duration_s=duration_s,
-                out=dest / "loadgen.json",
-                cpuset=cpuset_loadgen,
-            ),
-            timeout=wall + 60,
-            dry=True,
-            server=server,
-        )
+        start_sampler(0, dest / "proc.csv", wall, True, threads_out=dest / "threads.csv")
+        start_host_sampler(dest / "host.csv", wall, True)
+        if db_pid is not None:
+            start_sampler(db_pid, dest / "mysql_proc.csv", wall, True)
+        start_sampler(0, dest / "loadgen_proc.csv", wall, True)
+        start_loadgen(lg_cmd, dry=True, server=server)
         return
 
     free_ports()
     srv = start_server(server, cpuset=cpuset_server, log_path=dest / "server.log", dry=False)
     assert srv is not None
-    sampler = None
+    samplers: list[subprocess.Popen | None] = []
+    lg: subprocess.Popen | None = None
     try:
         wait_for_port(7171)
         wait_for_port(7172)
-        sampler = start_sampler(srv.pid, dest, wall, False)
-        rc = run_loadgen(
-            loadgen_cmd(
-                scenario=scenario,
-                bots=bots,
-                duration_s=duration_s,
-                out=dest / "loadgen.json",
-                cpuset=cpuset_loadgen,
-            ),
-            timeout=wall + 120,
-            dry=False,
-            server=server,
+        samplers.append(
+            start_sampler(
+                srv.pid,
+                dest / "proc.csv",
+                wall,
+                False,
+                threads_out=dest / "threads.csv",
+            )
         )
+        samplers.append(start_host_sampler(dest / "host.csv", wall, False))
+        if db_pid is not None:
+            print(f"sample mysql pid {db_pid}", file=sys.stderr)
+            samplers.append(start_sampler(db_pid, dest / "mysql_proc.csv", wall, False))
+        else:
+            print("sample mysql: no mariadbd/mysqld pid", file=sys.stderr)
+        lg = start_loadgen(lg_cmd, dry=False, server=server)
+        assert lg is not None
+        samplers.append(start_sampler(lg.pid, dest / "loadgen_proc.csv", wall, False))
+        try:
+            rc = lg.wait(timeout=wall + 120)
+        except subprocess.TimeoutExpired:
+            lg.kill()
+            rc = lg.wait(timeout=10)
         (dest / "loadgen_exit.txt").write_text(f"{rc}\n", encoding="utf-8")
         if rc != 0:
             print(f"loadgen exit {rc} for {server} bots={bots} rep={rep}", file=sys.stderr)
     finally:
-        if sampler is not None:
-            sampler.send_signal(signal.SIGINT)
+        if lg is not None and lg.poll() is None:
+            lg.terminate()
             try:
-                sampler.wait(timeout=5)
+                lg.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                sampler.kill()
+                lg.kill()
+        stop_samplers(samplers)
         stop_proc(srv)
         free_ports()
 
@@ -410,7 +510,9 @@ def write_meta(out_root: Path, args: argparse.Namespace) -> None:
         "scenario": str(args.scenario) if args.scenario else "headlines",
         "cpuset_server": args.cpuset_server,
         "cpuset_loadgen": args.cpuset_loadgen,
+        "pin": bool(getattr(args, "pin", False)),
         "disable_saves": args.disable_saves,
+        "login_spread_s": args.login_spread_s,
     }
     meta["rust_bin"] = str(rust_bin())
     meta["tvp_bin"] = str(tvp_bin())
@@ -509,6 +611,12 @@ def main() -> int:
     parser.add_argument("--bots", type=int, default=None, help="override bots for steady/overload/soak")
     parser.add_argument("--duration-s", type=int, default=None)
     parser.add_argument(
+        "--login-spread-s",
+        type=int,
+        default=0,
+        help="spread 7171 starts over N seconds (1000 bots / 120s ≈ 2 min; cap stays 8)",
+    )
+    parser.add_argument(
         "--scenario",
         type=Path,
         default=None,
@@ -517,10 +625,26 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--cpuset-server", default=None)
     parser.add_argument("--cpuset-loadgen", default=None)
+    parser.add_argument(
+        "--pin",
+        action="store_true",
+        help="disjoint cpusets: server 0..n/2-1, loadgen the rest (7800X3D → 0-7 / 8-15)",
+    )
     parser.add_argument("--disable-saves", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--skip-build", action="store_true")
     args = parser.parse_args()
+    if args.pin:
+        if args.cpuset_server or args.cpuset_loadgen:
+            if not args.cpuset_server or not args.cpuset_loadgen:
+                print("--pin with explicit cpusets needs both --cpuset-server and --cpuset-loadgen", file=sys.stderr)
+                return 2
+        else:
+            args.cpuset_server, args.cpuset_loadgen = default_pin_cpusets()
+            print(
+                f"pin: server {args.cpuset_server} loadgen {args.cpuset_loadgen}",
+                file=sys.stderr,
+            )
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_root = args.out or (ROOT / "results" / ts)
@@ -594,6 +718,7 @@ def main() -> int:
                         cpuset_loadgen=args.cpuset_loadgen,
                         dry=args.dry_run,
                         warmup_s=warmup,
+                        login_spread_s=args.login_spread_s,
                     )
 
     plot = [

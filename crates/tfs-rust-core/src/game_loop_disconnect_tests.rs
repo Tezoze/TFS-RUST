@@ -1,7 +1,9 @@
 //! `PlayerDisconnect.stop_fight` — socket drop vs `CL_CMD_LOGOUT`.
 //! C++ reference: `connections.cc:37` `Logout(0, false)`; `crmain.cc:414` `StartLogout`.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
+
+use crate::login::LoginIngest;
 
 use tfs_rust_common::game_packet::GamePacket;
 use tfs_rust_common::{ConnId, GameCommand, Position};
@@ -12,7 +14,7 @@ use crate::test_support::{
 };
 use crate::test_world::support::ensure_walkable_tile;
 
-use super::handle_player_disconnect;
+use super::{drain_output_shed, flush_pending_outgoing, handle_player_disconnect};
 
 fn combat_locked_attacker() -> (
     crate::game_world::GameWorld,
@@ -42,7 +44,7 @@ fn combat_locked_attacker() -> (
 #[tokio::test(flavor = "current_thread")]
 async fn socket_drop_keeps_attack_for_60_rounds() {
     let (mut world, conn, pid, mon) = combat_locked_attacker();
-    let mut pending_login = HashSet::new();
+    let mut pending_login = LoginIngest::new();
     let mut sinks = HashMap::new();
     handle_player_disconnect(
         &mut world,
@@ -65,7 +67,7 @@ async fn socket_drop_keeps_attack_for_60_rounds() {
 #[tokio::test(flavor = "current_thread")]
 async fn logout_packet_clears_attack_now() {
     let (mut world, conn, pid, _mon) = combat_locked_attacker();
-    let mut pending_login = HashSet::new();
+    let mut pending_login = LoginIngest::new();
     let mut sinks = HashMap::new();
     handle_player_disconnect(
         &mut world,
@@ -129,7 +131,7 @@ async fn death_ok_during_linger_leaves_body_for_destructor() {
         "body lingers until ProcessCreatures"
     );
 
-    let mut pending_login = HashSet::new();
+    let mut pending_login = LoginIngest::new();
     let mut sinks = HashMap::new();
     handle_player_disconnect(
         &mut world,
@@ -161,5 +163,59 @@ async fn death_ok_during_linger_leaves_body_for_destructor() {
             .get_tile(pos)
             .is_some_and(|t| !t.body().down_items().is_empty()),
         "corpse/pool must land — destructor not skipped"
+    );
+}
+
+/// Closed writer + no sink must not leave an immortal `pending_outgoing` batch
+/// (`20260920T090253Z` ~71 orphans re-taken every beat).
+#[test]
+fn disconnect_without_sink_drops_pending_outgoing() {
+    let mut world = beat_driven_test_world();
+    let conn = ConnId(9);
+    world
+        .pending_outgoing
+        .insert(conn, vec![vec![0x0A], vec![0x64; 8]]);
+    let mut pending_login = LoginIngest::new();
+    let mut sinks = HashMap::new();
+    handle_player_disconnect(
+        &mut world,
+        &mut pending_login,
+        conn,
+        false,
+        false,
+        &mut sinks,
+        &None,
+    );
+    assert!(
+        !world.pending_outgoing.contains_key(&conn),
+        "closed conn must not keep an undeliverable pending_outgoing batch"
+    );
+}
+
+/// `OutboundSendError::Closed` sheds then disconnects — the re-queued batch must
+/// still be dropped when the sink is destroyed.
+#[test]
+fn outbound_closed_shed_drops_pending_outgoing() {
+    use tfs_rust_net::OutboundTx;
+
+    let mut world = beat_driven_test_world();
+    let conn = ConnId(42);
+    let (tx, rx) = OutboundTx::pair();
+    drop(rx);
+    let mut sinks = HashMap::new();
+    sinks.insert(conn, tx);
+    world.pending_outgoing.insert(conn, vec![vec![0x0A; 4]]);
+    let mut shed = Vec::new();
+    flush_pending_outgoing(&mut world, &mut sinks, &None, &mut shed);
+    assert!(
+        shed.contains(&conn),
+        "Closed outbound must enqueue pending_output_shed"
+    );
+
+    let mut pending_login = LoginIngest::new();
+    drain_output_shed(&mut world, &mut pending_login, &mut sinks, &None, &mut shed);
+    assert!(
+        !world.pending_outgoing.contains_key(&conn),
+        "shed disconnect must drop pending_outgoing, not re-queue forever"
     );
 }

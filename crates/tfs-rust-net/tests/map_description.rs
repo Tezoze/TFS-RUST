@@ -1,12 +1,11 @@
 //! `GetMapDescription` / floor skip logic (vs `src/protocolgame.cpp`).
 
-use std::collections::HashSet;
-
 use tfs_rust_common::{Position, ProtocolVersion};
 use tfs_rust_net::creature_encode::AddCreatureWire;
+use tfs_rust_net::creature_known::KnownCreatureTable;
 use tfs_rust_net::map_description::{
-    ItemStack, TileContent, send_map_description_packet, send_move_creature_player,
-    send_move_creature_spectator,
+    ItemStack, TileContent, send_map_description_packet, send_map_description_packet_fill,
+    send_move_creature_player, send_move_creature_spectator,
 };
 use tfs_rust_net::{Codec, NetworkMessage};
 
@@ -22,7 +21,7 @@ fn codec_772() -> Codec {
 /// `u16` environmental-effects field (`0x00 0x00`); 772 (`gameserver/src`) omits it entirely.
 fn single_ground_tile_map(codec: &Codec, center: Position) -> Vec<u8> {
     use tfs_rust_net::map_description::ItemStack;
-    let mut known = HashSet::new();
+    let mut known = KnownCreatureTable::default();
     let mut get_tile = move |x: i32, y: i32, z: i32| -> Option<TileContent> {
         if x == center.x as i32 && y == center.y as i32 && z == center.z as i32 {
             Some(TileContent {
@@ -50,6 +49,63 @@ fn single_ground_tile_map(codec: &Codec, center: Position) -> Vec<u8> {
         false,
     )
     .into_bytes()
+}
+
+#[test]
+fn fill_callback_matches_option_get_tile() {
+    let codec = codec_772();
+    let center = Position::new(100, 200, 7);
+    let ground = TileContent {
+        ground: Some(ItemStack {
+            client_id: 0x0673,
+            count: 1,
+            stackable: false,
+            is_splash_or_fluid: false,
+            is_animation: false,
+        }),
+        ..TileContent::default()
+    };
+    let mut known_opt = KnownCreatureTable::default();
+    let mut get_opt = |x: i32, y: i32, z: i32| -> Option<TileContent> {
+        if x == center.x as i32 && y == center.y as i32 && z == center.z as i32 {
+            Some(ground.clone())
+        } else {
+            None
+        }
+    };
+    let mut can_see = |_id: u32| true;
+    let via_option = send_map_description_packet(
+        &codec,
+        center,
+        center,
+        &mut get_opt,
+        &mut known_opt,
+        &mut can_see,
+        false,
+    )
+    .into_bytes();
+
+    let mut known_fill = KnownCreatureTable::default();
+    let mut get_fill = |x: i32, y: i32, z: i32, out: &mut TileContent| -> bool {
+        if x == center.x as i32 && y == center.y as i32 && z == center.z as i32 {
+            *out = ground.clone();
+            true
+        } else {
+            false
+        }
+    };
+    let mut can_see_fill = |_id: u32| true;
+    let via_fill = send_map_description_packet_fill(
+        &codec,
+        center,
+        center,
+        &mut get_fill,
+        &mut known_fill,
+        &mut can_see_fill,
+        false,
+    )
+    .into_bytes();
+    assert_eq!(via_option, via_fill);
 }
 
 #[test]
@@ -81,7 +137,7 @@ fn tile_environment_prefix_is_1098_only() {
 fn full_map_description_empty_map_terminates_skip() {
     let player = Position::new(100, 200, 7);
     let center = player;
-    let mut known = HashSet::new();
+    let mut known = KnownCreatureTable::default();
     let mut get_tile = |_x: i32, _y: i32, _z: i32| -> Option<TileContent> { None };
     let mut can_see = |_id: u32| true;
     let msg: NetworkMessage = send_map_description_packet(
@@ -106,7 +162,7 @@ fn full_map_description_empty_map_terminates_skip() {
 fn move_creature_player_starts_with_6d_not_full_map_stub() {
     let old_p = Position::new(100, 200, 7);
     let new_p = Position::new(101, 200, 7);
-    let mut known = HashSet::new();
+    let mut known = KnownCreatureTable::default();
     let mut get_tile = |_x: i32, _y: i32, _z: i32| -> Option<TileContent> { None };
     let mut can_see = |_id: u32| true;
     let msg = send_move_creature_player(
@@ -215,6 +271,7 @@ fn crowded_tile() -> TileContent {
         }],
         low_items: vec![],
         cip_map_order: false,
+        ..TileContent::default()
     }
 }
 
@@ -223,7 +280,7 @@ fn crowded_tile() -> TileContent {
 fn tile_description_772_caps_creatures_at_ten() {
     let center = Position::new(100, 200, 7);
     let tile = crowded_tile();
-    let mut known = HashSet::new();
+    let mut known = KnownCreatureTable::default();
     let mut get_tile = move |x: i32, y: i32, z: i32| -> Option<TileContent> {
         if x == center.x as i32 && y == center.y as i32 && z == center.z as i32 {
             Some(tile.clone())
@@ -250,7 +307,7 @@ fn tile_description_772_caps_creatures_at_ten() {
 fn tile_description_1098_does_not_cap_creatures() {
     let center = Position::new(100, 200, 7);
     let tile = crowded_tile();
-    let mut known = HashSet::new();
+    let mut known = KnownCreatureTable::default();
     let mut get_tile = move |x: i32, y: i32, z: i32| -> Option<TileContent> {
         if x == center.x as i32 && y == center.y as i32 && z == center.z as i32 {
             Some(tile.clone())
@@ -277,7 +334,7 @@ fn tile_description_772_shorter_than_1098_for_crowded_tile() {
     let center = Position::new(100, 200, 7);
 
     let tile = crowded_tile();
-    let mut known772 = HashSet::new();
+    let mut known772 = KnownCreatureTable::default();
     let mut get_tile772 = move |x: i32, y: i32, z: i32| -> Option<TileContent> {
         if x == center.x as i32 && y == center.y as i32 && z == center.z as i32 {
             Some(tile.clone())
@@ -298,7 +355,7 @@ fn tile_description_772_shorter_than_1098_for_crowded_tile() {
     .into_bytes();
 
     let tile = crowded_tile();
-    let mut known1098 = HashSet::new();
+    let mut known1098 = KnownCreatureTable::default();
     let mut get_tile1098 = move |x: i32, y: i32, z: i32| -> Option<TileContent> {
         if x == center.x as i32 && y == center.y as i32 && z == center.z as i32 {
             Some(tile.clone())
@@ -365,9 +422,10 @@ fn tile_description_cip_order_emits_bottom_before_creature() {
             ..AddCreatureWire::default()
         }],
         cip_map_order: true,
+        ..TileContent::default()
     };
 
-    let mut known = HashSet::new();
+    let mut known = KnownCreatureTable::default();
     let mut get_tile = {
         let tile = tile.clone();
         move |x: i32, y: i32, z: i32| -> Option<TileContent> {
@@ -413,7 +471,7 @@ fn tile_description_cip_order_emits_bottom_before_creature() {
     // TVP order must keep creature before bottom.
     let mut tile_tvp = tile;
     tile_tvp.cip_map_order = false;
-    let mut known = HashSet::new();
+    let mut known = KnownCreatureTable::default();
     let mut get_tile = move |x: i32, y: i32, z: i32| -> Option<TileContent> {
         if x == center.x as i32 && y == center.y as i32 && z == center.z as i32 {
             Some(tile_tvp.clone())
@@ -472,9 +530,10 @@ fn tile_description_cip_order_emits_newest_low_first() {
         low_items: vec![stack(newer_id), stack(older_id)],
         creatures: vec![],
         cip_map_order: true,
+        ..TileContent::default()
     };
 
-    let mut known = HashSet::new();
+    let mut known = KnownCreatureTable::default();
     let mut get_tile = {
         let tile = tile.clone();
         move |x: i32, y: i32, z: i32| -> Option<TileContent> {
@@ -545,9 +604,10 @@ fn tile_description_cip_order_emits_low_after_creature() {
             ..AddCreatureWire::default()
         }],
         cip_map_order: true,
+        ..TileContent::default()
     };
 
-    let mut known = HashSet::new();
+    let mut known = KnownCreatureTable::default();
     let mut get_tile = {
         let tile = tile.clone();
         move |x: i32, y: i32, z: i32| -> Option<TileContent> {

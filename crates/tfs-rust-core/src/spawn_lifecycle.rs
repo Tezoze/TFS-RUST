@@ -21,7 +21,9 @@ use crate::creature::CreatureKind;
 use crate::creature::{Monster, MonsterAiConfig, Npc, NpcRuntimeState, Outfit};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
-use crate::login_out::{build_add_creature_wire, creature_wire_id};
+use crate::login_out::{
+    build_add_creature_wire, creature_omitted_from_other_clients, creature_wire_id,
+};
 use crate::player_flags::{PLAYER_FLAG_IGNORED_BY_MONSTERS, flags_for_group, has_player_flag};
 use crate::return_value::ReturnValue;
 use crate::spawn::{SpawnEntryKind, SpawnRequest};
@@ -437,6 +439,7 @@ impl GameWorld {
                 spawn_radius,
                 "could not place spawned monster on map"
             );
+            self.unindex_creature_wire(cid);
             self.creatures.remove(cid);
             let regen = self
                 .spawns
@@ -593,6 +596,7 @@ impl GameWorld {
                 spawn_radius,
                 "could not place spawned NPC on map"
             );
+            self.unindex_creature_wire(cid);
             self.creatures.remove(cid);
             return None;
         }
@@ -709,6 +713,7 @@ impl GameWorld {
             m.blood = mtype.blood;
         }
         if !self.find_and_place_creature_tfs(cid, center, extended, force, 0) {
+            self.unindex_creature_wire(cid);
             self.creatures.remove(cid);
             return Ok(None);
         }
@@ -806,6 +811,7 @@ impl GameWorld {
         }));
         crate::login_out::assign_creature_wire_id(self, cid);
         if !self.find_and_place_creature_tfs(cid, center, false, force, 0) {
+            self.unindex_creature_wire(cid);
             self.creatures.remove(cid);
             return Ok(None);
         }
@@ -1023,6 +1029,7 @@ impl GameWorld {
             m.blood = mtype.blood;
         }
         if !self.find_and_place_creature_tfs(cid, place_at, false, force, 0) {
+            self.unindex_creature_wire(cid);
             self.creatures.remove(cid);
             return None;
         }
@@ -1147,11 +1154,7 @@ impl GameWorld {
                 .map(|t| t.body().ground.is_some())
                 .unwrap_or(false);
             let teleport = !push_movement || !has_ground || !are_in_range_1_1_0(old, dest);
-            let old_creatures = self
-                .map
-                .get_tile(old)
-                .map(|t| t.body().creatures().to_vec())
-                .unwrap_or_default();
+            let old_snap = crate::walk::capture_creature_stack_snapshot(self, old);
             if !teleport && let Some(k) = self.creatures.get_mut(cid) {
                 set_direction_from_step_for_kick(old, dest, k);
             }
@@ -1160,7 +1163,7 @@ impl GameWorld {
             // true dropped z-change packets (`areInRange<1,1,0>` requires `dz==0`), so a
             // hole `doRelocate` / `teleportTo(z+1)` left other clients on the old floor.
             // C++ `Map::moveCreature` still `sendMoveCreature`s on the teleport arm.
-            self.broadcast_spectator_move(cid, old, dest, &old_creatures);
+            self.broadcast_spectator_move(cid, old, dest, &old_snap);
             self.flush_pending_creature_step_events();
         }
 
@@ -1332,7 +1335,7 @@ impl GameWorld {
         if let Some(k) = self.creatures.get_mut(cid) {
             k.set_position(pos);
         }
-        self.map.register_creature_at(pos, cid);
+        self.map.register_creature_role_at(pos, cid, true);
         tracing::info!(
             ?cid,
             placed_at = ?pos,
@@ -1457,10 +1460,7 @@ impl GameWorld {
             return false;
         }
         let stack_pos = stack_raw as u8;
-        let mut known = self
-            .known_creatures_by_conn
-            .remove(&conn)
-            .unwrap_or_default();
+        let mut known = self.take_known_creatures_for_send(conn);
         self.reconcile_known_creatures_for_send(conn, &mut known);
         let mut can_see = |id: u32| self.can_see_creature_for_known_set(viewer, id);
         let limit = self.codec.caps().known_creature_limit as usize;
@@ -1539,17 +1539,21 @@ impl GameWorld {
     /// on that tile (TVP sends `sendRemoveTileCreature` to every spectator player, including
     /// the dying/logging-out body). OTClient keeps the local player as a tile creature and
     /// needs this `0x6C`/`remove-by-id` or the model stays after death.
-    pub(crate) fn broadcast_creature_disappear(
-        &mut self,
-        cid: CreatureId,
-        pos: Position,
-        stack_raw: i32,
-    ) {
+    pub(crate) fn broadcast_creature_disappear(&mut self, cid: CreatureId, pos: Position) {
+        let snap = crate::walk::capture_creature_stack_snapshot(self, pos);
+        let (stack_772, stack_otc) = crate::walk::stack_indexes_for_snapshot(self, &snap, cid);
+        let omitted = self
+            .creatures
+            .get(cid)
+            .is_some_and(creature_omitted_from_other_clients);
         let spectators: Vec<(ConnId, CreatureId)> = self
             .spectator_conns_via_grid(pos)
             .into_iter()
             .filter_map(|conn| {
                 let viewer = *self.conn_to_creature.get(&conn)?;
+                if omitted && viewer != cid {
+                    return None;
+                }
                 if self.can_see_creature(viewer, cid) {
                     Some((conn, viewer))
                 } else {
@@ -1558,7 +1562,8 @@ impl GameWorld {
             })
             .collect();
 
-        for (conn, _viewer) in spectators {
+        for (conn, viewer) in spectators {
+            let stack_raw = crate::walk::stack_for_viewer(self, &stack_772, &stack_otc, viewer);
             self.send_creature_remove_to_conn(conn, cid, pos, stack_raw);
         }
     }
@@ -1567,13 +1572,8 @@ impl GameWorld {
     /// `now_ms` is the logical clock (audit Finding 13).
     pub(crate) fn on_creature_removed_for_spawn(&mut self, cid: CreatureId, _now_ms: u64) {
         if let Some(pos) = self.creatures.get(cid).map(|k| k.position()) {
-            let stack_raw = self
-                .map
-                .get_tile(pos)
-                .map(|t| client_creature_stack_pos(t.body(), cid))
-                .unwrap_or(-1);
             // Players included — skipping left ghosts on death/logout (spectators + OTClient self).
-            self.broadcast_creature_disappear(cid, pos, stack_raw);
+            self.broadcast_creature_disappear(cid, pos);
         }
         if let Some(slot_index) = self.spawn_slot_by_creature.remove(&cid) {
             let regen_ms = self
@@ -1634,7 +1634,6 @@ mod tests {
         insert_player, insert_spectator_player, minimal_world, test_player,
     };
     use std::collections::HashMap;
-    use std::collections::HashSet;
     use std::sync::Arc;
     use tfs_rust_common::ConnId;
     use tfs_rust_common::ProtocolVersion;
@@ -1646,6 +1645,7 @@ mod tests {
     use tfs_rust_content::otb::ItemType;
     use tfs_rust_content::spawns::{SpawnEntry, SpawnZone};
     use tfs_rust_net::Codec;
+    use tfs_rust_net::creature_known::KnownCreatureTable;
 
     fn rat_type() -> MonsterType {
         let mut melee_attrs = HashMap::new();
@@ -1878,7 +1878,9 @@ mod tests {
             conn,
             test_player("Spec", Position::new(101, 100, 7)),
         );
-        world.known_creatures_by_conn.insert(conn, HashSet::new());
+        world
+            .known_creatures_by_conn
+            .insert(conn, KnownCreatureTable::default());
 
         world.remove_creature(monster_cid);
         world.pending_outgoing.clear();
@@ -1910,7 +1912,9 @@ mod tests {
             conn,
             test_player("Spec", Position::new(101, 100, 7)),
         );
-        world.known_creatures_by_conn.insert(conn, HashSet::new());
+        world
+            .known_creatures_by_conn
+            .insert(conn, KnownCreatureTable::default());
 
         world.remove_creature(monster_cid);
         world.pending_outgoing.clear();
@@ -2036,7 +2040,9 @@ mod tests {
             conn,
             test_player("Spec", Position::new(101, 100, 7)),
         );
-        world.known_creatures_by_conn.insert(conn, HashSet::new());
+        world
+            .known_creatures_by_conn
+            .insert(conn, KnownCreatureTable::default());
 
         world.remove_creature(monster_cid);
 
@@ -2054,7 +2060,9 @@ mod tests {
         ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
         let conn = ConnId(1);
         let victim = insert_spectator_player(&mut world, conn, test_player("Victim", pos));
-        world.known_creatures_by_conn.insert(conn, HashSet::new());
+        world
+            .known_creatures_by_conn
+            .insert(conn, KnownCreatureTable::default());
 
         // Spec watches the death.
         let spec_conn = ConnId(2);
@@ -2065,7 +2073,7 @@ mod tests {
         );
         world
             .known_creatures_by_conn
-            .insert(spec_conn, HashSet::new());
+            .insert(spec_conn, KnownCreatureTable::default());
 
         // Lethal HP → full death path (message + CONNECTION_DEAD + remove).
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(victim) {

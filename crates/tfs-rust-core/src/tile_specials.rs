@@ -179,6 +179,7 @@ mod tests {
     use tfs_rust_common::enums::Direction;
     use tfs_rust_content::items::{ITEM_TYPE_TELEPORT, ITEM_TYPE_TRASHHOLDER};
     use tfs_rust_content::otb::ItemType;
+    use tfs_rust_net::creature_known::KnownCreatureTable;
 
     #[test]
     fn trashholder_consumes_dropped_item_and_has_effect() {
@@ -407,7 +408,7 @@ mod tests {
         let cid = insert_spectator_player(&mut world, conn, test_player("Hero", start));
         world
             .known_creatures_by_conn
-            .insert(conn, std::collections::HashSet::new());
+            .insert(conn, KnownCreatureTable::default());
         if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
             p.base.walk_queue.push_back(Direction::South);
             p.base.walk_destinations.push_back(pad);

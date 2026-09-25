@@ -499,10 +499,14 @@ impl GameWorld {
                 self.map.unregister_creature_at(old, cid);
             }
         }
+        let is_player = matches!(
+            self.creatures.get(cid),
+            Some(crate::creature::CreatureKind::Player(_))
+        );
         if let Some(kind) = self.creatures.get_mut(cid) {
             kind.set_position(pos);
         }
-        self.map.register_creature_at(pos, cid);
+        self.map.register_creature_role_at(pos, cid, is_player);
         true
     }
 

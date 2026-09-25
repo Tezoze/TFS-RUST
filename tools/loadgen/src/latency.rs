@@ -289,10 +289,7 @@ fn u8_histogram_json(map: &HashMap<u8, u64>) -> String {
     }
     let mut keys: Vec<u8> = map.keys().copied().collect();
     keys.sort_unstable();
-    let parts: Vec<String> = keys
-        .iter()
-        .map(|k| format!("\"{k}\":{}", map[k]))
-        .collect();
+    let parts: Vec<String> = keys.iter().map(|k| format!("\"{k}\":{}", map[k])).collect();
     format!("{{{}}}", parts.join(","))
 }
 
@@ -614,15 +611,27 @@ mod tests {
         let json = report.to_json();
         assert!(json.contains("\"unknown_opcodes\": 2"), "{json}");
         assert!(json.contains("\"unknown_opcode_first\": 21"), "{json}");
-        assert!(json.contains("\"skip_failure_opcodes\": {\"106\":3}"), "{json}");
-        assert!(json.contains("\"unknown_opcode_counts\": {\"21\":2}"), "{json}");
+        assert!(
+            json.contains("\"skip_failure_opcodes\": {\"106\":3}"),
+            "{json}"
+        );
+        assert!(
+            json.contains("\"unknown_opcode_counts\": {\"21\":2}"),
+            "{json}"
+        );
         assert!(
             json.contains("\"text_reject_counts\": {\"You are exhausted.\":4}"),
             "{json}"
         );
-        assert!(json.contains("\"skip_failure_first_peek\": \"6301abcd\""), "{json}");
+        assert!(
+            json.contains("\"skip_failure_first_peek\": \"6301abcd\""),
+            "{json}"
+        );
         assert!(json.contains("\"skip_failure_player_z\": 7"), "{json}");
-        assert!(json.contains("\"unknown_opcode_peek\": \"15aabb\""), "{json}");
+        assert!(
+            json.contains("\"unknown_opcode_peek\": \"15aabb\""),
+            "{json}"
+        );
         assert!(json.contains("\"unknown_opcode_prev\": 100"), "{json}");
         assert!(json.contains("\"unknown_opcode_player_z\": 8"), "{json}");
         assert!(json.contains("\"rejections\":0"), "{json}");

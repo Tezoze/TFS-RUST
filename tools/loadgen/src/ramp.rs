@@ -1,5 +1,6 @@
-//! Login ramp: at most 8 in flight and ≤ 8 starts per second
-//! (`MAX_CONCURRENT_LOGIN_LOADS` in `login.rs`).
+//! Login ramp: at most 8 in flight from 7171 through the game-port first
+//! packet (`MAX_CONCURRENT_LOGIN_LOADS` in `login.rs`). Do not hold until
+//! self-appear — that serializes ingest on lagged `SendAll`.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -31,7 +32,17 @@ impl LoginGate {
         Self::new(MAX_CONCURRENT_LOGINS, MAX_CONCURRENT_LOGINS)
     }
 
-    /// Hold the slot until the returned permit is dropped (after login handshake).
+    /// Cap 8 in flight, no extra 8/s spacing. Use with [`login_start_delay`] so
+    /// ingest is the spread, not the interval race.
+    pub fn concurrent_only() -> Self {
+        Self {
+            sem: Arc::new(Semaphore::new(MAX_CONCURRENT_LOGINS)),
+            min_interval: Duration::ZERO,
+            last_start: Mutex::new(None),
+        }
+    }
+
+    /// Hold the slot until the returned permit is dropped (after 7172 first packet).
     pub async fn acquire(&self) -> Result<tokio::sync::SemaphorePermit<'_>> {
         let permit = self
             .sem
@@ -53,6 +64,15 @@ impl LoginGate {
     }
 }
 
+/// Bot `index` of `bots` starts this long after process start. First bot is 0,
+/// last is `spread`. Cap stays 8 (`LoginGate`).
+pub fn login_start_delay(index: usize, bots: usize, spread: Duration) -> Duration {
+    if bots <= 1 || spread.is_zero() {
+        return Duration::ZERO;
+    }
+    spread.mul_f64(index as f64 / (bots - 1) as f64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -61,5 +81,21 @@ mod tests {
     async fn default_cap_is_eight() {
         let g = LoginGate::phase_d_default();
         assert_eq!(g.sem.available_permits(), MAX_CONCURRENT_LOGINS);
+    }
+
+    #[test]
+    fn spread_first_zero_last_equals_spread() {
+        let spread = Duration::from_secs(120);
+        assert_eq!(login_start_delay(0, 1000, spread), Duration::ZERO);
+        assert_eq!(login_start_delay(999, 1000, spread), spread);
+        assert_eq!(login_start_delay(0, 1, spread), Duration::ZERO);
+        assert_eq!(login_start_delay(5, 1000, Duration::ZERO), Duration::ZERO);
+    }
+
+    #[tokio::test]
+    async fn concurrent_only_is_eight_and_no_interval() {
+        let g = LoginGate::concurrent_only();
+        assert_eq!(g.sem.available_permits(), MAX_CONCURRENT_LOGINS);
+        assert!(g.min_interval.is_zero());
     }
 }

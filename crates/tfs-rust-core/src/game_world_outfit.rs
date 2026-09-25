@@ -189,7 +189,7 @@ impl GameWorld {
             look_type_ex: 0,
         };
         let msg = self.codec.encode_creature_outfit(wire_id, &wire);
-        self.broadcast_to_spectators(pos, msg.into_bytes());
+        self.broadcast_to_knowers(cid, pos, wire_id, msg.into_bytes());
     }
 
     /// `Player::canWear` — access / premium / unlocked / owned addons.

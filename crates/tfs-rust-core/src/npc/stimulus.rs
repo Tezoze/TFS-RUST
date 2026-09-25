@@ -7,8 +7,8 @@ use tfs_rust_common::Position;
 
 /// Collect NPCs that should receive a normal-say talk stimulus from `speaker`.
 ///
-/// Order follows [`crate::map::grid::CreatureGrid::collect_spectators_sector_order`]
-/// (772 `TFindCreatures` block scan stand-in). Same-floor only; speaker skipped.
+/// Order follows [`crate::map::SparseGrid::collect_spectators_sector_order`]
+/// (772 `TFindCreatures` 16×16 sector scan). Same-floor only; speaker skipped.
 ///
 /// C++ `Talk` NPC fan-out — `operate.cc:2451-2468`.
 pub fn collect_npc_speech_candidates(

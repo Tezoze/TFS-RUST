@@ -2,7 +2,6 @@
 //! Phase A1 regression gate — bytes must match pre-codec output.
 // C++ reference: `src/protocolgame.cpp` (`ProtocolGame::send*`).
 
-use std::collections::HashSet;
 use tfs_rust_common::{Position, ProtocolVersion};
 use tfs_rust_net::codec::{
     AddCreatureWire, AnimatedTextWire, ChannelOpenWire, ChannelsDialogWire, Codec, Codec1098,
@@ -13,8 +12,8 @@ use tfs_rust_net::codec::{
 
 use tfs_rust_net::creature_encode::write_add_creature;
 use tfs_rust_net::map_description::{
-    send_map_description_packet, send_map_description_stub, send_move_creature_player,
-    send_notify_go,
+    KnownCreatureTable, send_map_description_packet, send_map_description_stub,
+    send_move_creature_player, send_notify_go,
 };
 use tfs_rust_net::outgoing::{
     send_creature_health, send_extended_opcode, send_magic_effect, send_otcv8_features, send_ping,
@@ -1519,7 +1518,7 @@ fn move_creature_player_bytes(
     old_stack: i32,
     creature_id: u32,
 ) -> Vec<u8> {
-    let mut known = HashSet::new();
+    let mut known = KnownCreatureTable::default();
     let mut get_tile = empty_get_tile;
     let mut can_see = empty_can_see_creature;
     send_move_creature_player(
@@ -1539,7 +1538,7 @@ fn move_creature_player_bytes(
 /// Calls `send_notify_go` (the 772 self-move path) with an empty map and returns
 /// the raw bytes for the given codec.
 fn notify_go_bytes(codec: &Codec, orig: Position, dest: Position) -> Vec<u8> {
-    let mut known = HashSet::new();
+    let mut known = KnownCreatureTable::default();
     let mut get_tile = empty_get_tile;
     let mut can_see = empty_can_see_creature;
     send_notify_go(
@@ -1654,7 +1653,7 @@ mod v1098_floor_change {
     #[test]
     fn teleport_map_description_1098_starts_with_0x64() {
         let pos = Position::new(100, 100, 7);
-        let mut known = HashSet::new();
+        let mut known = KnownCreatureTable::default();
         let mut get_tile = empty_get_tile;
         let mut can_see = empty_can_see_creature;
         let m = send_map_description_packet(

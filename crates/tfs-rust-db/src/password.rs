@@ -127,17 +127,24 @@ pub fn verify_password_sync(plaintext: &str, stored: &str, cfg: &PasswordHashCon
     }
 }
 
-/// Async verify — bcrypt runs on the blocking thread pool.
+/// Async verify — bcrypt runs on the blocking thread pool; SHA1 stays on the I/O task.
 pub async fn verify_password(
     plaintext: &str,
     stored: &str,
     cfg: PasswordHashConfig,
 ) -> Result<bool> {
-    let plaintext = plaintext.to_owned();
-    let stored = stored.to_owned();
-    tokio::task::spawn_blocking(move || verify_password_sync(&plaintext, &stored, &cfg))
-        .await
-        .map_err(|e| TfsRustError::Database(format!("password verify task: {e}")))
+    match detect_format(stored) {
+        StoredPasswordFormat::Bcrypt => {
+            let plaintext = plaintext.to_owned();
+            let stored = stored.to_owned();
+            tokio::task::spawn_blocking(move || verify_password_sync(&plaintext, &stored, &cfg))
+                .await
+                .map_err(|e| TfsRustError::Database(format!("password verify task: {e}")))
+        }
+        StoredPasswordFormat::Sha1Legacy | StoredPasswordFormat::Unknown => {
+            Ok(verify_password_sync(plaintext, stored, &cfg))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -223,5 +230,26 @@ mod tests {
         assert!(!off.should_upgrade_sha1(sha1));
         let bcrypt = hash_bcrypt("x", 4).expect("hash");
         assert!(!on.should_upgrade_sha1(&bcrypt));
+    }
+
+    #[tokio::test]
+    async fn verify_password_sha1_does_not_need_blocking_pool() {
+        let cfg = test_cfg();
+        let stored = sha1_password_hex("secret");
+        assert!(
+            verify_password("secret", &stored, cfg)
+                .await
+                .expect("sha1 verify")
+        );
+        assert!(
+            !verify_password("wrong", &stored, cfg)
+                .await
+                .expect("sha1 mismatch")
+        );
+        assert!(
+            !verify_password("secret", "not-a-hash", cfg)
+                .await
+                .expect("unknown")
+        );
     }
 }

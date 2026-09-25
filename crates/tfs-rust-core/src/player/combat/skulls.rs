@@ -591,7 +591,7 @@ impl GameWorld {
         let known = self
             .known_creatures_by_conn
             .get(&obs_conn)
-            .is_some_and(|set| set.contains(&wire_id));
+            .is_some_and(|table| table.contains(wire_id));
         if !known {
             return;
         }
@@ -615,7 +615,7 @@ impl GameWorld {
         let known = self
             .known_creatures_by_conn
             .get(&obs_conn)
-            .is_some_and(|set| set.contains(&wire_id));
+            .is_some_and(|table| table.contains(wire_id));
         if !known {
             return;
         }
@@ -641,7 +641,7 @@ impl GameWorld {
             let known = self
                 .known_creatures_by_conn
                 .get(&conn)
-                .is_some_and(|set| set.contains(&wire_id));
+                .is_some_and(|table| table.contains(wire_id));
             if !known {
                 continue;
             }

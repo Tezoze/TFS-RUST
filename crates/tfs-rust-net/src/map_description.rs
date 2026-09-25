@@ -2,9 +2,11 @@
 //!
 //! 772 NotifyGo non-adjacent: `cract.cc` else → `SendFullScreen` (`sending.cc`); adjacent
 //! floors/rows stay `0x6C`/`0x6D` then `0xBE`/`0xBF` + rows.
-// C++ reference (this repo): `src/protocolgame.cpp`.
-
-use std::collections::HashSet;
+//!
+//! Fill walk mirrors decompile `SendFullScreen` / `SendMapPoint` (`sending.cc`): skip-run
+//! empties, write objects from one reused scratch tile. Overflow still splits at 16 KiB
+//! (`FinishSendData`); we do not drop the map.
+// C++ reference: `src/protocolgame.cpp`; corpus `sending.cc` `SendFullScreen` / `SendMapPoint`.
 
 use tfs_rust_common::Position;
 use tfs_rust_common::protocol_constants::{
@@ -44,14 +46,64 @@ pub struct TileContent {
     pub low_items: Vec<ItemStack>,
     /// Bottom-to-top creature order as stored; emitted in **reverse** (C++ `reverse(creatures)`).
     pub creatures: Vec<AddCreatureWire>,
+    /// Name buffers kept across [`Self::clear`] so the next tile reuses `String` capacity.
+    #[doc(hidden)]
+    pub spare_creatures: Vec<AddCreatureWire>,
     /// Real 772 client: Cip map-container order
     /// `Bank → Bottom → Top → Creature → Low` (`map.hh` PRIORITY_*, `PlaceObject`).
     /// TVP / OTClient / 1098: ground→top→creatures→bottom(+low).
     pub cip_map_order: bool,
 }
 
+impl TileContent {
+    /// Drop item/creature lists without freeing capacity — `SendMapPoint` scratch reuse.
+    pub fn clear(&mut self) {
+        self.ground = None;
+        self.top_items.clear();
+        self.bottom_items.clear();
+        self.low_items.clear();
+        self.spare_creatures.append(&mut self.creatures);
+        self.cip_map_order = false;
+    }
+
+    /// Next creature slot. Reuses a wire from [`Self::clear`] so `name` keeps its capacity.
+    pub fn creature_slot(&mut self) -> &mut AddCreatureWire {
+        let mut recycled = self.spare_creatures.pop().unwrap_or_default();
+        recycled.name.clear();
+        recycled.known = false;
+        recycled.uptodate = false;
+        recycled.remove_known = 0;
+        self.creatures.push(recycled);
+        let idx = self.creatures.len() - 1;
+        &mut self.creatures[idx]
+    }
+
+    /// No wire objects — same as decompile empty `SendMapPoint` (skip-run).
+    pub fn is_blank(&self) -> bool {
+        self.ground.is_none()
+            && self.top_items.is_empty()
+            && self.creatures.is_empty()
+            && self.bottom_items.is_empty()
+            && self.low_items.is_empty()
+    }
+}
+
 /// C++ `ProtocolGame::checkCreatureAsKnown` — shared with tile appear broadcasts.
-pub use crate::creature_known::check_creature_known;
+pub use crate::creature_known::{KnownCreatureTable, check_creature_known};
+
+/// Test/loadgen `Option<TileContent>` lookups → fill walk (`SendMapPoint` skip vs write).
+/// Production fills a reused scratch (`TileContent::clear`).
+fn option_get_tile_as_fill<'a>(
+    get_tile: &'a mut impl FnMut(i32, i32, i32) -> Option<TileContent>,
+) -> impl FnMut(i32, i32, i32, &mut TileContent) -> bool + 'a {
+    move |x, y, z, out| match get_tile(x, y, z) {
+        Some(tile) => {
+            *out = tile;
+            true
+        }
+        None => false,
+    }
+}
 
 fn write_item_stack(codec: &Codec, msg: &mut NetworkMessage, it: &ItemStack) {
     codec.write_item_template(
@@ -79,12 +131,12 @@ fn item_stack_wire_len(codec: &Codec, it: &ItemStack) -> usize {
 fn emit_creatures_capped<F: FnMut(u32) -> bool>(
     codec: &Codec,
     msg: &mut NetworkMessage,
-    tile: &TileContent,
-    known_creatures: &mut HashSet<u32>,
+    creatures: &mut [AddCreatureWire],
+    known_creatures: &mut KnownCreatureTable,
     can_see_creature: &mut F,
     count: &mut i32,
 ) {
-    for c in tile.creatures.iter().rev() {
+    for c in creatures.iter_mut().rev() {
         // 7.72 returns early once count hits 10 inside the creature loop; 10.98 does not.
         if codec.tile_description_caps_creatures() && *count == 10 {
             return;
@@ -92,31 +144,29 @@ fn emit_creatures_capped<F: FnMut(u32) -> bool>(
         let id = c.id;
         let limit = codec.caps().known_creature_limit as usize;
         let (known, remove) = check_creature_known(id, known_creatures, can_see_creature, limit);
-        let mut cw = c.clone();
-        cw.apply_known_check(known, remove);
-        codec.write_add_creature(msg, &cw);
+        c.apply_known_check(known, remove);
+        codec.write_add_creature(msg, c);
         *count += 1;
     }
 }
 
 fn count_creatures_capped<F: FnMut(u32) -> bool>(
     codec: &Codec,
-    tile: &TileContent,
-    known_creatures: &mut HashSet<u32>,
+    creatures: &mut [AddCreatureWire],
+    known_creatures: &mut KnownCreatureTable,
     can_see_creature: &mut F,
     count: &mut i32,
     n: &mut usize,
 ) {
-    for c in tile.creatures.iter().rev() {
+    for c in creatures.iter_mut().rev() {
         if codec.tile_description_caps_creatures() && *count == 10 {
             return;
         }
         let id = c.id;
         let limit = codec.caps().known_creature_limit as usize;
         let (known, remove) = check_creature_known(id, known_creatures, can_see_creature, limit);
-        let mut cw = c.clone();
-        cw.apply_known_check(known, remove);
-        *n += codec.add_creature_wire_len(&cw);
+        c.apply_known_check(known, remove);
+        *n += codec.add_creature_wire_len(c);
         *count += 1;
     }
 }
@@ -131,8 +181,8 @@ fn appended_group_emission_order(items: &[ItemStack]) -> impl Iterator<Item = &I
 fn get_tile_description<F: FnMut(u32) -> bool>(
     codec: &Codec,
     msg: &mut NetworkMessage,
-    tile: &TileContent,
-    known_creatures: &mut HashSet<u32>,
+    tile: &mut TileContent,
+    known_creatures: &mut KnownCreatureTable,
     can_see_creature: &mut F,
     _with_description: bool,
 ) {
@@ -167,7 +217,7 @@ fn get_tile_description<F: FnMut(u32) -> bool>(
         emit_creatures_capped(
             codec,
             msg,
-            tile,
+            &mut tile.creatures,
             known_creatures,
             can_see_creature,
             &mut count,
@@ -196,7 +246,7 @@ fn get_tile_description<F: FnMut(u32) -> bool>(
         emit_creatures_capped(
             codec,
             msg,
-            tile,
+            &mut tile.creatures,
             known_creatures,
             can_see_creature,
             &mut count,
@@ -223,8 +273,8 @@ fn get_tile_description<F: FnMut(u32) -> bool>(
 /// outer `with_description` used elsewhere.
 fn count_tile_description<F: FnMut(u32) -> bool>(
     codec: &Codec,
-    tile: &TileContent,
-    known_creatures: &mut HashSet<u32>,
+    tile: &mut TileContent,
+    known_creatures: &mut KnownCreatureTable,
     can_see_creature: &mut F,
 ) -> usize {
     let mut n = codec.tile_environment_prefix_len(); // environmental effects (2 for 1098, 0 for 772)
@@ -256,7 +306,7 @@ fn count_tile_description<F: FnMut(u32) -> bool>(
         }
         count_creatures_capped(
             codec,
-            tile,
+            &mut tile.creatures,
             known_creatures,
             can_see_creature,
             &mut count,
@@ -284,7 +334,7 @@ fn count_tile_description<F: FnMut(u32) -> bool>(
         }
         count_creatures_capped(
             codec,
-            tile,
+            &mut tile.creatures,
             known_creatures,
             can_see_creature,
             &mut count,
@@ -317,16 +367,18 @@ fn get_floor_description<F: FnMut(u32) -> bool>(
     height: i32,
     offset: i32,
     skip: &mut i32,
-    get_tile: &mut impl FnMut(i32, i32, i32) -> Option<TileContent>,
-    known_creatures: &mut HashSet<u32>,
+    get_tile: &mut impl FnMut(i32, i32, i32, &mut TileContent) -> bool,
+    known_creatures: &mut KnownCreatureTable,
     can_see_creature: &mut F,
     with_description: bool,
 ) {
+    let mut scratch = TileContent::default();
     for nx in 0..width {
         for ny in 0..height {
             let tx = x + nx + offset;
             let ty = y + ny + offset;
-            if let Some(tile) = get_tile(tx, ty, z) {
+            scratch.clear();
+            if get_tile(tx, ty, z, &mut scratch) {
                 if *skip >= 0 {
                     msg.write_u8(*skip as u8);
                     msg.write_u8(0xFF);
@@ -335,7 +387,7 @@ fn get_floor_description<F: FnMut(u32) -> bool>(
                 get_tile_description(
                     codec,
                     msg,
-                    &tile,
+                    &mut scratch,
                     known_creatures,
                     can_see_creature,
                     with_description,
@@ -362,21 +414,23 @@ fn count_floor_description<F: FnMut(u32) -> bool>(
     height: i32,
     offset: i32,
     skip: &mut i32,
-    get_tile: &mut impl FnMut(i32, i32, i32) -> Option<TileContent>,
-    known_creatures: &mut HashSet<u32>,
+    get_tile: &mut impl FnMut(i32, i32, i32, &mut TileContent) -> bool,
+    known_creatures: &mut KnownCreatureTable,
     can_see_creature: &mut F,
 ) -> usize {
     let mut n = 0usize;
+    let mut scratch = TileContent::default();
     for nx in 0..width {
         for ny in 0..height {
             let tx = x + nx + offset;
             let ty = y + ny + offset;
-            if let Some(tile) = get_tile(tx, ty, z) {
+            scratch.clear();
+            if get_tile(tx, ty, z, &mut scratch) {
                 if *skip >= 0 {
                     n += 1 + 1;
                 }
                 *skip = 0;
-                n += count_tile_description(codec, &tile, known_creatures, can_see_creature);
+                n += count_tile_description(codec, &mut scratch, known_creatures, can_see_creature);
             } else if *skip == 0xFE {
                 n += 1 + 1;
                 *skip = -1;
@@ -388,9 +442,7 @@ fn count_floor_description<F: FnMut(u32) -> bool>(
     n
 }
 
-/// Total bytes for [`write_map_description_body`] (opcode `0x64` **not** included).
-///
-/// Requires the same **`get_tile`** determinism as the write pass (typically pure lookups).
+/// Test/loadgen `Option<TileContent>` body count. Production: [`count_map_description_body_fill`].
 #[allow(clippy::too_many_arguments)]
 pub fn count_map_description_body<F: FnMut(u32) -> bool>(
     codec: &Codec,
@@ -400,7 +452,36 @@ pub fn count_map_description_body<F: FnMut(u32) -> bool>(
     width: i32,
     height: i32,
     get_tile: &mut impl FnMut(i32, i32, i32) -> Option<TileContent>,
-    known_creatures: &mut HashSet<u32>,
+    known_creatures: &mut KnownCreatureTable,
+    can_see_creature: &mut F,
+) -> usize {
+    let mut fill = option_get_tile_as_fill(get_tile);
+    count_map_description_body_fill(
+        codec,
+        origin_x,
+        origin_y,
+        origin_z,
+        width,
+        height,
+        &mut fill,
+        known_creatures,
+        can_see_creature,
+    )
+}
+
+/// Total bytes for [`write_map_description_body_fill`] (opcode `0x64` **not** included).
+///
+/// Requires the same **`get_tile`** determinism as the write pass (typically pure lookups).
+#[allow(clippy::too_many_arguments)]
+pub fn count_map_description_body_fill<F: FnMut(u32) -> bool>(
+    codec: &Codec,
+    origin_x: i32,
+    origin_y: i32,
+    origin_z: i32,
+    width: i32,
+    height: i32,
+    get_tile: &mut impl FnMut(i32, i32, i32, &mut TileContent) -> bool,
+    known_creatures: &mut KnownCreatureTable,
     can_see_creature: &mut F,
 ) -> usize {
     let mut skip = -1_i32;
@@ -440,7 +521,7 @@ pub fn count_map_description_body<F: FnMut(u32) -> bool>(
     n
 }
 
-/// `ProtocolGame::GetMapDescription` into `msg` (does not prefix opcode — use [`send_map_description_packet`] for full packet).
+/// Test/loadgen `Option<TileContent>` map body. Production: [`write_map_description_body_fill`].
 #[allow(clippy::too_many_arguments)]
 pub fn write_map_description_body<F: FnMut(u32) -> bool>(
     codec: &Codec,
@@ -451,7 +532,38 @@ pub fn write_map_description_body<F: FnMut(u32) -> bool>(
     width: i32,
     height: i32,
     get_tile: &mut impl FnMut(i32, i32, i32) -> Option<TileContent>,
-    known_creatures: &mut HashSet<u32>,
+    known_creatures: &mut KnownCreatureTable,
+    can_see_creature: &mut F,
+    with_description: bool,
+) {
+    let mut fill = option_get_tile_as_fill(get_tile);
+    write_map_description_body_fill(
+        codec,
+        msg,
+        origin_x,
+        origin_y,
+        origin_z,
+        width,
+        height,
+        &mut fill,
+        known_creatures,
+        can_see_creature,
+        with_description,
+    );
+}
+
+/// `ProtocolGame::GetMapDescription` into `msg` (does not prefix opcode — use [`send_map_description_packet`] for full packet).
+#[allow(clippy::too_many_arguments)]
+pub fn write_map_description_body_fill<F: FnMut(u32) -> bool>(
+    codec: &Codec,
+    msg: &mut NetworkMessage,
+    origin_x: i32,
+    origin_y: i32,
+    origin_z: i32,
+    width: i32,
+    height: i32,
+    get_tile: &mut impl FnMut(i32, i32, i32, &mut TileContent) -> bool,
+    known_creatures: &mut KnownCreatureTable,
     can_see_creature: &mut F,
     with_description: bool,
 ) {
@@ -493,14 +605,38 @@ pub fn write_map_description_body<F: FnMut(u32) -> bool>(
     }
 }
 
-/// Full `sendMapDescription`: opcode `0x64`, player position, then map body (`GetMapDescription`).
-// C++ reference: `sendMapDescription` — `msg.addByte(0x64); msg.addPosition(player->getPosition()); GetMapDescription(...)`.
+/// Full `sendMapDescription` with test/loadgen `Option<TileContent>` lookups.
+/// Production: [`send_map_description_packet_fill`].
 pub fn send_map_description_packet<F: FnMut(u32) -> bool>(
     codec: &Codec,
     player_pos: Position,
     center: Position,
     get_tile: &mut impl FnMut(i32, i32, i32) -> Option<TileContent>,
-    known_creatures: &mut HashSet<u32>,
+    known_creatures: &mut KnownCreatureTable,
+    can_see_creature: &mut F,
+    with_description: bool,
+) -> NetworkMessage {
+    let mut fill = option_get_tile_as_fill(get_tile);
+    send_map_description_packet_fill(
+        codec,
+        player_pos,
+        center,
+        &mut fill,
+        known_creatures,
+        can_see_creature,
+        with_description,
+    )
+}
+
+/// Fill-callback `sendMapDescription`: opcode `0x64`, player position, then map body.
+/// Corpus: `sending.cc` `SendFullScreen` into `OutData[16384]`.
+// C++ reference: `sendMapDescription` — `msg.addByte(0x64); msg.addPosition(player->getPosition()); GetMapDescription(...)`.
+pub fn send_map_description_packet_fill<F: FnMut(u32) -> bool>(
+    codec: &Codec,
+    player_pos: Position,
+    center: Position,
+    get_tile: &mut impl FnMut(i32, i32, i32, &mut TileContent) -> bool,
+    known_creatures: &mut KnownCreatureTable,
     can_see_creature: &mut F,
     with_description: bool,
 ) -> NetworkMessage {
@@ -513,7 +649,7 @@ pub fn send_map_description_packet<F: FnMut(u32) -> bool>(
     #[cfg(debug_assertions)]
     let (expected_body, kc_after_count) = {
         let mut kc = known_creatures.clone();
-        let body = count_map_description_body(
+        let body = count_map_description_body_fill(
             codec,
             origin_x,
             origin_y,
@@ -527,11 +663,11 @@ pub fn send_map_description_packet<F: FnMut(u32) -> bool>(
         (body, kc)
     };
 
-    let mut msg = NetworkMessage::new();
+    let mut msg = NetworkMessage::with_capacity(16 * 1024);
     msg.write_u8(0x64);
     msg.write_position(&player_pos);
 
-    write_map_description_body(
+    write_map_description_body_fill(
         codec,
         &mut msg,
         origin_x,
@@ -562,6 +698,79 @@ pub fn send_map_description_packet<F: FnMut(u32) -> bool>(
     msg
 }
 
+/// First call must not write. Second call writes the same tile after the skip run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MapTilePass {
+    /// Return true when the tile has wire content. Do not write `msg`.
+    Occupied,
+    /// Write the tile. Called only after [`Self::Occupied`] returned true for these coords.
+    Write,
+}
+
+/// `SendFullScreen` where the caller writes each occupied tile straight into `msg`.
+///
+/// Skip-run bytes match [`get_floor_description`]: probe, then skip bytes, then the tile body.
+pub fn send_map_description_packet_direct(
+    player_pos: Position,
+    center: Position,
+    tile: &mut impl FnMut(i32, i32, i32, MapTilePass, &mut NetworkMessage) -> bool,
+) -> NetworkMessage {
+    let origin_x = center.x as i32 - MAX_CLIENT_VIEWPORT_X;
+    let origin_y = center.y as i32 - MAX_CLIENT_VIEWPORT_Y;
+    let origin_z = center.z as i32;
+    let w = client_viewport_width();
+    let h = client_viewport_height();
+
+    let mut msg = NetworkMessage::with_capacity(16 * 1024);
+    msg.write_u8(0x64);
+    msg.write_position(&player_pos);
+
+    let mut skip = -1_i32;
+    let (startz, endz, zstep) = if origin_z > 7 {
+        let startz = origin_z - 2;
+        let endz = (MAP_MAX_LAYERS - 1).min(origin_z + 2);
+        (startz, endz, 1)
+    } else {
+        (7_i32, 0_i32, -1)
+    };
+
+    let mut nz = startz;
+    loop {
+        let offset = origin_z - nz;
+        for nx in 0..w {
+            for ny in 0..h {
+                let tx = origin_x + nx + offset;
+                let ty = origin_y + ny + offset;
+                if tile(tx, ty, nz, MapTilePass::Occupied, &mut msg) {
+                    if skip >= 0 {
+                        msg.write_u8(skip as u8);
+                        msg.write_u8(0xFF);
+                    }
+                    skip = 0;
+                    tile(tx, ty, nz, MapTilePass::Write, &mut msg);
+                } else if skip == 0xFE {
+                    msg.write_u8(0xFF);
+                    msg.write_u8(0xFF);
+                    skip = -1;
+                } else {
+                    skip += 1;
+                }
+            }
+        }
+        if nz == endz {
+            break;
+        }
+        nz += zstep;
+    }
+
+    if skip >= 0 {
+        msg.write_u8(skip as u8);
+        msg.write_u8(0xFF);
+    }
+
+    msg
+}
+
 /// `ProtocolGame::MoveUpCreature` (`src/protocolgame.cpp` ~3363–3404).
 #[allow(clippy::too_many_arguments)] // mirrors C++ `ProtocolGame::MoveUpCreature` parameters (parity)
 fn append_move_up_creature<F: FnMut(u32) -> bool>(
@@ -569,8 +778,8 @@ fn append_move_up_creature<F: FnMut(u32) -> bool>(
     msg: &mut NetworkMessage,
     old_pos: Position,
     new_pos: Position,
-    get_tile: &mut impl FnMut(i32, i32, i32) -> Option<TileContent>,
-    known_creatures: &mut HashSet<u32>,
+    get_tile: &mut impl FnMut(i32, i32, i32, &mut TileContent) -> bool,
+    known_creatures: &mut KnownCreatureTable,
     can_see_creature: &mut F,
     with_description: bool,
 ) {
@@ -630,7 +839,7 @@ fn append_move_up_creature<F: FnMut(u32) -> bool>(
     }
 
     msg.write_u8(0x68);
-    write_map_description_body(
+    write_map_description_body_fill(
         codec,
         msg,
         ox,
@@ -645,7 +854,7 @@ fn append_move_up_creature<F: FnMut(u32) -> bool>(
     );
 
     msg.write_u8(0x65);
-    write_map_description_body(
+    write_map_description_body_fill(
         codec,
         msg,
         ox,
@@ -667,8 +876,8 @@ fn append_move_down_creature<F: FnMut(u32) -> bool>(
     msg: &mut NetworkMessage,
     old_pos: Position,
     new_pos: Position,
-    get_tile: &mut impl FnMut(i32, i32, i32) -> Option<TileContent>,
-    known_creatures: &mut HashSet<u32>,
+    get_tile: &mut impl FnMut(i32, i32, i32, &mut TileContent) -> bool,
+    known_creatures: &mut KnownCreatureTable,
     can_see_creature: &mut F,
     with_description: bool,
 ) {
@@ -728,7 +937,7 @@ fn append_move_down_creature<F: FnMut(u32) -> bool>(
     }
 
     msg.write_u8(0x66);
-    write_map_description_body(
+    write_map_description_body_fill(
         codec,
         msg,
         old_pos.x as i32 + (MAX_CLIENT_VIEWPORT_X + 1),
@@ -743,7 +952,7 @@ fn append_move_down_creature<F: FnMut(u32) -> bool>(
     );
 
     msg.write_u8(0x67);
-    write_map_description_body(
+    write_map_description_body_fill(
         codec,
         msg,
         ox,
@@ -771,8 +980,8 @@ fn append_send_floors_body<F: FnMut(u32) -> bool>(
     player_y: i32,
     player_z: i32,
     up: bool,
-    get_tile: &mut impl FnMut(i32, i32, i32) -> Option<TileContent>,
-    known_creatures: &mut HashSet<u32>,
+    get_tile: &mut impl FnMut(i32, i32, i32, &mut TileContent) -> bool,
+    known_creatures: &mut KnownCreatureTable,
     can_see_creature: &mut F,
     with_description: bool,
 ) {
@@ -845,8 +1054,8 @@ fn append_send_row<F: FnMut(u32) -> bool>(
     player_y: i32,
     player_z: i32,
     direction_opcode: u8,
-    get_tile: &mut impl FnMut(i32, i32, i32) -> Option<TileContent>,
-    known_creatures: &mut HashSet<u32>,
+    get_tile: &mut impl FnMut(i32, i32, i32, &mut TileContent) -> bool,
+    known_creatures: &mut KnownCreatureTable,
     can_see_creature: &mut F,
     with_description: bool,
 ) {
@@ -909,7 +1118,7 @@ fn append_send_row<F: FnMut(u32) -> bool>(
 // The self-packet updates the client's central position BEFORE the floor change (0xBE/0xBF)
 // is processed. Without it, the client uses the OLD position when parsing the floor
 // description, placing tiles at wrong coordinates → "no thing at pos" errors.
-#[allow(clippy::too_many_arguments)] // mirrors C++ `ProtocolGame::sendMoveCreature` parameters (parity)
+#[allow(clippy::too_many_arguments)]
 pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
     codec: &Codec,
     old_pos: Position,
@@ -917,7 +1126,33 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
     old_stack_pos: i32,
     creature_id: u32,
     get_tile: &mut impl FnMut(i32, i32, i32) -> Option<TileContent>,
-    known_creatures: &mut HashSet<u32>,
+    known_creatures: &mut KnownCreatureTable,
+    can_see_creature: &mut F,
+    with_description: bool,
+) -> NetworkMessage {
+    let mut fill = option_get_tile_as_fill(get_tile);
+    send_move_creature_player_fill(
+        codec,
+        old_pos,
+        new_pos,
+        old_stack_pos,
+        creature_id,
+        &mut fill,
+        known_creatures,
+        can_see_creature,
+        with_description,
+    )
+}
+
+#[allow(clippy::too_many_arguments)] // mirrors C++ `ProtocolGame::sendMoveCreature` parameters (parity)
+pub fn send_move_creature_player_fill<F: FnMut(u32) -> bool>(
+    codec: &Codec,
+    old_pos: Position,
+    new_pos: Position,
+    old_stack_pos: i32,
+    creature_id: u32,
+    get_tile: &mut impl FnMut(i32, i32, i32, &mut TileContent) -> bool,
+    known_creatures: &mut KnownCreatureTable,
     can_see_creature: &mut F,
     with_description: bool,
 ) -> NetworkMessage {
@@ -984,7 +1219,7 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
 
         if oy > ny {
             msg.write_u8(0x65);
-            write_map_description_body(
+            write_map_description_body_fill(
                 codec,
                 &mut msg,
                 ox - MAX_CLIENT_VIEWPORT_X,
@@ -999,7 +1234,7 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
             );
         } else if oy < ny {
             msg.write_u8(0x67);
-            write_map_description_body(
+            write_map_description_body_fill(
                 codec,
                 &mut msg,
                 ox - MAX_CLIENT_VIEWPORT_X,
@@ -1016,7 +1251,7 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
 
         if ox < nx {
             msg.write_u8(0x66);
-            write_map_description_body(
+            write_map_description_body_fill(
                 codec,
                 &mut msg,
                 nx + (MAX_CLIENT_VIEWPORT_X + 1),
@@ -1031,7 +1266,7 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
             );
         } else if ox > nx {
             msg.write_u8(0x68);
-            write_map_description_body(
+            write_map_description_body_fill(
                 codec,
                 &mut msg,
                 nx - MAX_CLIENT_VIEWPORT_X,
@@ -1072,7 +1307,7 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
 
     if oy > ny {
         msg.write_u8(0x65);
-        write_map_description_body(
+        write_map_description_body_fill(
             codec,
             &mut msg,
             ox - MAX_CLIENT_VIEWPORT_X,
@@ -1087,7 +1322,7 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
         );
     } else if oy < ny {
         msg.write_u8(0x67);
-        write_map_description_body(
+        write_map_description_body_fill(
             codec,
             &mut msg,
             ox - MAX_CLIENT_VIEWPORT_X,
@@ -1104,7 +1339,7 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
 
     if ox < nx {
         msg.write_u8(0x66);
-        write_map_description_body(
+        write_map_description_body_fill(
             codec,
             &mut msg,
             nx + (MAX_CLIENT_VIEWPORT_X + 1),
@@ -1119,7 +1354,7 @@ pub fn send_move_creature_player<F: FnMut(u32) -> bool>(
         );
     } else if ox > nx {
         msg.write_u8(0x68);
-        write_map_description_body(
+        write_map_description_body_fill(
             codec,
             &mut msg,
             nx - MAX_CLIENT_VIEWPORT_X,
@@ -1166,7 +1401,33 @@ pub fn send_notify_go<F: FnMut(u32) -> bool>(
     old_stack_pos: i32,
     creature_id: u32,
     get_tile: &mut impl FnMut(i32, i32, i32) -> Option<TileContent>,
-    known_creatures: &mut HashSet<u32>,
+    known_creatures: &mut KnownCreatureTable,
+    can_see_creature: &mut F,
+    with_description: bool,
+) -> NetworkMessage {
+    let mut fill = option_get_tile_as_fill(get_tile);
+    send_notify_go_fill(
+        codec,
+        orig,
+        dest,
+        old_stack_pos,
+        creature_id,
+        &mut fill,
+        known_creatures,
+        can_see_creature,
+        with_description,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn send_notify_go_fill<F: FnMut(u32) -> bool>(
+    codec: &Codec,
+    orig: Position,
+    dest: Position,
+    old_stack_pos: i32,
+    creature_id: u32,
+    get_tile: &mut impl FnMut(i32, i32, i32, &mut TileContent) -> bool,
+    known_creatures: &mut KnownCreatureTable,
     can_see_creature: &mut F,
     with_description: bool,
 ) -> NetworkMessage {
@@ -1175,7 +1436,7 @@ pub fn send_notify_go<F: FnMut(u32) -> bool>(
 
     // Non-adjacent → SendFullScreen only (`cract.cc` NotifyGo else; `sending.cc` SendFullScreen).
     if (dx - ox).abs() > 1 || (dy - oy).abs() > 1 || (dz - oz).abs() > 1 {
-        return send_map_description_packet(
+        return send_map_description_packet_fill(
             codec,
             dest,
             dest,
@@ -1359,7 +1620,7 @@ pub fn send_update_tile<F: FnMut(u32) -> bool>(
     codec: &Codec,
     pos: Position,
     tile: Option<&TileContent>,
-    known_creatures: &mut HashSet<u32>,
+    known_creatures: &mut KnownCreatureTable,
     can_see_creature: &mut F,
     with_description: bool,
 ) -> NetworkMessage {
@@ -1367,10 +1628,11 @@ pub fn send_update_tile<F: FnMut(u32) -> bool>(
     msg.write_u8(0x69);
     msg.write_position(&pos);
     if let Some(t) = tile {
+        let mut owned = t.clone();
         get_tile_description(
             codec,
             &mut msg,
-            t,
+            &mut owned,
             known_creatures,
             can_see_creature,
             with_description,
@@ -1392,4 +1654,88 @@ pub fn send_map_description_stub(player_pos: Position, _view_center: Position) -
     msg.write_u8(0xFF);
     msg.write_u8(0xFF);
     msg
+}
+
+#[cfg(test)]
+mod direct_skip_tests {
+    use tfs_rust_common::ProtocolVersion;
+
+    use super::{
+        ItemStack, MapTilePass, TileContent, get_tile_description,
+        send_map_description_packet_direct, send_map_description_packet_fill,
+    };
+    use crate::Codec;
+    use crate::NetworkMessage;
+    use crate::creature_known::KnownCreatureTable;
+
+    fn ground_tile() -> TileContent {
+        TileContent {
+            ground: Some(ItemStack {
+                client_id: 0x0673,
+                count: 1,
+                stackable: false,
+                is_splash_or_fluid: false,
+                is_animation: false,
+            }),
+            ..TileContent::default()
+        }
+    }
+
+    fn occupied(x: i32, y: i32, z: i32) -> bool {
+        x >= 0 && y >= 0 && (x + y + z).rem_euclid(3) == 0
+    }
+
+    fn assert_direct_matches(version: ProtocolVersion) {
+        let codec = Codec::from_version(version).expect("codec");
+        let center = tfs_rust_common::Position::new(100, 100, 7);
+        let mut known_fill = KnownCreatureTable::default();
+        let mut known_direct = KnownCreatureTable::default();
+        let mut can_see = |_id: u32| true;
+        let mut get_tile = |x: i32, y: i32, z: i32, out: &mut TileContent| {
+            if occupied(x, y, z) {
+                *out = ground_tile();
+                true
+            } else {
+                false
+            }
+        };
+        let fill = send_map_description_packet_fill(
+            &codec,
+            center,
+            center,
+            &mut get_tile,
+            &mut known_fill,
+            &mut can_see,
+            false,
+        );
+        let mut can_see_direct = |_id: u32| true;
+        let mut tile =
+            |x: i32, y: i32, z: i32, pass: MapTilePass, msg: &mut NetworkMessage| match pass {
+                MapTilePass::Occupied => occupied(x, y, z),
+                MapTilePass::Write => {
+                    let mut body = ground_tile();
+                    get_tile_description(
+                        &codec,
+                        msg,
+                        &mut body,
+                        &mut known_direct,
+                        &mut can_see_direct,
+                        false,
+                    );
+                    true
+                }
+            };
+        let direct = send_map_description_packet_direct(center, center, &mut tile);
+        assert_eq!(direct.as_bytes(), fill.as_bytes());
+    }
+
+    #[test]
+    fn direct_skip_matches_fill_772() {
+        assert_direct_matches(ProtocolVersion::V772);
+    }
+
+    #[test]
+    fn direct_skip_matches_fill_1098() {
+        assert_direct_matches(ProtocolVersion::V1098);
+    }
 }

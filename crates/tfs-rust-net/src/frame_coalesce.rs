@@ -36,12 +36,13 @@ fn header_reserve(caps: &ProtocolCaps) -> usize {
     2 + checksum_prefix_len(caps)
 }
 
-/// Write outer length, optional Adler, inner `v`, pad, and XTEA over `buf`.
+/// Write outer length, optional Adler, inner `v`, pad, and XTEA over the frame at `frame_start`.
 ///
-/// On entry `buf` is `[header zeros][payload…]` with `buf.len() == header_reserve + 2 + payload_len`.
-/// On exit `buf` is a complete TCP frame ready for `write_all`.
+/// On entry `buf[frame_start..]` is `[header zeros][payload…]` with length
+/// `header_reserve + 2 + payload_len`. On exit that span is one TCP frame.
 fn finalize_xtea_frame(
     buf: &mut Vec<u8>,
+    frame_start: usize,
     payload_len: usize,
     keys: &RoundKeys,
     caps: &ProtocolCaps,
@@ -49,18 +50,19 @@ fn finalize_xtea_frame(
     let checksum_len = checksum_prefix_len(caps);
     let header = 2 + checksum_len;
     let plain_len = (2 + payload_len).next_multiple_of(8);
-    buf.resize(header + plain_len, 0);
+    buf.resize(frame_start + header + plain_len, 0);
 
     let v = payload_len as u16;
-    buf[header..header + 2].copy_from_slice(&v.to_le_bytes());
+    let header_at = frame_start + header;
+    buf[header_at..header_at + 2].copy_from_slice(&v.to_le_bytes());
 
-    crate::xtea_tfs::encrypt(&mut buf[header..header + plain_len], plain_len, keys);
+    crate::xtea_tfs::encrypt(&mut buf[header_at..header_at + plain_len], plain_len, keys);
 
     let body_len = checksum_len + plain_len;
-    buf[0..2].copy_from_slice(&(body_len as u16).to_le_bytes());
+    buf[frame_start..frame_start + 2].copy_from_slice(&(body_len as u16).to_le_bytes());
     if caps.adler_checksum {
-        let checksum = adler_checksum(&buf[header..header + plain_len]);
-        buf[2..6].copy_from_slice(&checksum.to_le_bytes());
+        let checksum = adler_checksum(&buf[header_at..header_at + plain_len]);
+        buf[frame_start + 2..frame_start + 6].copy_from_slice(&checksum.to_le_bytes());
     }
 }
 
@@ -78,7 +80,7 @@ pub fn encode_payload_frame(
     out.reserve(header + plain_len);
     out.resize(header + 2, 0);
     out.extend_from_slice(payload);
-    finalize_xtea_frame(out, payload.len(), keys, caps);
+    finalize_xtea_frame(out, 0, payload.len(), keys, caps);
 }
 
 /// Pack packets from the front of `packets` into one XTEA frame in `out`.
@@ -93,6 +95,7 @@ pub fn encode_one_coalesced_frame(
     caps: &ProtocolCaps,
     out: &mut Vec<u8>,
 ) -> usize {
+    out.clear();
     encode_one_coalesced_frame_with_limit(packets, keys, caps, out, max_coalesced_payload(caps))
 }
 
@@ -104,13 +107,12 @@ fn encode_one_coalesced_frame_with_limit(
     max_payload: usize,
 ) -> usize {
     if packets.is_empty() {
-        out.clear();
         return 0;
     }
 
+    let frame_start = out.len();
     let header = header_reserve(caps);
-    out.clear();
-    out.resize(header + 2, 0);
+    out.resize(frame_start + header + 2, 0);
 
     let mut payload_len = 0usize;
     let mut consumed = 0usize;
@@ -131,12 +133,45 @@ fn encode_one_coalesced_frame_with_limit(
     }
 
     if payload_len == 0 {
-        out.clear();
+        out.truncate(frame_start);
         return consumed;
     }
 
-    finalize_xtea_frame(out, payload_len, keys, caps);
+    finalize_xtea_frame(out, frame_start, payload_len, keys, caps);
     consumed
+}
+
+/// Encode `packets` into concatenated XTEA TCP frames in `out`.
+///
+/// Frames are finalized in `out` (no per-frame scratch copy). One `write_all(out)` is one
+/// `send()` even when the beat splits at the era payload cap (`communication.cc` `SendData`
+/// / `WriteToSocket` drains the pending ring in one write loop). Frames stay length-prefixed;
+/// the client parses each separately.
+pub fn encode_coalesced_frames(
+    packets: &[Vec<u8>],
+    keys: &RoundKeys,
+    caps: &ProtocolCaps,
+    out: &mut Vec<u8>,
+) {
+    out.clear();
+    let mut rest = packets;
+    while !rest.is_empty() {
+        let n = append_one_coalesced_frame(rest, keys, caps, out);
+        if n == 0 {
+            break;
+        }
+        rest = &rest[n..];
+    }
+}
+
+/// Pack the next frame onto the end of `out`. See [`encode_one_coalesced_frame`].
+fn append_one_coalesced_frame(
+    packets: &[Vec<u8>],
+    keys: &RoundKeys,
+    caps: &ProtocolCaps,
+    out: &mut Vec<u8>,
+) -> usize {
+    encode_one_coalesced_frame_with_limit(packets, keys, caps, out, max_coalesced_payload(caps))
 }
 
 #[cfg(test)]
@@ -174,6 +209,7 @@ mod tests {
         let mut frames = Vec::new();
         let mut scratch = Vec::new();
         while !rest.is_empty() {
+            scratch.clear();
             let n =
                 encode_one_coalesced_frame_with_limit(rest, keys, caps, &mut scratch, max_payload);
             assert!(n > 0, "must consume at least one packet per call");
@@ -276,5 +312,34 @@ mod tests {
         let n = encode_one_coalesced_frame(&[Vec::new(), Vec::new()], &keys(), &caps, &mut scratch);
         assert_eq!(n, 2);
         assert!(scratch.is_empty());
+    }
+
+    #[test]
+    fn encode_coalesced_frames_concatenates_split_xtea_frames() {
+        let caps = ProtocolCaps::for_version(ProtocolVersion::V772);
+        let packets = vec![vec![1u8; 10_000], vec![2u8; 10_000]];
+        let mut out = Vec::new();
+        encode_coalesced_frames(&packets, &keys(), &caps, &mut out);
+        let separate = encode_all(&packets, &keys(), &caps, max_coalesced_payload(&caps));
+        assert_eq!(
+            separate.len(),
+            2,
+            "two packets over 16 KiB must be two frames"
+        );
+        let expected: Vec<u8> = separate.iter().flatten().copied().collect();
+        assert_eq!(out, expected);
+        let mut offset = 0usize;
+        for frame in &separate {
+            assert_eq!(&out[offset..offset + frame.len()], frame.as_slice());
+            offset += frame.len();
+        }
+    }
+
+    #[test]
+    fn encode_coalesced_frames_empty_packets_yield_empty_out() {
+        let caps = ProtocolCaps::for_version(ProtocolVersion::V772);
+        let mut out = vec![0xff];
+        encode_coalesced_frames(&[Vec::new(), Vec::new()], &keys(), &caps, &mut out);
+        assert!(out.is_empty());
     }
 }

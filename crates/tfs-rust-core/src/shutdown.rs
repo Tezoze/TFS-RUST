@@ -18,8 +18,7 @@ pub fn logout_all_players(world: &mut GameWorld) {
         world.creature_begin_logout(cid, true, true);
         if let Some(conn) = world.creature_to_conn.get(&cid).copied() {
             world.unregister_conn_mapping(conn);
-            world.known_creatures_by_conn.remove(&conn);
-            world.creature_fully_sent_by_conn.remove(&conn);
+            world.forget_known_creatures_for_conn(conn);
         }
         if world.player_logout_possible(cid) == LogoutPossible::Ok {
             world.remove_creature(cid);

@@ -25,6 +25,7 @@ use tfs_rust_common::Position;
 use tfs_rust_common::enums::Direction;
 use tfs_rust_db::DbPool;
 use tfs_rust_net::Codec;
+use tfs_rust_net::creature_known::KnownCreatureTable;
 
 use crate::chat::ChatRegistry;
 use crate::config::ConfigManager;
@@ -49,7 +50,9 @@ use crate::wildcard::WildcardTree;
 pub struct DeferredTurnBroadcast {
     pub guid: u32,
     pub pos: Position,
-    pub stack_u8: u8,
+    pub stack_772: i32,
+    pub stack_otc: i32,
+    pub own_client_only: Vec<CreatureId>,
     pub dir: Direction,
 }
 
@@ -90,6 +93,8 @@ pub struct GameWorld {
     pub player_by_name: HashMap<String, CreatureId>,
     /// GAME THREAD ONLY — paired with `player_by_name`.
     pub player_by_guid: HashMap<u32, CreatureId>,
+    /// GAME THREAD ONLY — monster/NPC wire id → `CreatureId` (`GetCreature` hash).
+    pub(crate) creature_by_wire: HashMap<u32, CreatureId>,
     /// TFS `GAME_STATE_*` — Closed blocks new logins; Shutdown ends the loop after save.
     pub game_state: crate::game_state::GameState,
     /// Wall-clock unix seconds when this world was constructed (`getWorldUpTime`).
@@ -153,11 +158,13 @@ pub struct GameWorld {
     /// Mover whose deferred StepIn/Out is running — skip nested spectator `0x6D`
     /// (`doRelocate` / `teleportTo`); the walk still broadcasts walk-origin → live.
     pub(crate) flushing_step_creature: Option<CreatureId>,
-    /// `ProtocolGame::knownCreatureSet` — must persist across `0x64` / move strips (`src/protocolgame.cpp`).
-    pub known_creatures_by_conn: HashMap<ConnId, HashSet<u32>>,
+    /// `TConnection::KnownCreatureTable` — must persist across `0x64` / move strips (`connections.cc`).
+    pub known_creatures_by_conn: HashMap<ConnId, KnownCreatureTable>,
     /// Wire ids this conn received with a full `AddCreature` block (map `known=false` or `0x6A`).
     /// Prevents `known=true` short encoding before the client has outfit/name data.
     pub creature_fully_sent_by_conn: HashMap<ConnId, HashSet<u32>>,
+    /// Reverse of [`Self::known_creatures_by_conn`] — `AnnounceChangedCreature` knowers.
+    pub(crate) conns_by_known_wire: HashMap<u32, HashSet<ConnId>>,
     /// OTB + `items.xml` — server item id → client id for map / `addItem` (`src/items.cpp`).
     pub items_db: Arc<ItemDatabase>,
     /// `data/monster/` — spawn instantiation (`monsters.cpp`).
@@ -419,6 +426,7 @@ impl GameWorld {
             db,
             player_by_name: HashMap::new(),
             player_by_guid: HashMap::new(),
+            creature_by_wire: HashMap::new(),
             game_state: crate::game_state::GameState::Normal,
             started_at_unix: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -473,6 +481,7 @@ impl GameWorld {
             flushing_step_creature: None,
             known_creatures_by_conn: HashMap::new(),
             creature_fully_sent_by_conn: HashMap::new(),
+            conns_by_known_wire: HashMap::new(),
             items_db,
             monsters_db,
             npcs_db,

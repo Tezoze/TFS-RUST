@@ -27,6 +27,15 @@ impl NetworkMessage {
         }
     }
 
+    /// Decompile `OutData[16384]` (`sending.cc` `BeginSendData`). Grows past 16 KiB —
+    /// we split frames instead of dropping Overflow.
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            buf: BytesMut::with_capacity(capacity),
+            read_pos: 0,
+        }
+    }
+
     pub fn from_bytes(bytes: &[u8]) -> Self {
         let mut buf = BytesMut::with_capacity(bytes.len());
         buf.extend_from_slice(bytes);

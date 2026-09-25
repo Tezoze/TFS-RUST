@@ -666,7 +666,7 @@ pub fn insert_monster_from_type(
         m.state = initial_state;
         m.is_idle = true;
     }
-    world.roll_monster_spawn_loot(cid, mtype);
+    world.roll_monster_spawn_loot(cid, &mtype.loot);
     world.recompute_monster_combat_from_equipment(cid);
     ensure_walkable_tile_if_absent(&mut world.map, pos);
     world.map.register_creature_at(pos, cid);

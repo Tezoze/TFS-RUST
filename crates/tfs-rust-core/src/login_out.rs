@@ -1,7 +1,6 @@
 //! First game-protocol burst after `Player` is placed (`ProtocolGame::sendAddCreature` self branch + map).
-// C++ reference: `src/protocolgame.cpp` `ProtocolGame::login` (OTCv8 preamble), `sendAddCreature` (player), …
-
-use std::collections::HashSet;
+// C++ reference: `src/protocolgame.cpp` `ProtocolGame::login` / `sendAddCreature`;
+// corpus `sending.cc` `SendFullScreen` / `SendMapPoint`, `crplayer.cc` ctor / `TakeOver`.
 
 use slotmap::Key;
 use tfs_rust_common::ConnId;
@@ -18,9 +17,8 @@ use crate::{Monster, Npc, Outfit, Player};
 
 use tfs_rust_net::codec::ItemTemplateArgs;
 use tfs_rust_net::creature_encode::{AddCreatureWire, OutfitWire};
-use tfs_rust_net::map_description::{
-    ItemStack, TileContent, send_map_description_packet, send_map_description_stub,
-};
+use tfs_rust_net::creature_known::KnownCreatureTable;
+use tfs_rust_net::map_description::{ItemStack, TileContent, send_map_description_stub};
 use tfs_rust_net::outgoing::{send_extended_opcode, send_magic_effect, send_otcv8_features};
 use tfs_rust_net::outgoing_extra::{
     send_enter_world, send_fight_modes, send_icons, send_icons_classic, send_inventory_slot_empty,
@@ -91,8 +89,9 @@ pub(crate) fn assign_creature_wire_id(world: &mut GameWorld, cid: CreatureId) {
     match world.creatures.get_mut(cid) {
         Some(CreatureKind::Monster(m)) => m.wire_id = id,
         Some(CreatureKind::Npc(n)) => n.wire_id = id,
-        _ => {}
+        _ => return,
     }
+    world.creature_by_wire.insert(id, cid);
 }
 
 impl GameWorld {
@@ -101,6 +100,18 @@ impl GameWorld {
     /// See [`assign_creature_wire_id`].
     pub fn assign_creature_wire_id(&mut self, cid: CreatureId) {
         assign_creature_wire_id(self, cid);
+    }
+
+    /// Drop `creature_by_wire` before `creatures.remove` on a failed place.
+    pub(crate) fn unindex_creature_wire(&mut self, cid: CreatureId) {
+        let wire = match self.creatures.get(cid) {
+            Some(CreatureKind::Monster(m)) if m.wire_id != 0 => Some(m.wire_id),
+            Some(CreatureKind::Npc(n)) if n.wire_id != 0 => Some(n.wire_id),
+            _ => None,
+        };
+        if let Some(w) = wire {
+            self.creature_by_wire.remove(&w);
+        }
     }
 }
 
@@ -184,6 +195,47 @@ pub(crate) fn build_add_creature_wire(
     }
 }
 
+pub(crate) fn fill_player_wire(
+    out: &mut AddCreatureWire,
+    p: &Player,
+    is_self: bool,
+    light: LightInfo,
+    viewer_is_access: bool,
+    mech: &crate::formulas::Mechanics,
+    skull: SkullType,
+    party_shield: u8,
+) {
+    let hp = if !is_self && p.health_hidden {
+        0
+    } else {
+        health_percent(p.base.health, p.base.max_health)
+    };
+    out.id = p.guid;
+    out.remove_known = 0;
+    out.known = false;
+    out.uptodate = false;
+    out.creature_type = 0;
+    out.name.clear();
+    out.name.push_str(&p.base.name);
+    out.health_percent = hp;
+    out.direction = p.base.direction as u8;
+    out.outfit = if p.ghost_mode {
+        OutfitWire::default()
+    } else {
+        outfit_wire_visible(&p.base)
+    };
+    out.light_level = light.level;
+    out.light_color = light.color;
+    out.step_speed = wire_step_speed(WalkSpeedRole::Player, &p.base, mech);
+    out.skull = skull_byte(skull);
+    out.party_shield = party_shield;
+    out.guild_emblem = 0;
+    out.speech_bubble = 0;
+    out.helpers = 0;
+    out.walkthrough_blocked = 1;
+    out.access_player = viewer_is_access;
+}
+
 fn player_to_add_creature_wire(
     p: &Player,
     is_self: bool,
@@ -193,37 +245,50 @@ fn player_to_add_creature_wire(
     skull: SkullType,
     party_shield: u8,
 ) -> AddCreatureWire {
-    let hp = if !is_self && p.health_hidden {
-        0
-    } else {
-        health_percent(p.base.health, p.base.max_health)
-    };
-    let step_speed = wire_step_speed(WalkSpeedRole::Player, &p.base, mech);
-    AddCreatureWire {
-        id: p.guid,
-        remove_known: 0,
-        known: false,
-        uptodate: false,
-        creature_type: 0,
-        name: p.base.name.clone(),
-        health_percent: hp,
-        direction: p.base.direction as u8,
-        outfit: if p.ghost_mode {
-            OutfitWire::default()
-        } else {
-            outfit_wire_visible(&p.base)
-        },
-        light_level: light.level,
-        light_color: light.color,
-        step_speed,
-        skull: skull_byte(skull),
+    let mut out = AddCreatureWire::default();
+    fill_player_wire(
+        &mut out,
+        p,
+        is_self,
+        light,
+        viewer_is_access,
+        mech,
+        skull,
         party_shield,
-        guild_emblem: 0,
-        speech_bubble: 0,
-        helpers: 0,
-        walkthrough_blocked: 1,
-        access_player: viewer_is_access,
-    }
+    );
+    out
+}
+
+pub(crate) fn fill_monster_wire(
+    out: &mut AddCreatureWire,
+    cid: CreatureId,
+    m: &Monster,
+    mech: &crate::formulas::Mechanics,
+) {
+    out.id = if m.wire_id != 0 {
+        m.wire_id
+    } else {
+        non_player_wire_id(cid)
+    };
+    out.remove_known = 0;
+    out.known = false;
+    out.uptodate = false;
+    out.creature_type = 1;
+    out.name.clear();
+    out.name.push_str(&m.base.name);
+    out.health_percent = health_percent(m.base.health, m.base.max_health);
+    out.direction = m.base.direction as u8;
+    out.outfit = outfit_wire_visible(&m.base);
+    out.light_level = 0;
+    out.light_color = 0;
+    out.step_speed = wire_step_speed(WalkSpeedRole::MonsterOrNpc, &m.base, mech);
+    out.skull = skull_byte(m.base.skull);
+    out.party_shield = 0;
+    out.guild_emblem = 0;
+    out.speech_bubble = 0;
+    out.helpers = 0;
+    out.walkthrough_blocked = 1;
+    out.access_player = false;
 }
 
 fn monster_to_add_creature_wire(
@@ -231,31 +296,41 @@ fn monster_to_add_creature_wire(
     m: &Monster,
     mech: &crate::formulas::Mechanics,
 ) -> AddCreatureWire {
-    AddCreatureWire {
-        id: if m.wire_id != 0 {
-            m.wire_id
-        } else {
-            non_player_wire_id(cid)
-        },
-        remove_known: 0,
-        known: false,
-        uptodate: false,
-        creature_type: 1,
-        name: m.base.name.clone(),
-        health_percent: health_percent(m.base.health, m.base.max_health),
-        direction: m.base.direction as u8,
-        outfit: outfit_wire_visible(&m.base),
-        light_level: 0,
-        light_color: 0,
-        step_speed: wire_step_speed(WalkSpeedRole::MonsterOrNpc, &m.base, mech),
-        skull: skull_byte(m.base.skull),
-        party_shield: 0,
-        guild_emblem: 0,
-        speech_bubble: 0,
-        helpers: 0,
-        walkthrough_blocked: 1,
-        access_player: false,
-    }
+    let mut out = AddCreatureWire::default();
+    fill_monster_wire(&mut out, cid, m, mech);
+    out
+}
+
+pub(crate) fn fill_npc_wire(
+    out: &mut AddCreatureWire,
+    cid: CreatureId,
+    n: &Npc,
+    mech: &crate::formulas::Mechanics,
+) {
+    out.id = if n.wire_id != 0 {
+        n.wire_id
+    } else {
+        non_player_wire_id(cid)
+    };
+    out.remove_known = 0;
+    out.known = false;
+    out.uptodate = false;
+    out.creature_type = 2;
+    out.name.clear();
+    out.name.push_str(&n.base.name);
+    out.health_percent = health_percent(n.base.health, n.base.max_health);
+    out.direction = n.base.direction as u8;
+    out.outfit = outfit_wire_visible(&n.base);
+    out.light_level = 0;
+    out.light_color = 0;
+    out.step_speed = wire_step_speed(WalkSpeedRole::MonsterOrNpc, &n.base, mech);
+    out.skull = skull_byte(n.base.skull);
+    out.party_shield = 0;
+    out.guild_emblem = 0;
+    out.speech_bubble = n.speech_bubble;
+    out.helpers = 0;
+    out.walkthrough_blocked = 1;
+    out.access_player = false;
 }
 
 fn npc_to_add_creature_wire(
@@ -263,186 +338,199 @@ fn npc_to_add_creature_wire(
     n: &Npc,
     mech: &crate::formulas::Mechanics,
 ) -> AddCreatureWire {
-    AddCreatureWire {
-        id: if n.wire_id != 0 {
-            n.wire_id
-        } else {
-            non_player_wire_id(cid)
-        },
-        remove_known: 0,
-        known: false,
-        uptodate: false,
-        creature_type: 2,
-        name: n.base.name.clone(),
-        health_percent: health_percent(n.base.health, n.base.max_health),
-        direction: n.base.direction as u8,
-        outfit: outfit_wire_visible(&n.base),
-        light_level: 0,
-        light_color: 0,
-        step_speed: wire_step_speed(WalkSpeedRole::MonsterOrNpc, &n.base, mech),
-        skull: skull_byte(n.base.skull),
-        party_shield: 0,
-        guild_emblem: 0,
-        speech_bubble: n.speech_bubble,
-        helpers: 0,
-        walkthrough_blocked: 1,
-        access_player: false,
+    let mut out = AddCreatureWire::default();
+    fill_npc_wire(&mut out, cid, n, mech);
+    out
+}
+
+pub(crate) fn item_stack_from_server_id(
+    world: &GameWorld,
+    iid: u16,
+    count: u8,
+) -> Option<ItemStack> {
+    if iid == 0 {
+        return None;
+    }
+    let cid = world.items_db.client_id_for_server(iid);
+    if cid == 0 {
+        return None;
+    }
+    let stackable = world.items_db.stackable_for_server(iid);
+    let splash_fluid = world.items_db.is_splash_or_fluid_for_server(iid);
+    Some(ItemStack {
+        client_id: cid,
+        count,
+        stackable,
+        is_splash_or_fluid: splash_fluid && !stackable,
+        is_animation: world.items_db.is_animation_for_server(iid),
+    })
+}
+
+/// Invisible and ghost creatures are left off other clients' tiles
+/// (`map_tile_content_into` / [`creature_hidden_from_map`]). The spectator stack
+/// byte must skip them the same way, or `0x6D`/`0x6C`/`0x6B` hits the next object.
+pub(crate) fn creature_omitted_from_other_clients(kind: &CreatureKind) -> bool {
+    let invisible = kind
+        .base()
+        .active_conditions
+        .iter()
+        .any(|c| c.ctype == ConditionType::Invisible);
+    let ghost = matches!(kind, CreatureKind::Player(p) if p.ghost_mode);
+    ghost || invisible
+}
+
+pub(crate) fn creature_hidden_from_map(
+    kind: &CreatureKind,
+    ocid: CreatureId,
+    self_cid: CreatureId,
+) -> bool {
+    if ocid == self_cid {
+        return false;
+    }
+    creature_omitted_from_other_clients(kind)
+}
+
+/// Viewer-side map encode context. Built once per `SendFullScreen` / NotifyGo strip
+/// so `self_wire` is not rebuilt for every viewport tile (`sending.cc` `SendMapPoint`).
+pub(crate) struct MapDescribeCtx {
+    pub(crate) self_cid: CreatureId,
+    pub(crate) self_guid: u32,
+    pub(crate) player_pos: Position,
+    pub(crate) viewer_access: bool,
+    pub(crate) cip_map_order: bool,
+    pub(crate) self_wire: AddCreatureWire,
+}
+
+impl MapDescribeCtx {
+    pub(crate) fn from_world(
+        world: &GameWorld,
+        self_cid: CreatureId,
+        player_pos: Position,
+    ) -> Option<Self> {
+        let Some(CreatureKind::Player(_)) = world.creatures.get(self_cid) else {
+            return None;
+        };
+        let viewer_access = world.player_is_access_player(self_cid);
+        let self_light = world.player_creature_light(self_cid);
+        let self_skull = world.player_get_killing_mark(self_cid, self_cid);
+        let self_party_shield = world.player_get_party_mark(self_cid, self_cid);
+        let Some(CreatureKind::Player(self_player)) = world.creatures.get(self_cid) else {
+            return None;
+        };
+        let is_772 = !world.codec.caps().move_creature_self_packet;
+        Some(Self {
+            self_cid,
+            self_guid: self_player.guid,
+            player_pos,
+            viewer_access,
+            cip_map_order: is_772 && !self_player.is_otclient(),
+            self_wire: player_to_add_creature_wire(
+                self_player,
+                true,
+                self_light,
+                viewer_access,
+                &world.mechanics,
+                self_skull,
+                self_party_shield,
+            ),
+        })
     }
 }
 
-/// One tile for `GetMapDescription` / move strips (`player_pos` = tile where the local player stands).
-///
-/// Map tiles hold **server** item ids; this resolves them with `GameWorld::wire_item_id`
-/// before building `TileContent` (every `ItemStack.client_id` is the wire id for the active era).
-pub(crate) fn map_tile_content(
+/// Fill `out` for one viewport tile. Returns true when the tile has wire content
+/// (decompile `SendMapPoint` non-empty). Reuses `out` capacity across tiles.
+pub(crate) fn map_tile_content_into(
     world: &GameWorld,
-    self_cid: CreatureId,
-    player_pos: Position,
+    ctx: &MapDescribeCtx,
     tx: i32,
     ty: i32,
     tz: i32,
-) -> Option<TileContent> {
+    out: &mut TileContent,
+) -> bool {
+    out.clear();
     if tx < 0 || ty < 0 || !(0..=15).contains(&tz) {
-        return None;
+        return false;
     }
-    let Some(CreatureKind::Player(_)) = world.creatures.get(self_cid) else {
-        return None;
-    };
-    let viewer_access = world.player_is_access_player(self_cid);
-    let self_light = world.player_creature_light(self_cid);
-    let self_skull = world.player_get_killing_mark(self_cid, self_cid);
-    let self_party_shield = world.player_get_party_mark(self_cid, self_cid);
-    let Some(CreatureKind::Player(self_player)) = world.creatures.get(self_cid) else {
-        return None;
-    };
-    let self_wire = player_to_add_creature_wire(
-        self_player,
-        true,
-        self_light,
-        viewer_access,
-        &world.mechanics,
-        self_skull,
-        self_party_shield,
-    );
-    let self_guid = self_player.guid;
 
-    let px = player_pos.x as i32;
-    let py = player_pos.y as i32;
-    let pz = player_pos.z as i32;
+    let px = ctx.player_pos.x as i32;
+    let py = ctx.player_pos.y as i32;
+    let pz = ctx.player_pos.z as i32;
     let pos = Position::new(tx as u16, ty as u16, tz as u8);
     let on_self = tx == px && ty == py && tz == pz;
-
-    let mut content = TileContent::default();
     // Real 772 client stores tiles in Cip map-container order
     // (Bank → Bottom → Top → Creature → Low). Matching `GetObjectRNum` /
     // spectator `0x6D` stackpos — treating PRIORITY_LOW downs as Bottom leaves
     // creatures at the wrong index → bug0000017 MoveCreature assert.
-    let is_772 = !world.codec.caps().move_creature_self_packet;
-    content.cip_map_order = is_772 && !self_player.is_otclient();
+    out.cip_map_order = ctx.cip_map_order;
 
     if let Some(tile) = world.map.get_tile(pos) {
         let body = tile.body();
         if let Some(gid) = body.ground
             && gid != 0
         {
-            let cid = world.items_db.client_id_for_server(gid);
-            if cid != 0 {
-                let stackable = world.items_db.stackable_for_server(gid);
-                let splash_fluid = world.items_db.is_splash_or_fluid_for_server(gid);
-                content.ground = Some(ItemStack {
-                    client_id: cid,
-                    count: 1,
-                    stackable,
-                    is_splash_or_fluid: splash_fluid && !stackable,
-                    is_animation: world.items_db.is_animation_for_server(gid),
-                });
-            }
+            out.ground = item_stack_from_server_id(world, gid, 1);
         }
         for &item_id in body.top_items() {
-            // Get the actual item from world storage
             let Some(item) = world.items.get(item_id) else {
                 continue;
             };
-            let iid = item.item_type;
-            if iid == 0 {
+            let Some(stack) = item_stack_from_server_id(world, item.item_type, item.client_count())
+            else {
                 continue;
-            }
-            let cid = world.items_db.client_id_for_server(iid);
-            if cid == 0 {
-                continue;
-            }
-            let stackable = world.items_db.stackable_for_server(iid);
-            let splash_fluid = world.items_db.is_splash_or_fluid_for_server(iid);
-            content.top_items.push(ItemStack {
-                client_id: cid,
-                count: item.client_count(),
-                stackable,
-                is_splash_or_fluid: splash_fluid && !stackable,
-                is_animation: world.items_db.is_animation_for_server(iid),
-            });
+            };
+            out.top_items.push(stack);
         }
         for &ocid in body.creatures() {
-            // Visibility gates (ghost / invisible) before building wire.
             let skip = match world.creatures.get(ocid) {
-                Some(CreatureKind::Player(p)) => {
-                    (p.ghost_mode
-                        || p.base
-                            .active_conditions
-                            .iter()
-                            .any(|c| c.ctype == ConditionType::Invisible))
-                        && ocid != self_cid
-                }
-                Some(CreatureKind::Monster(m)) => {
-                    m.base
-                        .active_conditions
-                        .iter()
-                        .any(|c| c.ctype == ConditionType::Invisible)
-                        && ocid != self_cid
-                }
-                Some(CreatureKind::Npc(n)) => {
-                    n.base
-                        .active_conditions
-                        .iter()
-                        .any(|c| c.ctype == ConditionType::Invisible)
-                        && ocid != self_cid
-                }
+                Some(kind) => creature_hidden_from_map(kind, ocid, ctx.self_cid),
                 None => true,
             };
             if skip {
                 continue;
             }
+            if ocid == ctx.self_cid {
+                let slot = out.creature_slot();
+                slot.copy_from(&ctx.self_wire);
+                continue;
+            }
             let skull = match world.creatures.get(ocid) {
-                Some(CreatureKind::Player(_)) => world.player_get_killing_mark(ocid, self_cid),
+                Some(CreatureKind::Player(_)) => world.player_get_killing_mark(ocid, ctx.self_cid),
                 _ => SkullType::None,
             };
             let party_shield = match world.creatures.get(ocid) {
-                Some(CreatureKind::Player(_)) => world.player_get_party_mark(ocid, self_cid),
+                Some(CreatureKind::Player(_)) => world.player_get_party_mark(ocid, ctx.self_cid),
                 _ => 0,
             };
             let light = match world.creatures.get(ocid) {
                 Some(CreatureKind::Player(_)) => world.player_creature_light(ocid),
                 _ => LightInfo::default(),
             };
-            let w = match world.creatures.get(ocid) {
-                Some(CreatureKind::Player(p)) => player_to_add_creature_wire(
-                    p,
-                    p.guid == self_guid,
-                    light,
-                    viewer_access,
-                    &world.mechanics,
-                    skull,
-                    party_shield,
-                ),
-                Some(CreatureKind::Monster(m)) => {
-                    monster_to_add_creature_wire(ocid, m, &world.mechanics)
+            match world.creatures.get(ocid) {
+                Some(CreatureKind::Player(p)) => {
+                    let slot = out.creature_slot();
+                    fill_player_wire(
+                        slot,
+                        p,
+                        p.guid == ctx.self_guid,
+                        light,
+                        ctx.viewer_access,
+                        &world.mechanics,
+                        skull,
+                        party_shield,
+                    );
                 }
-                Some(CreatureKind::Npc(n)) => npc_to_add_creature_wire(ocid, n, &world.mechanics),
-                None => continue,
-            };
-            content.creatures.push(w);
+                Some(CreatureKind::Monster(m)) => {
+                    let slot = out.creature_slot();
+                    fill_monster_wire(slot, ocid, m, &world.mechanics);
+                }
+                Some(CreatureKind::Npc(n)) => {
+                    let slot = out.creature_slot();
+                    fill_npc_wire(slot, ocid, n, &world.mechanics);
+                }
+                None => {}
+            }
         }
         for &item_id in body.down_items() {
-            // Get the actual item from world storage
             let Some(item) = world.items.get(item_id) else {
                 continue;
             };
@@ -468,34 +556,27 @@ pub(crate) fn map_tile_content(
             };
             // Real 772: only PRIORITY_BOTTOM before creatures; LOW after.
             // TVP/OTC: all downs fold into bottom_items (emitted after creatures).
-            if content.cip_map_order && itype.is_cip_priority_bottom() {
-                content.bottom_items.push(stack);
-            } else if content.cip_map_order {
-                content.low_items.push(stack);
+            if out.cip_map_order && itype.is_cip_priority_bottom() {
+                out.bottom_items.push(stack);
+            } else if out.cip_map_order {
+                out.low_items.push(stack);
             } else {
-                content.bottom_items.push(stack);
+                out.bottom_items.push(stack);
             }
         }
     }
 
-    if on_self && !content.creatures.iter().any(|c| c.id == self_guid) {
+    if on_self && !out.creatures.iter().any(|c| c.id == ctx.self_guid) {
         tracing::debug!(
-            self_cid = ?self_cid,
+            self_cid = ?ctx.self_cid,
             pos = ?pos,
             "map_tile_content: self not on tile, injecting self_wire (ghost check)"
         );
-        content.creatures.push(self_wire);
+        let slot = out.creature_slot();
+        slot.copy_from(&ctx.self_wire);
     }
 
-    if content.ground.is_none()
-        && content.top_items.is_empty()
-        && content.creatures.is_empty()
-        && content.bottom_items.is_empty()
-        && content.low_items.is_empty()
-    {
-        return None;
-    }
-    Some(content)
+    !out.is_blank()
 }
 
 /// Full `0x64` map around `center` from loaded OTBM tiles and creature indices.
@@ -503,7 +584,7 @@ fn build_initial_map_packet(
     world: &GameWorld,
     self_cid: CreatureId,
     center: Position,
-    known: &mut HashSet<u32>,
+    known: &mut KnownCreatureTable,
 ) -> Vec<u8> {
     if world.creatures.get(self_cid).is_none() {
         return send_map_description_stub(center, center).into_bytes();
@@ -514,22 +595,10 @@ fn build_initial_map_packet(
         Some(CreatureKind::Player(p)) if p.item_with_description()
     );
 
-    let mut get_tile = |tx: i32, ty: i32, tz: i32| -> Option<TileContent> {
-        map_tile_content(world, self_cid, center, tx, ty, tz)
+    let Some(ctx) = MapDescribeCtx::from_world(world, self_cid, center) else {
+        return send_map_description_stub(center, center).into_bytes();
     };
-
-    let mut can_see = |guid: u32| world.can_see_creature_for_known_set(self_cid, guid);
-
-    send_map_description_packet(
-        &world.codec,
-        center,
-        center,
-        &mut get_tile,
-        known,
-        &mut can_see,
-        with_description,
-    )
-    .into_bytes()
+    crate::map_point::encode_fullscreen(world, &ctx, known, with_description)
 }
 
 /// Enqueue the initial login burst for a freshly placed player, selecting the version-specific
@@ -597,10 +666,7 @@ fn enqueue_initial_login_packets_classic(
         world.codec.encode_self_appear_login(pid, server_beat),
     );
 
-    let mut known = world
-        .known_creatures_by_conn
-        .remove(&conn_id)
-        .unwrap_or_default();
+    let mut known = world.take_known_creatures_for_send(conn_id);
     world.reconcile_known_creatures_for_send(conn_id, &mut known);
     let map_bytes = build_initial_map_packet(world, creature_id, pos, &mut known);
     let map_0x64_len = map_bytes.len();
@@ -732,10 +798,7 @@ fn enqueue_initial_login_packets_1098(
         0
     };
 
-    let mut known = world
-        .known_creatures_by_conn
-        .remove(&conn_id)
-        .unwrap_or_default();
+    let mut known = world.take_known_creatures_for_send(conn_id);
     world.reconcile_known_creatures_for_send(conn_id, &mut known);
     let map_bytes = build_initial_map_packet(world, creature_id, pos, &mut known);
     let map_0x64_len = map_bytes.len();

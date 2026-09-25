@@ -8,7 +8,7 @@ use tracing::{error, info, trace};
 
 use tfs_rust_common::{ConnId, GameCommand, ProtocolCaps, ProtocolVersion};
 
-use crate::frame_coalesce::encode_one_coalesced_frame;
+use crate::frame_coalesce::encode_coalesced_frames;
 use crate::game_challenge::{GameChallenge, send_game_challenge};
 use crate::game_cmd_bus::GameCmdTx;
 use crate::game_first_packet::{FirstClientPacket, LoginIdentity, parse_first_client_packet};
@@ -347,25 +347,18 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
 
     let send_bytes = wire.send_bytes.clone();
     tokio::spawn(async move {
-        // One XTEA frame per beat (`communication.cc` `SendData`); scratch reused (A2).
-        let mut scratch = Vec::with_capacity(16 * 1024 + 64);
-        'recv: while let Some(blobs) = batch_rx.recv().await {
-            let mut rest = blobs.as_slice();
-            while !rest.is_empty() {
-                let n = encode_one_coalesced_frame(rest, &round_keys, &caps, &mut scratch);
-                if n == 0 {
-                    break;
-                }
-                rest = &rest[n..];
-                if scratch.is_empty() {
-                    continue;
-                }
-                send_bytes.fetch_add(scratch.len() as u64, std::sync::atomic::Ordering::Relaxed);
-                if write_half.write_all(&scratch).await.is_err() {
-                    break 'recv;
-                }
+        // One `send()` per beat-batch (`communication.cc` `SendData` write loop).
+        // Frames are XTEA'd in `send_buf` (no per-frame scratch copy).
+        let mut send_buf = Vec::with_capacity(64 * 1024);
+        while let Some(blobs) = batch_rx.recv().await {
+            encode_coalesced_frames(&blobs, &round_keys, &caps, &mut send_buf);
+            if send_buf.is_empty() {
+                continue;
             }
-            let _ = write_half.flush().await;
+            send_bytes.fetch_add(send_buf.len() as u64, std::sync::atomic::Ordering::Relaxed);
+            if write_half.write_all(&send_buf).await.is_err() {
+                break;
+            }
         }
         let _ = write_half.shutdown().await;
     });

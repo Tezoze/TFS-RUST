@@ -1205,9 +1205,16 @@ impl GameWorld {
                 .grid
                 .collect_spectators_sector_order(pos.x, pos.y, pos.z, range, range, &mut raw);
             for cid in raw {
-                if matches!(self.creatures.get(cid), Some(CreatureKind::Npc(_)))
-                    && !ids.contains(&cid)
-                {
+                if !matches!(self.creatures.get(cid), Some(CreatureKind::Npc(_))) {
+                    continue;
+                }
+                let Some(npc_z) = self.creatures.get(cid).map(|k| k.position().z) else {
+                    continue;
+                };
+                if npc_z != pos.z {
+                    continue;
+                }
+                if !ids.contains(&cid) {
                     ids.push(cid);
                 }
             }

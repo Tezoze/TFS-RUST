@@ -16,7 +16,10 @@ pub enum ActionKind {
     Attack(u32),
     /// Viewport talk. `spell` true → correlate as `SpellRune` (expects `0x83`).
     /// Chat lines never produce a magic effect; they must not enqueue the FIFO.
-    Say { text: String, spell: bool },
+    Say {
+        text: String,
+        spell: bool,
+    },
     UseItemEx {
         from: Position,
         from_sprite: u16,

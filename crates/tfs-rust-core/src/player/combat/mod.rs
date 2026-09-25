@@ -824,6 +824,9 @@ impl GameWorld {
         if let Some(cid) = self.player_by_guid.get(&wire_id) {
             return Some(*cid);
         }
+        if let Some(&cid) = self.creature_by_wire.get(&wire_id) {
+            return Some(cid);
+        }
         self.creatures.iter().find_map(|(cid, k)| match k {
             CreatureKind::Player(p) => (p.guid == wire_id).then_some(cid),
             CreatureKind::Monster(m) => {

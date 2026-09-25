@@ -99,6 +99,30 @@ impl AddCreatureWire {
         self.remove_known = remove_known;
         self.uptodate = already_known;
     }
+
+    /// Copy fields, reusing `self.name`'s allocation.
+    pub fn copy_from(&mut self, src: &Self) {
+        self.id = src.id;
+        self.remove_known = src.remove_known;
+        self.known = src.known;
+        self.uptodate = src.uptodate;
+        self.creature_type = src.creature_type;
+        self.name.clear();
+        self.name.push_str(&src.name);
+        self.health_percent = src.health_percent;
+        self.direction = src.direction;
+        self.outfit = src.outfit.clone();
+        self.light_level = src.light_level;
+        self.light_color = src.light_color;
+        self.step_speed = src.step_speed;
+        self.skull = src.skull;
+        self.party_shield = src.party_shield;
+        self.guild_emblem = src.guild_emblem;
+        self.speech_bubble = src.speech_bubble;
+        self.helpers = src.helpers;
+        self.walkthrough_blocked = src.walkthrough_blocked;
+        self.access_player = src.access_player;
+    }
 }
 
 impl Default for AddCreatureWire {

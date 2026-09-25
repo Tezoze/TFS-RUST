@@ -48,6 +48,10 @@ pub struct BotConfig {
     pub walk_count: Option<u32>,
     pub item_extra: Arc<ItemExtraBits>,
     pub live: Arc<LiveCounters>,
+    pub login_delay: Duration,
+    /// When set (login spread), histograms start here and every bot ends here.
+    pub record_from: Option<Instant>,
+    pub run_until: Option<Instant>,
 }
 
 pub struct BotOutcome {
@@ -102,6 +106,10 @@ pub async fn run_bot(
     ];
     let round = xtea_tfs::expand_key(&xtea);
 
+    if !cfg.login_delay.is_zero() {
+        tokio::time::sleep(cfg.login_delay).await;
+    }
+
     let login_body = encode_login_first(
         STOCK_CLIENT_OS,
         PROTOCOL_772,
@@ -112,24 +120,22 @@ pub async fn run_bot(
         &e,
     )?;
 
-    {
-        let _slot = gate.acquire().await?;
-        let mut login = TcpStream::connect(&cfg.login_addr)
-            .await
-            .with_context(|| format!("connect login {}", cfg.login_addr))?;
-        let frame = wrap_tcp_frame(&login_body);
-        login.write_all(&frame).await?;
-        let Some(mut reply) = read_sized_payload(&mut login).await? else {
-            return Err(anyhow!("login server closed before char list"));
-        };
-        let plain = decrypt_xtea_game_body(&mut reply, &round, &caps)
-            .map_err(|err| anyhow!("login XTEA: {err}"))?;
-        let chars = parse_char_list(plain)?;
-        if chars.is_empty() {
-            return Err(anyhow!("empty character list"));
-        }
-        drop(login);
+    let login_slot = gate.acquire().await?;
+    let mut login = TcpStream::connect(&cfg.login_addr)
+        .await
+        .with_context(|| format!("connect login {}", cfg.login_addr))?;
+    let frame = wrap_tcp_frame(&login_body);
+    login.write_all(&frame).await?;
+    let Some(mut reply) = read_sized_payload(&mut login).await? else {
+        return Err(anyhow!("login server closed before char list"));
+    };
+    let plain = decrypt_xtea_game_body(&mut reply, &round, &caps)
+        .map_err(|err| anyhow!("login XTEA: {err}"))?;
+    let chars = parse_char_list(plain)?;
+    if chars.is_empty() {
+        return Err(anyhow!("empty character list"));
     }
+    drop(login);
 
     let game_body = encode_game_first(
         STOCK_CLIENT_OS,
@@ -147,6 +153,7 @@ pub async fn run_bot(
         .with_context(|| format!("connect game {}", cfg.game_addr))?;
     let gframe = wrap_tcp_frame(&game_body);
     game.write_all(&gframe).await?;
+    drop(login_slot);
     let mut bytes_out = gframe.len() as u64;
     let mut lease = SessionLease::new(Arc::clone(&cfg.live));
 
@@ -161,7 +168,10 @@ pub async fn run_bot(
 
     let start = Instant::now();
     let warmup = Duration::from_secs(cfg.scenario.warmup_s);
-    let record_from = start + warmup;
+    let record_from = cfg.record_from.unwrap_or(start + warmup);
+    let run_end = cfg
+        .run_until
+        .unwrap_or(start + warmup + Duration::from_secs(cfg.scenario.duration_s.max(1)));
     let mut ol = OpenLoop::new();
     if let Some(nwalk) = cfg.walk_count {
         ol.schedule_walk_ns(
@@ -171,10 +181,7 @@ pub async fn run_bot(
         );
     } else {
         let mut sched = cfg.scenario.clone();
-        sched.duration_s = cfg
-            .scenario
-            .warmup_s
-            .saturating_add(cfg.scenario.duration_s);
+        sched.duration_s = run_end.saturating_duration_since(start).as_secs().max(1);
         fill_schedule(
             &mut ol,
             cfg.role,
@@ -185,7 +192,6 @@ pub async fn run_bot(
             cfg.index,
         )?;
     }
-    let run_end = start + warmup + Duration::from_secs(cfg.scenario.duration_s.max(1));
 
     let mut dropped = false;
     'run: loop {
