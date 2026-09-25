@@ -69,6 +69,10 @@ impl GameWorld {
     /// Remove creature from map index, player lookups, guild online.
     // C++ reference: `Game::removeCreature` — spectator disappear. Summons idle-despawn.
     pub fn remove_creature(&mut self, id: CreatureId) {
+        // 772 `TMonster::~TMonster` decrements the master's counter (`crnonpl.cc:2129-2133`).
+        if let Some(master) = self.creatures.get(id).and_then(|k| k.base().master) {
+            self.note_summon_released(master);
+        }
         if matches!(self.creatures.get(id), Some(CreatureKind::Player(_))) {
             self.cancel_trade_for_player(id);
             self.player_forced_leave_party(id);
@@ -139,6 +143,24 @@ impl GameWorld {
         self.stop_event_walk(id);
         self.unindex_creature_wire(id);
         self.creatures.remove(id);
+    }
+
+    /// 772 `Master->SummonedCreatures += 1` — `crnonpl.cc:2022`.
+    pub(crate) fn note_summon_bound(&mut self, master: CreatureId) {
+        if let Some(k) = self.creatures.get_mut(master) {
+            let count = &mut k.base_mut().summoned_creatures;
+            *count = count.saturating_add(1);
+        }
+    }
+
+    /// 772 `Master->SummonedCreatures -= 1` when still above 0 — `crnonpl.cc:2131`.
+    pub(crate) fn note_summon_released(&mut self, master: CreatureId) {
+        if let Some(k) = self.creatures.get_mut(master) {
+            let count = &mut k.base_mut().summoned_creatures;
+            if *count > 0 {
+                *count -= 1;
+            }
+        }
     }
 
     /// 772 `TCreature::LogoutPossible` — `crmain.cc:417-431`.

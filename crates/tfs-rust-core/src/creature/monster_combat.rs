@@ -1238,6 +1238,7 @@ mod tests {
             attack_target: None,
             master: None,
             master_is_player: false,
+            summoned_creatures: 0,
             damage_map: Default::default(),
             last_hit_by: None,
             last_damage_type: CombatType::Physical,

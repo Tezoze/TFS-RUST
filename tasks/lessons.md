@@ -1294,4 +1294,7 @@
 539. **`home_radius <= 0` is not a despawn-radius leash** (`monster_ai.rs` `monster_roam_leash_radius`; `crnonpl.cc:1516` `MonsterhomeInRange`): `Home == 0` returns in range immediately. Planning was substituting `deSpawnRadius` (default 50), so a monster with no home could neither roam past 50 nor home-despawn. Skip the axis box when `home_radius <= 0`. A positive home still rejects dests outside the box. Attacking and Panic already skip the leash. Creature `Radius` is a separate Chebyshev check from the current tile (`crnonpl.cc:2154`) and is copied from the raid wave (`crmain.cc:2061`), not from TFS areaspawn `spread`.
     *(2026-09-25)*
 
+540. **Summon lose-target and the summon counter** (`idle_stimulus.rs` `monster_idle_should_lose_target`, `monster_idle_summon_lifecycle`; `crnonpl.cc:2370`, `:2418`): after a summon copies the master's attack target, range, floor, house, protection zone, and invisibility still drop it. Only `random(0, 99) < LoseTarget` is limited to `Master == 0`. A live player master with `SummonedCreatures == 0` logs the summon out — that counter is constructed at 0 on the creature (`crmain.cc:188`), not a scan of summons still pointing at the id.
+    *(2026-09-25)*
+
 

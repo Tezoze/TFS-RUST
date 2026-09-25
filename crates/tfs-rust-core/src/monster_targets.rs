@@ -645,7 +645,6 @@ impl GameWorld {
         }
         if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(monster_id) {
             m.target_change_cooldown = 8000;
-            m.challenge_focus_duration = 8000;
             m.target_change_ticks = 0;
         }
         true

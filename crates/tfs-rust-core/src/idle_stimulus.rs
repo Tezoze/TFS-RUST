@@ -200,14 +200,14 @@ impl GameWorld {
         if !self.creature_todo_queue_empty(cid) {
             return;
         }
-        // Monster-only dedupe: one `IdleStimulus` pass per beat (`crnonpl.cc:2345`).
-        // Players have no equivalent throttle — `IdleStimulus` is only called on queue drain.
-        if self.creatures.get(cid).is_some_and(|k| {
-            matches!(
-                k,
-                CreatureKind::Monster(m) if m.idle_stimulus_last_ms == Some(self.server_ms)
-            )
-        }) {
+        // A pass already on the stack must finish its walk section. `setFollowCreature`
+        // yields from inside that pass; a same-millisecond drain after the pass returns
+        // still runs (`cract.cc` idle on every empty list).
+        if self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.in_idle_stimulus))
+        {
             return;
         }
         if self
@@ -1127,6 +1127,21 @@ impl GameWorld {
                     "summon despawn: monster master on different floor"
                 );
                 true
+            } else if master_is_player
+                && self
+                    .creatures
+                    .get(master_id)
+                    .is_some_and(|k| k.base().summoned_creatures == 0)
+            {
+                // C++ player master present with `SummonedCreatures == 0` — relog
+                // (`crnonpl.cc:2370`). The new creature still resolves; its counter
+                // was constructed at 0 (`crmain.cc:188`).
+                tracing::debug!(
+                    ?cid,
+                    ?master_id,
+                    "summon despawn: player master summon count is zero"
+                );
+                true
             } else {
                 // C++ `|Δz| > 1 || |Δx| > 30 || |Δy| > 30` → despawn (`crnonpl.cc:2376`).
                 let dz = (master_pos.z as i32 - summon_pos.z as i32).unsigned_abs();
@@ -1221,9 +1236,6 @@ impl GameWorld {
         let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) else {
             return true;
         };
-        if m.base.master.is_some() {
-            return false;
-        }
         let Some(target) = self.creatures.get(target_id) else {
             return true;
         };
@@ -2305,9 +2317,6 @@ impl GameWorld {
     /// the CASTING block. Passing `skip_casting=true` avoids Destination/Victim `Rotate` mid-chase
     /// (run → face → run), which looked like flee turn-dancing on casters (e.g. giant spider).
     pub(crate) fn monster_idle_stimulus_after_creature_move(&mut self, cid: CreatureId) {
-        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-            m.idle_stimulus_last_ms = None;
-        }
         self.monster_idle_stimulus_inner(cid, true);
     }
 
@@ -2319,14 +2328,23 @@ impl GameWorld {
         if !self.creatures.contains_key(cid) {
             return;
         }
-        if self.creatures.get(cid).is_some_and(|k| {
-            matches!(
-                k,
-                CreatureKind::Monster(m) if m.idle_stimulus_last_ms == Some(self.server_ms)
-            )
-        }) {
+        let reentered = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.in_idle_stimulus));
+        if reentered {
             return;
         }
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+            m.in_idle_stimulus = true;
+        }
+        self.monster_idle_stimulus_run(cid, skip_casting);
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+            m.in_idle_stimulus = false;
+        }
+    }
+
+    fn monster_idle_stimulus_run(&mut self, cid: CreatureId, skip_casting: bool) {
         self.obs.record_idle_pass();
         if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
             tracing::trace!(
@@ -2338,14 +2356,12 @@ impl GameWorld {
             );
         }
         if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
-            m.idle_stimulus_last_ms = Some(self.server_ms);
             // C++ logs `combat_state` each idle pass; harness compare is per-tick bucketed.
             m.last_combat_trace = None;
         }
 
         // C++ after LockToDo/LoggingOut + ChasePathLogIdleStimulus (`crnonpl.cc:2345`):
         // LifeEndRound → Master summon block → else MonsterhomeInRange → sleeping.
-        // Before `wants_lua_think` so scripted monsters still expire.
         if self.monster_idle_life_end_expired(cid) {
             self.start_logout_despawn(cid);
             return;
@@ -2355,14 +2371,6 @@ impl GameWorld {
         }
         if self.monster_idle_outside_monsterhome(cid) {
             self.start_logout_despawn(cid);
-            return;
-        }
-
-        if self
-            .creatures
-            .get(cid)
-            .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.wants_lua_think()))
-        {
             return;
         }
 
@@ -3522,13 +3530,20 @@ impl GameWorld {
                 }
             }
             MonsterIdleWalkBranch::DistDance => {
-                if self.monster_idle_dance_step(cid) {
+                if self.monster_idle_dance_step(cid)
+                    && self
+                        .creatures
+                        .get(cid)
+                        .is_some_and(|k| !k.base().walk_queue.is_empty())
+                {
                     MonsterIdleWalkOutcome::QueuedGo {
                         via: "idle_dance",
                         wait_after: true,
                     }
                 } else {
-                    MonsterIdleWalkOutcome::Hold
+                    // Hold (`rand()%5` case 4) stays on the tile. `ToDoWait(1000)` still
+                    // runs (`crnonpl.cc:2872`); no empty `ToDoGo`.
+                    MonsterIdleWalkOutcome::QueuedWait
                 }
             }
             MonsterIdleWalkBranch::Roam => {
@@ -3559,8 +3574,12 @@ impl GameWorld {
         self.monster_idle_set_combat_chase_mode(cid);
         let branch = self.monster_idle_classify_walk_branch(cid);
         let mut outcome = self.monster_idle_execute_walk_branch(cid, branch);
+        // NOWAY and flee-fail leave the combat-walk `else` via the catch / roam tail
+        // (`crnonpl.cc:2894`). That tail has its own wait; do not add `:2886` on top.
+        let mut stayed_on_combat_arm = true;
 
         if matches!(outcome, MonsterIdleWalkOutcome::Noway) {
+            stayed_on_combat_arm = false;
             self.monster_on_chase_noway(cid);
             outcome = self.monster_idle_execute_walk_branch(cid, MonsterIdleWalkBranch::Roam);
         }
@@ -3570,6 +3589,7 @@ impl GameWorld {
             (MonsterIdleWalkBranch::Flee, MonsterIdleWalkOutcome::Hold)
                 | (_, MonsterIdleWalkOutcome::FallthroughRoam)
         ) {
+            stayed_on_combat_arm = false;
             outcome = self.monster_idle_execute_walk_branch(cid, MonsterIdleWalkBranch::Roam);
         }
 
@@ -3597,6 +3617,42 @@ impl GameWorld {
             }
             MonsterIdleWalkOutcome::FallthroughRoam | MonsterIdleWalkOutcome::Noway => {}
         }
+
+        if stayed_on_combat_arm {
+            // `crnonpl.cc:2886` — after melee/dist arms, a non-attacking monster waits
+            // another second. Distance standoff already waited once inside the arm.
+            self.monster_idle_enqueue_non_attacking_wait(cid, branch);
+        }
+    }
+
+    /// Extra `ToDoWait(1000)` when fist skill did not promote to attacking (`crnonpl.cc:2886`).
+    fn monster_idle_enqueue_non_attacking_wait(
+        &mut self,
+        cid: CreatureId,
+        branch: MonsterIdleWalkBranch,
+    ) {
+        let combat_walk = matches!(
+            branch,
+            MonsterIdleWalkBranch::MeleeChase
+                | MonsterIdleWalkBranch::MeleeDance
+                | MonsterIdleWalkBranch::DistFlee
+                | MonsterIdleWalkBranch::DistChase
+                | MonsterIdleWalkBranch::DistDance
+        );
+        if !combat_walk {
+            return;
+        }
+        let attacking = self.creatures.get(cid).is_some_and(|k| {
+            matches!(
+                k,
+                CreatureKind::Monster(m)
+                    if matches!(m.state, MonsterState::Attacking | MonsterState::Panic)
+            )
+        });
+        if attacking {
+            return;
+        }
+        self.idle_enqueue_wait_and_start(cid, MONSTER_IDLE_WAIT_MS);
     }
 
     /// Execute the front todo action for 772 monsters.

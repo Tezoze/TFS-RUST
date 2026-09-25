@@ -1454,10 +1454,12 @@ fn test_772_master_follow_manhattan_2_hold() {
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
         m.is_idle = false;
         m.base.master = Some(master);
+        m.base.master_is_player = true;
         m.base.follow_target = Some(master);
         m.base.has_follow_path = false;
         m.base.walk_queue.clear();
     }
+    world.note_summon_bound(master);
 
     world.monster_idle_stimulus(monster);
 
@@ -1508,10 +1510,12 @@ fn test_772_master_follow_manhattan_3_wait_then_go() {
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
         m.is_idle = false;
         m.base.master = Some(master);
+        m.base.master_is_player = true;
         m.base.follow_target = Some(master);
         m.base.has_follow_path = false;
         m.base.walk_queue.clear();
     }
+    world.note_summon_bound(master);
 
     world.monster_idle_stimulus(monster);
 
@@ -1568,10 +1572,12 @@ fn test_772_master_follow_manhattan_1_roams() {
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
         m.is_idle = false;
         m.base.master = Some(master);
+        m.base.master_is_player = true;
         m.base.follow_target = Some(master);
         m.base.has_follow_path = false;
         m.base.walk_queue.clear();
     }
+    world.note_summon_bound(master);
 
     world.monster_idle_stimulus(monster);
 
@@ -2072,6 +2078,7 @@ fn test_772_melee_stick_fight_no_wait_after_attack() {
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
         m.is_idle = false;
         m.is_hostile = true;
+        m.melee_skill = 15;
         m.opponent_ids.push(player);
         m.base.follow_target = Some(player);
         m.base.attack_target = Some(player);
@@ -4276,6 +4283,7 @@ fn insert_summon(
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(summon) {
         m.base.bind_master(master_id, master_is_player);
     }
+    world.note_summon_bound(master_id);
     summon
 }
 
@@ -7824,7 +7832,6 @@ fn idle_despawns_when_life_end_round_due() {
     world.round_nr = 10;
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
         m.life_end_round = Some(world.round_nr);
-        m.idle_stimulus_last_ms = None;
     }
     world.monster_idle_stimulus(monster);
     world.process_creatures();
@@ -7844,7 +7851,6 @@ fn idle_keeps_monster_when_life_end_round_in_future() {
     world.round_nr = 10;
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
         m.life_end_round = Some(world.round_nr + 10);
-        m.idle_stimulus_last_ms = None;
     }
     world.monster_idle_stimulus(monster);
     assert!(
@@ -7863,7 +7869,6 @@ fn idle_keeps_monster_when_life_end_round_unset() {
     world.round_nr = 10;
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
         m.life_end_round = None;
-        m.idle_stimulus_last_ms = None;
     }
     world.monster_idle_stimulus(monster);
     assert!(
@@ -7882,7 +7887,6 @@ fn raid_tick_does_not_despawn_due_life_end_idle_does() {
     world.round_nr = 10;
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
         m.life_end_round = Some(world.round_nr);
-        m.idle_stimulus_last_ms = None;
     }
     world.process_monster_raids();
     assert!(
@@ -7911,7 +7915,6 @@ fn idle_despawns_attacking_monster_outside_monsterhome() {
         m.home_radius = 3;
         m.state = MonsterState::Attacking;
         m.is_idle = false;
-        m.idle_stimulus_last_ms = None;
     }
     world.monster_idle_stimulus(monster);
     world.process_creatures();
@@ -7933,7 +7936,6 @@ fn idle_keeps_monster_inside_monsterhome() {
     relocate_monster(&mut world, monster, near);
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
         m.home_radius = 3;
-        m.idle_stimulus_last_ms = None;
     }
     world.monster_idle_stimulus(monster);
     assert!(
@@ -7954,7 +7956,6 @@ fn idle_keeps_monster_with_unset_home_radius_even_if_far() {
     relocate_monster(&mut world, monster, far);
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
         m.home_radius = 0;
-        m.idle_stimulus_last_ms = None;
     }
     world.monster_idle_stimulus(monster);
     assert!(
@@ -7977,11 +7978,345 @@ fn idle_summon_skips_monsterhome_despawn() {
     relocate_monster(&mut world, summon, far);
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(summon) {
         m.home_radius = 3;
-        m.idle_stimulus_last_ms = None;
     }
     world.monster_idle_stimulus(summon);
     assert!(
         world.creatures.contains_key(summon),
         "summon off-home with master in range must not despawn via monsterhome"
     );
+}
+
+fn idle_wait_count(todo: &crate::creature_todo::CreatureTodo, server_ms: u64) -> usize {
+    let deadline = server_ms.saturating_add(MONSTER_IDLE_WAIT_MS);
+    todo.queue
+        .iter()
+        .filter(|action| {
+            matches!(action, CreatureAction::Wait { deadline_ms } if *deadline_ms == deadline)
+        })
+        .count()
+}
+
+/// Summon still drops a target past 10 tiles. The random lose roll stays masterless.
+#[test]
+fn summon_loses_target_beyond_10_tiles() {
+    let mut world = beat_driven_test_world();
+    let master_pos = Position::new(100, 100, 7);
+    let summon_pos = Position::new(102, 100, 7);
+    let victim_pos = Position::new(114, 100, 7);
+    for pos in [master_pos, summon_pos, victim_pos] {
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+    }
+    let master = insert_monster(&mut world, "Master", master_pos, 200);
+    let victim = insert_monster(&mut world, "Victim", victim_pos, 200);
+    if let Some(k) = world.creatures.get_mut(master) {
+        k.base_mut().attack_target = Some(victim);
+        k.base_mut().follow_target = None;
+    }
+    let summon = insert_summon(&mut world, "Summon", summon_pos, master);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(summon) {
+        m.lose_target_percent = 0;
+    }
+    wake_monster(&mut world, summon);
+    world.monster_idle_stimulus(summon);
+    assert!(world.creatures.contains_key(summon));
+    assert_eq!(
+        world.creatures.get(summon).unwrap().base().follow_target,
+        None,
+        "summon must drop a target more than 10 tiles away"
+    );
+}
+
+/// `LoseTarget` roll is `Master == 0` only (`crnonpl.cc:2431`). Percent 100 must not clear it.
+#[test]
+fn summon_does_not_roll_lose_target() {
+    let mut world = beat_driven_test_world();
+    let master_pos = Position::new(100, 100, 7);
+    let summon_pos = Position::new(102, 100, 7);
+    let victim_pos = Position::new(103, 100, 7);
+    for pos in [master_pos, summon_pos, victim_pos] {
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+    }
+    let master = insert_monster(&mut world, "Master", master_pos, 200);
+    let victim = insert_monster(&mut world, "Victim", victim_pos, 200);
+    if let Some(k) = world.creatures.get_mut(master) {
+        k.base_mut().attack_target = Some(victim);
+        k.base_mut().follow_target = None;
+    }
+    let summon = insert_summon(&mut world, "Summon", summon_pos, master);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(summon) {
+        m.lose_target_percent = 100;
+        m.melee_skill = 10;
+    }
+    wake_monster(&mut world, summon);
+    world.monster_idle_stimulus(summon);
+    assert_eq!(
+        world.creatures.get(summon).unwrap().base().follow_target,
+        Some(victim),
+        "summon must keep an in-range target even when LoseTarget is 100"
+    );
+}
+
+#[test]
+fn challenge_does_not_suppress_flee() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(101, 100, 7);
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+    let monster = insert_monster(&mut world, "Rat", mpos, 200);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.run_away_health = 50;
+        m.base.health = 10;
+        m.is_hostile = true;
+    }
+    assert!(
+        world
+            .creatures
+            .get(monster)
+            .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.is_fleeing())),
+        "low health must flee before the challenge"
+    );
+    assert!(
+        world.monster_challenge_creature(monster, player),
+        "challenge must set the target"
+    );
+    assert!(
+        world
+            .creatures
+            .get(monster)
+            .is_some_and(|k| matches!(k, CreatureKind::Monster(m) if m.is_fleeing())),
+        "challenge must not freeze flee"
+    );
+}
+
+#[test]
+fn second_idle_in_same_millisecond_runs() {
+    let mut world = beat_driven_test_world();
+    let pos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+    let monster = insert_monster(&mut world, "Rat", pos, 200);
+    world.server_ms = 5_000;
+    world.monster_idle_stimulus(monster);
+    world.monster_idle_stimulus(monster);
+    assert_eq!(
+        world.obs.idle_passes, 2,
+        "two drains in the same millisecond must both run idle"
+    );
+}
+
+#[test]
+fn dist_dance_hold_waits_without_go() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(104, 100, 7);
+    for x in 99..=104 {
+        ensure_walkable_tile(
+            &mut world.map,
+            Position::new(x, 100, 7),
+            TEST_SYNTHETIC_GROUND_WP,
+        );
+    }
+    ensure_walkable_tile(
+        &mut world.map,
+        Position::new(100, 99, 7),
+        TEST_SYNTHETIC_GROUND_WP,
+    );
+    ensure_walkable_tile(
+        &mut world.map,
+        Position::new(100, 101, 7),
+        TEST_SYNTHETIC_GROUND_WP,
+    );
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+    let monster =
+        insert_monster_with_config(&mut world, "Hunter", mpos, 200, dist_idle_monster_config(4));
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.is_idle = false;
+        m.melee_skill = 15;
+        m.lose_target_percent = 0;
+        m.base.follow_target = Some(player);
+        m.base.attack_target = Some(player);
+    }
+
+    let mut held = false;
+    for _ in 0..40 {
+        if let Some(k) = world.creatures.get_mut(monster) {
+            let base = k.base_mut();
+            base.walk_queue.clear();
+            base.todo.queue.clear();
+            base.has_follow_path = false;
+            base.next_wakeup = None;
+        }
+        world.monster_idle_stimulus(monster);
+        let todo = &world.creatures.get(monster).unwrap().base().todo;
+        if !todo.has_go() {
+            assert!(
+                todo.has_wait(),
+                "distance hold must wait one second without a step"
+            );
+            held = true;
+            break;
+        }
+    }
+    assert!(held, "distance dance must roll a hold within 40 idles");
+}
+
+#[test]
+fn player_master_zero_summon_count_logs_out() {
+    let mut world = beat_driven_test_world();
+    let pos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+    let player = insert_player(&mut world, test_player("Hero", pos));
+    world.map.register_creature_at(pos, player);
+    let summon = insert_summon(&mut world, "Summon", pos, player);
+    if let Some(k) = world.creatures.get_mut(player) {
+        k.base_mut().summoned_creatures = 0;
+    }
+    wake_monster(&mut world, summon);
+    world.monster_idle_stimulus(summon);
+    assert!(
+        world
+            .creatures
+            .get(summon)
+            .is_some_and(|k| k.base().logging_out && !k.base().is_dead),
+        "player master with summon count 0 must log the summon out"
+    );
+}
+
+#[test]
+fn counted_player_summon_stays() {
+    let mut world = beat_driven_test_world();
+    let pos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+    let player = insert_player(&mut world, test_player("Hero", pos));
+    world.map.register_creature_at(pos, player);
+    let summon = insert_summon(&mut world, "Summon", pos, player);
+    assert_eq!(
+        world
+            .creatures
+            .get(player)
+            .unwrap()
+            .base()
+            .summoned_creatures,
+        1
+    );
+    wake_monster(&mut world, summon);
+    world.monster_idle_stimulus(summon);
+    assert!(
+        world
+            .creatures
+            .get(summon)
+            .is_some_and(|k| !k.base().logging_out && !k.base().is_dead),
+        "a counted summon must stay with its player master"
+    );
+}
+
+#[test]
+fn on_think_registration_does_not_skip_native_idle() {
+    let mut world = beat_driven_test_world();
+    let (monster, _player) = e1_melee_target_setup(&mut world, 15);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.registered_events.insert("onThink".to_string());
+    }
+    world.monster_idle_stimulus(monster);
+    assert!(
+        !world.creatures.get(monster).unwrap().base().todo.is_empty(),
+        "onThink registration must not replace native idle"
+    );
+}
+
+#[test]
+fn fistless_melee_chase_waits_once() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(102, 100, 7);
+    for x in 100..=102 {
+        ensure_walkable_tile(
+            &mut world.map,
+            Position::new(x, 100, 7),
+            TEST_SYNTHETIC_GROUND_WP,
+        );
+    }
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+    let monster = insert_monster(&mut world, "Rat", mpos, 200);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.is_idle = false;
+        m.melee_skill = 0;
+        m.lose_target_percent = 0;
+        m.is_hostile = true;
+        m.base.follow_target = Some(player);
+        m.base.attack_target = Some(player);
+        m.base.walk_queue.clear();
+    }
+    world.monster_idle_stimulus(monster);
+    let base = world.creatures.get(monster).unwrap().base();
+    assert!(base.todo.has_go(), "fist-less melee chase must still step");
+    assert_eq!(
+        idle_wait_count(&base.todo, world.server_ms),
+        1,
+        "fist-less melee chase waits one second"
+    );
+}
+
+#[test]
+fn fistless_dist_standoff_waits_twice() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(104, 100, 7);
+    for x in 99..=104 {
+        ensure_walkable_tile(
+            &mut world.map,
+            Position::new(x, 100, 7),
+            TEST_SYNTHETIC_GROUND_WP,
+        );
+    }
+    ensure_walkable_tile(
+        &mut world.map,
+        Position::new(100, 99, 7),
+        TEST_SYNTHETIC_GROUND_WP,
+    );
+    ensure_walkable_tile(
+        &mut world.map,
+        Position::new(100, 101, 7),
+        TEST_SYNTHETIC_GROUND_WP,
+    );
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+    let monster =
+        insert_monster_with_config(&mut world, "Hunter", mpos, 200, dist_idle_monster_config(4));
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.is_idle = false;
+        m.melee_skill = 0;
+        m.lose_target_percent = 0;
+        m.base.follow_target = Some(player);
+        m.base.attack_target = Some(player);
+    }
+
+    let mut held = false;
+    for _ in 0..40 {
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.state = MonsterState::Idle;
+            m.melee_skill = 0;
+            m.base.walk_queue.clear();
+            m.base.todo.queue.clear();
+            m.base.has_follow_path = false;
+            m.base.next_wakeup = None;
+        }
+        world.monster_idle_stimulus(monster);
+        let server_ms = world.server_ms;
+        let todo = &world.creatures.get(monster).unwrap().base().todo;
+        if !todo.has_go() {
+            assert_eq!(
+                idle_wait_count(todo, server_ms),
+                2,
+                "fist-less distance standoff waits twice"
+            );
+            held = true;
+            break;
+        }
+    }
+    assert!(held, "distance dance must roll a hold within 40 idles");
 }

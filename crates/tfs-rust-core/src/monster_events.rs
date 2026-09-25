@@ -102,12 +102,7 @@ impl GameWorld {
             let Some(other_pos) = self.creatures.get(other).map(|k| k.position()) else {
                 return false;
             };
-            monster_can_see(
-                center,
-                other_pos,
-                range,
-                range,
-            )
+            monster_can_see(center, other_pos, range, range)
         });
         std::mem::take(&mut self.scratch_spectators)
     }
@@ -167,18 +162,8 @@ impl GameWorld {
             None => return,
         };
         let range = i32::from(MAP_MAX_VIEWPORT);
-        let can_see_new = monster_can_see(
-            monster_pos,
-            new_pos,
-            range,
-            range,
-        );
-        let can_see_old = monster_can_see(
-            monster_pos,
-            old_pos,
-            range,
-            range,
-        );
+        let can_see_new = monster_can_see(monster_pos, new_pos, range, range);
+        let can_see_old = monster_can_see(monster_pos, old_pos, range, range);
 
         if can_see_new && !can_see_old {
             self.monster_on_creature_found(monster_id, creature_id, true);
@@ -220,14 +205,7 @@ impl GameWorld {
             let target_visible = self
                 .creatures
                 .get(creature_id)
-                .map(|k| {
-                    monster_can_see(
-                        monster_pos,
-                        k.position(),
-                        range,
-                        range,
-                    )
-                })
+                .map(|k| monster_can_see(monster_pos, k.position(), range, range))
                 .unwrap_or(false);
             // AI#24: C++ `CreatureMoveStimulus` (`crmain.cc:920`) does NOT clear targets on
             // Z-change — it only re-arms close-chase combat. The Z-level clear was a 1098
@@ -584,9 +562,9 @@ mod tests {
             world.map.register_creature_at(surface, player);
             world.monster_on_creature_move(monster, player, unseen, surface);
 
-            let sees = world.creatures.get(monster).is_some_and(|k| {
-                matches!(k, CreatureKind::Monster(m) if m.opponent_ids.contains(&player))
-            });
+            let sees = world.creatures.get(monster).is_some_and(
+                |k| matches!(k, CreatureKind::Monster(m) if m.opponent_ids.contains(&player)),
+            );
             assert!(
                 sees,
                 "monster on z=8 must see z=7 in the move fan-out ({version:?})"

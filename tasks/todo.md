@@ -7,6 +7,13 @@
 - [x] P3: non-combat plans reject dest beyond `Monster.radius`; raid wave copies `AttackWave.radius`
 - [x] P4: melee dance promotes Panic → Attacking after the roll, including a blocked sidestep and hold
 - [x] P5: monster/NPC step duration is LinearGo on every version; monster floor sight uses `CanSeeFloor`
+- [x] B1: summons run lose-target checks; random `LoseTarget` stays masterless
+- [x] B2: challenge does not suppress flee
+- [x] B3: a second idle drain in the same millisecond runs
+- [x] B4: distance hold waits without an empty `Go`
+- [x] G1: player master with `summoned_creatures == 0` logs the summon out
+- [x] G2: `onThink` registration does not replace native idle
+- [x] G3: fist skill 0 waits after melee chase (once) and distance standoff (twice)
 
 # 1000-bot 1h A/B after stack-index fix (2026-09-24)
 

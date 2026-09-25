@@ -203,7 +203,7 @@ pub struct Monster {
     pub radius: i32,
     pub ai_phase: MonsterAiPhase,
     pub think_interval_ms: u32,
-    /// Script registration: only if contains `onThink` does core invoke Lua think (Phase 8).
+    /// Script event names. Native idle still runs when `onThink` is registered.
     pub registered_events: HashSet<String>,
     pub target_distance: i32,
     pub run_away_health: i32,
@@ -218,8 +218,9 @@ pub struct Monster {
     /// Last `(state, chase_mode)` emitted to chase JSONL — harness dedupe only.
     /// `chase_mode` lives on [`CreatureBase`] (shared with players); this dedupe key reads it.
     pub(crate) last_combat_trace: Option<(MonsterState, crate::creature::ChaseMode)>,
-    /// Last `IdleStimulus` drain ms — one pass per beat (`crnonpl.cc:2345`).
-    pub(crate) idle_stimulus_last_ms: Option<u64>,
+    /// True while `IdleStimulus` is on the stack. Blocks a yield from re-entering
+    /// the same pass (`monster_set_follow_creature` → `request_idle_stimulus`).
+    pub(crate) in_idle_stimulus: bool,
     pub walking_to_spawn: bool,
     pub change_target_speed: u32,
     pub change_target_chance: i32,
@@ -283,8 +284,6 @@ pub struct Monster {
     pub target_change_ticks: u32,
     /// C++ `Monster::targetChangeCooldown`.
     pub target_change_cooldown: u32,
-    /// C++ `Monster::challengeFocusDuration` — blocks flee while challenged.
-    pub challenge_focus_duration: u32,
     /// C++ `Monster::targetList` — live hostile creature ids in view.
     pub opponent_ids: Vec<CreatureId>,
     /// C++ `Monster::friendList`.
@@ -325,7 +324,7 @@ impl Monster {
             is_idle: true,
             state: MonsterState::Sleeping,
             last_combat_trace: None,
-            idle_stimulus_last_ms: None,
+            in_idle_stimulus: false,
             walking_to_spawn: false,
             change_target_speed: config.change_target_speed,
             change_target_chance: config.change_target_chance,
@@ -361,16 +360,11 @@ impl Monster {
             inventory: MonsterInventory::default(),
             target_change_ticks: 0,
             target_change_cooldown: 0,
-            challenge_focus_duration: 0,
             opponent_ids: Vec::new(),
             friend_ids: Vec::new(),
             wire_id: 0,
             life_end_round: None,
         }
-    }
-
-    pub fn wants_lua_think(&self) -> bool {
-        self.registered_events.contains("onThink")
     }
 
     /// TFS `Monster::isPushable` — `monster.h` (`pushable && baseSpeed != 0`).
@@ -390,9 +384,9 @@ impl Monster {
         !self.pushable
     }
 
-    /// 772 `TMonster::IsFleeing` — `crnonpl.cc:3136` (HP threshold only; PANIC is separate).
+    /// 772 `TMonster::IsFleeing` — `crnonpl.cc:3152` (no master, HP at or below the threshold).
     pub fn is_fleeing(&self) -> bool {
-        if self.base.is_summon() || self.challenge_focus_duration > 0 {
+        if self.base.is_summon() {
             return false;
         }
         self.run_away_health > 0 && self.base.health <= self.run_away_health

@@ -253,6 +253,10 @@ pub struct CreatureBase {
     /// 772 `IsCreaturePlayer(Master)` — `crmain.cc:974` (`CreatureID < 0x40000000`).
     /// Survives after the master is removed from SlotMap (C++ still classifies the stale ID).
     pub master_is_player: bool,
+    /// 772 `TCreature::SummonedCreatures` — `cr.hh:634`, constructed at 0 (`crmain.cc:188`).
+    /// Incremented when a summon binds (`crnonpl.cc:2022`); decremented on summon removal
+    /// when still above 0 (`crnonpl.cc:2131`). A live player with 0 is a relog.
+    pub summoned_creatures: i32,
     pub damage_map: DamageMap,
     /// Last creature that dealt HP damage — 772 `Attacker` on killing blow (`crmain.cc:822`).
     pub last_hit_by: Option<CreatureId>,

@@ -476,7 +476,11 @@ mod tests {
             CreatureKind::Monster(m) => Some(m.radius),
             _ => None,
         });
-        assert_eq!(radius, Some(i32::MAX), "default wave radius stays unbounded");
+        assert_eq!(
+            radius,
+            Some(i32::MAX),
+            "default wave radius stays unbounded"
+        );
     }
 
     #[test]
@@ -512,7 +516,11 @@ mod tests {
             CreatureKind::Monster(m) => Some(m.radius),
             _ => None,
         });
-        assert_eq!(radius, Some(3), "raid spawn copies Wave->Radius onto the creature");
+        assert_eq!(
+            radius,
+            Some(3),
+            "raid spawn copies Wave->Radius onto the creature"
+        );
     }
 
     #[test]

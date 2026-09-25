@@ -381,6 +381,7 @@ impl GameWorld {
             attack_target: None,
             master: None,
             master_is_player: false,
+            summoned_creatures: 0,
             damage_map: Default::default(),
             last_hit_by: None,
             last_damage_type: CombatType::Physical,
@@ -550,6 +551,7 @@ impl GameWorld {
             attack_target: None,
             master: None,
             master_is_player: false,
+            summoned_creatures: 0,
             damage_map: Default::default(),
             last_hit_by: None,
             last_damage_type: CombatType::Physical,
@@ -679,6 +681,7 @@ impl GameWorld {
             attack_target: None,
             master: None,
             master_is_player: false,
+            summoned_creatures: 0,
             damage_map: Default::default(),
             last_hit_by: None,
             last_damage_type: CombatType::Physical,
@@ -782,6 +785,7 @@ impl GameWorld {
             attack_target: None,
             master: None,
             master_is_player: false,
+            summoned_creatures: 0,
             damage_map: Default::default(),
             last_hit_by: None,
             last_damage_type: CombatType::Physical,
@@ -844,13 +848,22 @@ impl GameWorld {
             .resolve_creature_u64(summon_u64)
             .ok_or_else(|| "addSummon: summon not found".to_string())?;
         let master_is_player = matches!(self.creatures.get(master), Some(CreatureKind::Player(_)));
-        let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(summon) else {
-            return Ok(false);
-        };
-        m.base.clear_targets();
-        m.base.bind_master(master, master_is_player);
-        m.base.drop_loot = false;
-        m.base.skill_loss = false;
+        let previous_master = self.creatures.get(summon).and_then(|k| k.base().master);
+        {
+            let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(summon) else {
+                return Ok(false);
+            };
+            m.base.clear_targets();
+            m.base.bind_master(master, master_is_player);
+            m.base.drop_loot = false;
+            m.base.skill_loss = false;
+        }
+        if previous_master != Some(master) {
+            if let Some(previous) = previous_master {
+                self.note_summon_released(previous);
+            }
+            self.note_summon_bound(master);
+        }
         Ok(true)
     }
 
@@ -994,6 +1007,7 @@ impl GameWorld {
             attack_target: None,
             master: Some(effective_master),
             master_is_player,
+            summoned_creatures: 0,
             damage_map: Default::default(),
             last_hit_by: None,
             last_damage_type: CombatType::Physical,
@@ -1045,6 +1059,7 @@ impl GameWorld {
         self.broadcast_creature_appear(cid, placed);
         self.broadcast_magic_effect(placed, 11);
         self.finish_monster_spawn(cid, &mtype.loot, false, true);
+        self.note_summon_bound(effective_master);
         Some(cid)
     }
 
