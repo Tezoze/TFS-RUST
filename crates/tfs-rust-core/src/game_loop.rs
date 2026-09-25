@@ -22,7 +22,7 @@ use tokio::sync::mpsc::error::TryRecvError;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::creature_todo::ActionObjectRef;
-use crate::game_world::GameWorld;
+use crate::game_world::{GameWorld, OutgoingPacket};
 use crate::ids::CreatureId;
 use crate::login::{self, LoginIngest, MAX_CONCURRENT_LOGIN_LOADS, MAX_QUEUED_LOGIN_LOADS};
 use crate::return_value::ReturnValue;
@@ -1823,13 +1823,13 @@ fn try_recv_next_command(
 /// Pull lone `0xA3` (`SendClearTarget`) out of `pending_outgoing` so a raced-beat
 /// `SendAll` after `ReceiveData` does not drop the client's red square in the same
 /// millisecond as an NPC-attack click (lessons 344/346). Walk snapback `0xB5` stays.
-fn hold_lone_clear_target_packets(world: &mut GameWorld) -> HashMap<ConnId, Vec<Vec<u8>>> {
+fn hold_lone_clear_target_packets(world: &mut GameWorld) -> HashMap<ConnId, Vec<OutgoingPacket>> {
     let mut held = HashMap::new();
     for (conn, pkts) in world.pending_outgoing.iter_mut() {
         let mut rest = Vec::new();
         let mut clear = Vec::new();
         for p in pkts.drain(..) {
-            if p.as_slice() == [0xA3] {
+            if p.as_ref() == [0xA3] {
                 clear.push(p);
             } else {
                 rest.push(p);
@@ -1843,7 +1843,10 @@ fn hold_lone_clear_target_packets(world: &mut GameWorld) -> HashMap<ConnId, Vec<
     held
 }
 
-fn restore_held_clear_target_packets(world: &mut GameWorld, held: HashMap<ConnId, Vec<Vec<u8>>>) {
+fn restore_held_clear_target_packets(
+    world: &mut GameWorld,
+    held: HashMap<ConnId, Vec<OutgoingPacket>>,
+) {
     for (conn, pkts) in held {
         world.pending_outgoing.entry(conn).or_default().extend(pkts);
     }
@@ -3107,7 +3110,9 @@ mod f8_s6_handler_routing_tests {
         let (tx, _rx) = OutboundTx::pair_with_caps(8, 50, 100);
         let mut sinks = HashMap::new();
         sinks.insert(conn, tx);
-        world.pending_outgoing.insert(conn, vec![vec![0u8; 200]]);
+        world
+            .pending_outgoing
+            .insert(conn, vec![vec![0u8; 200].into()]);
         let mut shed = Vec::new();
         flush_pending_outgoing(&mut world, &mut sinks, &None, &mut shed);
         assert!(
@@ -3245,7 +3250,7 @@ mod f8_s6_handler_routing_tests {
 
         let mut world = beat_driven_test_world();
         let conn = ConnId(1);
-        world.pending_outgoing.insert(conn, vec![vec![0xA3]]);
+        world.pending_outgoing.insert(conn, vec![vec![0xA3].into()]);
         let beat_ms = u64::from(world.mechanics.profile.beat_ms.max(1));
         let (mut beat_timer, mut deadline) = new_beat_timer(beat_ms);
         let mut logins = LoginIngest::new();
@@ -3266,7 +3271,7 @@ mod f8_s6_handler_routing_tests {
             world
                 .pending_outgoing
                 .get(&conn)
-                .is_some_and(|pkts| pkts.iter().any(|b| b.as_slice() == [0xA3])),
+                .is_some_and(|pkts| pkts.iter().any(|b| b.as_ref() == [0xA3])),
             "0xA3 must stay queued until AdvanceGame SendAll, got {:?}",
             world.pending_outgoing.get(&conn)
         );
@@ -3318,7 +3323,7 @@ mod f8_s6_handler_routing_tests {
         let ready = drain_ready_beats(&mut beat_timer);
         assert!(ready >= 1, "deadline must have produced a due beat");
         // Simulate ReceiveData after draining ticks (command arm order).
-        world.pending_outgoing.insert(conn, vec![vec![0xA3]]);
+        world.pending_outgoing.insert(conn, vec![vec![0xA3].into()]);
         advance_due_beats_after_receive_data(
             ready,
             &mut world,
@@ -3333,7 +3338,7 @@ mod f8_s6_handler_routing_tests {
             world
                 .pending_outgoing
                 .get(&conn)
-                .is_some_and(|pkts| pkts.iter().any(|b| b.as_slice() == [0xA3])),
+                .is_some_and(|pkts| pkts.iter().any(|b| b.as_ref() == [0xA3])),
             "0xA3 from this click must wait until the next beat, got {:?}",
             world.pending_outgoing.get(&conn)
         );
@@ -3380,7 +3385,9 @@ mod f8_s6_handler_routing_tests {
         tokio::time::sleep(Duration::from_millis(beat_ms + 5)).await;
         let ready = drain_ready_beats(&mut beat_timer);
         assert!(ready >= 1, "deadline must have produced a due beat");
-        world.pending_outgoing.insert(conn, vec![vec![0xB5, 0]]);
+        world
+            .pending_outgoing
+            .insert(conn, vec![vec![0xB5, 0].into()]);
         advance_due_beats_after_receive_data(
             ready,
             &mut world,
@@ -3413,7 +3420,7 @@ mod f8_s6_handler_routing_tests {
 
         let mut world = beat_driven_test_world();
         let conn = ConnId(1);
-        world.pending_outgoing.insert(conn, vec![vec![0x0A]]);
+        world.pending_outgoing.insert(conn, vec![vec![0x0A].into()]);
         let beat_ms = u64::from(world.mechanics.profile.beat_ms.max(1));
         let (mut beat_timer, mut deadline) = new_beat_timer(beat_ms);
         let mut logins = LoginIngest::new();
@@ -3434,7 +3441,7 @@ mod f8_s6_handler_routing_tests {
             world
                 .pending_outgoing
                 .get(&conn)
-                .is_some_and(|pkts| pkts.iter().any(|b| b.as_slice() == [0x0A])),
+                .is_some_and(|pkts| pkts.iter().any(|b| b.as_ref() == [0x0A])),
             "login 0x0A must stay queued until AdvanceGame SendAll, got {:?}",
             world.pending_outgoing.get(&conn)
         );

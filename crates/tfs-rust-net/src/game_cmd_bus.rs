@@ -134,7 +134,7 @@ mod tests {
 
         let (out_tx, _out_rx) = OutboundTx::pair_with_caps(4, 50, 100);
         assert!(matches!(
-            out_tx.try_send(vec![vec![0u8; 200]]),
+            out_tx.try_send(vec![std::sync::Arc::<[u8]>::from(vec![0u8; 200])]),
             Err((OutboundSendError::SlowClient { .. }, _))
         ));
     }

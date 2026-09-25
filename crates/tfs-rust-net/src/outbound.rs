@@ -19,7 +19,7 @@ pub const OUTPUT_QUEUED_BYTE_CAP: usize = 2 * 1024 * 1024;
 /// Hard shed threshold — disconnect when queued bytes exceed this (8 MiB).
 pub const OUTPUT_SLOW_CLIENT_DISCONNECT_BYTES: usize = 8 * 1024 * 1024;
 
-pub type OutputBatch = Vec<Vec<u8>>;
+pub type OutputBatch = Vec<std::sync::Arc<[u8]>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutboundSendError {
@@ -124,10 +124,14 @@ impl OutboundRx {
 mod tests {
     use super::*;
 
+    fn zeros(n: usize) -> OutputBatch {
+        vec![vec![0u8; n].into()]
+    }
+
     #[tokio::test]
     async fn byte_accounting_tracks_queued_payload() {
         let (tx, mut rx) = OutboundTx::pair_with_caps(4, 100, 200);
-        tx.try_send(vec![vec![0u8; 40]]).unwrap();
+        tx.try_send(zeros(40)).unwrap();
         assert_eq!(tx.queued_bytes(), 40);
         let batch = rx.recv().await.unwrap();
         assert_eq!(batch[0].len(), 40);
@@ -138,7 +142,7 @@ mod tests {
     fn slow_client_threshold_rejects_before_channel_full() {
         let (tx, _rx) = OutboundTx::pair_with_caps(64, 10_000, 100);
         assert!(matches!(
-            tx.try_send(vec![vec![0u8; 101]]),
+            tx.try_send(zeros(101)),
             Err((OutboundSendError::SlowClient { .. }, _))
         ));
     }
@@ -149,7 +153,7 @@ mod tests {
         // (floor-change / login map description shape).
         let (tx, _rx) = OutboundTx::pair_with_caps(4, 50, 10_000);
         assert!(
-            tx.try_send(vec![vec![0u8; 200]]).is_ok(),
+            tx.try_send(zeros(200)).is_ok(),
             "empty-queue burst must not soft-cap reject"
         );
     }
@@ -157,9 +161,9 @@ mod tests {
     #[test]
     fn soft_cap_rejects_when_already_queued() {
         let (tx, _rx) = OutboundTx::pair_with_caps(4, 100, 10_000);
-        tx.try_send(vec![vec![0u8; 80]]).unwrap();
+        tx.try_send(zeros(80)).unwrap();
         assert!(matches!(
-            tx.try_send(vec![vec![0u8; 40]]),
+            tx.try_send(zeros(40)),
             Err((OutboundSendError::Full, batch)) if batch[0].len() == 40
         ));
     }

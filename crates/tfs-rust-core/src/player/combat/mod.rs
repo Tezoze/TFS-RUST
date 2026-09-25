@@ -1271,7 +1271,7 @@ mod set_attack_dest_tests {
             .get(&conn)
             .expect("must enqueue clear-target + SendResult");
         assert!(
-            pkts.iter().any(|b| b.as_slice() == [0xA3]),
+            pkts.iter().any(|b| b.as_ref() == [0xA3]),
             "ATTACKNOTALLOWED must send lone 0xA3 so the client drops the red square, got {pkts:?}"
         );
     }

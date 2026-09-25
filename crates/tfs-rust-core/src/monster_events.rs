@@ -504,11 +504,13 @@ impl GameWorld {
             std::mem::take(&mut self.scratch_spectators)
         };
         self.monster_viewport_notify_depth += 1;
-        for monster_id in monsters {
+        for monster_id in monsters.iter().copied() {
             // C++ `Monster::onCreatureAppear` → `onCreatureEnter` for each spatial spectator (`monster.cpp` ~167).
             self.monster_on_creature_found(monster_id, creature_id, true);
         }
         self.monster_viewport_notify_depth = self.monster_viewport_notify_depth.saturating_sub(1);
+        // The loop needed `&mut self`, so the list was taken. Put the allocation back.
+        Self::restore_larger_scratch(&mut self.scratch_spectators, monsters);
     }
 
     /// Notify monsters near a creature move (`Map::moveCreature` spectator fan-out).
@@ -519,9 +521,11 @@ impl GameWorld {
         new_pos: Position,
     ) {
         let monsters = self.monsters_witnessing_move(old_pos, new_pos);
-        for monster_id in monsters {
+        for monster_id in monsters.iter().copied() {
             self.monster_on_creature_move(monster_id, moved, old_pos, new_pos);
         }
+        // The loop needed `&mut self`, so the list was taken. Put the allocation back.
+        Self::restore_larger_scratch(&mut self.scratch_spectators, monsters);
     }
 }
 
@@ -954,5 +958,44 @@ mod tests {
             matches!(m, CreatureKind::Monster(m) if !m.is_idle),
             "is_idle must be false after wake"
         );
+    }
+
+    /// The three fan-outs take `scratch_spectators` so the loop can mutate the world.
+    /// The allocation has to come back, or the next step builds the list again.
+    #[test]
+    fn nearby_monster_list_keeps_capacity_across_fanouts() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        let east = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, east, TEST_SYNTHETIC_GROUND_WP);
+        let player = insert_player(&mut world, test_player("Hero", pos));
+        world.map.register_creature_at(pos, player);
+        let rat = insert_monster(&mut world, "Rat", pos, 200);
+        let _other = insert_monster(&mut world, "Rat", east, 200);
+
+        world.monster_update_target_list(rat);
+        let cap = world.scratch_spectators.capacity();
+        assert!(
+            cap > 0,
+            "target-list fan-out must retain a spectator buffer"
+        );
+        world.monster_update_target_list(rat);
+        assert_eq!(world.scratch_spectators.capacity(), cap);
+
+        world.monster_dispatch_creature_move(player, pos, east);
+        let cap = world.scratch_spectators.capacity();
+        assert!(cap > 0, "move fan-out must retain a spectator buffer");
+        world.monster_dispatch_creature_move(player, pos, east);
+        assert_eq!(world.scratch_spectators.capacity(), cap);
+
+        world.monster_notify_creature_enter_viewport(player, pos);
+        let cap = world.scratch_spectators.capacity();
+        assert!(
+            cap > 0,
+            "enter-viewport fan-out must retain a spectator buffer"
+        );
+        world.monster_notify_creature_enter_viewport(player, pos);
+        assert_eq!(world.scratch_spectators.capacity(), cap);
     }
 }

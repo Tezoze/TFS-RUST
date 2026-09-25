@@ -80,12 +80,14 @@ impl GameWorld {
         self.monster_prune_creature_lists(cid);
 
         let spectators = self.collect_creature_spectators(pos, true);
-        for other in spectators {
+        for other in spectators.iter().copied() {
             if other == cid {
                 continue;
             }
             self.monster_on_creature_found(cid, other, false);
         }
+        // The loop needed `&mut self`, so the list was taken. Put the allocation back.
+        Self::restore_larger_scratch(&mut self.scratch_spectators, spectators);
     }
     pub(crate) fn monster_remove_creature_from_lists(
         &mut self,

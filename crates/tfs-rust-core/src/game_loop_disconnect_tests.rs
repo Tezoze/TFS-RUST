@@ -174,7 +174,7 @@ fn disconnect_without_sink_drops_pending_outgoing() {
     let conn = ConnId(9);
     world
         .pending_outgoing
-        .insert(conn, vec![vec![0x0A], vec![0x64; 8]]);
+        .insert(conn, vec![vec![0x0A].into(), vec![0x64; 8].into()]);
     let mut pending_login = LoginIngest::new();
     let mut sinks = HashMap::new();
     handle_player_disconnect(
@@ -204,7 +204,9 @@ fn outbound_closed_shed_drops_pending_outgoing() {
     drop(rx);
     let mut sinks = HashMap::new();
     sinks.insert(conn, tx);
-    world.pending_outgoing.insert(conn, vec![vec![0x0A; 4]]);
+    world
+        .pending_outgoing
+        .insert(conn, vec![vec![0x0A; 4].into()]);
     let mut shed = Vec::new();
     flush_pending_outgoing(&mut world, &mut sinks, &None, &mut shed);
     assert!(

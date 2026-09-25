@@ -379,7 +379,7 @@ mod tests {
         assert!(kick.is_empty(), "ping round must not kick");
         let outgoing = world.pending_outgoing.get(&conn);
         assert_eq!(
-            outgoing.and_then(|q| q.first()).map(|b| b.as_slice()),
+            outgoing.and_then(|q| q.first()).map(|b| b.as_ref()),
             Some(&[0x1E][..]),
             "official 772 keepalive is 0x1E (Control.cpp rejects 0x1D)"
         );
@@ -407,7 +407,7 @@ mod tests {
         assert!(kick.is_empty(), "ping round must not kick");
         let outgoing = world.pending_outgoing.get(&conn);
         assert_eq!(
-            outgoing.and_then(|q| q.first()).map(|b| b.as_slice()),
+            outgoing.and_then(|q| q.first()).map(|b| b.as_ref()),
             Some(&[0x1D][..]),
             "OTClient keepalive is 0x1D"
         );
@@ -729,7 +729,7 @@ mod tests {
                 .pending_outgoing
                 .get(&conn)
                 .and_then(|q| q.first())
-                .map(|b| b.as_slice()),
+                .map(|b| b.as_ref()),
             Some(&[0x1E][..]),
             "dead conn ping at 30"
         );
@@ -743,7 +743,7 @@ mod tests {
                 .pending_outgoing
                 .get(&conn)
                 .and_then(|q| q.first())
-                .map(|b| b.as_slice()),
+                .map(|b| b.as_ref()),
             Some(&[0x1E][..]),
             "dead conn ping at 60"
         );

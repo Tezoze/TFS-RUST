@@ -16,7 +16,7 @@ use tfs_rust_net::creature_known::KnownCreatureTable;
 
 use crate::condition::ActiveCondition;
 use crate::creature::CreatureKind;
-use crate::game_world::GameWorld;
+use crate::game_world::{GameWorld, OutgoingPacket};
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 
@@ -209,27 +209,39 @@ impl GameWorld {
     /// keeps those that (a) still hold a `ConnId` and (b) pass `ProtocolGame::canSee` for `pos`.
     /// Sorted + deduped by SlotMap key for deterministic fan-out order.
     pub(crate) fn spectator_conns_via_grid(&self, pos: Position) -> Vec<ConnId> {
-        let mut creature_ids: Vec<CreatureId> = Vec::new();
+        let mut players = Vec::new();
+        let mut conns = Vec::new();
+        self.append_spectator_conns(pos, &mut players, &mut conns);
+        conns
+    }
+
+    /// Append connections that can see `pos`. `players` is cleared and reused for the
+    /// grid collect. `out` is not sorted — the move broadcast sorts once after both viewports.
+    pub(crate) fn append_spectator_conns(
+        &self,
+        pos: Position,
+        players: &mut Vec<CreatureId>,
+        out: &mut Vec<ConnId>,
+    ) {
+        players.clear();
         self.map.grid.collect_spectator_players(
             pos.x,
             pos.y,
             MAX_CLIENT_VIEWPORT_X as u16,
             MAX_CLIENT_VIEWPORT_Y as u16,
-            &mut creature_ids,
+            players,
         );
-        creature_ids.sort_by_key(|id| id.data().as_ffi());
-        creature_ids.dedup();
+        players.sort_by_key(|id| id.data().as_ffi());
+        players.dedup();
 
-        let mut conns: Vec<ConnId> = Vec::with_capacity(creature_ids.len());
-        for cid in creature_ids {
+        for cid in players.iter().copied() {
             let Some(&viewer_conn) = self.creature_to_conn.get(&cid) else {
                 continue;
             };
             if self.can_see_position(cid, pos) {
-                conns.push(viewer_conn);
+                out.push(viewer_conn);
             }
         }
-        conns
     }
 
     /// Wide-range spectator connection resolution for yell — `Game::internalCreatureSay`
@@ -270,12 +282,13 @@ impl GameWorld {
         out
     }
 
-    /// Enqueue the same packet bytes for every connection that can see `pos` (clone per viewer).
+    /// Enqueue the same packet bytes for every connection that can see `pos`.
     // C++ ref: repeated `ProtocolGame` fan-out in `game.cpp` / `protocolgame.cpp`.
     pub(crate) fn broadcast_to_spectators(&mut self, pos: Position, packet: Vec<u8>) {
+        let packet = std::sync::Arc::<[u8]>::from(packet);
         let conns = self.spectator_conns(pos);
         for conn in conns {
-            self.enqueue_outgoing(conn, packet.clone());
+            self.enqueue_outgoing(conn, std::sync::Arc::clone(&packet));
         }
     }
 
@@ -478,11 +491,12 @@ impl GameWorld {
     }
 
     /// Queue raw packet bytes for a connection (built by `tfs-rust-net` outgoing helpers).
-    pub fn enqueue_outgoing(&mut self, conn: ConnId, packet: Vec<u8>) {
+    pub fn enqueue_outgoing(&mut self, conn: ConnId, packet: impl Into<OutgoingPacket>) {
         // A codec may produce an empty packet for an opcode with no equivalent in the active era
         // (e.g. 7.72 has no `sendBasicData` / by-id tile removal). Drop those so the framing layer
         // never emits a zero-length body. 10.98 never enqueues an empty packet, so this is a no-op
         // there.
+        let packet = packet.into();
         if packet.is_empty() {
             return;
         }
@@ -494,7 +508,7 @@ impl GameWorld {
     }
 
     /// Drain all queued outgoing packets at end of tick; IO layer sends each blob in order per connection.
-    pub fn flush_output_buffers(&mut self) -> HashMap<ConnId, Vec<Vec<u8>>> {
+    pub fn flush_output_buffers(&mut self) -> HashMap<ConnId, Vec<OutgoingPacket>> {
         std::mem::take(&mut self.pending_outgoing)
     }
 

@@ -27,6 +27,7 @@
 //!
 //! Speed/timing: [`walk_timing`]. Tile traversal: [`walk_tile`].
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use rand::rng;
@@ -142,6 +143,20 @@ pub(crate) fn stack_indexes_for_snapshot(
         |c| occupies_shared_map_slot(world, c),
     );
     (stack_772, stack_otc)
+}
+
+/// Encode `0x6D` once per stack index. Later viewers with that index share the allocation.
+fn shared_move_packet(
+    cache: &mut Vec<(i32, Arc<[u8]>)>,
+    stack: i32,
+    encode: impl FnOnce() -> Option<Arc<[u8]>>,
+) -> Option<Arc<[u8]>> {
+    if let Some((_, pkt)) = cache.iter().find(|(s, _)| *s == stack) {
+        return Some(Arc::clone(pkt));
+    }
+    let pkt = encode()?;
+    cache.push((stack, Arc::clone(&pkt)));
+    Some(pkt)
 }
 
 pub(crate) fn stack_for_viewer(
@@ -1411,12 +1426,16 @@ impl GameWorld {
         // position viewports, union + dedup, then apply per-viewer can_see checks.
         // C++ `Map::getSpectators` collects the union of old+new spectator sets
         // (`map.cpp` ~264–323).
-        let mut spectator_conns: Vec<ConnId> = self.spectator_conns_via_grid(old_pos);
-        spectator_conns.extend(self.spectator_conns_via_grid(new_pos));
+        let mut spectator_conns = std::mem::take(&mut self.scratch_conn_ids);
+        let mut grid_players = std::mem::take(&mut self.scratch_grid_players);
+        spectator_conns.clear();
+        self.append_spectator_conns(old_pos, &mut grid_players, &mut spectator_conns);
+        self.append_spectator_conns(new_pos, &mut grid_players, &mut spectator_conns);
         spectator_conns.sort_by_key(|c| c.0);
         spectator_conns.dedup();
         let spectators: Vec<(ConnId, CreatureId)> = spectator_conns
-            .into_iter()
+            .iter()
+            .copied()
             .filter_map(|conn| {
                 let viewer = *self.conn_to_creature.get(&conn)?;
                 if viewer == mover {
@@ -1425,6 +1444,9 @@ impl GameWorld {
                 Some((conn, viewer))
             })
             .collect();
+        // Nested sends must not see an empty scratch. Keep the larger buffer.
+        Self::restore_larger_scratch(&mut self.scratch_conn_ids, spectator_conns);
+        Self::restore_larger_scratch(&mut self.scratch_grid_players, grid_players);
 
         // Pre-move snapshot (`GetObjectRNum` before `MoveObject`, `operate.cc:1422`).
         // One 772 index (BOTTOM + tops) and one OTC index (tops only). Hidden bodies
@@ -1447,6 +1469,9 @@ impl GameWorld {
             .collect();
 
         // Second pass: send packets (`&mut self` borrows).
+        // One `0x6D` allocation per distinct stack index. 772 vs OTC, and a hidden
+        // body on that body's own client, still get their own bytes.
+        let mut shared_move: Vec<(i32, Arc<[u8]>)> = Vec::new();
         for (conn, viewer, viewer_stack, can_see_old, can_see_new) in viewer_data {
             if can_see_old && can_see_new {
                 // Surface→underground still needs remove+appear (TVP `protocolgame.cpp:1831`).
@@ -1459,18 +1484,17 @@ impl GameWorld {
                 if z_changed && surface_to_underground {
                     self.send_creature_remove_to_conn(conn, mover, old_pos, viewer_stack);
                     self.send_creature_appear_to_conn(conn, viewer, mover, new_pos);
-                } else {
-                    let pkt = send_move_creature_spectator(
+                } else if let Some(pkt) = shared_move_packet(&mut shared_move, viewer_stack, || {
+                    send_move_creature_spectator(
                         &self.codec,
                         old_pos,
                         new_pos,
                         viewer_stack,
                         wire_id,
                     )
-                    .map(|m| m.into_bytes());
-                    if let Some(pkt) = pkt {
-                        self.enqueue_outgoing(conn, pkt);
-                    }
+                    .map(|m| Arc::<[u8]>::from(m.into_bytes()))
+                }) {
+                    self.enqueue_outgoing(conn, pkt);
                 }
             } else if can_see_old {
                 self.send_creature_remove_to_conn(conn, mover, old_pos, viewer_stack);
@@ -3071,6 +3095,8 @@ mod step_speed_tests {
 
 #[cfg(test)]
 mod monster_walk_tests {
+    use std::sync::Arc;
+
     use crate::creature::CreatureKind;
     use crate::login_out::creature_wire_id;
     use crate::test_world::support;
@@ -3220,6 +3246,70 @@ mod monster_walk_tests {
             packets.iter().any(|p| !p.is_empty() && p[0] == 0x6D),
             "spectator should receive 0x6D move packet"
         );
+    }
+
+    /// Same stack index shares one `0x6D` allocation. A hidden body above the mover
+    /// still gets its own stack byte on that body's client.
+    #[test]
+    fn same_stack_spectators_share_one_move_packet() {
+        let mut world = support::minimal_world();
+        let origin = Position::new(100, 101, 7);
+        let dest = Position::new(101, 101, 7);
+        let viewer_pos = Position::new(100, 100, 7);
+        for pos in [origin, dest, viewer_pos] {
+            support::ensure_walkable_tile(&mut world.map, pos, 2148);
+        }
+
+        let conn_a = ConnId(1);
+        let conn_b = ConnId(2);
+        let conn_ghost = ConnId(3);
+        support::insert_spectator_player(
+            &mut world,
+            conn_a,
+            support::test_player("ViewerA", viewer_pos),
+        );
+        support::insert_spectator_player(
+            &mut world,
+            conn_b,
+            support::test_player("ViewerB", viewer_pos),
+        );
+        let monster = support::insert_monster(&mut world, "Rat", origin, 200);
+        let mut ghost = support::test_player("Ghost", origin);
+        ghost.ghost_mode = true;
+        support::insert_spectator_player(&mut world, conn_ghost, ghost);
+
+        let snap = super::capture_creature_stack_snapshot(&world, origin);
+        world.broadcast_spectator_move(monster, origin, dest, &snap);
+
+        let packet = |conn: ConnId| {
+            world
+                .pending_outgoing
+                .get(&conn)
+                .and_then(|pkts| pkts.iter().find(|p| p.first() == Some(&0x6D)))
+                .cloned()
+                .expect("spectator 0x6D")
+        };
+        let pkt_a = packet(conn_a);
+        let pkt_b = packet(conn_b);
+        let pkt_ghost = packet(conn_ghost);
+        assert!(
+            Arc::ptr_eq(&pkt_a, &pkt_b),
+            "viewers with the same stack index must share one 0x6D"
+        );
+        assert!(
+            !Arc::ptr_eq(&pkt_a, &pkt_ghost),
+            "the hidden body's own client uses a different stack byte"
+        );
+        assert_ne!(pkt_a.as_ref(), pkt_ghost.as_ref());
+
+        let conn_cap = world.scratch_conn_ids.capacity();
+        assert!(
+            conn_cap > 0,
+            "move broadcast must retain the connection buffer"
+        );
+        world.pending_outgoing.clear();
+        world.broadcast_spectator_move(monster, origin, dest, &snap);
+        assert_eq!(world.scratch_conn_ids.capacity(), conn_cap);
     }
 
     /// Both-visible spectator move must always use 0x6D (never 0x6C+0x6A), matching
@@ -3387,7 +3477,7 @@ mod monster_walk_tests {
         let wire_id = creature_wire_id(monster, world.creatures.get(monster).unwrap());
 
         assert!(world.send_creature_appear_to_conn(conn, viewer, monster, monster_pos));
-        let first: Vec<u8> = world
+        let first = world
             .pending_outgoing
             .get(&conn)
             .and_then(|ps| ps.iter().find(|p| p.first() == Some(&0x6A)).cloned())
@@ -3406,7 +3496,7 @@ mod monster_walk_tests {
 
         world.pending_outgoing.clear();
         assert!(world.send_creature_appear_to_conn(conn, viewer, monster, monster_pos));
-        let reenter: Vec<u8> = world
+        let reenter = world
             .pending_outgoing
             .get(&conn)
             .and_then(|ps| ps.iter().find(|p| p.first() == Some(&0x6A)).cloned())

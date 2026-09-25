@@ -99,8 +99,8 @@ pub fn encode_one_coalesced_frame(
     encode_one_coalesced_frame_with_limit(packets, keys, caps, out, max_coalesced_payload(caps))
 }
 
-fn encode_one_coalesced_frame_with_limit(
-    packets: &[Vec<u8>],
+fn encode_one_coalesced_frame_with_limit<P: AsRef<[u8]>>(
+    packets: &[P],
     keys: &RoundKeys,
     caps: &ProtocolCaps,
     out: &mut Vec<u8>,
@@ -117,6 +117,7 @@ fn encode_one_coalesced_frame_with_limit(
     let mut payload_len = 0usize;
     let mut consumed = 0usize;
     for p in packets {
+        let p = p.as_ref();
         if p.is_empty() {
             consumed += 1;
             continue;
@@ -147,8 +148,8 @@ fn encode_one_coalesced_frame_with_limit(
 /// `send()` even when the beat splits at the era payload cap (`communication.cc` `SendData`
 /// / `WriteToSocket` drains the pending ring in one write loop). Frames stay length-prefixed;
 /// the client parses each separately.
-pub fn encode_coalesced_frames(
-    packets: &[Vec<u8>],
+pub fn encode_coalesced_frames<P: AsRef<[u8]>>(
+    packets: &[P],
     keys: &RoundKeys,
     caps: &ProtocolCaps,
     out: &mut Vec<u8>,
@@ -165,8 +166,8 @@ pub fn encode_coalesced_frames(
 }
 
 /// Pack the next frame onto the end of `out`. See [`encode_one_coalesced_frame`].
-fn append_one_coalesced_frame(
-    packets: &[Vec<u8>],
+fn append_one_coalesced_frame<P: AsRef<[u8]>>(
+    packets: &[P],
     keys: &RoundKeys,
     caps: &ProtocolCaps,
     out: &mut Vec<u8>,

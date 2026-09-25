@@ -385,7 +385,7 @@ mod tests {
         }
     }
 
-    fn packets(world: &GameWorld, conn: ConnId) -> &[Vec<u8>] {
+    fn packets(world: &GameWorld, conn: ConnId) -> &[crate::game_world::OutgoingPacket] {
         world
             .pending_outgoing
             .get(&conn)

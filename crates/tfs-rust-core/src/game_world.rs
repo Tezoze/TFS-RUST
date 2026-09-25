@@ -81,6 +81,9 @@ pub(crate) struct PendingCreatureStepEvent {
     pub step_in_items: Vec<TileMoveEventItem>,
 }
 
+/// One queued payload. Viewers that receive the same bytes share this allocation.
+pub type OutgoingPacket = Arc<[u8]>;
+
 pub struct GameWorld {
     pub creatures: SlotMap<CreatureId, CreatureKind>,
     pub items: SlotMap<ItemId, Item>,
@@ -121,7 +124,7 @@ pub struct GameWorld {
     pub stability: StabilityManager,
     pub tick_counter: u64,
     /// Per-connection outgoing payloads queued on the game thread; drained each tick (`flush_output_buffers`).
-    pub pending_outgoing: HashMap<ConnId, Vec<Vec<u8>>>,
+    pub pending_outgoing: HashMap<ConnId, Vec<OutgoingPacket>>,
     /// Extended opcode + async Lua result hooks (Phase 8: Lua `PacketHandler`).
     pub protocol_hooks: SharedProtocolHooks,
     /// Wire encoder for `clientVersion` (GAME THREAD ONLY — Phase A1 codec seam).
@@ -265,6 +268,11 @@ pub struct GameWorld {
     /// IDLE-3: generation-stamped spectator dedup (avoids sort+dedup across Z / old+new).
     pub(crate) scratch_spectator_seen: rustc_hash::FxHashMap<CreatureId, u32>,
     pub(crate) scratch_spectator_gen: u32,
+    /// Grid player ids for one spectator-conn collect. Separate from `scratch_spectators`,
+    /// which the monster fan-out holds across a step.
+    pub(crate) scratch_grid_players: Vec<CreatureId>,
+    /// Old+new viewport connection ids for one move broadcast.
+    pub(crate) scratch_conn_ids: Vec<ConnId>,
     /// OBS-1: aggregated window histograms / counters (Phase 0).
     pub(crate) obs: crate::obs::GameObs,
     /// Offline mailbox items waiting for DB ack / login splice (`mail_delivery.rs`).
@@ -529,6 +537,8 @@ impl GameWorld {
             scratch_sector_buf: Vec::new(),
             scratch_spectator_seen: rustc_hash::FxHashMap::default(),
             scratch_spectator_gen: 0,
+            scratch_grid_players: Vec::new(),
+            scratch_conn_ids: Vec::new(),
             obs: crate::obs::GameObs::new(),
             mail_outbox: HashMap::new(),
             mail_deferred_login: HashMap::new(),
@@ -549,6 +559,16 @@ impl GameWorld {
             self.scratch_spectator_gen = 1;
         }
         self.scratch_spectator_gen
+    }
+
+    /// Put a taken scratch list back when it holds at least as much capacity as `slot`.
+    ///
+    /// A nested collect may already have restored a larger buffer. That one stays.
+    pub(crate) fn restore_larger_scratch<T>(slot: &mut Vec<T>, mut taken: Vec<T>) {
+        taken.clear();
+        if taken.capacity() >= slot.capacity() {
+            *slot = taken;
+        }
     }
 
     /// IDLE-3: mark `id` seen for `spectator_gen`; returns `true` on first sight this generation.

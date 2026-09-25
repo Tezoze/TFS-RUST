@@ -560,7 +560,7 @@ impl GameWorld {
         self.pending_outgoing
             .entry(conn_id)
             .or_default()
-            .push(msg.into_bytes());
+            .push(msg.into_bytes().into());
     }
 
     /// TFS `Game::playerOpenChannel` — `game.cpp:3490-3502`.
@@ -618,7 +618,7 @@ impl GameWorld {
         self.pending_outgoing
             .entry(conn_id)
             .or_default()
-            .push(msg.into_bytes());
+            .push(msg.into_bytes().into());
     }
 
     /// TFS `Game::playerCloseChannel` — `game.cpp:3490-3502`.
@@ -776,7 +776,7 @@ impl GameWorld {
         self.pending_outgoing
             .entry(conn_id)
             .or_default()
-            .push(msg.into_bytes());
+            .push(msg.into_bytes().into());
     }
 
     /// 772 `OpenChannel` invite (`operate.cc:3654-3669`).
@@ -886,7 +886,7 @@ impl GameWorld {
                 self.pending_outgoing
                     .entry(*conn_id)
                     .or_default()
-                    .push(msg.into_bytes());
+                    .push(msg.into_bytes().into());
             }
         }
         self.send_player_status_message(cid, &format!("{target_display} has been excluded."));

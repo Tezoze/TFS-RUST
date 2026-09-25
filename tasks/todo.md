@@ -1,3 +1,12 @@
+# Hot path refactor (2026-09-25)
+
+Behavior-neutral step-exit work from the hot-path audit. Path search stays as it is.
+
+- [x] Return `scratch_spectators` capacity after the three monster fan-outs
+- [x] Reuse grid-player and connection-id scratch in `broadcast_spectator_move`
+- [x] Queue `Arc<[u8]>` and encode each distinct `0x6D` stack once
+- [x] Capacity and shared-packet tests; `cargo test -p tfs-rust-core --lib` and `cargo test -p tfs-rust-net`
+
 # Monster AI audit (2026-09-25)
 
 772 `IdleStimulus` / `DamageStimulus` / `MovePossible` against the shared Rust think path. Both client versions already call `monster_idle_stimulus_inner`.
