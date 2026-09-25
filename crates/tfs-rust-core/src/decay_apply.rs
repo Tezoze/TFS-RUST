@@ -130,7 +130,7 @@ impl GameWorld {
             let deadline = self.decay_schedule_deadline(duration_ms);
             self.decay.schedule(item_id, deadline, replace_with);
         } else {
-            self.internal_decay_item(item_id, None);
+            self.internal_decay_item(item_id, None, None);
         }
     }
 
@@ -164,6 +164,16 @@ impl GameWorld {
     /// On tiles: `Tile::updateThing` — `resetTileFlags(old)` then `setTileFlags(new)`
     /// (`tile.cpp:963-966`) so door open/close updates `BLOCKSOLID` / walkability.
     pub fn change_item_type(&mut self, item_id: ItemId, new_type: u16) {
+        self.change_item_type_inner(item_id, new_type, None);
+    }
+
+    /// `saved_clock` is `CronInfo` units from a popped cron entry (`map.cc:316-318`).
+    fn change_item_type_inner(
+        &mut self,
+        item_id: ItemId,
+        new_type: u16,
+        saved_clock: Option<u64>,
+    ) {
         let Some(item) = self.items.get(item_id) else {
             return;
         };
@@ -205,7 +215,11 @@ impl GameWorld {
             .get(&old_type)
             .map(|t| t.decay_time)
             .unwrap_or(0);
-        let remaining = if old_decay_time > 0 {
+        let remaining = if let Some(clock) = saved_clock {
+            // Entry already left the heap. `CronInfo` stored at least 1 clock unit.
+            let _ = self.stop_decay(item_id);
+            self.decay_clock_remaining_to_item_ms(clock)
+        } else if old_decay_time > 0 {
             self.stop_decay(item_id)
         } else {
             self.item_duration_raw_ms(item_id).max(0) as u64
@@ -264,7 +278,12 @@ impl GameWorld {
     ///
     /// `replace_hint` comes from a popped [`DecayEntry`] when firing from cron;
     /// otherwise the effective type/attr `decay_to` is used.
-    pub fn internal_decay_item(&mut self, item_id: ItemId, replace_hint: Option<u16>) {
+    pub fn internal_decay_item(
+        &mut self,
+        item_id: ItemId,
+        replace_hint: Option<u16>,
+        saved_clock: Option<u64>,
+    ) {
         if self.items.get(item_id).is_none() {
             self.decay.cancel(item_id);
             return;
@@ -300,7 +319,7 @@ impl GameWorld {
                 }
                 let remainder = self.expire_empty_remainder(new_type);
                 self.empty_container_for_expire(item_id, remainder);
-                self.change_item_type(item_id, new_type);
+                self.change_item_type_inner(item_id, new_type, saved_clock);
             }
             DecayFire::Remove => {
                 self.empty_container_for_expire(item_id, 0);
@@ -477,8 +496,10 @@ impl GameWorld {
             }
             // Scheduler `replace_with: None` means vanish (`decayto` 0).
             match entry.replace_with {
-                Some(id) if id > 0 => self.internal_decay_item(item_id, Some(id)),
-                _ => self.internal_decay_item(item_id, Some(0)),
+                Some(id) if id > 0 => {
+                    self.internal_decay_item(item_id, Some(id), Some(entry.saved_remaining))
+                }
+                _ => self.internal_decay_item(item_id, Some(0), Some(entry.saved_remaining)),
             }
         }
     }
@@ -794,6 +815,44 @@ mod tests {
     }
 
     #[test]
+    fn expire_stop_at_due_round_stores_one_round() {
+        use crate::formulas::DecayClockModel;
+
+        let mut world = minimal_world();
+        world.mechanics.profile.decay_clock = DecayClockModel::RoundNumber;
+        world.round_nr = 100;
+
+        let mut lit = ItemType::default();
+        lit.decay_time = 30;
+        lit.decay_to = 2041;
+        register_type(&mut world, 2042, lit);
+
+        let mut unlit = ItemType::default();
+        unlit.stop_time = true;
+        register_type(&mut world, 2041, unlit);
+
+        let iid = world.items.insert(Item::new_single(2042));
+        world.start_decay(iid);
+        world.round_nr = 130;
+        let expired = world.decay.tick(world.decay_clock_now());
+        assert_eq!(expired.len(), 1);
+        assert_eq!(expired[0].1.saved_remaining, 1);
+        world.process_decay_expiry(&expired);
+        assert_eq!(
+            world.item_duration_raw_ms(iid),
+            1000,
+            "due-round CronInfo is 1 round, not a full decayTime"
+        );
+
+        world.change_item_type(iid, 2042);
+        assert_eq!(
+            world.item_decay_remaining_ms(iid),
+            Some(1_000),
+            "resume arms the saved remainder"
+        );
+    }
+
+    #[test]
     fn item_decay_remaining_ms_uses_round_clock() {
         use crate::formulas::DecayClockModel;
 
@@ -818,8 +877,8 @@ mod tests {
         // Bug shape: querying with server_ms would yield 0 / nonsense.
         assert_eq!(
             world.decay.remaining_ms(iid, world.server_ms),
-            Some(0),
-            "sanity: raw heap query with server_ms is wrong on RoundNumber"
+            Some(1),
+            "sanity: raw heap query with server_ms is the CronInfo floor, not 20s"
         );
     }
 

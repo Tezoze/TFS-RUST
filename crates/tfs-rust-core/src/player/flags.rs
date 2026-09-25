@@ -65,6 +65,8 @@ pub const PLAYER_FLAG_IS_ALWAYS_PREMIUM: u64 = 1 << 35;
 /// 772 `KEEP_INVENTORY` right (`enums.hh:519`, `crplayer.cc:299-300`).
 /// GMs with this right keep their inventory on death (`LOSE_INVENTORY_NONE`).
 pub const PLAYER_FLAG_KEEP_INVENTORY: u64 = 1 << 37;
+/// 772 `LOG_COMMUNICATION` (`operate.cc` `LogListener`). No pack group sets this today.
+pub const PLAYER_FLAG_LOG_COMMUNICATION: u64 = 1 << 38;
 
 /// Map `groups.xml` / `groups.lua` flag keys to `PlayerFlags` bits (subset used by core).
 fn flag_name_to_bit(name: &str) -> Option<u64> {
@@ -92,6 +94,7 @@ fn flag_name_to_bit(name: &str) -> Option<u64> {
         "ignorespellcheck" => Some(PLAYER_FLAG_IGNORE_SPELL_CHECK),
         "isalwayspremium" => Some(PLAYER_FLAG_IS_ALWAYS_PREMIUM),
         "keepinventory" => Some(PLAYER_FLAG_KEEP_INVENTORY),
+        "logcommunication" => Some(PLAYER_FLAG_LOG_COMMUNICATION),
         _ => None,
     }
 }

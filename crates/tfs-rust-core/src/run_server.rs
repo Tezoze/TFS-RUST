@@ -752,19 +752,12 @@ async fn run_on_game_thread(io_handle: tokio::runtime::Handle) -> anyhow::Result
         .await
         .with_context(|| format!("bind game server {game_addr}"))?;
 
-    info!(
-        login = %login_listener.local_addr()?,
-        game = %game_listener.local_addr()?,
-        "listening (OTClient: login → login port, game → game port)"
-    );
-    let adv_ip = std::env::var("TFS_PUBLIC_IP").unwrap_or_else(|_| net_cfg.ip.clone());
-    info!(advertise = %format!("{adv_ip}:{game_port}"), "character list game address");
-
     let server_name = std::env::var("TFS_SERVER_NAME").unwrap_or_else(|_| {
         config
             .get_string("serverName")
             .unwrap_or_else(|_| "Australis".to_string())
     });
+    info!("{server_name} is now online!");
     let public_ip = std::env::var("TFS_PUBLIC_IP").unwrap_or_else(|_| net_cfg.ip.clone());
     let motd =
         std::env::var("TFS_MOTD").unwrap_or_else(|_| config.get_string("motd").unwrap_or_default());

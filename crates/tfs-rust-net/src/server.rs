@@ -99,8 +99,6 @@ impl Server {
         loop {
             match self.listener.accept().await {
                 Ok((stream, addr)) => {
-                    eprintln!("[tfs-rust-net] accepted TCP connection from {}", addr);
-                    info!("New connection from {}", addr);
                     let game = game.clone();
                     let login = login.clone();
                     let peer = addr;
@@ -322,13 +320,6 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
         ));
     }
 
-    info!(
-        conn_id = conn_id.0,
-        account = %game.identity.as_display(),
-        character = %game.character_name,
-        "game port: authenticated; handing session to game loop"
-    );
-
     let xtea_key = game.xtea_key;
     let character_name = game.character_name.clone();
 
@@ -397,10 +388,6 @@ async fn handle_game_connection(stream: TcpStream, wire: GameWireConfig) -> anyh
     // TCP connection dropped (client crash / disconnect). Send PlayerDisconnect so the
     // game loop removes the creature from the map — otherwise it stays as a ghost that
     // other players see (no name, no health bar) and desyncs their client.
-    tracing::info!(
-        conn_id = conn_id.0,
-        "game connection closed — sending PlayerDisconnect to game loop"
-    );
     let _ = wire.cmd_tx.send(GameCommand::PlayerDisconnect {
         conn_id,
         display_effect: false,

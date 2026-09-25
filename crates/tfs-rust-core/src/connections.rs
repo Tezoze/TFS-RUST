@@ -66,9 +66,13 @@ impl GameWorld {
         let idle_kick_rounds = self.connection_config.idle_kick_rounds();
         let mut kick: Vec<(ConnId, bool)> = Vec::new();
 
-        // CONNECTION_LOGIN — `connections.cc:42–44`. Pending-login drain on
-        // Closed is L9 (Phase 3); dead sessions stay InGame until Shutdown.
-        if self.game_state != crate::game_state::GameState::Normal {
+        // Due `CONNECTION_LOGOUT` sockets (`connections.cc:44-49`), including Shutdown.
+        kick.extend(self.take_due_connection_logouts());
+
+        // CONNECTION_LOGIN — `connections.cc:40-43`. `GameRunning` includes
+        // GAME_CLOSING, so Closed keeps the socket. Disconnect only when the
+        // process is no longer running (Shutdown) or the socket is already dead.
+        if self.game_state == crate::game_state::GameState::Shutdown {
             for conn_id in self.login_pending_conns.drain() {
                 kick.push((conn_id, false));
             }
@@ -124,11 +128,12 @@ impl GameWorld {
                 );
             }
             if !idle_exempt && last_action >= idle_kick_rounds {
-                // `Logout(0, true)` — StopFight (`connections.cc:35-36`).
-                kick.push((conn_id, true));
+                // `Logout(0, true)` — StopFight now; TCP waits for the next Process
+                // (`connections.cc:35-36`, logout branch is not this call).
+                self.schedule_connection_logout(conn_id, 0, true, false);
             } else if last_command >= COMMAND_TIMEOUT_ROUNDS {
                 // `Logout(0, false)` — keep fighting on map (`connections.cc:37-38`).
-                kick.push((conn_id, false));
+                self.schedule_connection_logout(conn_id, 0, false, false);
             }
         }
 
@@ -146,7 +151,7 @@ impl GameWorld {
                     self.enqueue_conn_ping(conn_id, state.is_otclient);
                 }
                 if last_command >= COMMAND_TIMEOUT_ROUNDS {
-                    kick.push((conn_id, false));
+                    self.schedule_connection_logout(conn_id, 0, false, false);
                 }
             }
         }
@@ -250,10 +255,22 @@ mod tests {
             p.last_command_round = 960;
         }
         world.round_nr = 960;
+        let conn = tfs_rust_common::ConnId(1);
         let kick = world.process_connections();
-        assert_eq!(kick.len(), 1);
-        assert_eq!(kick[0].0, tfs_rust_common::ConnId(1));
-        assert!(kick[0].1, "idle kick → StopFight=true");
+        assert!(
+            kick.is_empty(),
+            "Logout(0) does not Disconnect in the same Process"
+        );
+        assert_eq!(world.logout_at_round.get(&conn), Some(&960));
+        assert!(
+            world
+                .creatures
+                .get(player)
+                .is_some_and(|k| k.base().logging_out),
+            "StartLogout runs before the next MoveCreatures"
+        );
+        let kick = world.process_connections();
+        assert_eq!(kick, vec![(conn, false)], "next Process closes TCP");
     }
 
     /// 772 `CheckRight(NO_LOGOUT_BLOCK)` skips idle warn+kick; 90-round timeout stays.
@@ -298,10 +315,19 @@ mod tests {
             p.last_command_round = 0;
         }
         world.round_nr = 90;
+        let conn = tfs_rust_common::ConnId(1);
         let kick = world.process_connections();
-        assert_eq!(kick.len(), 1);
-        assert_eq!(kick[0].0, tfs_rust_common::ConnId(1));
-        assert!(!kick[0].1, "90-round timeout stays unconditional");
+        assert!(kick.is_empty(), "timeout Logout(0) waits for the next Process");
+        assert_eq!(world.logout_at_round.get(&conn), Some(&90));
+        let kick = world.process_connections();
+        assert_eq!(kick, vec![(conn, false)]);
+        assert!(
+            world
+                .creatures
+                .get(player)
+                .is_some_and(|k| k.base().logging_out),
+            "90-round timeout stays unconditional"
+        );
     }
 
     /// Custom `kickIdlePlayerAfterMinutes = 10` → warn at 600, kick at 660.
@@ -335,7 +361,13 @@ mod tests {
             p.last_command_round = 660;
         }
         let kick = world.process_connections();
-        assert_eq!(kick.len(), 1, "kick at 660 (10+1 min)");
+        assert!(kick.is_empty(), "kick at 660 schedules Logout, does not close TCP");
+        assert!(
+            world
+                .logout_at_round
+                .contains_key(&tfs_rust_common::ConnId(1)),
+            "kick at 660 (10+1 min)"
+        );
     }
 
     /// Fresh login must not inherit `last_command_round = 0` vs a live `RoundNr`.
@@ -427,13 +459,21 @@ mod tests {
             p.last_action_round = 0;
         }
         world.round_nr = 90;
+        let conn = tfs_rust_common::ConnId(1);
         let kick = world.process_connections();
-        assert_eq!(
-            kick.len(),
-            1,
-            "LastCommand >= 90 must trigger connection timeout"
+        assert!(
+            kick.is_empty(),
+            "LastCommand >= 90 schedules Logout(0, false)"
         );
-        assert_eq!(kick[0].1, false, "command timeout → StopFight=false");
+        assert_eq!(world.logout_at_round.get(&conn), Some(&90));
+        assert!(
+            world
+                .creatures
+                .get(player)
+                .is_some_and(|k| k.base().attack_target.is_none() && k.base().logging_out)
+        );
+        let kick = world.process_connections();
+        assert_eq!(kick, vec![(conn, false)], "next Process closes TCP");
     }
 
     /// `packet_counts_as_action` mirrors `TConnection::ResetTimer` (`connections.cc:53-63`):
@@ -556,10 +596,19 @@ mod tests {
             p.last_action_round = 0;
         }
         // Default kickIdleAfterMinutes=15 → kick at 16*60=960.
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.base.attack_target = Some(player);
+        }
         world.round_nr = 960;
         let kick = world.process_connections();
-        assert_eq!(kick.len(), 1);
-        assert!(kick[0].1, "idle kick → StopFight=true");
+        assert!(kick.is_empty(), "StopFight applies before TCP close");
+        assert!(
+            world
+                .creatures
+                .get(player)
+                .is_some_and(|k| k.base().logging_out && k.base().attack_target.is_none()),
+            "idle kick → StopFight=true before MoveCreatures"
+        );
     }
 
     /// Relog TakeOver while deferred logout body is combat-locked (`connections.cc:231-252`).
@@ -665,11 +714,25 @@ mod tests {
     }
 
     #[test]
-    fn login_connection_disconnects_when_not_ok() {
+    fn login_connection_stays_while_closed() {
         let mut world = beat_driven_test_world();
         let conn = tfs_rust_common::ConnId(9);
         world.login_pending_conns.insert(conn);
         world.game_state = crate::game_state::GameState::Closed;
+        let kick = world.process_connections();
+        assert!(
+            kick.is_empty(),
+            "GAME_CLOSING is still GameRunning — pending login stays"
+        );
+        assert!(world.login_pending_conns.contains(&conn));
+    }
+
+    #[test]
+    fn login_connection_disconnects_on_shutdown() {
+        let mut world = beat_driven_test_world();
+        let conn = tfs_rust_common::ConnId(9);
+        world.login_pending_conns.insert(conn);
+        world.game_state = crate::game_state::GameState::Shutdown;
         let kick = world.process_connections();
         assert_eq!(kick.len(), 1);
         assert_eq!(kick[0].0, conn);
@@ -694,12 +757,12 @@ mod tests {
         world.round_nr = 960;
         let kick = world.process_connections();
         assert!(
-            !kick.iter().any(|(_, stop_fight)| *stop_fight),
+            kick.is_empty(),
             "CONNECTION_DEAD linger must not take the living idle-kick arm"
         );
-        assert!(
-            kick.iter()
-                .any(|(c, stop_fight)| *c == conn && !*stop_fight),
+        assert_eq!(
+            world.logout_at_round.get(&conn),
+            Some(&960),
             "90-round dead-conn timeout still applies (LastCommand from Die stamp)"
         );
     }
@@ -755,6 +818,9 @@ mod tests {
         let conn = tfs_rust_common::ConnId(7);
         insert_dead_conn(&mut world, conn);
         world.round_nr = 90;
+        let kick = world.process_connections();
+        assert!(kick.is_empty());
+        assert_eq!(world.logout_at_round.get(&conn), Some(&90));
         let kick = world.process_connections();
         assert_eq!(kick, vec![(conn, false)]);
     }

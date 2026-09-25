@@ -1,3 +1,17 @@
+# Game loop audit fixes (2026-09-26)
+
+Canvas bugs GL-1..GL-4 and gaps GL-5..GL-12. Scheduler matches, 15-minute logout save, and Turn/Stop peek stay.
+
+- [x] GL-1: login pending drains only on Shutdown
+- [x] GL-2: expire-stop at the due round stores 1 round
+- [x] GL-3: vocation 0 fed mana is 2
+- [x] GL-4: one emergency ping per dead conn
+- [x] GL-5/6: lag skip once per episode; log when delay > beat
+- [x] GL-7/11: logout round map — body logout before movement, TCP on the stored round
+- [x] GL-8: statement/listener store and 1800s prune
+- [x] GL-9/10/12: one minute clock, 5-min load log, save poll on the minute arm
+- [x] cargo check, clippy, targeted tests; lessons.md
+
 # Hot path refactor (2026-09-25)
 
 Behavior-neutral step-exit work from the hot-path audit. Path search stays as it is.

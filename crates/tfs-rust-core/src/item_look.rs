@@ -555,7 +555,8 @@ fn rune_description_suffix(it: &ItemType, item: &Item, vocations: &[String]) -> 
 ///
 /// `fluid_type_name`: `items[subType].name` for fluid containers / splashes (`None` →
 /// `"unknown"` when filled). Non-fluid items ignore this.
-/// TFS 1.4.2 look text (1098 / unit tests).
+/// TFS 1.4.2 look text used by the unit tests. Live look goes through `item_look_description`.
+#[cfg(test)]
 pub fn item_get_description_cpp(
     item: &Item,
     it: &ItemType,

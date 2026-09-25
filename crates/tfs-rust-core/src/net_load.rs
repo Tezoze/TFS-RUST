@@ -99,12 +99,22 @@ impl NetLoad {
 impl GameWorld {
     /// Uncoupled from beat-stall [`GameWorld::lag`] (`communication.cc:141-229`).
     pub(crate) fn net_load_check(&mut self) {
-        // Corpus `PlayersOnline` / `InGame()` includes CONNECTION_DEAD.
-        let players = self.conn_to_creature.len() + self.dead_conn_state.len();
+        // `InGame()` counts each connection once. A dead linger is in both maps.
+        let players = self.players_in_game();
         if !self.net_load.check(self.round_nr, players) {
             return;
         }
         self.emergency_ping();
+    }
+
+    fn players_in_game(&self) -> usize {
+        let mut n = self.conn_to_creature.len();
+        for conn in self.dead_conn_state.keys() {
+            if !self.conn_to_creature.contains_key(conn) {
+                n += 1;
+            }
+        }
+        n
     }
 
     fn emergency_ping(&mut self) {
@@ -112,6 +122,7 @@ impl GameWorld {
         let online: Vec<(tfs_rust_common::ConnId, crate::ids::CreatureId)> = self
             .conn_to_creature
             .iter()
+            .filter(|(conn, _)| !self.dead_conn_state.contains_key(conn))
             .map(|(&conn, &cid)| (conn, cid))
             .collect();
         for (conn_id, cid) in online {
@@ -211,6 +222,29 @@ mod tests {
         assert_eq!(stale_cmd, 100, "idle ≥80 keeps stamp");
         assert!(world.pending_outgoing.get(&ConnId(1)).is_some());
         assert!(world.pending_outgoing.get(&ConnId(2)).is_some());
+    }
+
+    #[test]
+    fn emergency_ping_dead_linger_is_one_ping() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let pid = insert_player(&mut world, test_player("Dead", pos));
+        let conn = ConnId(4);
+        world.register_conn_mapping(conn, pid);
+        world.round_nr = 50;
+        world.mark_dead(pid);
+        assert!(world.conn_to_creature.contains_key(&conn));
+        assert!(world.dead_conn_state.contains_key(&conn));
+        assert_eq!(world.players_in_game(), 1);
+        world.pending_outgoing.clear();
+        world.emergency_ping();
+        let n = world
+            .pending_outgoing
+            .get(&conn)
+            .map(|q| q.len())
+            .unwrap_or(0);
+        assert_eq!(n, 1, "dead client is InGame once");
     }
 
     #[test]

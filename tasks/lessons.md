@@ -1297,4 +1297,13 @@
 540. **Summon lose-target and the summon counter** (`idle_stimulus.rs` `monster_idle_should_lose_target`, `monster_idle_summon_lifecycle`; `crnonpl.cc:2370`, `:2418`): after a summon copies the master's attack target, range, floor, house, protection zone, and invisibility still drop it. Only `random(0, 99) < LoseTarget` is limited to `Master == 0`. A live player master with `SummonedCreatures == 0` logs the summon out — that counter is constructed at 0 on the creature (`crmain.cc:188`), not a scan of summons still pointing at the id.
     *(2026-09-25)*
 
+541. **Fed mana is always 2, including no profession** (`process_skills.rs` `process_player_fed_regen`; `data/XML/vocations.xml` id 0; `crskill.cc:880-882`): `TSkillFed::Event` calls `Change(2)` for every profession. The vocation only changes the interval. Pack vocation 0 had `gainmanaamount="1"`, so a player with no profession regenerated half the corpus mana. Ids 1–8 were already 2. The amount stays on the vocation row; id 0 is 2.
+    *(2026-09-26)*
+
+542. **Close window keeps in-progress logins** (`connections.rs` `process_connections`; `connections.cc:40-43`; `shm.cc` `GameRunning`): `GAME_CLOSING` is still running. A `CONNECTION_LOGIN` socket drops only when the process is ending (`Shutdown`) or the socket is already dead. Draining `login_pending_conns` on `Closed` kicked people who were still loading during the five-minute close. New logins stay rejected by the login gate.
+    *(2026-09-26)*
+
+543. **Due-round cron remainder is 1** (`decay.rs` `cron_remaining`; `map.cc:316-318` `CronInfo`): a live entry whose round is already due returns 1, not 0. Popping the heap first and then reading 0 wrote that 0 onto an expire-stop target, so lighting it again armed a full `decayTime`. Stamp the remainder on the popped entry and resume from that one round.
+    *(2026-09-26)*
+
 

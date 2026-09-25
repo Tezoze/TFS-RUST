@@ -27,6 +27,7 @@ fn is_depot_table_root_pid(pid: i32) -> bool {
 /// Nested `pid` values are parent sids from the same tree and must move with `sid`.
 /// Town-chest roots use `pid = town_id` (typically 1–99) and stay unshifted.
 /// Locker-loose mail uses `pid = 0x10000 + town_id` and also stays unshifted.
+#[cfg(test)]
 pub fn apply_sid_pid_offset(records: &mut [ItemRecord], max_sid: i32) {
     let offset = max_sid.saturating_sub(100);
     for rec in records {
@@ -38,6 +39,7 @@ pub fn apply_sid_pid_offset(records: &mut [ItemRecord], max_sid: i32) {
 }
 
 /// Append `extra` onto `rows` after rebasing against the current max sid.
+#[cfg(test)]
 pub fn append_offset_records(rows: &mut Vec<ItemRecord>, mut extra: Vec<ItemRecord>) {
     let max_sid = rows.iter().map(|r| r.sid).max().unwrap_or(100);
     apply_sid_pid_offset(&mut extra, max_sid);

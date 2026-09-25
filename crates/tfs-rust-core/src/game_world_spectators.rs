@@ -359,10 +359,13 @@ impl GameWorld {
             })
             .map(|(conn, viewer, _)| (conn, viewer))
             .collect();
+        // One `LogCommunication` for the event (`operate.cc:2405`), then a listener
+        // per viewer who has the log-communication right.
+        let sid = self.log_player_speech(speaker, i32::from(speak_type), 0, text);
         // C++ `internalCreatureSay` two-pass loop — "send to client" then "event method"
         // (`gameserver/src/game.cpp:3529-3544`). Pass 1: per-viewer `sendCreatureSay`.
-        for (conn, _viewer) in &viewers {
-            let sid = self.alloc_statement_id();
+        for (conn, viewer) in &viewers {
+            self.log_listener(sid, *viewer);
             let pkt = self.codec.encode_creature_say(
                 sid,
                 &CreatureSayWire {
@@ -409,14 +412,15 @@ impl GameWorld {
                 crate::chat_talk::talk_in_say_range(pos, *viewer_pos)
             })
             .collect::<Vec<_>>();
+        let sid = self.log_player_speech(speaker, i32::from(speak_type), 0, text);
         // Pass 1: per-viewer `sendCreatureSay` with distance-based text selection.
-        for (conn, _viewer, viewer_pos) in &viewers {
+        for (conn, viewer, viewer_pos) in &viewers {
+            self.log_listener(sid, *viewer);
             let viewer_text = if crate::chat_talk::talk_whisper_clear(pos, *viewer_pos) {
                 text
             } else {
                 "pspsps"
             };
-            let sid = self.alloc_statement_id();
             let pkt = self.codec.encode_creature_say(
                 sid,
                 &CreatureSayWire {
@@ -466,8 +470,9 @@ impl GameWorld {
         // Pass 1: per-viewer `sendCreatureSay`. C++ ghost-mode check:
         // `if (!ghostMode || tmpPlayer->canSeeCreature(creature))` — for non-ghost
         // speakers (the common case) all viewers receive the packet.
-        for (conn, _viewer, _viewer_pos) in &viewers {
-            let sid = self.alloc_statement_id();
+        let sid = self.log_player_speech(speaker, i32::from(speak_type), 0, text);
+        for (conn, viewer, _viewer_pos) in &viewers {
+            self.log_listener(sid, *viewer);
             let pkt = self.codec.encode_creature_say(
                 sid,
                 &CreatureSayWire {

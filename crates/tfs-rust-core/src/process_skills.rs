@@ -843,6 +843,39 @@ mod tests {
         assert_eq!(poison_factor_percent(1001), 1000);
     }
 
+    fn none_vocation_db() -> Arc<VocationRegistry> {
+        let mut vocations = HashMap::new();
+        vocations.insert(
+            0u16,
+            VocationDef {
+                id: 0,
+                client_id: 0,
+                name: "None".into(),
+                description: "none".into(),
+                from_vocation: 0,
+                gain_cap: 10,
+                gain_hp: 5,
+                gain_mana: 5,
+                gain_hp_ticks: 6,
+                gain_hp_amount: 1,
+                gain_mana_ticks: 6,
+                gain_mana_amount: 2,
+                mana_multiplier: 4.0,
+                attack_speed_ms: 2000,
+                base_speed: 70,
+                soul_max: 100,
+                gain_soul_ticks: 120,
+                allow_pvp: false,
+                base_hp: 150,
+                base_mana: 0,
+                base_cap: 400,
+                formula: tfs_rust_content::vocations::VocationFormula::default(),
+                skill_multipliers: [1.5, 2.0, 2.0, 2.0, 2.0, 1.5, 1.1],
+            },
+        );
+        Arc::new(VocationRegistry { vocations })
+    }
+
     /// Build a `VocationRegistry` with a single knight vocation (id=4) matching
     /// `data/XML/vocations.xml`: `gainhpticks=6 gainhpamount=1 gainmanaticks=6 gainmanaamount=2`.
     fn knight_vocation_db() -> Arc<VocationRegistry> {
@@ -937,6 +970,31 @@ mod tests {
         }
         let p = world.creatures.get(pid).unwrap();
         assert_eq!(p.base().health, 92, "no regen after food runs out");
+    }
+
+    /// `TSkillFed::Event` grants 2 mana for profession 0 (`crskill.cc:880-882`).
+    #[test]
+    fn fed_regen_no_profession_grants_two_mana() {
+        let mut world = beat_driven_test_world();
+        world.vocations = none_vocation_db();
+
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+        let mut player = test_player("Rook", pos);
+        player.vocation_id = 0;
+        player.base.health = 90;
+        player.base.max_health = 100;
+        player.mana = 40;
+        player.max_mana = 50;
+        // timer = food_remaining - 1; 1 → 0, and 0 % 6 == 0.
+        player.food_remaining = 1;
+        let pid = insert_player(&mut world, player);
+        world.process_skills();
+        let CreatureKind::Player(p) = world.creatures.get(pid).unwrap() else {
+            panic!("not a player");
+        };
+        assert_eq!(p.mana, 42, "profession none mana Change(2)");
+        assert_eq!(p.base.health, 91, "profession none still gains 1 HP");
     }
 
     /// F3: `TSkillFed::Event` returns early inside a protection zone (`crskill.cc:819`).

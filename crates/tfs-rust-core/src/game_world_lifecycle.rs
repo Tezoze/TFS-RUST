@@ -66,6 +66,20 @@ impl GameWorld {
         }
     }
 
+    /// Session line on the server console. Green login, red logout.
+    /// `config.lua` `showPlayerLogInConsole` (default true).
+    pub(crate) fn console_player_session(&self, name: &str, logged_in: bool) {
+        if !self
+            .config
+            .get_bool("showPlayerLogInConsole")
+            .unwrap_or(true)
+        {
+            return;
+        }
+        let (color, verb) = if logged_in { ("32", "in") } else { ("31", "out") };
+        eprintln!("\x1b[{color}m{name} has logged {verb}\x1b[0m");
+    }
+
     /// Remove creature from map index, player lookups, guild online.
     // C++ reference: `Game::removeCreature` — spectator disappear. Summons idle-despawn.
     pub fn remove_creature(&mut self, id: CreatureId) {
@@ -98,7 +112,13 @@ impl GameWorld {
         let pos = self.creatures.get(id).map(|k| k.position());
         let player_cleanup = self.creatures.get(id).and_then(|k| {
             if let CreatureKind::Player(pl) = k {
-                Some((pl.base.name.clone(), pl.guid, pl.social.guild_id.is_some()))
+                let session_logout = pl.base.logging_out && !pl.base.is_dead;
+                Some((
+                    pl.base.name.clone(),
+                    pl.guid,
+                    pl.social.guild_id.is_some(),
+                    session_logout,
+                ))
             } else {
                 None
             }
@@ -107,17 +127,14 @@ impl GameWorld {
         if let Some(p) = pos {
             // 772 `TNPC::CreatureMoveStimulus` with OBJECT_DELETED — prune queue / VANISH focus.
             self.npc_dispatch_creature_move(id, p, p, true);
-            // Players only at INFO — monster/NPC death used to spam this on every kill and
-            // made mass-death (UE) look like a logout storm while adding log I/O cost.
-            if player_cleanup.is_some() {
-                tracing::info!(?id, at = ?p, "LOGOUT: unregistering creature from map");
-            } else {
-                tracing::debug!(?id, at = ?p, "unregistering creature from map");
-            }
+            tracing::debug!(?id, at = ?p, "unregistering creature from map");
             self.map.unregister_creature_at(p, id);
         }
 
-        if let Some((name, guid, in_guild)) = player_cleanup {
+        if let Some((name, guid, in_guild, session_logout)) = player_cleanup {
+            if session_logout {
+                self.console_player_session(&name, false);
+            }
             // 772 player teardown calls `ClearPlayerkillingMarks` (`crplayer.cc:315`).
             self.clear_playerkilling_marks(id);
             self.broadcast_vip_status(id, false);
@@ -400,14 +417,7 @@ impl GameWorld {
                 });
             }
         }
-        let guid = self.creatures.get(cid).and_then(|k| match k {
-            CreatureKind::Player(p) => Some(p.guid),
-            _ => None,
-        });
         self.remove_creature(cid);
-        if let Some(guid) = guid {
-            tracing::info!(guid, "player deferred logout finalized");
-        }
         true
     }
 
@@ -442,10 +452,9 @@ impl GameWorld {
             return;
         }
 
-        let Some(CreatureKind::Player(player)) = self.creatures.get(cid) else {
+        let Some(CreatureKind::Player(_)) = self.creatures.get(cid) else {
             return;
         };
-        let guid = player.guid;
 
         if display_effect {
             self.broadcast_player_logout_poff(cid);
@@ -460,7 +469,6 @@ impl GameWorld {
         // `LogoutPossible` already succeeded in `player_logout_allowed` → remove now.
         if self.player_logout_possible(cid) == LogoutPossible::Ok {
             self.remove_creature(cid);
-            tracing::info!(guid, "player logged out");
         }
     }
 

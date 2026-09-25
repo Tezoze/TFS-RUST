@@ -3,7 +3,7 @@
 //! C++ reference: `LuaScriptInterface::executeTimer` / creature event dispatch — single game thread.
 
 use crate::cylinder::Cylinder;
-use crate::event_dispatcher::{EventCylinder, TalkActionResult};
+use crate::event_dispatcher::TalkActionResult;
 use crate::game_world::{GameWorld, TileMoveEventItem};
 use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
@@ -851,21 +851,6 @@ pub fn fire_on_monster_spawned(
                 .on_monster_spawned(cid, pos, startup, artificial, world);
         });
     });
-}
-
-fn event_cylinder(cyl: Cylinder) -> EventCylinder {
-    match cyl {
-        Cylinder::Tile { pos } => EventCylinder::Tile(pos),
-        Cylinder::Container { item_id, .. } => EventCylinder::Container(item_id),
-        Cylinder::Inventory { player_id, .. } => EventCylinder::Inventory(player_id),
-    }
-}
-
-fn lua_move_position(cyl: Cylinder) -> Position {
-    match cyl {
-        Cylinder::Tile { pos } => pos,
-        _ => Position::new(0xFFFF, 0, 0),
-    }
 }
 
 /// TFS `Events::eventPlayerOnMoveItem` after native queryAdd, before the transfer.

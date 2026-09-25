@@ -164,6 +164,7 @@ pub fn teach_spell_persist_key_for_registry(nr: i32, registry: &SpellRegistry) -
     corpus.to_string()
 }
 
+#[cfg(test)]
 pub fn teach_spell_persist_key(nr: i32) -> String {
     spell_name_for_nr(nr)
         .map(str::to_string)

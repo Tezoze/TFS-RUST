@@ -1351,11 +1351,6 @@ impl GameWorld {
             k.set_position(pos);
         }
         self.map.register_creature_role_at(pos, cid, true);
-        tracing::info!(
-            ?cid,
-            placed_at = ?pos,
-            "LOGIN: creature registered on map at login position"
-        );
         true
     }
 
@@ -2096,10 +2091,12 @@ mod tests {
         }
         world.apply_creature_death(victim);
 
+        let logout_round = world.round_nr.saturating_add(30);
         assert!(
-            world.dead_connections.contains(&conn),
-            "772 Connection::Die must mark the session dead"
+            !world.dead_connections.contains(&conn),
+            "destructor Logout(30) is CONNECTION_LOGOUT, not DEAD"
         );
+        assert_eq!(world.logout_at_round.get(&conn), Some(&logout_round));
         assert!(
             world.conn_to_creature.get(&conn).is_none(),
             "dead session must drop ConnId↔CreatureId mapping"

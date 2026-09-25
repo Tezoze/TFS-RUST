@@ -6,7 +6,7 @@ use std::collections::{HashMap, VecDeque};
 use crate::login::LoginIngest;
 
 use tfs_rust_common::game_packet::GamePacket;
-use tfs_rust_common::{ConnId, GameCommand, Position};
+use tfs_rust_common::{ConnId, Position};
 
 use crate::creature::CreatureKind;
 use crate::test_support::{
@@ -108,12 +108,19 @@ fn logout_packet_enqueues_stop_fight_true() {
         &mut game_rx,
         &mut pending,
     );
-    match pending.pop_front() {
-        Some((_, GameCommand::PlayerDisconnect { stop_fight, .. })) => {
-            assert!(stop_fight, "CL_CMD_LOGOUT → StopFight=true");
-        }
-        other => panic!("expected PlayerDisconnect, got {other:?}"),
-    }
+    assert!(
+        pending.is_empty(),
+        "Logout(0) waits for the next Process — got {pending:?}"
+    );
+    let round = world.round_nr;
+    assert_eq!(world.logout_at_round.get(&conn), Some(&round));
+    assert!(
+        world
+            .creatures
+            .get(pid)
+            .is_some_and(|k| k.base().logging_out),
+        "CL_CMD_LOGOUT → StopFight / StartLogout now"
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]

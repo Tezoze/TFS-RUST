@@ -18,6 +18,7 @@ impl GameWorld {
     pub(crate) fn run_other_subsystems(&mut self, delay_ms: u64) {
         self.round_nr = self.round_nr.saturating_add(1);
         let kick = self.process_connections();
+        self.process_communication_control();
         self.poll_spawn_respawns(self.round_nr);
         self.process_monster_raids();
         self.tick_ambient_light();
@@ -50,16 +51,25 @@ impl GameWorld {
         if self.round_nr < self.next_minute_round {
             return;
         }
+        // One `GetRealTime` sample for the whole minute arm (`main.cc:380-381`).
+        let now = chrono::Local::now();
+        let minute = now.minute();
+        let unix = now.timestamp();
         // Corpus minute arm is `RefreshCylinders`, not `RefreshMap` (`main.cc:383` vs `:428`).
         let _ = self.refresh_cylinders();
-        // `WriteKillStatistics` at wall-clock minute 55 (`main.cc:393-394`).
-        if chrono::Local::now().minute() == 55 {
-            self.spawn_kill_statistics_flush();
+        if minute.is_multiple_of(5) {
+            self.log_online_player_list(unix);
         }
-        if chrono::Local::now().minute() == 0 {
+        if minute == 0 {
             let (recv, send) = self.net_load.summary();
             tracing::info!(target: "netload", recv, send, "network load");
         }
+        // `WriteKillStatistics` at wall-clock minute 55 (`main.cc:393-394`).
+        if minute == 55 {
+            self.spawn_kill_statistics_flush();
+        }
+        // 5/3/1 warnings and the reboot compare only inside this arm (`main.cc:397-433`).
+        self.tick_server_save(unix);
         self.next_minute_round = Self::get_round_for_next_minute(self.round_nr);
     }
 
@@ -105,19 +115,24 @@ impl GameWorld {
         // `MoveCreatures` itself always drains once invoked (`crmain.cc:1142`).
         let todo_len_before = self.todo_queue.len();
         let t0 = Instant::now();
+        let beat_ms = u64::from(self.mechanics.profile.beat_ms.max(1));
+        // `Log("lag")` whenever this wake's delay exceeds one beat (`main.cc:440-442`).
+        if delay_ms > beat_ms {
+            tracing::info!(target: "lag", "delay {delay_ms} msec");
+        }
         if delay_ms < LAG_SKIP_MOVEMENT_MS {
             self.move_creatures(delay_ms);
             self.lag = false;
+        } else if !self.lag && self.round_nr > 10 {
+            tracing::error!(
+                delay_ms,
+                todo_queue_len = todo_len_before,
+                creatures = self.creatures.len(),
+                "772 beat advance skipped MoveCreatures due to lag (Delay >= 1000)"
+            );
+            self.lag = true;
         } else {
             self.lag = true;
-            if self.round_nr > 10 {
-                tracing::error!(
-                    delay_ms,
-                    todo_queue_len = todo_len_before,
-                    creatures = self.creatures.len(),
-                    "772 beat advance skipped MoveCreatures due to lag (Delay >= 1000)"
-                );
-            }
         }
         let todo_us = t0.elapsed().as_micros();
         let wall_ms = wall_start.elapsed().as_millis();
@@ -211,6 +226,39 @@ mod tests {
             "server_ms must not advance under lag guard"
         );
         assert!(world.lag);
+    }
+
+    #[test]
+    fn lag_flag_stays_set_until_a_short_beat() {
+        let mut world = beat_driven_test_world();
+        world.round_nr = 11;
+        world.advance_beat(1000);
+        assert!(world.lag);
+        world.advance_beat(1000);
+        assert!(world.lag, "a second stalled beat stays inside the same episode");
+        world.advance_beat(50);
+        assert!(!world.lag);
+    }
+
+    #[test]
+    fn server_save_warning_waits_for_the_minute_arm() {
+        let mut world = beat_driven_test_world();
+        let now = chrono::Local::now().timestamp();
+        world.server_save.set_next_save_unix(now + 60);
+        world.next_minute_round = 10_000;
+        world.advance_beat(2000);
+        assert_eq!(
+            world.game_state,
+            crate::game_state::GameState::Normal,
+            "poll stays off until RoundNr >= NextMinute"
+        );
+        world.next_minute_round = 0;
+        world.advance_beat(2000);
+        assert_eq!(
+            world.game_state,
+            crate::game_state::GameState::Closed,
+            "the minute arm broadcasts the 5-minute close"
+        );
     }
 
     #[test]

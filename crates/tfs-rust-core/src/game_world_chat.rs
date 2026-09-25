@@ -724,8 +724,12 @@ impl GameWorld {
         // era: 1098 writes `name + u16 level + type + …`, 772 omits the `level` field
         // (`gameserver/src/protocolgame.cpp:1442`). Writing the 1098 layout to a 772 client shifts
         // the speak-type byte, which the client reads as an invalid message mode.
+        let statement_id =
+            self.log_player_speech(cid, i32::from(speak_class), i32::from(channel_id), text);
         for conn_id in recipients {
-            let statement_id = self.alloc_statement_id();
+            if let Some(listener) = self.conn_to_creature.get(&conn_id).copied() {
+                self.log_listener(statement_id, listener);
+            }
             let wire = ToChannelWire {
                 speaker_name: Some(speaker_name.clone()),
                 level: speaker_level as u16,
@@ -1109,7 +1113,9 @@ impl GameWorld {
         // Era-aware codec: 772 `sendPrivateMessage` omits the `u16 level` field that 1098 writes
         // after the name (`gameserver/src/protocolgame.cpp:1465`).
         if let Some(target_conn) = self.conn_for_creature(target_cid) {
-            let statement_id = self.alloc_statement_id();
+            let statement_id = self.log_player_speech(cid, i32::from(actual_speak_class), 0, text);
+            self.log_listener(statement_id, cid);
+            self.log_listener(statement_id, target_cid);
             let wire = PrivateMessageWire {
                 speaker_name: Some(speaker_name.clone()),
                 level: speaker_level as u16,
@@ -1183,10 +1189,15 @@ impl GameWorld {
         // C++ `for (const auto& it : players) { it.second->sendPrivateMessage(player, TALKTYPE_BROADCAST, text); }`
         // — `game.cpp:1906-1908`. Fan-out to all online players via the era-aware codec (772 omits
         // the `u16 level` field, `gameserver/src/protocolgame.cpp:1465`).
-        let target_conns: Vec<ConnId> = self.conn_to_creature.keys().copied().collect();
+        let statement_id = self.log_player_speech(cid, i32::from(TALKTYPE_BROADCAST), 0, text);
+        let target_conns: Vec<(ConnId, CreatureId)> = self
+            .conn_to_creature
+            .iter()
+            .map(|(&conn, &id)| (conn, id))
+            .collect();
 
-        for target_conn in target_conns {
-            let statement_id = self.alloc_statement_id();
+        for (target_conn, listener) in target_conns {
+            self.log_listener(statement_id, listener);
             let wire = PrivateMessageWire {
                 speaker_name: Some(speaker_name.clone()),
                 level: speaker_level as u16,

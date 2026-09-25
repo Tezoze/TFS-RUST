@@ -25,6 +25,18 @@ pub struct DecayEntry {
     /// Absolute `server_ms` when the item should transform / vanish.
     pub deadline_tick: u64,
     pub replace_with: Option<u16>,
+    /// `CronInfo` remainder in clock units, stamped when the entry is popped.
+    /// At the due round this is 1, not 0 (`map.cc:316-318`).
+    pub saved_remaining: u64,
+}
+
+/// `CronInfo` remainder while the entry is still in the cron table (`map.cc:316-318`).
+pub(crate) fn cron_remaining(deadline: u64, now: u64) -> u64 {
+    if deadline > now {
+        deadline - now
+    } else {
+        1
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -61,6 +73,7 @@ impl DecayManager {
             DecayEntry {
                 deadline_tick,
                 replace_with,
+                saved_remaining: 0,
             },
         );
         if let Some(&index) = self.heap_index.get(&id) {
@@ -98,7 +111,7 @@ impl DecayManager {
     pub fn remaining_ms(&self, id: ItemId, now_ms: u64) -> Option<u64> {
         self.entries
             .get(&id)
-            .map(|e| e.deadline_tick.saturating_sub(now_ms))
+            .map(|e| cron_remaining(e.deadline_tick, now_ms))
     }
 
     /// Pop all entries with `deadline_tick <= now` (772 `CronCheck` loop shape).
@@ -109,10 +122,13 @@ impl DecayManager {
                 break;
             }
             self.remove_at(0);
-            let entry = self
+            let mut entry = self
                 .entries
                 .remove(&node.item_id)
                 .expect("heap node must have matching entry");
+            // Stamp before the entry leaves the table — ChangeObject reads CronStop
+            // while the object is still due (`map.cc:316-318`, `1924-1978`).
+            entry.saved_remaining = cron_remaining(entry.deadline_tick, now);
             done.push((node.item_id, entry));
         }
         done
@@ -213,7 +229,7 @@ mod tests {
         let mut decay = DecayManager::default();
         decay.schedule(id, 5_000, Some(100));
         assert_eq!(decay.remaining_ms(id, 2_000), Some(3_000));
-        assert_eq!(decay.remaining_ms(id, 5_000), Some(0));
+        assert_eq!(decay.remaining_ms(id, 5_000), Some(1));
         decay.cancel(id);
         assert_eq!(decay.remaining_ms(id, 2_000), None);
         assert_eq!(decay.live_heap_len(), 0);
@@ -232,6 +248,7 @@ mod tests {
         let due = decay.tick(100);
         assert_eq!(due.len(), 1);
         assert_eq!(due[0].0, a);
+        assert_eq!(due[0].1.saved_remaining, 1);
         assert_eq!(decay.remaining_ms(b, 100), Some(400));
         assert_eq!(decay.live_heap_len(), 1);
         let due = decay.tick(500);

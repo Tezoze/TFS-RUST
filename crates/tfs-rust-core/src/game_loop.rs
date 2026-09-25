@@ -825,8 +825,9 @@ fn finish_loaded_player(
             if let Some(old) = old_conn {
                 pending_login_conns.remove(&old);
                 world.login_pending_conns.remove(&old);
-                flush_conn_outgoing(world, old, output_sinks, out_registry);
-                close_output_connection(world, old, output_sinks, out_registry);
+                // `OldConnection->Logout(0, true)` after CharacterID is cleared
+                // (`connections.cc:244-248`) — TCP on the next Process, no StartLogout.
+                world.schedule_tcp_close_after(old, 0);
             }
             world.register_conn_mapping(conn_id, cid);
             crate::login_out::enqueue_initial_login_packets(world, conn_id, cid);
@@ -906,6 +907,7 @@ fn handle_player_disconnect(
 ) {
     pending_login_conns.remove(&conn_id);
     world.login_pending_conns.remove(&conn_id);
+    world.logout_at_round.remove(&conn_id);
     let cid = world.conn_to_creature.get(&conn_id).copied();
     // Linger window: `Die()` already ran (`dead_connections`) but `~TCreature` has not.
     // Closing TCP must not `remove_creature` — corpse / AoL / temple save wait for
@@ -1334,39 +1336,19 @@ fn handle_game_packet(
             }
         }
         GamePacket::Logout => {
-            // TFS / 772 `ProtocolGame::logout` — validate then disconnect (close TCP).
-            // Mid-async-login (no `conn_to_creature` yet) still closes the session.
-            // Post-death: mapping was cleared but `dead_connections` keeps the session
-            // until OK (`CL_CMD_LOGOUT`) — 772 `CONNECTION_DEAD` (`receiving.cc:17-21`).
-            if world.dead_connections.contains(&conn_id) {
-                pending_push(
-                    pending,
-                    GameCommand::PlayerDisconnect {
-                        conn_id,
-                        display_effect: false,
-                        stop_fight: true,
-                    },
-                );
+            // `CQuitGame` → `Logout(0, true)` (`receiving.cc:81-91`). TCP closes on the
+            // next `Process`, not in this receive. A dead socket still uses
+            // `PlayerDisconnect` (immediate).
+            if world.dead_connections.contains(&conn_id)
+                || world.logout_at_round.contains_key(&conn_id)
+            {
+                world.schedule_connection_logout(conn_id, 0, true, false);
             } else if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
                 if world.player_logout_allowed(conn_id, cid, false) {
-                    pending_push(
-                        pending,
-                        GameCommand::PlayerDisconnect {
-                            conn_id,
-                            display_effect: true,
-                            stop_fight: true,
-                        },
-                    );
+                    world.schedule_connection_logout(conn_id, 0, true, true);
                 }
             } else {
-                pending_push(
-                    pending,
-                    GameCommand::PlayerDisconnect {
-                        conn_id,
-                        display_effect: false,
-                        stop_fight: true,
-                    },
-                );
+                world.schedule_tcp_close_after(conn_id, 0);
             }
         }
         GamePacket::Say(payload) => {
@@ -2070,7 +2052,8 @@ pub async fn run_game_loop(
                 // a due `MoveCreatures` before `CGoDirection` consumes the next auto-walk
                 // tile (skip). Lone `0xA3` is held across that later SendAll.
                 let ready_beats = drain_ready_beats(&mut beat_timer);
-                world.tick_server_save(chrono::Local::now().timestamp());
+                // Save warnings poll only on the minute arm (`main.cc:379`). `/save`
+                // still sets `FlushStay` directly and is applied here.
                 if handle_pending_save_tick(&mut world).await? {
                     break;
                 }
@@ -2195,7 +2178,6 @@ pub async fn run_game_loop(
                     &out_registry,
                     &mut pending_output_shed,
                 );
-                world.tick_server_save(chrono::Local::now().timestamp());
                 if handle_pending_save_tick(&mut world).await? {
                     break;
                 }

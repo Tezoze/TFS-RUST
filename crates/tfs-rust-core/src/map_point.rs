@@ -7,7 +7,6 @@
 use tfs_rust_common::Position;
 use tfs_rust_common::enums::SkullType;
 use tfs_rust_net::NetworkMessage;
-use tfs_rust_net::ProtocolCodec;
 use tfs_rust_net::creature_encode::AddCreatureWire;
 use tfs_rust_net::creature_known::{KnownCreatureTable, check_creature_known};
 use tfs_rust_net::map_description::{

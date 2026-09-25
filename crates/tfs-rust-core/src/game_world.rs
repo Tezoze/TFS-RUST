@@ -234,6 +234,10 @@ pub struct GameWorld {
     pub(crate) refresh_cylinder_state: crate::sector_refresh::RefreshCylinderState,
     /// `CONNECTION_LOGIN` sockets not yet mapped to a creature (`connections.cc:42–44`).
     pub(crate) login_pending_conns: HashSet<ConnId>,
+    /// `CONNECTION_LOGOUT` round stamp — `connections.cc:294` `TimeStamp = RoundNr + Delay`.
+    pub(crate) logout_at_round: HashMap<ConnId, u32>,
+    /// Speech statements and GM listeners — `operate.cc` `ProcessCommunicationControl`.
+    pub(crate) communication_log: crate::communication_log::CommunicationLog,
     /// RoundNr AttackWaveQueue — `crmain.cc` ProcessMonsterRaids.
     pub(crate) raids: crate::raid_waves::RaidScheduler,
     /// Last broadcast ambiente brightness — `AdvanceGame` `OldAmbiente` (`main.cc:323`).
@@ -520,6 +524,8 @@ impl GameWorld {
             next_minute_round: 30,
             refresh_cylinder_state: crate::sector_refresh::RefreshCylinderState::default(),
             login_pending_conns: HashSet::new(),
+            logout_at_round: HashMap::new(),
+            communication_log: crate::communication_log::CommunicationLog::default(),
             raids: crate::raid_waves::RaidScheduler::default(),
             last_ambiente_brightness: -1,
             world_light_override: None,

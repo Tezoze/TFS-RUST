@@ -523,19 +523,6 @@ pub fn apply_loaded_player(
     if let Some(persist) = player.persist.as_mut() {
         persist.player_row.lastip = peer_ip;
     }
-    // Debug aid: confirm vocation/level/speed wiring (PC-0 base_speed + level scaling).
-    // 772: base_speed/speed store GoStrength `Act` (decompile `crskill.cc:19` `Get()`);
-    //      effective_speed = 2*Act + 80 (`crmain.cc:484` `GetSpeed()`), computed on demand.
-    tracing::info!(
-        vocation_id = player.vocation_id,
-        vocation_base_speed = player.vocation_profile.base_speed,
-        level = player.level,
-        base_speed = player.base.base_speed,
-        speed = player.base.speed,
-        effective_speed = crate::formulas::linear_go_effective_speed(player.base.speed),
-        step_speed_model = ?world.mechanics.profile.step_speed,
-        "player login speed snapshot"
-    );
     let cid = world.creatures.insert(CreatureKind::Player(player));
 
     world.hydrate_player_inventory_from_db(
@@ -601,10 +588,14 @@ pub fn apply_loaded_player(
 /// `sendAddCreature` / map / stats first, then `playerLogin` scripts, then
 /// `lastLoginSaved = max(now, lastLoginSaved + 1)` (`protocolgame.cpp`).
 pub(crate) fn finalize_player_login(world: &mut GameWorld, cid: CreatureId) {
-    let guid = world.creatures.get(cid).and_then(|k| match k {
-        CreatureKind::Player(p) => Some(p.guid),
+    let session = world.creatures.get(cid).and_then(|k| match k {
+        CreatureKind::Player(p) => Some((p.guid, p.base.name.clone())),
         _ => None,
     });
+    if let Some((_, name)) = session.as_ref() {
+        world.console_player_session(name, true);
+    }
+    let guid = session.map(|(guid, _)| guid);
     world.refresh_player_active_vocation_profile(cid);
     fire_on_login(world, cid);
     stamp_last_login_saved(world, cid);
