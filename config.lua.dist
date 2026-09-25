@@ -17,6 +17,8 @@ statusProtocolPort = 7171
 -- Login MOTD / world name. TFS_MOTD / TFS_SERVER_NAME override when set.
 serverName = "Forgotten"
 motd = "Welcome to The Forgotten Server!"
+-- Green "Name has logged in" / red "Name has logged out" on the server console.
+showPlayerLogInConsole = true
 
 -- MySQL. DATABASE_URL overrides the mysql* URL (not pool size).
 mysqlHost = "127.0.0.1"

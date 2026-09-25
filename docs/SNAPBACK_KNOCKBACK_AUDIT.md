@@ -77,7 +77,7 @@ if(SnapbackNecessary && r != MOVENOTPOSSIBLE && r != NOTINVITED && r != ENTERPRO
 | 10 | `player_set_attack_dest` → `player_todo_clear_with_snapback` | `player/combat/mod.rs:180` | ✓ |
 | 11 | `player_stop_auto_walk` not-locked arm | `walk/mod.rs:866` | ✓ |
 | 12 | `apply_todo_result_catch(ThereIsNoWay)` | `creature_todo.rs:791` | ⚠ S4 |
-| 13 | monster-only (`monster_on_creature_move`) | `monster_events.rs:136` | ✗ S5 |
+| 13 | `player_dispatch_combat_move_stimulus` | `player/combat/mod.rs` | ✓ S5 |
 | 14 | (folded into site 8 — `send_result_player`) | `creature_todo.rs:816` | ⚠ S2 |
 
 ## Findings
@@ -189,13 +189,11 @@ this->ToDoAttack();
 this->ToDoStart();
 ```
 
-**Rust**: `monster_on_creature_move` (`monster_events.rs:136`) handles monsters only.
-There is no player `CreatureMoveStimulus` — the player's attack is not re-armed when the
-target moves, and no snapback is sent.
+**Rust**: `player_dispatch_combat_move_stimulus` (`player/combat/mod.rs`) runs the same
+predicate for players whose attack dest is the mover. `ToDoClear` snapback uses the
+pending-Go contract (`player_todo_clear_with_snapback`), then `Wait(200)` + `Attack`.
 
-**Impact:** A player attacking a creature that walks away does not get a snapback or
-attack re-arm from the move stimulus. (This is part of the broader missing player
-follow/attack implementation — see `tasks/player-walk-audit.md` BUG P3.)
+**Status:** fixed.
 
 ### S6 (L): `ReturnValue` conflation — `ThereIsNoWay` maps to both `NOWAY` and `MOVENOTPOSSIBLE`
 
@@ -227,8 +225,8 @@ set (C++ sends unconditional snapback for `NOWAY` via `ToDoGo`, not via `SendRes
 | S2 | H | `send_result_player` exempt set inverted — 3 results get 0 snapback instead of 1 | **FIXED** |
 | S3 | L | `on_walk_step_rejected` always sends snapback — no `SnapbackNecessary` check | Accepted divergence (can't distinguish NOTACCESSIBLE from MOVENOTPOSSIBLE) |
 | S4 | M | `NOWAY` pathfinding fail missing unconditional snapback | **FIXED** |
-| S5 | M | Missing player `CreatureMoveStimulus` combat-move-rearm snapback | Open (feature gap) |
+| S5 | M | Missing player `CreatureMoveStimulus` combat-move-rearm snapback | **FIXED** |
 | S6 | L | `ReturnValue::ThereIsNoWay` conflates `NOWAY` and `MOVENOTPOSSIBLE` | **FIXED** (removed from exempt set) |
 
 **Wire parity: ✓** (opcode `0xB5` + direction byte matches exactly).
-**Logic parity: ✓ for snapback conditions** (S2/S4/S6 fixed; S3 accepted as harmless extra-snapback divergence; S1/S5 are broader feature gaps).
+**Logic parity: ✓ for snapback conditions** (S2/S4/S5/S6 fixed; S3 accepted as harmless extra-snapback divergence; S1 is a broader feature gap).

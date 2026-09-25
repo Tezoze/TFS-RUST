@@ -400,6 +400,14 @@ impl GameWorld {
             );
             reduced_damage.primary.1 = p;
             reduced_damage.secondary.1 = s;
+            // `Damage <= 0` after the absorb loop plays `EFFECT_POFF` and returns
+            // before armor (`crmain.cc:540-579`). Integer division can zero a 1-point hit.
+            if reduced_damage.primary.1 >= 0 && reduced_damage.secondary.1 >= 0 {
+                if let Some(pos) = self.creatures.get(target).map(|k| k.position()) {
+                    self.broadcast_magic_effect(pos, 3u8);
+                }
+                return 0;
+            }
         }
 
         // 772 `DAMAGE_*_PERIODIC` — after absorb, before mana shield / HP (`crmain.cc:582-613`).

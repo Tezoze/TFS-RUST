@@ -1,3 +1,13 @@
+# Player combat audit fixes (2026-09-26)
+
+Four live divergences from the player combat canvas. Melee probe, armor, and fight mode stay.
+
+- [x] Wand `shoot_range` replaces the const 3
+- [x] Close-chase move rearm: snapback, `Wait(200)`, `Attack`
+- [x] Poff when jewelry absorb zeroes a hit, before armor RNG
+- [x] Out of range and no line of sight yield `Wait(0)` with no cancel text
+- [x] `cargo test -p tfs-rust-core --lib player::combat` (125 passed); lessons.md
+
 # Game loop audit fixes (2026-09-26)
 
 Canvas bugs GL-1..GL-4 and gaps GL-5..GL-12. Scheduler matches, 15-minute logout save, and Turn/Stop peek stay.

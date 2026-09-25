@@ -97,7 +97,11 @@ impl GameWorld {
     /// The caller has already verified the target is alive and within the 8-tile sight window
     /// (`crcombat.cc:624-627`). Range-vs-distance and `ThrowPossible` (line-of-sight) checks
     /// happen inside the strike bodies, matching C++ order (`crcombat.cc:706,762,787`).
-    pub(crate) fn player_ranged_attack_strike(&mut self, cid: CreatureId, target_id: CreatureId) {
+    pub(crate) fn player_ranged_attack_strike(
+        &mut self,
+        cid: CreatureId,
+        target_id: CreatureId,
+    ) -> RangedAttackResult {
         // Classify the equipped weapon to pick the strike arm. Read-only borrows first.
         let arm = self.classify_player_ranged_arm(cid);
         match arm {
@@ -110,6 +114,7 @@ impl GameWorld {
                 if let Some(k) = self.creatures.get_mut(cid) {
                     k.base_mut().delay_attack_ms(server_ms, 200);
                 }
+                RangedAttackResult::Rearm
             }
         }
     }
@@ -174,60 +179,59 @@ impl GameWorld {
     /// `Damage(Master, Damage, DamageType)` → `ActivateLearning` on `DamageDone > 0` →
     /// missile animation (`WANDMISSILE`) → `DelayAttack(2000)`.
     ///
-    /// Wand data (`AttackStrength`/`AttackVariation`/`DamageType`/`ManaConsumption`/`WANDRANGE`/
+    /// Wand data (`AttackStrength`/`AttackVariation`/`DamageType`/`ManaConsumption`/
     /// `WANDMISSILE`) comes from `WandDef` (loaded from `wands.lua`/`rods.lua` in PC-2b). The
     /// `WandDef.damage_min`/`damage_max` map to 772 `WANDATTACKSTRENGTH`/`WANDATTACKVARIATION`:
     /// `AttackStrength = (min + max) / 2`, `AttackVariation = (max - min) / 2` — matching the
     /// `random(-V, V)` spread to the `[min, max]` range. The damage type is `WandDef.element`.
-    /// `WANDRANGE` defaults to 3 (772 wand range); `WANDMISSILE` is read from the wand item's
-    /// `shoot_effect` (`items.xml` `shoottype`).
-    fn player_wand_attack(&mut self, cid: CreatureId, target_id: CreatureId) {
+    /// `WANDRANGE` is the wand item's `shoot_range` (`items.xml` `range`).
+    /// `WANDMISSILE` is read from the wand item's `shoot_effect` (`items.xml` `shoottype`).
+    fn player_wand_attack(&mut self, cid: CreatureId, target_id: CreatureId) -> RangedAttackResult {
         let server_ms = self.server_ms;
 
         // Read the wand item id + WandDef snapshot before any mutation.
         let (wand_iid, wand_item_type) = match self.player_get_weapon(cid, true) {
             Some(iid) => {
                 let Some(item) = self.items.get(iid) else {
-                    return;
+                    return RangedAttackResult::Rearm;
                 };
                 (iid, item.item_type)
             }
-            None => return,
+            None => return RangedAttackResult::Rearm,
         };
         let Some(wand_def) = self.weapons.get_wand(wand_item_type).cloned() else {
             // No wand definition registered for this item — re-arm without striking.
             if let Some(k) = self.creatures.get_mut(cid) {
                 k.base_mut().delay_attack_ms(server_ms, 200);
             }
-            return;
+            return RangedAttackResult::Rearm;
         };
         // Lua level/vocation — same gates as `classify_player_ranged_arm` (772 GetWeapon skip).
         if !self.player_meets_wand_requirements(cid, wand_item_type) {
             if let Some(k) = self.creatures.get_mut(cid) {
                 k.base_mut().delay_attack_ms(server_ms, 200);
             }
-            return;
+            return RangedAttackResult::Rearm;
         }
 
         // Positions for range/LoS checks — read before mutation.
         let (master_pos, target_pos) =
             match (self.creatures.get(cid), self.creatures.get(target_id)) {
                 (Some(a), Some(b)) => (a.base().position, b.base().position),
-                _ => return,
+                _ => return RangedAttackResult::Rearm,
             };
         let cheb = chebyshev(master_pos, target_pos);
 
-        // `WANDRANGE` — 772 wands have range 3. `WandDef` doesn't carry range; default to 3.
-        // `crcombat.cc:706` throws `TARGETOUTOFRANGE` if `Distance > WANDRANGE`.
-        const WAND_RANGE: i32 = 3;
-        if cheb > WAND_RANGE {
-            // Re-arm without striking — `TARGETOUTOFRANGE` falls through to `default: break`
-            // in `sending.cc:348` (no message). `DelayAttack(200)` was already applied by the
-            // caller's pre-strike cadence.
+        // Per-type `WANDRANGE` — `items.xml` `range` on `ItemType.shoot_range`
+        // (`crcombat.cc:706` throws `TARGETOUTOFRANGE` if `Distance > WANDRANGE`).
+        let wand_range = self.player_weapon_max_range(cid);
+        if cheb > wand_range {
+            // `TARGETOUTOFRANGE` — `sending.cc:348` `default: break` (no message).
+            // `DelayAttack(200)` then the Execute catch (`cract.cc:870-887`).
             if let Some(k) = self.creatures.get_mut(cid) {
                 k.base_mut().delay_attack_ms(server_ms, 200);
             }
-            return;
+            return RangedAttackResult::SilentYield;
         }
 
         // `ThrowPossible` LoS check — `crcombat.cc:710-713` throws `TARGETHIDDEN`.
@@ -235,7 +239,7 @@ impl GameWorld {
             if let Some(k) = self.creatures.get_mut(cid) {
                 k.base_mut().delay_attack_ms(server_ms, 200);
             }
-            return;
+            return RangedAttackResult::SilentYield;
         }
 
         // Mana check — `CheckMana(Master, ManaConsumption, 0, 0)` (`crcombat.cc:722`).
@@ -264,7 +268,7 @@ impl GameWorld {
             if let Some(k) = self.creatures.get_mut(cid) {
                 k.base_mut().delay_attack_ms(server_ms, 200);
             }
-            return;
+            return RangedAttackResult::Rearm;
         }
         let profile = self.mechanics.profile;
         let magic_tries =
@@ -374,6 +378,7 @@ impl GameWorld {
                 base.follow_target = None;
             }
         }
+        RangedAttackResult::Rearm
     }
 
     /// 772 `TCombat::DistanceAttack` — `crcombat.cc:739-860`.
@@ -389,7 +394,11 @@ impl GameWorld {
     /// `AnimType = AMMOMISSILE` (`crcombat.cc:766-771`). Throwing: `HitChance = 75`,
     /// `Fragility = THROWFRAGILITY` from Lua `weapon:breakChance` when `action("move")`
     /// (`crcombat.cc:779-784`, PC-3a).
-    fn player_distance_attack(&mut self, cid: CreatureId, target_id: CreatureId) {
+    fn player_distance_attack(
+        &mut self,
+        cid: CreatureId,
+        target_id: CreatureId,
+    ) -> RangedAttackResult {
         let server_ms = self.server_ms;
         let profile = self.mechanics.profile;
 
@@ -430,17 +439,17 @@ impl GameWorld {
                 if let Some(k) = self.creatures.get_mut(cid) {
                     k.base_mut().delay_attack_ms(server_ms, 200);
                 }
-                return;
+                return RangedAttackResult::Rearm;
             }
         };
 
         // Read the active item (ammo for bows, weapon for throwing) for attack/shoot/effect.
         let (attack_value, shoot_type, special_effect, effect_strength, active_type_id) = {
             let Some(item) = self.items.get(active_iid) else {
-                return;
+                return RangedAttackResult::Rearm;
             };
             let Some(it) = self.items_db.items.get(&item.item_type) else {
-                return;
+                return RangedAttackResult::Rearm;
             };
             let shoot_type = it.shoot_effect.unwrap_or(0);
             let (special, effect_strength) = AmmoSpecialEffect::from_item_type(it);
@@ -464,7 +473,7 @@ impl GameWorld {
         let (master_pos, target_pos) =
             match (self.creatures.get(cid), self.creatures.get(target_id)) {
                 (Some(a), Some(b)) => (a.base().position, b.base().position),
-                _ => return,
+                _ => return RangedAttackResult::Rearm,
             };
         let dist_x = (master_pos.x as i32 - target_pos.x as i32).abs();
         let dist_y = (master_pos.y as i32 - target_pos.y as i32).abs();
@@ -477,7 +486,7 @@ impl GameWorld {
             if let Some(k) = self.creatures.get_mut(cid) {
                 k.base_mut().delay_attack_ms(server_ms, 200);
             }
-            return;
+            return RangedAttackResult::SilentYield;
         }
 
         // `ThrowPossible` LoS — `crcombat.cc:787-790` throws `TARGETHIDDEN`.
@@ -485,7 +494,7 @@ impl GameWorld {
             if let Some(k) = self.creatures.get_mut(cid) {
                 k.base_mut().delay_attack_ms(server_ms, 200);
             }
-            return;
+            return RangedAttackResult::SilentYield;
         }
 
         // Attacker skill/level/mode/vocation block — read before mutation.
@@ -508,7 +517,7 @@ impl GameWorld {
                     p.vocation_profile.attack_speed_ms,
                     p.base.learning_points > 0,
                 ),
-                _ => return,
+                _ => return RangedAttackResult::Rearm,
             };
 
         // `Difficulty = (Distance >= 2) ? Distance : 5` (`crcombat.cc:792`).
@@ -569,7 +578,7 @@ impl GameWorld {
                     Some(CreatureKind::Player(p)) => {
                         p.skill_level_profile(crate::player::combat::SkillNr::Distance, &profile)
                     }
-                    _ => return,
+                    _ => return RangedAttackResult::Rearm,
                 };
                 let attack_roll = weapon_damage(
                     &profile,
@@ -608,7 +617,7 @@ impl GameWorld {
                             defense_snap,
                             &self.parity_rng,
                         ),
-                        None => return,
+                        None => return RangedAttackResult::Rearm,
                     };
                     if defense_gate_passed {
                         self.player_shield_wearout(target_id);
@@ -782,6 +791,7 @@ impl GameWorld {
                 base.follow_target = None;
             }
         }
+        RangedAttackResult::Rearm
     }
 
     /// 772 burst-arrow `SpecialEffect == 2` — `ComputeDamage` + `CircleShapeSpell` radius 2
@@ -951,6 +961,16 @@ impl GameWorld {
     }
 }
 
+/// How `player_execute_attack` finishes a ranged strike (`cract.cc:870-887`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RangedAttackResult {
+    /// Hit, miss, mana, or missing weapon — caller re-enqueues `TDAttack`.
+    Rearm,
+    /// `TARGETOUTOFRANGE` / `TARGETHIDDEN` after `DelayAttack(200)`.
+    /// Caller clears the queue and `ToDoYield`s. No cancel text. Attack dest stays.
+    SilentYield,
+}
+
 /// Ranged arm classification — `crcombat.cc:632-638`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RangedArm {
@@ -1032,6 +1052,8 @@ mod tests {
             server_id,
             weapon_type: WEAPON_WAND,
             shoot_effect: Some(shoot_effect),
+            // Existing strike tests stand at chebyshev 2 and model vortex (range 3).
+            shoot_range: 3,
             ..Default::default()
         }
     }
@@ -1182,6 +1204,150 @@ mod tests {
         // `DelayAttack(2000)` — earliest attack advanced by 2s.
         let earliest = world.creatures.get(cid).unwrap().base().earliest_attack_ms;
         assert_eq!(earliest, 3000);
+    }
+
+    /// Per-type wand `shoot_range` (`items.xml` `range`, `crcombat.cc:706`).
+    /// Cosmic energy (1) misses at 2. Snakebite (4) hits at 4. Plague (2) misses at 3.
+    /// Vortex (3) still hits at 3.
+    #[test]
+    fn wand_shoot_range_follows_item() {
+        fn strike_at(range: i32, cheb: i32) -> (i32, i32) {
+            let mut world = minimal_world();
+            let pos = Position::new(100, 100, 7);
+            let mut player = sim_hero_player("Hero", pos);
+            player.mana = 100;
+            let cid = world.creatures.insert(CreatureKind::Player(player));
+            let target_pos = Position::new((100 + cheb) as u16, 100, 7);
+            let target = insert_monster_with_config(
+                &mut world,
+                "Rat",
+                target_pos,
+                100,
+                crate::creature::MonsterAiConfig::default(),
+            );
+            let mut wand = make_wand(2190, 0);
+            wand.shoot_range = range;
+            equip_item(&mut world, cid, InventorySlot::Left as u8, 2190, wand);
+            register_wand(
+                &mut world,
+                2190,
+                WandDef {
+                    item_id: 2190,
+                    mana_cost: 1,
+                    element: tfs_rust_common::enums::CombatType::Energy,
+                    damage_min: 10,
+                    damage_max: 10,
+                    ..Default::default()
+                },
+            );
+            world.server_ms = 1000;
+            world.player_ranged_attack_strike(cid, target);
+            let hp = world
+                .creatures
+                .get(target)
+                .map(|k| k.base().health)
+                .unwrap_or(0);
+            let mana = match world.creatures.get(cid) {
+                Some(CreatureKind::Player(p)) => p.mana,
+                _ => 0,
+            };
+            (hp, mana)
+        }
+
+        let (hp, mana) = strike_at(1, 2);
+        assert_eq!(hp, 100, "cosmic energy (range 1) misses at chebyshev 2");
+        assert_eq!(mana, 100, "a range miss must not spend mana");
+
+        let (hp, mana) = strike_at(4, 4);
+        assert_eq!(hp, 90, "snakebite (range 4) hits at chebyshev 4");
+        assert_eq!(mana, 99);
+
+        let (hp, mana) = strike_at(2, 3);
+        assert_eq!(hp, 100, "plague (range 2) misses at chebyshev 3");
+        assert_eq!(mana, 100);
+
+        let (hp, mana) = strike_at(3, 3);
+        assert_eq!(hp, 90, "vortex (range 3) still hits at chebyshev 3");
+        assert_eq!(mana, 99);
+    }
+
+    /// Bow with no line of sight throws `TARGETHIDDEN`: no text, dest stays,
+    /// pending Go snapback, queue is `Wait(0)` (`crcombat.cc:787-790`, `cract.cc:870-887`).
+    #[test]
+    fn bow_without_line_of_sight_yields_without_text() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        let block = Position::new(101, 100, 7);
+        let target_pos = Position::new(102, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, block, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, target_pos, TEST_SYNTHETIC_GROUND_WP);
+        if let Some(tile) = world.map.get_tile_mut(block) {
+            tile.body_mut().flags |= crate::tile::flags::UNTHROW;
+        }
+        let conn = ConnId(1);
+        let cid = insert_spectator_player(&mut world, conn, sim_hero_player("Hero", pos));
+        let target = insert_monster_with_config(
+            &mut world,
+            "Rat",
+            target_pos,
+            100,
+            crate::creature::MonsterAiConfig::default(),
+        );
+        equip_item(
+            &mut world,
+            cid,
+            InventorySlot::Left as u8,
+            2456,
+            make_bow(2456, 1, 6),
+        );
+        let arrow_iid = world.items.insert(Item::new(2544, 10));
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            let idx = crate::inventory::slot_to_array_index(InventorySlot::Ammo as u8).unwrap();
+            p.equipment_slots[idx] = Some(arrow_iid);
+            p.base.attack_target = Some(target);
+            p.base.chase_mode = crate::creature::ChaseMode::None;
+            p.base
+                .todo
+                .queue
+                .push_back(crate::creature_todo::CreatureAction::Go);
+        }
+        let arrow_it = make_ammo(2544, 1, 25, 0);
+        if !world.items_db.items.contains_key(&2544) {
+            let mut items = std::collections::HashMap::clone(&world.items_db.items);
+            items.insert(2544, arrow_it);
+            let client_to_server =
+                std::collections::HashMap::clone(&world.items_db.client_to_server);
+            world.items_db = std::sync::Arc::new(tfs_rust_content::items::ItemDatabase {
+                items,
+                client_to_server,
+            });
+        }
+        world.server_ms = 1_000;
+        world.pending_outgoing.clear();
+        let _ = world.player_execute_attack(cid);
+
+        let base = world.creatures.get(cid).unwrap().base();
+        assert_eq!(base.attack_target, Some(target));
+        assert!(!base.todo.has_attack());
+        assert!(matches!(
+            base.todo.queue.front(),
+            Some(crate::creature_todo::CreatureAction::Wait { deadline_ms: 1_000 })
+        ));
+        let hp = world.creatures.get(target).map(|k| k.base().health);
+        assert_eq!(hp, Some(100), "a hidden target must not be hit");
+        let pkts = world
+            .pending_outgoing
+            .get(&conn)
+            .expect("pending Go must snapback");
+        assert!(
+            pkts.iter().any(|b| !b.is_empty() && b[0] == 0xB5),
+            "TARGETHIDDEN must snapback a pending Go, got {pkts:?}"
+        );
+        assert!(
+            pkts.iter().all(|b| b.first() != Some(&0xB4)),
+            "TARGETHIDDEN must not send a cancel string, got {pkts:?}"
+        );
     }
 
     /// Fire wand animated text uses COLOR_ORANGE (198), not blood COLOR_RED (180).

@@ -184,4 +184,122 @@ mod tests {
             "necklace slot empty"
         );
     }
+
+    /// Absorb that integer-divides a damaging hit to 0 plays poff and skips armor
+    /// (`crmain.cc:577` returns before `GetArmorStrength`).
+    #[test]
+    fn absorb_to_zero_poffs_without_armor_roll() {
+        let mut world = crate::test_support::beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        crate::test_support::ensure_walkable_tile(
+            &mut world.map,
+            pos,
+            crate::test_support::TEST_SYNTHETIC_GROUND_WP,
+        );
+        let conn = tfs_rust_common::ConnId(1);
+        let cid = crate::test_support::insert_spectator_player(
+            &mut world,
+            conn,
+            test_player("Might", pos),
+        );
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            p.base.health = 200;
+            p.base.max_health = 200;
+        }
+        let mut it = ItemType {
+            id: 2164,
+            ..Default::default()
+        };
+        it.abilities.absorb_percent[combat_absorb_index(CombatType::Physical)] = 100;
+        register_type(&mut world, 2164, it);
+        let typed = world.items_db.items.get(&2164).expect("type");
+        let iid = world
+            .items
+            .insert(crate::item::Item::from_item_type(typed, 1));
+        let slot = InventorySlot::Ring as u8;
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            p.equipment_slots[crate::inventory::slot_to_array_index(slot).unwrap()] = Some(iid);
+        }
+        world.pending_outgoing.clear();
+        let draws_before = world.parity_rng.draw_count();
+        let mut params = CombatParams::default();
+        params.armor = Some(20);
+        let applied = world.combat_execute_with_stimulus(
+            None,
+            cid,
+            &CombatDamage {
+                primary: (CombatType::Physical, -1),
+                secondary: (CombatType::Physical, 0),
+            },
+            &params,
+        );
+        assert_eq!(applied, 0);
+        assert_eq!(world.creatures.get(cid).map(|k| k.base().health), Some(200));
+        assert_eq!(
+            world.parity_rng.draw_count(),
+            draws_before,
+            "armor RNG must not run when absorb zeroes the hit"
+        );
+        let pkts = world
+            .pending_outgoing
+            .get(&conn)
+            .expect("spectator must receive the poff");
+        assert!(
+            pkts.iter()
+                .any(|p| p.len() >= 7 && p[0] == 0x83 && p[p.len() - 1] == 3),
+            "fully absorbed hit must broadcast EFFECT_POFF (3), got {pkts:?}"
+        );
+    }
+
+    /// A partial absorb still deals the remainder and does not poff.
+    #[test]
+    fn partial_absorb_does_not_poff() {
+        let mut world = crate::test_support::beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        crate::test_support::ensure_walkable_tile(
+            &mut world.map,
+            pos,
+            crate::test_support::TEST_SYNTHETIC_GROUND_WP,
+        );
+        let conn = tfs_rust_common::ConnId(1);
+        let cid = crate::test_support::insert_spectator_player(
+            &mut world,
+            conn,
+            test_player("Might", pos),
+        );
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            p.base.health = 200;
+            p.base.max_health = 200;
+        }
+        let mut it = ItemType {
+            id: 2164,
+            ..Default::default()
+        };
+        it.abilities.absorb_percent[combat_absorb_index(CombatType::Physical)] = 20;
+        register_type(&mut world, 2164, it);
+        let typed = world.items_db.items.get(&2164).expect("type");
+        let iid = world
+            .items
+            .insert(crate::item::Item::from_item_type(typed, 1));
+        let slot = InventorySlot::Ring as u8;
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(cid) {
+            p.equipment_slots[crate::inventory::slot_to_array_index(slot).unwrap()] = Some(iid);
+        }
+        world.pending_outgoing.clear();
+        let applied = world.combat_execute_with_stimulus(
+            None,
+            cid,
+            &CombatDamage {
+                primary: (CombatType::Physical, -100),
+                secondary: (CombatType::Physical, 0),
+            },
+            &CombatParams::default(),
+        );
+        assert_eq!(applied, 80, "20% absorb: 100 → 80");
+        let poff = world.pending_outgoing.get(&conn).is_some_and(|pkts| {
+            pkts.iter()
+                .any(|p| p.len() >= 7 && p[0] == 0x83 && p[p.len() - 1] == 3)
+        });
+        assert!(!poff, "partial absorb must not broadcast EFFECT_POFF");
+    }
 }

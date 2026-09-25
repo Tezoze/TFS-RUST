@@ -37,7 +37,7 @@ use tfs_rust_common::enums::ZoneType;
 use tfs_rust_net::outgoing_extra::send_text_message_simple;
 
 use crate::creature::{ChaseMode, CreatureKind};
-use crate::creature_todo::{MONSTER_IDLE_WAIT_MS, trace_creature_todo};
+use crate::creature_todo::{CreatureAction, MONSTER_IDLE_WAIT_MS, trace_creature_todo};
 use crate::game_world::GameWorld;
 use crate::idle_stimulus::TodoExecuteKind;
 use crate::ids::CreatureId;
@@ -600,10 +600,18 @@ impl GameWorld {
                 TodoExecuteKind::AttackDeferred
             }
             PlayerChaseOutcome::RangedStrike => {
-                if let Some(target_id) =
+                let strike = if let Some(target_id) =
                     self.creatures.get(cid).and_then(|k| k.base().attack_target)
                 {
-                    self.player_ranged_attack_strike(cid, target_id);
+                    self.player_ranged_attack_strike(cid, target_id)
+                } else {
+                    ranged::RangedAttackResult::Rearm
+                };
+                if matches!(strike, ranged::RangedAttackResult::SilentYield) {
+                    // `TARGETOUTOFRANGE` / `TARGETHIDDEN` — Execute catch, not a new `TDAttack`.
+                    self.player_attack_silent_yield(cid);
+                    trace_creature_todo(self, cid, "player_attack_ranged_silent_yield");
+                    return TodoExecuteKind::AttackDeferred;
                 }
                 let _ = self.enqueue_creature_attack(cid);
                 let delay = self.todo_attack_delay_ms(cid).max(1);
@@ -623,17 +631,32 @@ impl GameWorld {
                 TodoExecuteKind::AttackDeferred
             }
             PlayerChaseOutcome::OutOfRange => {
-                let _ = self.enqueue_creature_attack(cid);
+                // `Attack()` throws `TARGETOUTOFRANGE` after `DelayAttack(200)`.
+                // `sending.cc` has no text. Execute catch: clear, `ToDoYield`, snapback
+                // if a Go was pending. Attack dest stays (`cract.cc:870-887`).
                 let server_ms = self.server_ms;
                 if let Some(k) = self.creatures.get_mut(cid) {
                     k.base_mut().delay_attack_ms(server_ms, 200);
                 }
-                let delay = self.todo_attack_delay_ms(cid).max(1);
-                self.todo_start_from_action(cid, delay);
+                self.player_attack_silent_yield(cid);
                 trace_creature_todo(self, cid, "player_attack_out_of_range");
                 TodoExecuteKind::AttackDeferred
             }
         }
+    }
+
+    /// `TARGETOUTOFRANGE` / `TARGETHIDDEN` catch — `cract.cc:870-887`.
+    ///
+    /// Caller has already applied `DelayAttack(200)`. Clears the queue, snapback only
+    /// when a Go was pending, then `ToDoYield` (`Wait(0)`). No cancel text and no
+    /// `StopAttack`, so the attack dest stays.
+    fn player_attack_silent_yield(&mut self, cid: CreatureId) {
+        if let Some(conn) = self.conn_for_creature(cid) {
+            self.player_todo_clear_with_snapback(conn, cid);
+        } else {
+            let _ = self.creature_todo_clear(cid);
+        }
+        self.creature_todo_yield(cid);
     }
 
     /// `StopAttack` + `SendResult` + `ToDoWait(1000)` + `ToDoStart` — Attack / CanToDoAttack throw path.
@@ -818,6 +841,83 @@ impl GameWorld {
         );
     }
 
+    /// 772 `TCreature::CreatureMoveStimulus` for players whose attack dest moved
+    /// (`crmain.cc:920-965`).
+    ///
+    /// Called from the creature-move fanout. Spectators are the same old+new viewport
+    /// merge monsters use; only players with `attack_target == moved` are kept.
+    pub(crate) fn player_dispatch_combat_move_stimulus(
+        &mut self,
+        moved: CreatureId,
+        old_pos: tfs_rust_common::Position,
+        new_pos: tfs_rust_common::Position,
+    ) {
+        let mut watchers = self.collect_creature_spectators(old_pos, true);
+        let arrived = self.collect_creature_spectators(new_pos, true);
+        for id in &arrived {
+            if !watchers.contains(id) {
+                watchers.push(*id);
+            }
+        }
+        Self::restore_larger_scratch(&mut self.scratch_spectators, arrived);
+        watchers.retain(|&id| {
+            id != moved
+                && self.creatures.get(id).is_some_and(|k| {
+                    matches!(k, CreatureKind::Player(_)) && k.base().attack_target == Some(moved)
+                })
+        });
+        for player_id in watchers.iter().copied() {
+            self.player_combat_creature_move_stimulus(player_id, moved);
+        }
+        Self::restore_larger_scratch(&mut self.scratch_spectators, watchers);
+    }
+
+    /// Close-chase rearm when the attack dest steps out of melee (`crmain.cc:920-965`).
+    ///
+    /// Head todo must be `TDAttack`, distance > 1, and `earliest_attack_ms` more than
+    /// 200 ms ahead. Then `ToDoClear` + snapback if a Go was pending, `ToDoWait(200)`,
+    /// `ToDoAttack`, `ToDoStart`. Attack dest is left set.
+    fn player_combat_creature_move_stimulus(&mut self, player_id: CreatureId, moved: CreatureId) {
+        let server_ms = self.server_ms;
+        let Some(target_pos) = self.creatures.get(moved).map(|k| k.position()) else {
+            return;
+        };
+        let rearm = self.creatures.get(player_id).is_some_and(|k| {
+            if !matches!(k, CreatureKind::Player(_)) {
+                return false;
+            }
+            let base = k.base();
+            if base.attack_target != Some(moved) {
+                return false;
+            }
+            let close = base.follow_target.is_some() || base.chase_mode == ChaseMode::Close;
+            if !close {
+                return false;
+            }
+            if base.todo.queue.front() != Some(&CreatureAction::Attack) {
+                return false;
+            }
+            if base.earliest_attack_ms <= server_ms.saturating_add(200) {
+                return false;
+            }
+            chebyshev(base.position, target_pos) > 1
+        });
+        if !rearm {
+            return;
+        }
+        if let Some(conn) = self.conn_for_creature(player_id) {
+            self.player_todo_clear_with_snapback(conn, player_id);
+        } else {
+            let _ = self.creature_todo_clear(player_id);
+        }
+        if !self.enqueue_creature_wait(player_id, 200) {
+            return;
+        }
+        if self.enqueue_creature_attack(player_id) {
+            self.schedule_immediate_todo_wakeup(player_id);
+        }
+    }
+
     /// Reverse wire-id → `CreatureId` lookup. Players use `guid`; monsters/NPCs use
     /// the auto-incrementing `wire_id` assigned at spawn (C++ `Monster::setID`).
     pub(crate) fn creature_by_wire_id(&self, wire_id: u32) -> Option<CreatureId> {
@@ -861,7 +961,7 @@ pub(crate) enum PlayerChaseOutcome {
     /// Target reachable but no path found this beat — re-arm on the attack beat.
     NoPath,
     /// `CHASE_MODE_NONE` + target not adjacent — C++ `Attack()` throws `TARGETOUTOFRANGE`
-    /// (`crcombat.cc:611-614`). Re-arm without striking; `DelayAttack(200)` already applied.
+    /// (`crcombat.cc:611-614`). `DelayAttack(200)` then the silent Execute catch.
     OutOfRange,
     /// Adjacent (cheb ≤ 1) — strike range. Strike deferred; re-arm on the attack beat.
     Adjacent,
@@ -1273,6 +1373,129 @@ mod set_attack_dest_tests {
         assert!(
             pkts.iter().any(|b| b.as_ref() == [0xA3]),
             "ATTACKNOTALLOWED must send lone 0xA3 so the client drops the red square, got {pkts:?}"
+        );
+    }
+
+    /// Close-chase, head `Attack`, pending Go, target at distance 2, strike more than
+    /// 200 ms away → snapback and `Wait(200)` then `Attack` (`crmain.cc:920-965`).
+    #[test]
+    fn close_chase_move_rearms_when_target_steps_out() {
+        let mut world = crate::test_support::beat_driven_test_world();
+        let ppos = Position::new(100, 100, 7);
+        let mpos = Position::new(102, 100, 7);
+        let mold = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, mold, TEST_SYNTHETIC_GROUND_WP);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        let mon = insert_monster(&mut world, "Rat", mpos, 100);
+        world.map.register_creature_at(ppos, player);
+        let conn = tfs_rust_common::ConnId(1);
+        world.register_conn_mapping(conn, player);
+        world.server_ms = 1_000;
+        if let Some(k) = world.creatures.get_mut(player) {
+            let base = k.base_mut();
+            base.attack_target = Some(mon);
+            base.chase_mode = ChaseMode::Close;
+            base.earliest_attack_ms = 2_000;
+            base.todo.queue.push_back(CreatureAction::Attack);
+            base.todo.queue.push_back(CreatureAction::Go);
+        }
+        world.pending_outgoing.clear();
+
+        world.player_dispatch_combat_move_stimulus(mon, mold, mpos);
+
+        let base = world.creatures.get(player).unwrap().base();
+        assert_eq!(base.attack_target, Some(mon));
+        assert_eq!(base.todo.queue.len(), 2);
+        assert!(matches!(
+            base.todo.queue[0],
+            CreatureAction::Wait { deadline_ms: 1_200 }
+        ));
+        assert!(matches!(base.todo.queue[1], CreatureAction::Attack));
+        let pkts = world
+            .pending_outgoing
+            .get(&conn)
+            .expect("pending Go must snapback");
+        assert!(
+            pkts.iter().any(|b| !b.is_empty() && b[0] == 0xB5),
+            "close-chase rearm must send 0xB5, got {pkts:?}"
+        );
+    }
+
+    /// Strike inside 200 ms: the move stimulus leaves the attack todo alone.
+    #[test]
+    fn close_chase_move_skips_rearm_when_strike_is_soon() {
+        let mut world = crate::test_support::beat_driven_test_world();
+        let ppos = Position::new(100, 100, 7);
+        let mpos = Position::new(102, 100, 7);
+        let mold = Position::new(101, 100, 7);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        let mon = insert_monster(&mut world, "Rat", mpos, 100);
+        world.map.register_creature_at(ppos, player);
+        world.server_ms = 1_000;
+        if let Some(k) = world.creatures.get_mut(player) {
+            let base = k.base_mut();
+            base.attack_target = Some(mon);
+            base.chase_mode = ChaseMode::Close;
+            base.earliest_attack_ms = 1_100;
+            base.todo.queue.push_back(CreatureAction::Attack);
+            base.todo.queue.push_back(CreatureAction::Go);
+        }
+
+        world.player_dispatch_combat_move_stimulus(mon, mold, mpos);
+
+        let base = world.creatures.get(player).unwrap().base();
+        assert_eq!(base.todo.queue.len(), 2);
+        assert!(matches!(base.todo.queue[0], CreatureAction::Attack));
+        assert!(matches!(base.todo.queue[1], CreatureAction::Go));
+    }
+
+    /// Stand-mode melee out of reach throws `TARGETOUTOFRANGE`: no text, dest stays,
+    /// pending Go snapback, queue is `Wait(0)` (`cract.cc:611-614`, `:870-887`).
+    #[test]
+    fn stand_mode_out_of_range_yields_without_text() {
+        let mut world = crate::test_support::beat_driven_test_world();
+        let ppos = Position::new(100, 100, 7);
+        let mpos = Position::new(102, 100, 7);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        let mon = insert_monster(&mut world, "Rat", mpos, 100);
+        world.map.register_creature_at(ppos, player);
+        let conn = tfs_rust_common::ConnId(1);
+        world.register_conn_mapping(conn, player);
+        world.server_ms = 1_000;
+        if let Some(k) = world.creatures.get_mut(player) {
+            let base = k.base_mut();
+            base.attack_target = Some(mon);
+            base.chase_mode = ChaseMode::None;
+            base.todo.queue.push_back(CreatureAction::Go);
+        }
+        world.pending_outgoing.clear();
+
+        let _ = world.player_execute_attack(player);
+
+        let base = world.creatures.get(player).unwrap().base();
+        assert_eq!(base.attack_target, Some(mon));
+        assert!(!base.todo.has_attack());
+        assert!(matches!(
+            base.todo.queue.front(),
+            Some(CreatureAction::Wait { deadline_ms: 1_000 })
+        ));
+        let pkts = world
+            .pending_outgoing
+            .get(&conn)
+            .expect("pending Go must snapback");
+        assert!(
+            pkts.iter().any(|b| !b.is_empty() && b[0] == 0xB5),
+            "out of range must snapback a pending Go, got {pkts:?}"
+        );
+        assert!(
+            pkts.iter().all(|b| b.first() != Some(&0xB4)),
+            "TARGETOUTOFRANGE must not send a cancel string, got {pkts:?}"
         );
     }
 }

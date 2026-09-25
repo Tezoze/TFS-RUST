@@ -1306,4 +1306,16 @@
 543. **Due-round cron remainder is 1** (`decay.rs` `cron_remaining`; `map.cc:316-318` `CronInfo`): a live entry whose round is already due returns 1, not 0. Popping the heap first and then reading 0 wrote that 0 onto an expire-stop target, so lighting it again armed a full `decayTime`. Stamp the remainder on the popped entry and resume from that one round.
     *(2026-09-26)*
 
+544. **Wand range is the item `shoot_range`** (`values.rs` `player_weapon_max_range`; `ranged.rs` `player_wand_attack`; `crcombat.cc:706`; `items.xml` `range`): `WANDRANGE` is per wand, not a constant 3. Cosmic energy and tempest are 1, plague/inferno/moonlight/quagmire are 2, snakebite is 4, vortex/volcanic/dragonbreath stay 3. Categorical `GetDistance` for the Attack() viewport gate stays 3. Bows already read `shoot_range`; wands use that same lookup.
+    *(2026-09-26)*
+
+545. **Player close-chase rearm is `CreatureMoveStimulus`** (`player/combat/mod.rs` `player_dispatch_combat_move_stimulus`; `crmain.cc:920-965`): when the attack dest moves, a player on close chase whose head todo is `Attack`, whose target is now farther than 1, and whose next strike is more than 200 ms away clears the queue, snapbacks if a Go was pending, then `Wait(200)` + `Attack`. The monster arm does not cover players. Attack dest stays.
+    *(2026-09-26)*
+
+546. **Absorb that zeroes a hit poffs before armor** (`idle_stimulus.rs` `combat_execute_with_stimulus`; `crmain.cc:540-579`): after the protection loop, `Damage <= 0` plays `EFFECT_POFF` and returns. It does not roll `GetArmorStrength`. A physical 1 that integer-divides to 0 is that path. A partial absorb still deals the remainder.
+    *(2026-09-26)*
+
+547. **`TARGETOUTOFRANGE` and `TARGETHIDDEN` yield, they do not re-queue Attack** (`player/combat/mod.rs` `player_attack_silent_yield`; `ranged.rs`; `crcombat.cc:611-614,706,787`; `cract.cc:870-887`; `sending.cc:348`): stand-mode melee out of reach, and a wand or bow past its range or without line of sight, `DelayAttack(200)` then the Execute catch. The catch clears the queue, `ToDoYield` (`Wait(0)`), and snapbacks only if a Go was pending. Those result codes have no cancel text. Attack dest stays. Mana failure still sends the mana text.
+    *(2026-09-26)*
+
 

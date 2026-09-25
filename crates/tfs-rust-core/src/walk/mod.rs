@@ -2568,6 +2568,7 @@ impl GameWorld {
             });
 
         self.monster_dispatch_creature_move(cid, from, to);
+        self.player_dispatch_combat_move_stimulus(cid, from, to);
         self.npc_dispatch_creature_move(cid, from, to, false);
     }
 

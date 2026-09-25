@@ -313,19 +313,18 @@ impl GameWorld {
     }
 
     /// Per-weapon max range for in-strike `TARGETOUTOFRANGE` (`BOWRANGE` / `THROWRANGE` /
-    /// `WANDRANGE`). Not used at Attack() arm time — that uses categorical distance + viewport.
+    /// per-type `WANDRANGE` from `items.xml` `range` → `ItemType.shoot_range`).
+    /// Not used at Attack() arm time — that uses categorical distance + viewport.
     pub fn player_weapon_max_range(&self, cid: CreatureId) -> i32 {
         let w = self.player_get_combat_weapons(cid);
-        if let Some(iid) = w.missile.or(w.throw_) {
+        // Same lookup for bows, throws, and wands (`crcombat.cc:706,762,775`).
+        if let Some(iid) = w.missile.or(w.throw_).or(w.wand) {
             return self
                 .items
                 .get(iid)
                 .and_then(|i| self.items_db.items.get(&i.item_type))
                 .map(|it| it.shoot_range.max(1))
                 .unwrap_or(1);
-        }
-        if w.wand.is_some() {
-            return 3;
         }
         1
     }
@@ -848,7 +847,8 @@ mod tests {
         assert!(w.wand.is_some());
         assert!(!w.fist);
         assert_eq!(world.player_weapon_distance(cid), 3);
-        assert_eq!(world.player_weapon_max_range(cid), 3);
+        // Default `ItemType.shoot_range` is 1 — wands use that field, not a const 3.
+        assert_eq!(world.player_weapon_max_range(cid), 1);
         let (atk, skill) = world.player_get_attack_value(cid);
         assert_eq!(atk, 0);
         assert_eq!(skill, SkillNr::Fist);
