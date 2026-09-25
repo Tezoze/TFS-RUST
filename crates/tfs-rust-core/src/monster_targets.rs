@@ -13,7 +13,7 @@ use tfs_rust_content::monsters::MonsterSpellNode;
 use crate::creature::{monster_has_melee_strike, runtime_spell_in_attack_range};
 
 use crate::creature::{CreatureKind, MonsterState};
-use crate::game_world::{GameWorld, creature_can_see};
+use crate::game_world::{GameWorld, monster_can_see};
 use crate::ids::CreatureId;
 use crate::monster_ai::{MAP_MAX_VIEWPORT, chebyshev, manhattan};
 use crate::player_flags::{PLAYER_FLAG_IGNORED_BY_MONSTERS, flags_for_group, has_player_flag};
@@ -134,12 +134,11 @@ impl GameWorld {
             return false;
         }
         let op = other_kind.position();
-        creature_can_see(
+        monster_can_see(
             viewer_pos,
             op,
             i32::from(MAP_MAX_VIEWPORT),
             i32::from(MAP_MAX_VIEWPORT),
-            self.mechanics.profile.underground_sees_surface,
         )
     }
 
@@ -164,12 +163,11 @@ impl GameWorld {
         if !self.can_see_creature(monster_id, creature_id) {
             return;
         }
-        if !creature_can_see(
+        if !monster_can_see(
             pos,
             creature_pos,
             i32::from(MAP_MAX_VIEWPORT),
             i32::from(MAP_MAX_VIEWPORT),
-            self.mechanics.profile.underground_sees_surface,
         ) {
             return;
         }
@@ -700,12 +698,11 @@ impl GameWorld {
             (mp, tp)
         };
         if !self.can_see_creature(monster_id, target_id)
-            || !creature_can_see(
+            || !monster_can_see(
                 monster_pos,
                 target_pos,
                 i32::from(MAP_MAX_VIEWPORT),
                 i32::from(MAP_MAX_VIEWPORT),
-                self.mechanics.profile.underground_sees_surface,
             )
         {
             if let Some(k) = self.creatures.get_mut(monster_id) {

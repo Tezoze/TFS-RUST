@@ -206,6 +206,34 @@ pub(crate) fn peek_next_walk_direction(base: &crate::creature::CreatureBase) -> 
     base.walk_queue.back().copied()
 }
 
+fn uses_corpus_step_clock(kind: &CreatureKind) -> bool {
+    matches!(kind, CreatureKind::Monster(_) | CreatureKind::Npc(_))
+}
+
+/// Monster/NPC `NotifyGo` on every client version — `(Waypoints * 1000) / (2×Go+80)`,
+/// ceil to `Beat` (`crmain.cc:484`, `cract.cc:1526-1535`). Ignores `player_speed_model`
+/// and `step_speed`. Players stay on the profile arm.
+fn corpus_monster_step_ms(
+    kind: &CreatureKind,
+    base: &crate::creature::CreatureBase,
+    ground_speed: u32,
+    waypoint_cost: u32,
+    mech: &crate::formulas::Mechanics,
+) -> i64 {
+    if base.health <= 0 {
+        return 0;
+    }
+    let go = step_speed_for_walk(kind, base, mech);
+    let gs = if ground_speed == 0 { 150 } else { ground_speed };
+    let waypoints = gs.saturating_mul(waypoint_cost.max(1));
+    if let Some(ms) = mech.hooks.step_duration(go, gs as i32, waypoint_cost > 1) {
+        return ms.max(1);
+    }
+    let eff = crate::formulas::linear_go_effective_speed(go);
+    let delay = (waypoints as i64 * 1000) / i64::from(eff.max(1));
+    ceil_to_walk_quantizer(delay, mech.profile.beat_ms.max(1) as i64)
+}
+
 /// 772 `NotifyGo` — `(Waypoints * 1000) / GetSpeed()`, ceil to `Beat` (`cract.cc:1461–1534`).
 /// `waypoint_cost` is 1 (cardinal) or 3 (diagonal) applied to tile waypoints before ceil
 /// (`cract.cc:1526-1528`).
@@ -239,6 +267,9 @@ pub(crate) fn get_step_duration(
     if base.health <= 0 {
         return 0;
     }
+    if uses_corpus_step_clock(kind) {
+        return corpus_monster_step_ms(kind, base, ground_speed, 1, mech);
+    }
     let go = step_speed_for_walk(kind, base, mech);
     let gs = if ground_speed == 0 { 150 } else { ground_speed };
 
@@ -268,6 +299,10 @@ fn completed_step_duration_ms(
     ground_speed: u32,
     mech: &crate::formulas::Mechanics,
 ) -> i64 {
+    if uses_corpus_step_clock(kind) {
+        let waypoint_cost = if base.last_step_cost == 3 { 3 } else { 1 };
+        return corpus_monster_step_ms(kind, base, ground_speed, waypoint_cost, mech);
+    }
     match mech.profile.step_speed {
         crate::formulas::StepSpeedModel::LinearGo => {
             // C++ `NotifyGo` multiplies waypoints ×3 only for a diagonal **same-z** move;
@@ -293,6 +328,12 @@ fn upcoming_step_duration_ms(
     next_direction: Option<Direction>,
     mech: &crate::formulas::Mechanics,
 ) -> i64 {
+    if uses_corpus_step_clock(kind) {
+        let cost = next_direction
+            .map(waypoint_step_cost_for_direction)
+            .unwrap_or(1);
+        return corpus_monster_step_ms(kind, base, ground_speed, cost, mech);
+    }
     match mech.profile.step_speed {
         crate::formulas::StepSpeedModel::LinearGo => {
             let cost = next_direction
@@ -315,6 +356,15 @@ pub(crate) fn get_step_duration_ms_with_direction(
     ground_speed: u32,
     mech: &crate::formulas::Mechanics,
 ) -> i64 {
+    if uses_corpus_step_clock(kind) {
+        return corpus_monster_step_ms(
+            kind,
+            base,
+            ground_speed,
+            waypoint_step_cost_for_direction(direction),
+            mech,
+        );
+    }
     match mech.profile.step_speed {
         crate::formulas::StepSpeedModel::LinearGo => linear_go_step_duration_ms(
             kind,

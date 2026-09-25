@@ -5,7 +5,7 @@
 //!   Spectators: [`crate::game_world_spectators`]. Items: [`crate::game_world_item_cylinder`], [`crate::game_world_item_move`].
 // C++ reference: `Game` / `Map` ownership in `game.cpp`.
 
-pub use crate::game_world_spectators::{creature_can_see, protocol_can_see};
+pub use crate::game_world_spectators::{creature_can_see, monster_can_see, protocol_can_see};
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};

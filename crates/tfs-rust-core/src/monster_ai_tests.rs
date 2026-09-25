@@ -72,10 +72,10 @@ fn chase_leash_skipped_when_attacking_bounded_when_roaming() {
     );
 }
 
-/// Finding 17b — with no per-home radius (`home_radius == 0`) the roam leash falls back to the
-/// global despawn radius (no behavior change for synthetic/test monsters).
+/// `Home == 0` (`home_radius <= 0`) is never leashed (`crnonpl.cc:1516`). A set home still
+/// rejects a dest outside the axis box.
 #[test]
-fn roam_leash_falls_back_to_despawn_radius_when_home_unset() {
+fn unset_home_has_no_roam_leash_set_home_stays_boxed() {
     use crate::creature::{MonsterAiConfig, MonsterState};
     use crate::test_support::{
         beat_driven_world, ensure_walkable_tile, insert_monster_with_config,
@@ -85,9 +85,11 @@ fn roam_leash_falls_back_to_despawn_radius_when_home_unset() {
     world.monster_world_config.despawn_radius = 50;
 
     let spawn = Position::new(100, 100, 7);
-    let near = Position::new(110, 100, 7); // cheb 10 ≤ despawn 50
+    let past_despawn = Position::new(160, 100, 7); // cheb 60 > despawn 50
+    let outside_home = Position::new(110, 100, 7); // cheb 10 > home 3
     ensure_walkable_tile(&mut world.map, spawn, 1);
-    ensure_walkable_tile(&mut world.map, near, 1);
+    ensure_walkable_tile(&mut world.map, past_despawn, 1);
+    ensure_walkable_tile(&mut world.map, outside_home, 1);
 
     let monster =
         insert_monster_with_config(&mut world, "Rat", spawn, 200, MonsterAiConfig::default());
@@ -97,8 +99,62 @@ fn roam_leash_falls_back_to_despawn_radius_when_home_unset() {
         m.state = MonsterState::Idle;
     }
     assert!(
-        world.monster_can_occupy_chase_tile(monster, near),
-        "unset home_radius roams within the global despawn radius"
+        world.monster_can_occupy_chase_tile(monster, past_despawn),
+        "unset home_radius may plan past the global despawn radius"
+    );
+
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.home_radius = 3;
+    }
+    assert!(
+        !world.monster_can_occupy_chase_tile(monster, outside_home),
+        "home_radius 3 rejects a dest outside the axis box"
+    );
+}
+
+/// Non-combat plans honor `TCreature::Radius` (`crnonpl.cc:2154`). Attacking skips it.
+/// `i32::MAX` never rejects.
+#[test]
+fn creature_radius_limits_non_combat_plans_only() {
+    use crate::creature::{MonsterAiConfig, MonsterState};
+    use crate::test_support::{
+        beat_driven_world, ensure_walkable_tile, insert_monster_with_config,
+    };
+
+    let mut world = beat_driven_world();
+    let spawn = Position::new(100, 100, 7);
+    let two = Position::new(102, 100, 7);
+    ensure_walkable_tile(&mut world.map, spawn, 1);
+    ensure_walkable_tile(&mut world.map, two, 1);
+
+    let monster =
+        insert_monster_with_config(&mut world, "Rat", spawn, 200, MonsterAiConfig::default());
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.spawn_position = spawn;
+        m.home_radius = 0;
+        m.radius = 1;
+        m.state = MonsterState::Idle;
+    }
+    assert!(
+        !world.monster_can_occupy_chase_tile(monster, two),
+        "idle radius 1 cannot plan two tiles away"
+    );
+
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.state = MonsterState::Attacking;
+    }
+    assert!(
+        world.monster_can_occupy_chase_tile(monster, two),
+        "ATTACKING skips the creature radius"
+    );
+
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.state = MonsterState::Idle;
+        m.radius = i32::MAX;
+    }
+    assert!(
+        world.monster_can_occupy_chase_tile(monster, two),
+        "radius i32::MAX never rejects"
     );
 }
 

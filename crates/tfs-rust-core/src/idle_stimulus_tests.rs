@@ -2296,6 +2296,12 @@ fn test_e5_idle_with_target_hit_becomes_under_attack() {
         m.base.next_wakeup = None;
     }
 
+    let attack_before = world
+        .creatures
+        .get(monster)
+        .map(|k| k.base().earliest_attack_ms)
+        .unwrap_or(0);
+
     e5_apply_player_hit(&mut world, monster, player, 5);
 
     let m = match world.creatures.get(monster) {
@@ -2308,16 +2314,16 @@ fn test_e5_idle_with_target_hit_becomes_under_attack() {
         "idle rat with target must flip to UnderAttack on hit"
     );
     assert!(
-        m.base
+        !m.base
             .todo
             .queue
             .iter()
             .any(|a| matches!(a, CreatureAction::Wait { deadline_ms: 0 })),
-        "DamageStimulus must ToDoYield (Wait(0)) — cract.cc:1001"
+        "awake DamageStimulus must not ToDoYield — crnonpl.cc:2315"
     );
-    assert!(
-        m.base.next_wakeup.is_some(),
-        "yield must schedule immediate todo wakeup"
+    assert_eq!(
+        m.base.earliest_attack_ms, attack_before,
+        "awake hit must not push earliest_attack_ms"
     );
 }
 
@@ -2340,6 +2346,12 @@ fn test_e5_sleeping_no_target_hit_becomes_panic_and_yields() {
         m.base.next_wakeup = None;
     }
 
+    let attack_before = world
+        .creatures
+        .get(monster)
+        .map(|k| k.base().earliest_attack_ms)
+        .unwrap_or(0);
+
     e5_apply_player_hit(&mut world, monster, player, 3);
 
     let m = match world.creatures.get(monster) {
@@ -2350,6 +2362,10 @@ fn test_e5_sleeping_no_target_hit_becomes_panic_and_yields() {
         m.state,
         MonsterState::Panic,
         "sleeping rat without target → PANIC"
+    );
+    assert_eq!(
+        m.base.earliest_attack_ms, attack_before,
+        "sleeping hit yields without a melee delay"
     );
     assert!(!m.is_idle, "PANIC must wake monster from idle posture");
     assert!(
@@ -6141,8 +6157,8 @@ fn test_monster_wait_after_go_floors_at_earliest_walk_time() {
     ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
     ensure_walkable_tile(&mut world.map, dest, TEST_SYNTHETIC_GROUND_WP);
 
-    // Slow monster: GoStrength 0 → BalancedLog softens to 1 → GetSpeed = 82,
-    // ground 150wp → step_duration = ceil(150*1000/82, 50) = ceil(1829, 50) = 1850ms.
+    // Slow monster: GoStrength 0 → GetSpeed = 2*0+80 = 80 (`crmain.cc:484`),
+    // ground 150wp → step_duration = ceil(150*1000/80, 50) = ceil(1875, 50) = 1900ms.
     let monster = insert_monster(&mut world, "Rat", mpos, 0);
 
     // Manually enqueue Go + Wait{1000} (mimics IdleStimulus idle-roam tail:
@@ -6167,7 +6183,7 @@ fn test_monster_wait_after_go_floors_at_earliest_walk_time() {
         "Go step must execute"
     );
 
-    // After Go, NotifyGo sets EarliestWalkTime = server_ms + 1850.
+    // After Go, NotifyGo sets EarliestWalkTime = server_ms + 1900.
     let earliest = world
         .creatures
         .get(monster)
@@ -6177,13 +6193,13 @@ fn test_monster_wait_after_go_floors_at_earliest_walk_time() {
     let server_ms_after_go = world.server_ms;
     assert_eq!(
         earliest,
-        server_ms_after_go + 1850,
-        "EarliestWalkTime must be 1850ms after Go (slow monster, BalancedLog)"
+        server_ms_after_go + 1900,
+        "EarliestWalkTime must be 1900ms after Go (GoStrength 0 → speed 80)"
     );
 
     // The Wait{1000} should have been armed in the same beat as the Go
     // (tail recursion). Check the wakeup time — must be max(server_ms+1000,
-    // EarliestWalkTime) = EarliestWalkTime = server_ms + 1850.
+    // EarliestWalkTime) = EarliestWalkTime = server_ms + 1900.
     let wakeup = world
         .creatures
         .get(monster)

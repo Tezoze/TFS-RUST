@@ -36,6 +36,9 @@ pub struct AttackWave {
     pub min_count: u16,
     pub max_count: u16,
     pub lifetime_rounds: u32,
+    /// `TAttackWave::Radius` — copied onto the creature (`crmain.cc:1760`, `:2061`).
+    /// Default `i32::MAX`. Distinct from `spread` (spawn scatter).
+    pub radius: i32,
 }
 
 impl PartialOrd for AttackWave {
@@ -197,6 +200,7 @@ fn enqueue_xml_wave(
                 min_count: 0,
                 max_count: 0,
                 lifetime_rounds: 0,
+                radius: i32::MAX,
             }));
         }
         RaidWave::AreaSpawn {
@@ -219,6 +223,7 @@ fn enqueue_xml_wave(
                     min_count: m.min_amount,
                     max_count: m.max_amount,
                     lifetime_rounds,
+                    radius: i32::MAX,
                 }));
             }
         }
@@ -237,6 +242,7 @@ fn enqueue_xml_wave(
                 min_count: 1,
                 max_count: 1,
                 lifetime_rounds: 0,
+                radius: i32::MAX,
             }));
         }
     }
@@ -338,9 +344,7 @@ impl GameWorld {
             }
             match self.lua_script_create_monster(name, pos.x, pos.y, pos.z, true, true) {
                 Ok(Some(id_bits)) => {
-                    if let Some(end) = life_end {
-                        set_monster_life_end(self, id_bits, end);
-                    }
+                    set_monster_raid_spawn(self, id_bits, life_end, wave.radius);
                 }
                 Ok(None) => {}
                 Err(e) => {
@@ -367,12 +371,21 @@ impl GameWorld {
     }
 }
 
-fn set_monster_life_end(world: &mut GameWorld, id_bits: u64, life_end_round: u32) {
+/// `crmain.cc:2061` — `Creature->Radius = Wave->Radius`, then optional `LifeEndRound`.
+fn set_monster_raid_spawn(
+    world: &mut GameWorld,
+    id_bits: u64,
+    life_end_round: Option<u32>,
+    radius: i32,
+) {
     let Some(cid) = world.resolve_creature_u64(id_bits) else {
         return;
     };
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(cid) {
-        m.life_end_round = Some(life_end_round);
+        m.radius = radius;
+        if let Some(end) = life_end_round {
+            m.life_end_round = Some(end);
+        }
     }
 }
 
@@ -447,6 +460,7 @@ mod tests {
             min_count: 1,
             max_count: 1,
             lifetime_rounds: 0,
+            radius: i32::MAX,
         });
         world.process_monster_raids();
         let monsters = world
@@ -458,6 +472,47 @@ mod tests {
             monsters >= 1,
             "expected a raid monster after due wave, got {monsters}"
         );
+        let radius = world.creatures.iter().find_map(|(_, k)| match k {
+            CreatureKind::Monster(m) => Some(m.radius),
+            _ => None,
+        });
+        assert_eq!(radius, Some(i32::MAX), "default wave radius stays unbounded");
+    }
+
+    #[test]
+    fn raid_spawn_copies_wave_radius() {
+        let mut world = beat_driven_test_world();
+        let mut monsters = HashMap::new();
+        monsters.insert("rat".into(), stub_rat());
+        world.monsters_db = Arc::new(MonsterDatabase { monsters });
+        let center = Position::new(100, 100, 7);
+        lay_arena_tiles(
+            &mut world.map,
+            center.x,
+            center.y,
+            2,
+            center.z,
+            TEST_SYNTHETIC_GROUND_WP,
+        );
+        world.round_nr = 5;
+        world.raids.push_wave(AttackWave {
+            execution_round: 5,
+            message: None,
+            message_class: MESSAGE_EVENT_ADVANCE,
+            center,
+            spread: 0,
+            monster_name: Some("Rat".to_string()),
+            min_count: 1,
+            max_count: 1,
+            lifetime_rounds: 0,
+            radius: 3,
+        });
+        world.process_monster_raids();
+        let radius = world.creatures.iter().find_map(|(_, k)| match k {
+            CreatureKind::Monster(m) => Some(m.radius),
+            _ => None,
+        });
+        assert_eq!(radius, Some(3), "raid spawn copies Wave->Radius onto the creature");
     }
 
     #[test]
@@ -585,6 +640,7 @@ mod tests {
             min_count: 1,
             max_count: 1,
             lifetime_rounds: 0,
+            radius: i32::MAX,
         });
         world.process_monster_raids();
         let monsters = world
@@ -622,6 +678,7 @@ mod tests {
             min_count: 100,
             max_count: 100,
             lifetime_rounds: 0,
+            radius: i32::MAX,
         });
         world.process_monster_raids();
         let monsters = world

@@ -1288,4 +1288,10 @@
 537. **Stack-index 1h cell stayed on the hunt, decoder still dirty** (`results/20260924T102252Z`, seed r=17 of 32776,32240,7): exit 0, ~2.1 h. Rust **1000/1000**, **0** disconnects, skip=2577 unknown=312 discarded=898624, `player_z=7`. TVP **5** disconnects (ended 995/1000), skip=1 unknown=6 discarded=552, `player_z=7`. Neither both-zero — do not quote p99. Process CPU rust **140 CPU-s / 3.7%** on **1.9 GB** tx vs TVP **139 CPU-s / 3.7%** on **2.0 GB** (rss ~1.5 GB / ~1.8 GB). Hunt rate, not the temple cell (`20260923T224624Z` was 8158 CPU-s / 227% on 114 GB). Cap stays 8.
     *(2026-09-24)*
 
+538. **DamageStimulus yields only from SLEEPING, and does not delay melee** (`idle_stimulus.rs` `monster_damage_stimulus`; `crnonpl.cc:2308-2320`): `ToDoYield` sits inside `if (State == SLEEPING)`. An already-awake hit only changes STATE (Idle → UnderAttack, no target → Panic). Rust was yielding on any state change and writing `delay_attack_ms(..., 4000)`, so a hit abandoned the ToDo and blocked melee for 4 seconds. Gate the yield on the previous state and do not touch `earliest_attack_ms`. Target stays unset; the next idle `Strategy[]` acquires.
+    *(2026-09-25)*
+
+539. **`home_radius <= 0` is not a despawn-radius leash** (`monster_ai.rs` `monster_roam_leash_radius`; `crnonpl.cc:1516` `MonsterhomeInRange`): `Home == 0` returns in range immediately. Planning was substituting `deSpawnRadius` (default 50), so a monster with no home could neither roam past 50 nor home-despawn. Skip the axis box when `home_radius <= 0`. A positive home still rejects dests outside the box. Attacking and Panic already skip the leash. Creature `Radius` is a separate Chebyshev check from the current tile (`crnonpl.cc:2154`) and is copied from the raid wave (`crmain.cc:2061`), not from TFS areaspawn `spread`.
+    *(2026-09-25)*
+
 

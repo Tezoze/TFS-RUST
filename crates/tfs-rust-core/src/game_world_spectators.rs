@@ -88,6 +88,18 @@ pub fn protocol_can_see(viewer_pos: Position, target: Position) -> bool {
     (min_x..=max_x).contains(&x) && (min_y..=max_y).contains(&y)
 }
 
+/// Monster move fan-out and target list — `TCreature::CanSeeFloor` (`cr.hh:576`).
+/// Underground viewers see `|Δz| ≤ 2`, including the surface. Player packets stay on
+/// [`protocol_can_see`] and the `undergroundSeesSurface` profile flag.
+pub fn monster_can_see(
+    viewer_pos: Position,
+    target: Position,
+    view_range_x: i32,
+    view_range_y: i32,
+) -> bool {
+    creature_can_see(viewer_pos, target, view_range_x, view_range_y, true)
+}
+
 /// C++ `Creature::canSee(myPos, pos, viewRangeX, viewRangeY)` — `creature.cpp` ~45–66.
 /// Monster target list / follow use `Map::maxViewportX` / `maxViewportY` (11), not client viewport.
 ///

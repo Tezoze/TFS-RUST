@@ -2704,6 +2704,7 @@ mod step_speed_tests {
     use crate::creature::CreatureKind;
     use crate::formulas::{Mechanics, linear_go_effective_speed};
     use crate::test_world::support::test_player;
+    use tfs_rust_common::enums::Direction;
     use tfs_rust_common::{Position, ProtocolVersion};
 
     /// Anchors from `src/creature.cpp` `Creature::getStepDuration` (`floor((A*log((step/2)+B)+C)+0.5)`).
@@ -2799,6 +2800,44 @@ mod step_speed_tests {
             164
         );
         assert_eq!(get_step_duration(&kind, &base, 150, &mech), 950);
+    }
+
+    /// Monster `NotifyGo` is `2×Go+80` on every client version (`crmain.cc:484`).
+    /// Player 1098 duration stays on the TFS log arm.
+    #[test]
+    fn monster_step_duration_matches_across_versions() {
+        let mut base = test_player("Wolf", Position::new(100, 100, 7)).base;
+        base.speed = 42;
+        base.base_speed = 42;
+        base.health = 20;
+        let monster = CreatureKind::Monster(Monster::new(base.clone(), Position::new(0, 0, 7)));
+        let mech772 = Mechanics::for_version(ProtocolVersion::V772);
+        let mech1098 = Mechanics::for_version(ProtocolVersion::V1098);
+        let ms772 = get_step_duration(&monster, &base, 150, &mech772);
+        let ms1098 = get_step_duration(&monster, &base, 150, &mech1098);
+        assert_eq!(ms772, 950);
+        assert_eq!(ms1098, ms772);
+        let diag772 = get_step_duration_ms_with_direction(
+            &monster,
+            &base,
+            Direction::NorthEast,
+            150,
+            &mech772,
+        );
+        let diag1098 = get_step_duration_ms_with_direction(
+            &monster,
+            &base,
+            Direction::NorthEast,
+            150,
+            &mech1098,
+        );
+        assert_eq!(diag1098, diag772);
+        let player = CreatureKind::Player(test_player("Walker", Position::new(100, 100, 7)));
+        let player_ms = get_step_duration(&player, &base, 150, &mech1098);
+        assert_ne!(
+            player_ms, ms1098,
+            "1098 player step duration stays on the profile log arm"
+        );
     }
 
     /// 1098 wire payload is halved in codec; neutral struct holds full GoStrength before `/2`.

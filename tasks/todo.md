@@ -1,3 +1,13 @@
+# Monster AI audit (2026-09-25)
+
+772 `IdleStimulus` / `DamageStimulus` / `MovePossible` against the shared Rust think path. Both client versions already call `monster_idle_stimulus_inner`.
+
+- [x] P1: `monster_damage_stimulus` yields only from Sleeping; drop the 4000 ms attack delay
+- [x] P2: `home_radius <= 0` is no roam leash (`MonsterhomeInRange` Home == 0)
+- [x] P3: non-combat plans reject dest beyond `Monster.radius`; raid wave copies `AttackWave.radius`
+- [x] P4: melee dance promotes Panic → Attacking after the roll, including a blocked sidestep and hold
+- [x] P5: monster/NPC step duration is LinearGo on every version; monster floor sight uses `CanSeeFloor`
+
 # 1000-bot 1h A/B after stack-index fix (2026-09-24)
 
 Same cell as `20260923T224624Z`. Cap stays 8. Re-seed r=17 both. Quote p99 per side only if that side is both-zero. No 3-rep.

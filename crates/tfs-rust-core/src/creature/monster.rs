@@ -194,14 +194,12 @@ pub struct Monster {
     pub base: CreatureBase,
     pub spawn_position: Position,
     /// CipSoft `TMonsterhome::Radius` — per-home roam radius (axis box) used by the non-attacking
-    /// `MovePossible` leash (`crnonpl.cc:2148-2157`, `MonsterhomeInRange`). `0` = unset → fall back
-    /// to the global despawn radius. Set from the spawn zone `radius` at spawn time.
+    /// `MovePossible` leash (`crnonpl.cc:2148-2157`, `MonsterhomeInRange`). `<= 0` is `Home == 0`
+    /// — never leashed. Set from the spawn zone `radius` at spawn time.
     pub home_radius: i32,
-    /// CipSoft `TCreature::Radius` — per-creature max distance from current position
-    /// (`crmain.cc:174`, default `INT_MAX`; set from spawn-wave `Wave->Radius` at
-    /// `crmain.cc:1886,2061`). Distinct from `home_radius` (per-home) — this is a per-creature
-    /// leash from the **current** position, checked by `MovePossible` (`crnonpl.cc:2154-2159`).
-    /// Not yet wired from spawn-wave data; defaults to `i32::MAX` (check never fires).
+    /// CipSoft `TCreature::Radius` — per-creature max Chebyshev step from the current tile
+    /// (`crmain.cc:174`, default `INT_MAX`; raid `Wave->Radius` at `crmain.cc:2061`).
+    /// Distinct from `home_radius`. `i32::MAX` never rejects. Attacking and Panic skip it.
     pub radius: i32,
     pub ai_phase: MonsterAiPhase,
     pub think_interval_ms: u32,

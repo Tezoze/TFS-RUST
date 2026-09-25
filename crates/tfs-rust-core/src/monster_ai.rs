@@ -21,7 +21,7 @@ use crate::combat::math::req_skill_tries;
 use crate::combat::{CombatDamage, CombatParams, FightMode, weapon_damage};
 use crate::creature::{ChaseMode, CreatureKind, MonsterState};
 use crate::creature::{creature_immune_poison, melee_poison_on_hit, roll_target_defense};
-use crate::game_world::{GameWorld, creature_can_see};
+use crate::game_world::{GameWorld, monster_can_see};
 use crate::ids::CreatureId;
 use crate::monster_distance_step::{
     distance_x, distance_y, offset_x, offset_y, search_flight_field,
@@ -1116,18 +1116,16 @@ impl GameWorld {
     ///
     /// Returns true when a single lateral step was queued.
     pub(crate) fn monster_idle_dance_step(&mut self, cid: CreatureId) -> bool {
-        let (pos, follow_id, target_distance) = match self.creatures.get(cid) {
+        let (pos, follow_id, target_distance, attack_matches) = match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => {
                 let Some(follow_id) = m.base.follow_target else {
                     return false;
                 };
-                if m.base.attack_target != Some(follow_id) {
-                    return false;
-                }
                 (
                     m.base.position,
                     follow_id,
                     self.monster_effective_target_distance(m.target_distance),
+                    m.base.attack_target == Some(follow_id),
                 )
             }
             _ => return false,
@@ -1144,24 +1142,42 @@ impl GameWorld {
         if chebyshev(pos, target_pos) != band {
             return false;
         }
+        // Dist dance still requires attack == follow. Melee promotion does not
+        // (`crnonpl.cc:2834` is only in the melee else-branch).
+        if band != 1 && !attack_matches {
+            return false;
+        }
         let choice = self.dance_choice();
         let dir = crate::sim_glibc_rand::DANCE_DIR_ORDER[choice as usize];
-        let dest = match dir {
-            Some(step) => {
-                let dest = pos.offset(step);
-                if chebyshev(dest, target_pos) != band || !self.monster_can_walk_to(cid, pos, step)
-                {
-                    return false;
+        // Hold (`rand()%5` case 4) stays on the tile. A sidestep queues only when it
+        // remains on band and `MovePossible` accepts it (`crnonpl.cc:2826-2832`).
+        let stepped = if attack_matches {
+            match dir {
+                Some(step) => {
+                    let dest = pos.offset(step);
+                    if chebyshev(dest, target_pos) == band
+                        && self.monster_can_walk_to(cid, pos, step)
+                    {
+                        Some(dest)
+                    } else {
+                        None
+                    }
                 }
-                dest
+                None => Some(pos),
             }
-            None => {
-                // C++ `rand()%5` case 4 — hold at band; still logs when DestDistance==1 (`crnonpl.cc:2814-2827`).
-                if chebyshev(pos, target_pos) != band {
-                    return false;
-                }
-                pos
-            }
+        } else {
+            None
+        };
+        // `crnonpl.cc:2834` — PANIC → ATTACKING after the melee roll, including hold
+        // and a failed `MovePossible`. Dist dance does not promote.
+        if band == 1
+            && let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid)
+            && m.state == MonsterState::Panic
+        {
+            m.state = MonsterState::Attacking;
+        }
+        let Some(dest) = stepped else {
+            return false;
         };
         if let Some(k) = self.creatures.get_mut(cid) {
             let base = k.base_mut();
@@ -1173,13 +1189,6 @@ impl GameWorld {
             }
             base.has_follow_path = true;
             base.force_update_follow_path = false;
-        }
-        // C++ `crnonpl.cc:2830` — successful melee dance promotes PANIC → ATTACKING.
-        if band == 1
-            && let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid)
-            && m.state == MonsterState::Panic
-        {
-            m.state = MonsterState::Attacking;
         }
         if let Some(CreatureKind::Monster(m)) = self.creatures.get(cid) {
             let branch = if target_distance > 1 {
@@ -1741,12 +1750,11 @@ impl GameWorld {
 
         let master_in_range = master.is_some_and(|mid| {
             self.creatures.get(mid).is_some_and(|master_kind| {
-                creature_can_see(
+                monster_can_see(
                     pos,
                     master_kind.position(),
                     i32::from(MAP_MAX_VIEWPORT),
                     i32::from(MAP_MAX_VIEWPORT),
-                    self.mechanics.profile.underground_sees_surface,
                 )
             })
         });
@@ -1879,8 +1887,10 @@ impl GameWorld {
     ) -> bool {
         let (
             spawn,
+            cur,
             cfg,
             home_radius,
+            creature_radius,
             can_push_creatures,
             can_push_items,
             immunity_poison,
@@ -1893,8 +1903,10 @@ impl GameWorld {
         ) = match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => (
                 m.spawn_position,
+                m.base.position,
                 self.monster_world_config,
                 m.home_radius,
+                m.radius,
                 m.can_push_creatures,
                 m.can_push_items,
                 m.immunity_poison,
@@ -1907,11 +1919,16 @@ impl GameWorld {
             ),
             _ => return false,
         };
-        // C++ skips home/radius when `ATTACKING|PANIC` (`crnonpl.cc:2148-2159`); the roam bound uses
-        // the per-home radius (Finding 17/17b).
+        // C++ skips home and creature Radius when `ATTACKING|PANIC` (`crnonpl.cc:2148-2159`).
+        // `Home == 0` (`home_radius <= 0`) is never leashed (`crnonpl.cc:1516`).
         if state != MonsterState::Attacking && state != MonsterState::Panic {
-            let radius = self.monster_roam_leash_radius(home_radius);
-            if !is_in_spawn_range(pos, spawn, radius, cfg.despawn_z_range) {
+            if let Some(leash) = Self::monster_roam_leash_radius(home_radius)
+                && !is_in_spawn_range(pos, spawn, leash, cfg.despawn_z_range)
+            {
+                return false;
+            }
+            // `TCreature::Radius` — Chebyshev from the current tile (`crnonpl.cc:2154-2158`).
+            if chebyshev(pos, cur) > creature_radius {
                 return false;
             }
         }
@@ -2112,14 +2129,13 @@ impl GameWorld {
         self.monster_move_possible_planning(cid, pos, false)
     }
 
-    /// Effective per-home roam leash radius (axis-box, non-attacking). Uses the monster's
-    /// `home_radius` (CipSoft `MonsterhomeInRange`, `crnonpl.cc:2157`); an unset home
-    /// (`home_radius <= 0`) falls back to the global despawn radius (audit Finding 17b).
-    fn monster_roam_leash_radius(&self, home_radius: i32) -> i32 {
+    /// Per-home roam leash (axis box, non-attacking). `home_radius <= 0` is `Home == 0`
+    /// (`crnonpl.cc:1516`) — no leash. A positive radius is the `MonsterhomeInRange` box.
+    fn monster_roam_leash_radius(home_radius: i32) -> Option<i32> {
         if home_radius > 0 {
-            home_radius
+            Some(home_radius)
         } else {
-            self.monster_world_config.despawn_radius
+            None
         }
     }
 

@@ -6,7 +6,7 @@ use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
 use tfs_rust_common::enums::Direction;
 
-use crate::creature::{CreatureKind, MonsterAiConfig};
+use crate::creature::{CreatureKind, MonsterAiConfig, MonsterState};
 use crate::formulas::MechanicsProfile;
 use crate::login_out::creature_wire_id;
 use crate::monster_ai::MonsterIdleChaseRepathOutcome;
@@ -633,8 +633,7 @@ fn effective_target_distance_follows_profile() {
     assert_eq!(world.monster_effective_target_distance(7), 7);
 }
 
-/// B3.1 — weakest-target metric: 772 compares current HP, 1098 compares max HP. Construct two
-/// players where the lowest-current and lowest-max are different creatures.
+/// Weakest-target metric is current HP on both profiles (`pin_corpus_path_spawn_target`).
 #[test]
 fn weakest_opponent_metric_follows_profile() {
     use tfs_rust_common::ProtocolVersion;
@@ -657,10 +656,9 @@ fn weakest_opponent_metric_follows_profile() {
     }
     let candidates = [a, b];
 
-    // 1098 (max HP): B is weakest (max 100 < 1000).
-    assert_eq!(world.monster_weakest_opponent(&candidates), Some(b));
+    // Both profiles pin current HP (`pin_corpus_path_spawn_target`). A is weakest (20 < 100).
+    assert_eq!(world.monster_weakest_opponent(&candidates), Some(a));
 
-    // 772 (current HP): A is weakest (current 20 < 100).
     world.mechanics = crate::formulas::Mechanics::for_version(ProtocolVersion::V772);
     assert_eq!(world.monster_weakest_opponent(&candidates), Some(a));
 }
@@ -710,6 +708,109 @@ fn test_772_melee_dance_only_cardinal() {
             );
         }
     }
+}
+
+fn seed_dance_face(face: u32) -> u32 {
+    use crate::sim_glibc_rand::GlibcRngState;
+    for seed in 1..20_000u32 {
+        let rng = GlibcRngState::seed(seed);
+        if rng.rand_mod(5) == face {
+            return seed;
+        }
+    }
+    panic!("no glibc seed draws dance face {face}");
+}
+
+/// `crnonpl.cc:2834` — PANIC becomes ATTACKING after the melee roll, including a blocked
+/// sidestep and the hold face. Dist dance does not promote.
+#[test]
+fn panic_promotes_at_melee_when_dance_step_fails() {
+    let north_seed = seed_dance_face(2);
+    let hold_seed = seed_dance_face(4);
+
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(101, 100, 7);
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+    let monster =
+        insert_monster_with_config(&mut world, "Rat", mpos, 200, MonsterAiConfig::default());
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.state = MonsterState::Panic;
+        m.base.follow_target = Some(player);
+        m.base.attack_target = Some(player);
+        m.target_distance = 1;
+    }
+    world.seed_parity_rng(north_seed);
+    assert!(
+        !world.monster_idle_dance_step(monster),
+        "blocked north sidestep must not queue a step"
+    );
+    let m = match world.creatures.get(monster) {
+        Some(CreatureKind::Monster(m)) => m,
+        _ => panic!("expected monster"),
+    };
+    assert_eq!(m.state, MonsterState::Attacking);
+    assert!(m.base.walk_queue.is_empty());
+
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.state = MonsterState::Panic;
+        m.base.walk_queue.clear();
+    }
+    world.seed_parity_rng(hold_seed);
+    world.monster_idle_dance_step(monster);
+    let m = match world.creatures.get(monster) {
+        Some(CreatureKind::Monster(m)) => m,
+        _ => panic!("expected monster"),
+    };
+    assert_eq!(
+        m.state,
+        MonsterState::Attacking,
+        "hold roll still promotes PANIC"
+    );
+    assert!(m.base.walk_queue.is_empty(), "hold queues no step");
+
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.state = MonsterState::Panic;
+        m.base.attack_target = None;
+        m.base.walk_queue.clear();
+    }
+    world.seed_parity_rng(hold_seed);
+    world.monster_idle_dance_step(monster);
+    assert!(
+        world.creatures.get(monster).is_some_and(|k| {
+            matches!(
+                k,
+                CreatureKind::Monster(m) if m.state == MonsterState::Attacking
+            )
+        }),
+        "melee promotion does not require attack_target == follow_target"
+    );
+
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.state = MonsterState::Panic;
+        m.base.attack_target = Some(player);
+        m.base.follow_target = Some(player);
+        m.target_distance = 4;
+    }
+    if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+        p.base.position = Position::new(104, 100, 7);
+    }
+    ensure_walkable_tile(
+        &mut world.map,
+        Position::new(104, 100, 7),
+        TEST_SYNTHETIC_GROUND_WP,
+    );
+    world.seed_parity_rng(hold_seed);
+    world.monster_idle_dance_step(monster);
+    assert!(
+        world.creatures.get(monster).is_some_and(|k| {
+            matches!(k, CreatureKind::Monster(m) if m.state == MonsterState::Panic)
+        }),
+        "dist dance must not promote PANIC"
+    );
 }
 
 #[test]

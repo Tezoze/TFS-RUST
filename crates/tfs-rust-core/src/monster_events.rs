@@ -11,7 +11,7 @@ use tfs_rust_common::Position;
 
 use crate::creature::{ChaseMode, CreatureKind, MonsterState};
 use crate::creature_todo::{CreatureAction, MONSTER_CLOSE_CHASE_RETRY_MS};
-use crate::game_world::{GameWorld, creature_can_see};
+use crate::game_world::{GameWorld, monster_can_see};
 use crate::ids::CreatureId;
 use crate::monster_ai::{MAP_MAX_VIEWPORT, MonsterEnqueueAttackResult, chebyshev};
 
@@ -102,12 +102,11 @@ impl GameWorld {
             let Some(other_pos) = self.creatures.get(other).map(|k| k.position()) else {
                 return false;
             };
-            creature_can_see(
+            monster_can_see(
                 center,
                 other_pos,
                 range,
                 range,
-                self.mechanics.profile.underground_sees_surface,
             )
         });
         std::mem::take(&mut self.scratch_spectators)
@@ -168,19 +167,17 @@ impl GameWorld {
             None => return,
         };
         let range = i32::from(MAP_MAX_VIEWPORT);
-        let can_see_new = creature_can_see(
+        let can_see_new = monster_can_see(
             monster_pos,
             new_pos,
             range,
             range,
-            self.mechanics.profile.underground_sees_surface,
         );
-        let can_see_old = creature_can_see(
+        let can_see_old = monster_can_see(
             monster_pos,
             old_pos,
             range,
             range,
-            self.mechanics.profile.underground_sees_surface,
         );
 
         if can_see_new && !can_see_old {
@@ -224,12 +221,11 @@ impl GameWorld {
                 .creatures
                 .get(creature_id)
                 .map(|k| {
-                    creature_can_see(
+                    monster_can_see(
                         monster_pos,
                         k.position(),
                         range,
                         range,
-                        self.mechanics.profile.underground_sees_surface,
                     )
                 })
                 .unwrap_or(false);
@@ -562,6 +558,41 @@ mod tests {
         TEST_SYNTHETIC_GROUND_WP, beat_driven_test_world, ensure_walkable_tile, insert_monster,
         insert_player, test_player,
     };
+
+    /// Underground monster sees a surface creature in the move fan-out (`cr.hh:576`).
+    #[test]
+    fn monster_on_z8_sees_surface_on_both_profiles() {
+        use tfs_rust_common::ProtocolVersion;
+
+        for version in [ProtocolVersion::V772, ProtocolVersion::V1098] {
+            let mut world = beat_driven_test_world();
+            world.mechanics = crate::formulas::Mechanics::for_version(version);
+            let mpos = Position::new(100, 100, 8);
+            let unseen = Position::new(100, 100, 11);
+            let surface = Position::new(100, 100, 7);
+            ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+            ensure_walkable_tile(&mut world.map, unseen, TEST_SYNTHETIC_GROUND_WP);
+            ensure_walkable_tile(&mut world.map, surface, TEST_SYNTHETIC_GROUND_WP);
+
+            let player = insert_player(&mut world, test_player("Hero", unseen));
+            world.map.register_creature_at(unseen, player);
+            let monster = insert_monster(&mut world, "Rat", mpos, 200);
+            if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+                p.base.position = surface;
+            }
+            world.map.unregister_creature_at(unseen, player);
+            world.map.register_creature_at(surface, player);
+            world.monster_on_creature_move(monster, player, unseen, surface);
+
+            let sees = world.creatures.get(monster).is_some_and(|k| {
+                matches!(k, CreatureKind::Monster(m) if m.opponent_ids.contains(&player))
+            });
+            assert!(
+                sees,
+                "monster on z=8 must see z=7 in the move fan-out ({version:?})"
+            );
+        }
+    }
 
     #[test]
     fn test_772_close_flee_clear_skips_inflight_go() {

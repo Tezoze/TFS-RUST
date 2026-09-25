@@ -945,7 +945,6 @@ impl GameWorld {
             )
         };
         let (old_state, new_state, has_target, was_sleeping, name) = snapshot;
-        let state_changed = new_state != old_state;
 
         if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(victim_id) {
             m.state = new_state;
@@ -973,11 +972,9 @@ impl GameWorld {
             had_target = has_target,
         );
 
-        if state_changed || was_sleeping {
-            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(victim_id) {
-                // First melee after damage lands on the second post-damage idle (`tick=4000` in panic sim).
-                m.base.delay_attack_ms(self.server_ms, 4000);
-            }
+        // `ToDoYield` only when leaving SLEEPING (`crnonpl.cc:2308-2314`). An already-awake
+        // hit changes STATE and does not delay the next melee.
+        if was_sleeping {
             self.creature_todo_yield(victim_id);
         }
         // C++ `TMonster::DamageStimulus` — state + `ToDoYield` only (`crnonpl.cc:2304`);
