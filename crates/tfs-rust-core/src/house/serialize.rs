@@ -260,7 +260,17 @@ fn place_loaded_item(
     // Moveable (or force-serialize) items are always created fresh.
     if !loaded_it.moveable() {
         if let Some(existing) = find_matching_stationary(world, pos, &loaded) {
-            let new_type = loaded.server_id;
+            let map_type = world
+                .items
+                .get(existing)
+                .map(|item| item.item_type)
+                .unwrap_or(loaded.server_id);
+            // Saved id is the pre-cutover server id of the map item. Keep the client id.
+            let new_type = if super::legacy_ids::client_id(loaded.server_id) == Some(map_type) {
+                map_type
+            } else {
+                loaded.server_id
+            };
             if let Some(dst) = world.items.get_mut(existing) {
                 dst.attributes = loaded.item.attributes;
                 if loaded.item.count > 0 {
@@ -336,8 +346,13 @@ fn find_matching_stationary(
         if item.item_type == loaded.server_id {
             return Some(id);
         }
-        if loaded_is_door && map_it.is_door() {
-            // Prefer same house door id when both sides have one (multi-door tiles).
+        // tile_store still has the old server id of this map item (passthrough 1638 → 2338).
+        if super::legacy_ids::client_id(loaded.server_id) == Some(item.item_type) {
+            return Some(id);
+        }
+        if loaded_is_door && map_it.is_door() && item.item_type.abs_diff(loaded.server_id) == 1 {
+            // Open/closed pair only. Any two doors used to match, which turned a
+            // passthrough into a closed door after the id flip.
             if want_door != 0 && item_door_id(item) != 0 && item_door_id(item) != want_door {
                 continue;
             }
@@ -600,6 +615,67 @@ mod tests {
         let only = world2.items.get(door_ids[0]).unwrap();
         assert_eq!(only.item_type, open);
         assert_eq!(item_door_id(only), 3);
+    }
+
+    #[test]
+    fn old_passthrough_save_does_not_become_closed_door() {
+        use crate::cylinder::CylinderFlags;
+        use crate::tile::{HouseTile, Tile, TileBody};
+        use tfs_rust_common::enums::ZoneType;
+
+        // Pre-cutover server id 1638 is client passthrough 2338. Catalog id 1638 is a closed door.
+        let passthrough = 2338u16;
+        let old_save = 1638u16;
+        let mut world = world_with_doors(passthrough, old_save);
+        let pos = Position::new(50, 50, 7);
+        world.map.insert_tile(
+            pos,
+            Tile::House(HouseTile {
+                inner: TileBody {
+                    flags: 0,
+                    zone: ZoneType::Protection,
+                    ..TileBody::new()
+                },
+                house_id: 1,
+            }),
+        );
+        let iid = world.items.insert(Item::new_single(passthrough));
+        world
+            .internal_add_item_to_tile(pos, iid, CylinderFlags::NO_LIMIT)
+            .expect("place passthrough");
+
+        let mut saved = world_with_doors(passthrough, old_save);
+        saved.map.insert_tile(
+            pos,
+            Tile::House(HouseTile {
+                inner: TileBody {
+                    flags: 0,
+                    zone: ZoneType::Protection,
+                    ..TileBody::new()
+                },
+                house_id: 1,
+            }),
+        );
+        saved.houses.ensure_houses([1]);
+        if let Some(rec) = saved.houses.records.get_mut(&1) {
+            rec.tiles.push(pos);
+        }
+        let saved_id = saved.items.insert(Item::new_single(old_save));
+        saved
+            .internal_add_item_to_tile(pos, saved_id, CylinderFlags::NO_LIMIT)
+            .expect("place saved id");
+        let rows = encode_house_tile_store(&saved);
+
+        load_tile_store_into_world(&mut world, &rows);
+        let tile = world.map.get_tile(pos).expect("tile");
+        let types: Vec<u16> = tile
+            .body()
+            .down_items()
+            .iter()
+            .chain(tile.body().top_items().iter())
+            .filter_map(|&id| world.items.get(id).map(|item| item.item_type))
+            .collect();
+        assert_eq!(types, vec![passthrough]);
     }
 
     #[test]

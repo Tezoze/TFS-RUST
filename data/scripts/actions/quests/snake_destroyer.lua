@@ -5,8 +5,8 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 		return false
 	end
 	
-	if target:getId() == 4861 and player:getStorageValue(293) == 17 then 
-		target:transform(4862, 1)
+	if target:getId() == 4850 and player:getStorageValue(293) == 17 then 
+		target:transform(4851, 1)
 		target:decay()
 		player:setStorageValue(299, 1)
 		item:remove()
@@ -16,5 +16,5 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 	return false
 end
 
-action:id(4846) -- snake destroyer
+action:id(4835) -- snake destroyer
 action:register()

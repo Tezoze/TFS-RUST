@@ -770,7 +770,7 @@ mod tests {
         inject_door_tables_from_global(&runtime, &data_root).expect("door tables");
         let defs = load_action_scripts(&mut runtime, &data_root).expect("actions load");
 
-        let food_def = defs.iter().find(|d| d.item_ids.contains(&2666));
+        let food_def = defs.iter().find(|d| d.item_ids.contains(&3577));
         assert!(
             food_def.is_some(),
             "expected food.lua to register meat id 2666; got {} defs",
@@ -848,7 +848,7 @@ mod tests {
             .flat_map(|p| p.item_ids.iter().copied())
             .collect();
         for expected in [
-            2416u16, 2580, 2342, 2566, 2420, 2442, 2553, 2120, 2550, 2554,
+            3304u16, 3483, 3229, 3469, 3308, 3330, 3456, 3003, 3453, 3457,
         ] {
             assert!(
                 all_ids.contains(&expected),
@@ -856,7 +856,7 @@ mod tests {
             );
         }
 
-        let fishing = pending.iter().find(|p| p.item_ids.contains(&2580));
+        let fishing = pending.iter().find(|p| p.item_ids.contains(&3483));
         assert!(
             fishing.is_some_and(|p| p.allow_far_use),
             "fishing rod (2580) must register with allowFarUse"
@@ -889,7 +889,7 @@ mod tests {
         assert_eq!(get("FLUID_WATER"), 1);
         assert_eq!(get("TALKTYPE_SAY"), 1);
         assert_eq!(get("CONST_ME_SOUND_YELLOW"), 22);
-        assert_eq!(get("ITEM_GOLD_COIN"), 2148);
+        assert_eq!(get("ITEM_GOLD_COIN"), 3031);
         assert_eq!(get("CONDITION_PARAM_DRUNKENNESS"), 55);
         assert_eq!(get("TALKTYPE_MONSTER_SAY"), 0x11);
 
@@ -932,9 +932,9 @@ mod tests {
             .expect("772 load change_gold");
         let pending = runtime.drain_pending_actions();
         assert!(
-            !pending.iter().any(|p| p.item_ids.contains(&2148)
-                || p.item_ids.contains(&2152)
-                || p.item_ids.contains(&2160)),
+            !pending.iter().any(|p| p.item_ids.contains(&3031)
+                || p.item_ids.contains(&3035)
+                || p.item_ids.contains(&3043)),
             "772 must not register gold/platinum/crystal: {:?}",
             pending.iter().map(|p| &p.item_ids).collect::<Vec<_>>()
         );
@@ -949,7 +949,7 @@ mod tests {
             .iter()
             .flat_map(|p| p.item_ids.iter().copied())
             .collect();
-        for expected in [2148u16, 2152, 2160] {
+        for expected in [3031u16, 3035, 3043] {
             assert!(
                 ids.contains(&expected),
                 "1098 change_gold must register {expected}, got {ids:?}"
@@ -1043,31 +1043,31 @@ mod tests {
         };
 
         let pipe_772 = load_ids(772, "waterpipe.lua");
-        assert!(pipe_772.contains(&2093), "772 waterpipe 2093: {pipe_772:?}");
+        assert!(pipe_772.contains(&2974), "772 waterpipe 2974: {pipe_772:?}");
         assert!(
-            !pipe_772.contains(&2099),
-            "772 must not register TFS pipe 2099: {pipe_772:?}"
+            !pipe_772.contains(&2980),
+            "772 must not register TFS pipe 2980: {pipe_772:?}"
         );
         let pipe_1098 = load_ids(1098, "waterpipe.lua");
         assert!(
-            pipe_1098.contains(&2093) && pipe_1098.contains(&2099),
-            "1098 extraInstruments registers 2099: {pipe_1098:?}"
+            pipe_1098.contains(&2974) && pipe_1098.contains(&2980),
+            "1098 extraInstruments registers 2980: {pipe_1098:?}"
         );
 
         let music_772 = load_ids(772, "music.lua");
-        assert!(music_772.contains(&3952), "didgeridoo 3952: {music_772:?}");
-        assert!(music_772.contains(&3957), "cornucopia 3957: {music_772:?}");
+        assert!(music_772.contains(&2965), "didgeridoo 2965: {music_772:?}");
+        assert!(music_772.contains(&3103), "cornucopia 3103: {music_772:?}");
         assert!(
-            music_772.contains(&2369),
-            "immovable horn 2369 (not grapes): {music_772:?}"
+            music_772.contains(&3257),
+            "immovable horn 3257 (not grapes): {music_772:?}"
         );
         assert!(
-            !music_772.contains(&3951) && !music_772.contains(&3953),
+            !music_772.contains(&2951) && !music_772.contains(&2966),
             "772 must not register bongo/war drum: {music_772:?}"
         );
         let music_1098 = load_ids(1098, "music.lua");
         assert!(
-            music_1098.contains(&3951) && music_1098.contains(&3953),
+            music_1098.contains(&2951) && music_1098.contains(&2966),
             "1098 extraInstruments registers bongo/war drum: {music_1098:?}"
         );
 
@@ -1313,12 +1313,12 @@ mod tests {
         let data_root = workspace_data_root();
         let src =
             std::fs::read_to_string(data_root.join("defs/doors.lua")).expect("defs/doors.lua");
-        assert!(src.contains("1210"), "closed door 1210");
-        assert!(src.contains("1211"), "open door 1211");
-        assert!(src.contains("1209"), "locked door 1209");
-        assert!(src.contains("2088"), "key 2088");
-        assert!(src.contains("1223"), "closed quest 1223");
-        assert!(src.contains("1227"), "closed level 1227");
+        assert!(src.contains("1629"), "closed door 1629");
+        assert!(src.contains("1630"), "open door 1630");
+        assert!(src.contains("1628"), "locked door 1628");
+        assert!(src.contains("2969"), "key 2969");
+        assert!(src.contains("1642"), "closed quest 1642");
+        assert!(src.contains("1646"), "closed level 1646");
     }
 
     #[test]
@@ -1640,7 +1640,7 @@ mod tests {
             "E8 ignores drunkenness param"
         );
         assert!(!src.contains("queryAdd"), "no TFS queryAdd");
-        assert!(src.contains("Game.createItem(2016"), "spill 2016");
+        assert!(src.contains("Game.createItem(2886"), "spill 2886");
     }
 
     /// E6: `GetSpellbook` format — vocation/learned Light Healing, Berserk `4*Level`, no ML groups.
@@ -1749,11 +1749,11 @@ mod tests {
         let pending = runtime.drain_pending_actions();
         let action = pending
             .iter()
-            .find(|p| p.item_ids.contains(&2175))
-            .expect("2175 registered");
+            .find(|p| p.item_ids.contains(&3059))
+            .expect("3059 registered");
         assert!(
-            !pending.iter().any(|p| p.item_ids.contains(&2217)),
-            "2217 is not GetSpellbook"
+            !pending.iter().any(|p| p.item_ids.contains(&3101)),
+            "3101 is not GetSpellbook"
         );
         let on_use = action.on_use.as_ref().expect("onUse");
 

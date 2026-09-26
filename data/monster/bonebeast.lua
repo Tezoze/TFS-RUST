@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3031,
+    corpse = 4212,
   },
   change_target = { chance = 20 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -97,13 +97,13 @@ return {
     { text = "Knooorrrrr!", yell = false },
   },
   loot = {
-    { id = 2229, chance = 20000 }, -- skull
-    { id = 2463, chance = 8000 }, -- plate armor
-    { id = 2796, chance = 1500 }, -- green mushroom
-    { id = 2148, chance = 30000, count_max = 90 }, -- gold coin
-    { id = 2541, chance = 2000 }, -- bone shield
-    { id = 2449, chance = 5000 }, -- bone club
-    { id = 2230, chance = 50000 }, -- bone
-    { id = 2231, chance = 10000 }, -- big bone
+    { id = 3114, chance = 20000 }, -- skull
+    { id = 3357, chance = 8000 }, -- plate armor
+    { id = 3732, chance = 1500 }, -- green mushroom
+    { id = 3031, chance = 30000, count_max = 90 }, -- gold coin
+    { id = 3441, chance = 2000 }, -- bone shield
+    { id = 3337, chance = 5000 }, -- bone club
+    { id = 3115, chance = 50000 }, -- bone
+    { id = 3116, chance = 10000 }, -- big bone
   },
 }

@@ -5,12 +5,12 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 		return false
 	end
 	
-	if target:getId() == 4995 and player:getStorageValue(306) == 1 and player:getStorageValue(307) == -1 then 
+	if target:getId() == 4994 and player:getStorageValue(306) == 1 and player:getStorageValue(307) == -1 then 
 		local parent = item:getParent()
 		if parent:isContainer() or parent:isPlayer() then
-			parent:addItem(4848, 1)
+			parent:addItem(4837, 1)
 		else
-			Game.createItem(4848, 1, item:getPosition())
+			Game.createItem(4837, 1, item:getPosition())
 		end
 		target:getPosition():sendMagicEffect(2)
 		player:setStorageValue(307, 1)
@@ -19,5 +19,5 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 	return false
 end
 
-action:id(4874) -- ice pick
+action:id(4872) -- ice pick
 action:register()

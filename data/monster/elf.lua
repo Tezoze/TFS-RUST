@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2945,
+    corpse = 4126,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -69,12 +69,12 @@ return {
     { text = "Death to the defilers!", yell = false },
   },
   loot = {
-    { id = 2482, chance = 15000 }, -- studded helmet
-    { id = 2484, chance = 11000 }, -- studded armor
-    { id = 2674, chance = 20000, count_max = 2 }, -- red apple
-    { id = 2397, chance = 8000 }, -- longsword
-    { id = 2643, chance = 11000 }, -- leather boots
-    { id = 2511, chance = 13000 }, -- brass shield
-    { id = 2544, chance = 7000, count_max = 3 }, -- arrow
+    { id = 3376, chance = 15000 }, -- studded helmet
+    { id = 3378, chance = 11000 }, -- studded armor
+    { id = 3585, chance = 20000, count_max = 2 }, -- red apple
+    { id = 3285, chance = 8000 }, -- longsword
+    { id = 3552, chance = 11000 }, -- leather boots
+    { id = 3411, chance = 13000 }, -- brass shield
+    { id = 3447, chance = 7000, count_max = 3 }, -- arrow
   },
 }

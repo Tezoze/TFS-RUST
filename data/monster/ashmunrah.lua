@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3034,
+    corpse = 4215,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 0, most_damage = 30, random = 0 },
@@ -136,14 +136,14 @@ return {
     { name = "Ancient Scarab", delay = 7, max = 2 },
   },
   loot = {
-    { id = 2134, chance = 4000 }, -- silver brooch
-    { id = 2164, chance = 5000 }, -- might ring
-    { id = 2140, chance = 100 }, -- holy scarab
-    { id = 2444, chance = 100 }, -- hammer of wrath
-    { id = 2148, chance = 35000, count_max = 95 }, -- gold coin
-    { id = 2148, chance = 50000, count_max = 85 }, -- gold coin
-    { id = 2148, chance = 70000, count_max = 80 }, -- gold coin
-    { id = 2148, chance = 40000, count_max = 90 }, -- gold coin
-    { id = 2487, chance = 500 }, -- crown armor
+    { id = 3017, chance = 4000 }, -- silver brooch
+    { id = 3048, chance = 5000 }, -- might ring
+    { id = 3023, chance = 100 }, -- holy scarab
+    { id = 3332, chance = 100 }, -- hammer of wrath
+    { id = 3031, chance = 35000, count_max = 95 }, -- gold coin
+    { id = 3031, chance = 50000, count_max = 85 }, -- gold coin
+    { id = 3031, chance = 70000, count_max = 80 }, -- gold coin
+    { id = 3031, chance = 40000, count_max = 90 }, -- gold coin
+    { id = 3381, chance = 500 }, -- crown armor
   },
 }

@@ -500,14 +500,14 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ expr = { session = "topic" }, op = "=", rhs = 1 },
 				{ words = { "yes" } },
-				{ expr = { count = 2696 }, op = ">", rhs = 0 },
+				{ expr = { count = 3607 }, op = ">", rhs = 0 },
 				{ select = true },
 			},
 			actions = {
 				{ say = "Meep! Meep! Great! Here is the spyreport for you!" },
 				{ set = { var = "amount", value = 1 } },
-				{ delete = { item = 2696 } },
-				{ create = { item = 2345 } },
+				{ delete = { item = 3607 } },
+				{ create = { item = 3232 } },
 				{ setQuestValue = { id = 282, value = 2 } },
 			},
 		},

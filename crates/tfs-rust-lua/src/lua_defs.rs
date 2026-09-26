@@ -808,9 +808,9 @@ mod tests {
         assert!(
             matches!(
                 snap.constants.get("ITEM_GOLD_COIN"),
-                Some(ConstantValue::Integer(2148))
+                Some(ConstantValue::Integer(3031))
             ),
-            "ITEM_GOLD_COIN must be 2148 (const.h:451)"
+            "ITEM_GOLD_COIN must be 3031"
         );
 
         assert!(

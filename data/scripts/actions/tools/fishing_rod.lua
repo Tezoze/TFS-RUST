@@ -1,48 +1,48 @@
 local waterItems = {
-	[4608] = {canFish = true, transformId = 4620},
-	[4609] = {canFish = true, transformId = 4621},
-	[4610] = {canFish = true, transformId = 4622},
-	[4611] = {canFish = true, transformId = 4623},
-	[4612] = {canFish = true, transformId = 4624},
-	[4613] = {canFish = true, transformId = 4625},
-	[490] = {canFish = true, transformId = 492},
-	[4820] = {canFish = true, transformId = 4620},
-	[4821] = {canFish = true, transformId = 4621},
-	[4822] = {canFish = true, transformId = 4622},
-	[4823] = {canFish = true, transformId = 4623},
-	[4824] = {canFish = true, transformId = 4624},
-	[4825] = {canFish = true, transformId = 4625},
-	[491] = {canFish = false},
-	[492] = {canFish = false},
-	[493] = {canFish = false},
-	[4614] = {canFish = false},
-	[4615] = {canFish = false},
-	[4616] = {canFish = false},
-	[4617] = {canFish = false},
-	[4618] = {canFish = false},
-	[4619] = {canFish = false},
-	[4620] = {canFish = false},
-	[4621] = {canFish = false},
-	[4622] = {canFish = false},
-	[4623] = {canFish = false},
-	[4624] = {canFish = false},
-	[4625] = {canFish = false},
-	[4625] = {canFish = false},
-	[4664] = {canFish = false},
-	[4665] = {canFish = false},
-	[4666] = {canFish = false},
-	[618] = {canFish = false},
+	[4597] = {canFish = true, transformId = 4609},
+	[4598] = {canFish = true, transformId = 4610},
+	[4599] = {canFish = true, transformId = 4611},
+	[4600] = {canFish = true, transformId = 4612},
+	[4601] = {canFish = true, transformId = 4613},
+	[4602] = {canFish = true, transformId = 4614},
+	[618] = {canFish = true, transformId = 620},
+	[4809] = {canFish = true, transformId = 4609},
+	[4810] = {canFish = true, transformId = 4610},
+	[4811] = {canFish = true, transformId = 4611},
+	[4812] = {canFish = true, transformId = 4612},
+	[4813] = {canFish = true, transformId = 4613},
+	[4814] = {canFish = true, transformId = 4614},
 	[619] = {canFish = false},
 	[620] = {canFish = false},
-	[621] = {canFish = false},
 	[622] = {canFish = false},
-	[623] = {canFish = false},
-	[624] = {canFish = false},
-	[625] = {canFish = false},
-	[626] = {canFish = false},
-	[627] = {canFish = false},
-	[628] = {canFish = false},
-	[629] = {canFish = false},
+	[4603] = {canFish = false},
+	[4604] = {canFish = false},
+	[4605] = {canFish = false},
+	[4606] = {canFish = false},
+	[4607] = {canFish = false},
+	[4608] = {canFish = false},
+	[4609] = {canFish = false},
+	[4610] = {canFish = false},
+	[4611] = {canFish = false},
+	[4612] = {canFish = false},
+	[4613] = {canFish = false},
+	[4614] = {canFish = false},
+	[4614] = {canFish = false},
+	[4653] = {canFish = false},
+	[4654] = {canFish = false},
+	[4655] = {canFish = false},
+	[747] = {canFish = false},
+	[748] = {canFish = false},
+	[749] = {canFish = false},
+	[750] = {canFish = false},
+	[751] = {canFish = false},
+	[752] = {canFish = false},
+	[753] = {canFish = false},
+	[754] = {canFish = false},
+	[755] = {canFish = false},
+	[756] = {canFish = false},
+	[757] = {canFish = false},
+	[758] = {canFish = false},
 }
 
 local useWorms = true
@@ -64,13 +64,13 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 	end
 	
 	if water.canFish and formulas.fishingSuccess(player:getEffectiveSkillLevel(SKILL_FISHING)) then
-		if useWorms and not player:removeItem(3976, 1) then
+		if useWorms and not player:removeItem(3492, 1) then
 			return true
 		end
 			
 		local parent = item:getParent()
-		if not parent:addItem(2667, 1) then
-			Tile(item:getPosition()):addItem(2667, 1)
+		if not parent:addItem(3578, 1) then
+			Tile(item:getPosition()):addItem(3578, 1)
 		end
 
 		target:transform(water.transformId)
@@ -79,6 +79,6 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 	return true
 end
 
-action:id(2580)
+action:id(3483)
 action:allowFarUse(true)
 action:register()

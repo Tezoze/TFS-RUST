@@ -25,5 +25,5 @@ function weapon.onUseWeapon(player, variant, hit)
 end
 
 weapon:action("removecount")
-weapon:id(2546)
+weapon:id(3449)
 weapon:register()

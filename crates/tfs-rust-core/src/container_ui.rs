@@ -164,7 +164,11 @@ impl GameWorld {
             return;
         };
         let ch_sid = ch.item_type;
-        let ccid = self.items_db.client_id_for_server(ch_sid);
+        if !self.items_db.items.contains_key(&ch_sid) {
+            self.refresh_container_ui_for_all_viewers(container_item_id);
+            return;
+        }
+        let ccid = ch_sid;
         if ccid == 0 {
             self.refresh_container_ui_for_all_viewers(container_item_id);
             return;
@@ -316,7 +320,10 @@ impl GameWorld {
         let sid = container_wrapped.item_type;
         let it = self.items_db.items.get(&sid)?;
         let name = it.name.clone();
-        let client_id_hdr = self.items_db.client_id_for_server(sid);
+        if !self.items_db.items.contains_key(&sid) {
+            return None;
+        }
+        let client_id_hdr = sid;
         if client_id_hdr == 0 {
             return None;
         }
@@ -359,7 +366,10 @@ impl GameWorld {
                 continue;
             };
             let ch_sid = ch.item_type;
-            let ccid = self.items_db.client_id_for_server(ch_sid);
+            if !self.items_db.items.contains_key(&ch_sid) {
+                continue;
+            }
+            let ccid = ch_sid;
             if ccid == 0 {
                 continue;
             }
@@ -567,7 +577,7 @@ impl GameWorld {
         let Some(item) = self.items.get(item_id) else {
             return false;
         };
-        self.items_db.client_id_for_server(item.item_type) == sprite_id
+        item.item_type == sprite_id
     }
 
     /// Resolve `Position` + stack to an item instance for `UseItem` / `UseItemEx`.
@@ -680,8 +690,7 @@ impl GameWorld {
             return None;
         }
         let ground = self.map.get_tile(pos)?.body().ground?;
-        let client_id = self.items_db.client_id_for_server(ground);
-        if sprite_id == client_id || sprite_id == ground {
+        if sprite_id == ground {
             return Some(ground);
         }
         None
@@ -831,8 +840,7 @@ impl GameWorld {
         } else {
             self.write_windows.remove(&cid);
         }
-        let client_id = self.items_db.client_id_for_server(item_type);
-        let client_id = if client_id == 0 { item_type } else { client_id };
+        let client_id = item_type;
         let stackable = self.items_db.stackable_for_server(item_type);
         let splash = self.items_db.is_splash_or_fluid_for_server(item_type);
         let anim = self.items_db.is_animation_for_server(item_type);

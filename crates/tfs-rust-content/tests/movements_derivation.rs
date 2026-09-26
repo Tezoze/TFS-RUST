@@ -12,23 +12,23 @@ use tfs_rust_content::items::ItemDatabase;
 
 /// Frozen StepIn/AddItem ids from the last `data/movements/movements.xml`.
 const XML_FIELD_IDS: &[u16] = &[
-    1423, 1424, 1425, 1487, 1488, 1489, 1490, 1491, 1492, 1493, 1494, 1495, 1496, 1500, 1501, 1502,
-    1503, 1504, 1505,
+    1998, 1999, 2000, 2118, 2119, 2120, 2121, 2122, 2123, 2124, 2125, 2126, 2127, 2131, 2132, 2133,
+    2134, 2135, 2136,
 ];
 
 /// Magic-field ids in item data that XML omitted (lossy copy). Native coverage kept.
-const EXTRA_NATIVE_FIELD_IDS: &[u16] = &[1506, 1507, 1508];
+const EXTRA_NATIVE_FIELD_IDS: &[u16] = &[2137, 2138, 2140];
 
 /// Frozen Equip ids from the last `movements.xml`.
 /// Plain armor with no ability or transform is omitted: dwarven helmet 2502,
 /// dwarven armor 2503, dwarven legs 2504, wood cape 2664.
 const XML_EQUIP_IDS: &[u16] = &[
-    2161, 2164, 2165, 2166, 2167, 2168, 2169, 2170, 2172, 2173, 2195, 2197, 2198, 2199, 2200, 2201,
-    2202, 2203, 2204, 2205, 2206, 2207, 2208, 2209, 2210, 2211, 2212, 2213, 2214, 2215, 2216, 2640,
+    3045, 3048, 3049, 3050, 3051, 3052, 3053, 3054, 3056, 3057, 3079, 3081, 3082, 3083, 3084, 3085,
+    3086, 3087, 3088, 3089, 3090, 3091, 3092, 3093, 3094, 3095, 3096, 3097, 3098, 3099, 3100, 3549,
 ];
 
 /// Amulet of loss: XML Equip/DeEquip stub, no abilities / no transform. Native no-op.
-const XML_ONLY_EQUIP_AOL: u16 = 2173;
+const XML_ONLY_EQUIP_AOL: u16 = 3057;
 
 fn load_pack() -> ItemDatabase {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items");

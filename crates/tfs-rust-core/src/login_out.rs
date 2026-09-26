@@ -351,10 +351,10 @@ pub(crate) fn item_stack_from_server_id(
     if iid == 0 {
         return None;
     }
-    let cid = world.items_db.client_id_for_server(iid);
-    if cid == 0 {
+    if !world.items_db.items.contains_key(&iid) {
         return None;
     }
+    let cid = iid;
     let stackable = world.item_wire_has_count(iid);
     let splash_fluid = world.items_db.is_splash_or_fluid_for_server(iid);
     Some(ItemStack {
@@ -683,7 +683,11 @@ fn enqueue_initial_login_packets_classic(
                 continue;
             };
             let sid = item.item_type;
-            let cid = world.items_db.client_id_for_server(sid);
+            if !world.items_db.items.contains_key(&sid) {
+                world.enqueue_outgoing(conn_id, send_inventory_slot_empty(slot).into_bytes());
+                continue;
+            }
+            let cid = sid;
             if cid == 0 {
                 world.enqueue_outgoing(conn_id, send_inventory_slot_empty(slot).into_bytes());
                 continue;
@@ -838,7 +842,11 @@ fn enqueue_initial_login_packets_1098(
                 continue;
             };
             let sid = item.item_type;
-            let cid = world.items_db.client_id_for_server(sid);
+            if !world.items_db.items.contains_key(&sid) {
+                world.enqueue_outgoing(conn_id, send_inventory_slot_empty(slot).into_bytes());
+                continue;
+            }
+            let cid = sid;
             if cid == 0 {
                 world.enqueue_outgoing(conn_id, send_inventory_slot_empty(slot).into_bytes());
                 continue;

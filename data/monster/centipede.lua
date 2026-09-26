@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 4289,
+    corpse = 4354,
   },
   change_target = { chance = 6 },
   target_strategy = { nearest = 70, weakest = 0, most_damage = 30, random = 0 },
@@ -57,8 +57,8 @@ return {
     invisible = false,
   },
   loot = {
-    { id = 2376, chance = 3000 }, -- sword
-    { id = 2398, chance = 4500 }, -- mace
-    { id = 2148, chance = 80000, count_max = 15 }, -- gold coin
+    { id = 3264, chance = 3000 }, -- sword
+    { id = 3286, chance = 4500 }, -- mace
+    { id = 3031, chance = 80000, count_max = 15 }, -- gold coin
   },
 }

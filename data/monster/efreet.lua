@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3037,
+    corpse = 4218,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -133,15 +133,15 @@ return {
     { name = "Green Djinn", delay = 7, max = 2 },
   },
   loot = {
-    { id = 2187, chance = 500 }, -- wand of inferno
-    { id = 2063, chance = 20000 }, -- small oil lamp
-    { id = 2149, chance = 7000, count_max = 2 }, -- small emerald
-    { id = 2673, chance = 25000, count_max = 12 }, -- pear
-    { id = 2663, chance = 200 }, -- mystic turban
-    { id = 2442, chance = 20000 }, -- heavy machete
-    { id = 1860, chance = 2500 }, -- green tapestry
-    { id = 2155, chance = 100 }, -- green gem
-    { id = 2148, chance = 50000, count_max = 80 }, -- gold coin
-    { id = 2148, chance = 70000, count_max = 50 }, -- gold coin
+    { id = 3071, chance = 500 }, -- wand of inferno
+    { id = 2933, chance = 20000 }, -- small oil lamp
+    { id = 3032, chance = 7000, count_max = 2 }, -- small emerald
+    { id = 3584, chance = 25000, count_max = 12 }, -- pear
+    { id = 3574, chance = 200 }, -- mystic turban
+    { id = 3330, chance = 20000 }, -- heavy machete
+    { id = 2647, chance = 2500 }, -- green tapestry
+    { id = 3038, chance = 100 }, -- green gem
+    { id = 3031, chance = 50000, count_max = 80 }, -- gold coin
+    { id = 3031, chance = 70000, count_max = 50 }, -- gold coin
   },
 }

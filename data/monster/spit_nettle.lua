@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 4326,
+    corpse = 4391,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -82,10 +82,10 @@ return {
     invisible = true,
   },
   loot = {
-    { id = 2802, chance = 5000 }, -- sling herb
-    { id = 2802, chance = 1000 }, -- sling herb
-    { id = 2804, chance = 10000 }, -- shadow herb
-    { id = 2747, chance = 1000 }, -- grave flower
-    { id = 2148, chance = 10000, count_max = 5 }, -- gold coin
+    { id = 3738, chance = 5000 }, -- sling herb
+    { id = 3738, chance = 1000 }, -- sling herb
+    { id = 3740, chance = 10000 }, -- shadow herb
+    { id = 3661, chance = 1000 }, -- grave flower
+    { id = 3031, chance = 10000, count_max = 5 }, -- gold coin
   },
 }

@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2967,
+    corpse = 4148,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 15, most_damage = 15, random = 0 },
@@ -78,21 +78,21 @@ return {
     { text = "Futchi maruk buta!", yell = false },
   },
   loot = {
-    { id = 2377, chance = 2000 }, -- two handed sword
-    { id = 2399, chance = 30000, count_max = 40 }, -- throwing star
-    { id = 2165, chance = 100 }, -- stealth ring
-    { id = 2419, chance = 12000 }, -- scimitar
-    { id = 2200, chance = 2000 }, -- protection amulet
-    { id = 2647, chance = 4000 }, -- plate legs
-    { id = 2463, chance = 6000 }, -- plate armor
-    { id = 2428, chance = 15000 }, -- orcish axe
-    { id = 2666, chance = 20000, count_max = 2 }, -- meat
-    { id = 2148, chance = 19000, count_max = 45 }, -- gold coin
-    { id = 2667, chance = 10000, count_max = 2 }, -- fish
-    { id = 2434, chance = 200 }, -- dragon hammer
-    { id = 2490, chance = 1500 }, -- dark helmet
-    { id = 2497, chance = 200 }, -- crusader helmet
-    { id = 2478, chance = 10000 }, -- brass legs
-    { id = 2465, chance = 1000 }, -- brass armor
+    { id = 3265, chance = 2000 }, -- two handed sword
+    { id = 3287, chance = 30000, count_max = 40 }, -- throwing star
+    { id = 3049, chance = 100 }, -- stealth ring
+    { id = 3307, chance = 12000 }, -- scimitar
+    { id = 3084, chance = 2000 }, -- protection amulet
+    { id = 3557, chance = 4000 }, -- plate legs
+    { id = 3357, chance = 6000 }, -- plate armor
+    { id = 3316, chance = 15000 }, -- orcish axe
+    { id = 3577, chance = 20000, count_max = 2 }, -- meat
+    { id = 3031, chance = 19000, count_max = 45 }, -- gold coin
+    { id = 3578, chance = 10000, count_max = 2 }, -- fish
+    { id = 3322, chance = 200 }, -- dragon hammer
+    { id = 3384, chance = 1500 }, -- dark helmet
+    { id = 3391, chance = 200 }, -- crusader helmet
+    { id = 3372, chance = 10000 }, -- brass legs
+    { id = 3359, chance = 1000 }, -- brass armor
   },
 }

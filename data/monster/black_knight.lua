@@ -15,7 +15,7 @@ return {
     look_body = 95,
     look_legs = 95,
     look_feet = 95,
-    corpse = 3058,
+    corpse = 4240,
   },
   change_target = { chance = 3 },
   target_strategy = { nearest = 80, weakest = 10, most_damage = 10, random = 0 },
@@ -71,25 +71,25 @@ return {
     { text = "You're no match for me!", yell = false },
   },
   loot = {
-    { id = 2475, chance = 5000 }, -- warrior helmet
-    { id = 2377, chance = 10000 }, -- two handed sword
-    { id = 2457, chance = 10000 }, -- steel helmet
-    { id = 2389, chance = 30000, count_max = 3 }, -- spear
-    { id = 2133, chance = 800 }, -- ruby necklace
-    { id = 2120, chance = 15000 }, -- rope
-    { id = 2463, chance = 10000 }, -- plate armor
-    { id = 2477, chance = 1000 }, -- knight legs
-    { id = 2430, chance = 2500 }, -- knight axe
-    { id = 2476, chance = 1000 }, -- knight armor
-    { id = 2381, chance = 13000 }, -- halberd
-    { id = 2148, chance = 22200, count_max = 90 }, -- gold coin
-    { id = 2148, chance = 33300, count_max = 60 }, -- gold coin
-    { id = 2414, chance = 300 }, -- dragon lance
-    { id = 2490, chance = 2000 }, -- dark helmet
-    { id = 2489, chance = 2000 }, -- dark armor
-    { id = 2691, chance = 20000, count_max = 2 }, -- brown bread
-    { id = 2478, chance = 13000 }, -- brass legs
-    { id = 2195, chance = 500 }, -- boots of haste
-    { id = 2417, chance = 7000 }, -- battle hammer
+    { id = 3369, chance = 5000 }, -- warrior helmet
+    { id = 3265, chance = 10000 }, -- two handed sword
+    { id = 3351, chance = 10000 }, -- steel helmet
+    { id = 3277, chance = 30000, count_max = 3 }, -- spear
+    { id = 3016, chance = 800 }, -- ruby necklace
+    { id = 3003, chance = 15000 }, -- rope
+    { id = 3357, chance = 10000 }, -- plate armor
+    { id = 3371, chance = 1000 }, -- knight legs
+    { id = 3318, chance = 2500 }, -- knight axe
+    { id = 3370, chance = 1000 }, -- knight armor
+    { id = 3269, chance = 13000 }, -- halberd
+    { id = 3031, chance = 22200, count_max = 90 }, -- gold coin
+    { id = 3031, chance = 33300, count_max = 60 }, -- gold coin
+    { id = 3302, chance = 300 }, -- dragon lance
+    { id = 3384, chance = 2000 }, -- dark helmet
+    { id = 3383, chance = 2000 }, -- dark armor
+    { id = 3602, chance = 20000, count_max = 2 }, -- brown bread
+    { id = 3372, chance = 13000 }, -- brass legs
+    { id = 3079, chance = 500 }, -- boots of haste
+    { id = 3305, chance = 7000 }, -- battle hammer
   },
 }

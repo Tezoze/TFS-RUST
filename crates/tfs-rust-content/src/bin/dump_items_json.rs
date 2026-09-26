@@ -97,10 +97,11 @@ fn dump_item(item: &ItemType) -> String {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let otb = repo_root.join("data/items/items.otb");
-    let xml = repo_root.join("data/items/items.xml");
-
-    let db = ItemDatabase::load(&otb, &xml)?;
+    let ron = ItemDatabase::ron_path(
+        &repo_root.join("data"),
+        tfs_rust_common::ProtocolVersion::V772,
+    );
+    let db = ItemDatabase::load_ron(&ron)?;
 
     let mut ids: Vec<u16> = db.items.keys().copied().collect();
     ids.sort();

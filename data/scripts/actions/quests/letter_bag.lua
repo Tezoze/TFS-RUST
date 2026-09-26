@@ -5,8 +5,8 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 		return false
 	end
 	
-	if target:getId() == 2334 and toPosition.x == 31948 and toPosition.y == 31711 and toPosition.z == 6 then 
-		item:transform(1993, 1) -- red bag
+	if target:getId() == 3221 and toPosition.x == 31948 and toPosition.y == 31711 and toPosition.z == 6 then 
+		item:transform(2859, 1) -- red bag
 		item:decay()
 		player:setStorageValue(244, 2)
 		toPosition:sendMagicEffect(19)
@@ -15,5 +15,5 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 	return false
 end
 
-action:id(2330) -- letter bag
+action:id(3217) -- letter bag
 action:register()

@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2835,
+    corpse = 4016,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -54,7 +54,7 @@ return {
     invisible = false,
   },
   loot = {
-    { id = 2666, chance = 80000, count_max = 3 }, -- meat
-    { id = 2671, chance = 45000 }, -- ham
+    { id = 3577, chance = 80000, count_max = 3 }, -- meat
+    { id = 3582, chance = 45000 }, -- ham
   },
 }

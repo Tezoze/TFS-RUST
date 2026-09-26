@@ -73,14 +73,9 @@ impl GameWorld {
         }
         let server_id = self
             .items_db
-            .server_id_for_client(sprite_id)
-            .filter(|id| self.items_db.items.contains_key(id))
-            .or_else(|| {
-                self.items_db
-                    .items
-                    .contains_key(&sprite_id)
-                    .then_some(sprite_id)
-            })?;
+            .items
+            .contains_key(&sprite_id)
+            .then_some(sprite_id)?;
         let sub_type = self
             .items_db
             .items

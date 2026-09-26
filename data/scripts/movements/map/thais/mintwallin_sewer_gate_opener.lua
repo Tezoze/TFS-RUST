@@ -2,11 +2,11 @@ local moveevent = MoveEvent()
 
 function moveevent.onStepIn(creature, item, position, fromPosition)
 	if creature:isPlayer() then
-		item:transform(425, 1)
+		item:transform(430, 1)
 		item:decay()
 		Game.sendMagicEffect({x = 32468, y = 32119, z = 14}, 15)
 		Game.sendMagicEffect({x = 32482, y = 32170, z = 14}, 15)
-		Game.createItem(430, 1, {x = 32482, y = 32170, z = 14})
+		Game.createItem(435, 1, {x = 32482, y = 32170, z = 14})
 	end
 end
 
@@ -17,11 +17,11 @@ local moveevent = MoveEvent()
 
 function moveevent.onStepOut(creature, item, position, fromPosition)
 	if creature:isPlayer() then 
-		item:transform(426, 1)
+		item:transform(431, 1)
 		item:decay()
 		Game.sendMagicEffect({x = 32468, y = 32119, z = 14}, 14)
 		Game.sendMagicEffect({x = 32482, y = 32170, z = 14}, 14)
-		Game.removeItemInPosition({x = 32482, y = 32170, z = 14}, 430)
+		Game.removeItemInPosition({x = 32482, y = 32170, z = 14}, 435)
 	end
 end
 

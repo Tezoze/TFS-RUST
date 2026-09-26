@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2928,
+    corpse = 4109,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -58,13 +58,13 @@ return {
     { text = "Broar!", yell = false },
   },
   loot = {
-    { id = 2512, chance = 15000 }, -- wooden shield
-    { id = 2245, chance = 8000 }, -- twigs
-    { id = 2389, chance = 20000 }, -- spear
-    { id = 2384, chance = 15000 }, -- rapier
-    { id = 2148, chance = 50000, count_max = 12 }, -- gold coin
-    { id = 2667, chance = 18000 }, -- fish
-    { id = 2651, chance = 12000 }, -- coat
-    { id = 2382, chance = 9000 }, -- club
+    { id = 3412, chance = 15000 }, -- wooden shield
+    { id = 3130, chance = 8000 }, -- twigs
+    { id = 3277, chance = 20000 }, -- spear
+    { id = 3272, chance = 15000 }, -- rapier
+    { id = 3031, chance = 50000, count_max = 12 }, -- gold coin
+    { id = 3578, chance = 18000 }, -- fish
+    { id = 3562, chance = 12000 }, -- coat
+    { id = 3270, chance = 9000 }, -- club
   },
 }

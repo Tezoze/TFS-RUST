@@ -10,7 +10,7 @@ spell:vocation("Druid", "Elder Druid")
 spell:words("ad,ana, ani")
 
 function spell.onCastSpell(creature, variant)
-	return creature:conjureItem(900, 2260, 2278, 1)
+	return creature:conjureItem(900, 3147, 3165, 1)
 end
 
 spell:register()
@@ -41,7 +41,7 @@ function rune.onCastSpell(creature, variant)
 end
 
 rune:runeMagicLevel(18)
-rune:runeId(2278)
+rune:runeId(3165)
 rune:charges(1)
 rune:allowFarUse(true)
 rune:blockWalls(true)

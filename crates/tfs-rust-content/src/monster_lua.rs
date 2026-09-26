@@ -1324,7 +1324,7 @@ mod tests {
         assert_eq!(m.flags.strategy_random, 10);
         assert_eq!(m.flags.lose_target_percent, 5);
         assert_eq!(m.speed, 45);
-        assert_eq!(m.outfit.corpse_id, 2844);
+        assert_eq!(m.outfit.corpse_id, 4025);
         assert_eq!(m.flags.run_away_health, 300);
         assert_eq!(m.attack_spells.len(), 3);
         assert_eq!(spell_attr(&m.attack_spells[0], "name"), Some("melee"));

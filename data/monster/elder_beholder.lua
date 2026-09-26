@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3052,
+    corpse = 4233,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -133,15 +133,15 @@ return {
     { name = "Gazer", delay = 8, max = 6 },
   },
   loot = {
-    { id = 2377, chance = 6000 }, -- two handed sword
-    { id = 2509, chance = 6000 }, -- steel shield
-    { id = 2175, chance = 1000 }, -- spellbook
-    { id = 2394, chance = 10000 }, -- morning star
-    { id = 2397, chance = 12000 }, -- longsword
-    { id = 2148, chance = 70000, count_max = 35 }, -- gold coin
-    { id = 2148, chance = 80000, count_max = 32 }, -- gold coin
-    { id = 2148, chance = 90000, count_max = 24 }, -- gold coin
-    { id = 2518, chance = 100 }, -- beholder shield
-    { id = 3972, chance = 100 }, -- beholder helmet
+    { id = 3265, chance = 6000 }, -- two handed sword
+    { id = 3409, chance = 6000 }, -- steel shield
+    { id = 3059, chance = 1000 }, -- spellbook
+    { id = 3282, chance = 10000 }, -- morning star
+    { id = 3285, chance = 12000 }, -- longsword
+    { id = 3031, chance = 70000, count_max = 35 }, -- gold coin
+    { id = 3031, chance = 80000, count_max = 32 }, -- gold coin
+    { id = 3031, chance = 90000, count_max = 24 }, -- gold coin
+    { id = 3418, chance = 100 }, -- beholder shield
+    { id = 3408, chance = 100 }, -- beholder helmet
   },
 }

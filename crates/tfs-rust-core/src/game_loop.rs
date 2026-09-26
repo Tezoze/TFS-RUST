@@ -962,12 +962,21 @@ fn handle_player_disconnect(
     trace!(conn_id = conn_id.0, stop_fight, "player disconnected");
 }
 
+/// From protocol 780, `ProtocolGame::logout` closes the socket in the same call
+/// as the poff (`800src/protocolgame.cpp` `logout`). 772 waits for the next
+/// `ProcessConnections`.
+struct ImmediateLogout {
+    display_effect: bool,
+    stop_fight: bool,
+}
+
 fn handle_game_packet(
     world: &mut GameWorld,
     conn_id: tfs_rust_common::ConnId,
     packet: GamePacket,
     game_rx: &mut Receiver<GameCommand>,
     pending: &mut PendingQueue,
+    immediate_logout: &mut Option<ImmediateLogout>,
 ) {
     let now = Instant::now();
     // 772 `CommandAllowed` for CONNECTION_DEAD / CONNECTION_LOGOUT (`receiving.cc:17-21`).
@@ -1348,17 +1357,31 @@ fn handle_game_packet(
             }
         }
         GamePacket::Logout => {
-            // `CQuitGame` → `Logout(0, true)` (`receiving.cc:81-91`). TCP closes on the
-            // next `Process`, not in this receive. A dead socket still uses
-            // `PlayerDisconnect` (immediate).
+            // 772 `CQuitGame` → `Logout(0, true)` (`receiving.cc:81-91`). `ProcessConnections`
+            // already ran this round (`main.cc:350-359`), so the socket waits for the next one.
+            // From 780, `ProtocolGame::logout(true, false)` poffs and `disconnect()`s in
+            // that same call (`800src/protocolgame.cpp:247-254`).
+            let same_call = world.codec.caps().logout_same_call;
             if world.dead_connections.contains(&conn_id)
                 || world.logout_at_round.contains_key(&conn_id)
             {
                 world.schedule_connection_logout(conn_id, 0, true, false);
             } else if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
                 if world.player_logout_allowed(conn_id, cid, false) {
-                    world.schedule_connection_logout(conn_id, 0, true, true);
+                    if same_call {
+                        *immediate_logout = Some(ImmediateLogout {
+                            display_effect: true,
+                            stop_fight: true,
+                        });
+                    } else {
+                        world.schedule_connection_logout(conn_id, 0, true, true);
+                    }
                 }
+            } else if same_call {
+                *immediate_logout = Some(ImmediateLogout {
+                    display_effect: false,
+                    stop_fight: true,
+                });
             } else {
                 world.schedule_tcp_close_after(conn_id, 0);
             }
@@ -1726,7 +1749,26 @@ fn dispatch_command(
         GameCommand::Game { conn_id, packet } => {
             let class = cmd_obs_class(&packet);
             let t0 = Instant::now();
-            handle_game_packet(world, conn_id, packet, game_rx, pending);
+            let mut immediate_logout = None;
+            handle_game_packet(
+                world,
+                conn_id,
+                packet,
+                game_rx,
+                pending,
+                &mut immediate_logout,
+            );
+            if let Some(logout) = immediate_logout {
+                handle_player_disconnect(
+                    world,
+                    pending_login_conns,
+                    conn_id,
+                    logout.display_effect,
+                    logout.stop_fight,
+                    output_sinks,
+                    out_registry,
+                );
+            }
             world
                 .obs
                 .record_cmd_class_us(class, t0.elapsed().as_micros() as u64);
@@ -2467,7 +2509,7 @@ mod f8_s6_handler_routing_tests {
         ActionObjectRef {
             pos,
             stack_pos: 0,
-            sprite_id: 0,
+            sprite_id: 1987,
             creature_id: None,
         }
     }
@@ -2487,7 +2529,7 @@ mod f8_s6_handler_routing_tests {
         ActionObjectRef {
             pos,
             stack_pos: 0,
-            sprite_id: 0,
+            sprite_id: 2148,
             creature_id: None,
         }
     }
@@ -2510,7 +2552,15 @@ mod f8_s6_handler_routing_tests {
     fn dispatch(world: &mut crate::game_world::GameWorld, conn_id: ConnId, packet: GamePacket) {
         let (_tx, mut game_rx, _ctrl_rx) = tfs_rust_net::open_game_command_channels();
         let mut pending = VecDeque::new();
-        handle_game_packet(world, conn_id, packet, &mut game_rx, &mut pending);
+        let mut immediate_logout = None;
+        handle_game_packet(
+            world,
+            conn_id,
+            packet,
+            &mut game_rx,
+            &mut pending,
+            &mut immediate_logout,
+        );
         // None of the rerouted opcodes push to pending (only Logout does).
         assert!(
             pending.is_empty(),

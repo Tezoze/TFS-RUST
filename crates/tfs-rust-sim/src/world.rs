@@ -356,16 +356,11 @@ pub fn seed_world_from_sim_env(world: &mut GameWorld) {
 }
 
 pub fn load_items_db_for(data_dir: &Path) -> Result<ItemDatabase, String> {
-    let otb = data_dir.join("items/items.otb");
-    let xml = data_dir.join("items/items.xml");
-    if !otb.is_file() {
-        return Err(format!("items.otb not found: {}", otb.display()));
+    let ron = ItemDatabase::ron_path(data_dir, ProtocolVersion::V772);
+    if !ron.is_file() {
+        return Err(format!("items.ron not found: {}", ron.display()));
     }
-    if !xml.is_file() {
-        return Err(format!("items.xml not found: {}", xml.display()));
-    }
-    let db = ItemDatabase::load(&otb, &xml).map_err(|e| e.to_string())?;
-    Ok(db)
+    ItemDatabase::load_ron(&ron).map_err(|e| e.to_string())
 }
 
 pub fn load_sim_content_dbs(

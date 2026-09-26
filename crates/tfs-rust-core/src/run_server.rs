@@ -201,9 +201,10 @@ async fn run_on_game_thread(io_handle: tokio::runtime::Handle) -> anyhow::Result
         otbm = %map_rel,
         "loading content (OTBM, items, …)"
     );
-    let mut content = tfs_rust_content::pipeline::load_all(&data_path, Some(map_rel.as_str()))
-        .await
-        .map_err(|e| anyhow::anyhow!("content load: {e}"))?;
+    let mut content =
+        tfs_rust_content::pipeline::load_all(&data_path, Some(map_rel.as_str()), protocol_version)
+            .await
+            .map_err(|e| anyhow::anyhow!("content load: {e}"))?;
 
     let spawn_zones = std::mem::take(&mut content.map.spawn_zones);
     let houses_xml = std::mem::take(&mut content.houses);

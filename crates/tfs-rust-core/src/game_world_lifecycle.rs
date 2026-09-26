@@ -564,9 +564,9 @@ impl GameWorld {
     ///
     /// Called from [`Self::mark_dead`] so the amulet is gone during the body linger,
     /// not at `~TCreature`. Sets `Player::amulet_of_loss_saved` for the destructor drop mode.
-    /// Domain type id `2173` stands in for 772 `GetNewObjectType(77,12)` in the TFS pack.
+    /// Catalog id 3057 stands in for 772 `GetNewObjectType(77,12)` (old server id 2173).
     pub(crate) fn consume_amulet_of_loss_on_death(&mut self, victim: CreatureId) {
-        const AMULET_OF_LOSS: u16 = 2173;
+        const AMULET_OF_LOSS: u16 = 3057;
         let keep_inventory =
             self.player_has_flag(victim, crate::player_flags::PLAYER_FLAG_KEEP_INVENTORY);
         let exact_lethal = match self.creatures.get(victim) {
@@ -611,9 +611,9 @@ impl GameWorld {
     /// `crplayer.cc:292,296-300`: `LOSE_INVENTORY_ALL` when red skull
     /// (`PlayerkillerEnd != 0`); `LOSE_INVENTORY_NONE` under `KEEP_INVENTORY` right
     /// or after AoL consume in [`Self::consume_amulet_of_loss_on_death`].
-    /// Corpse type `3128` (dead human). Default player mode is SOME (`crplayer.cc:30`).
+    /// Corpse type `4311` (dead human; old server id 3128). Default player mode is SOME (`crplayer.cc:30`).
     pub(crate) fn player_death_drop_inventory(&mut self, victim: CreatureId) {
-        const DEAD_HUMAN_CORPSE: u16 = 3128;
+        const DEAD_HUMAN_CORPSE: u16 = 4311;
 
         let last_hit = self.creatures.get(victim).and_then(|k| match k {
             CreatureKind::Player(p) => p.base.last_hit_by,
@@ -801,13 +801,13 @@ mod tests {
 
         world.player_death_drop_inventory(cid);
 
-        // Corpse item 3128 should exist on the tile.
+        // Corpse item 4311 should exist on the tile.
         let corpse = world
             .items
             .iter()
-            .find(|(_, i)| i.item_type == 3128)
+            .find(|(_, i)| i.item_type == 4311)
             .map(|(_, i)| i);
-        assert!(corpse.is_some(), "corpse 3128 always created on death");
+        assert!(corpse.is_some(), "corpse 4311 always created on death");
         assert_eq!(
             corpse.map(|i| i.description()),
             Some("You recognize Normal."),
@@ -829,7 +829,7 @@ mod tests {
         let desc = world
             .items
             .iter()
-            .find_map(|(_, i)| (i.item_type == 3128).then(|| i.description().to_string()));
+            .find_map(|(_, i)| (i.item_type == 4311).then(|| i.description().to_string()));
         assert_eq!(
             desc.as_deref(),
             Some("You recognize Alice. He was killed by Bob.")

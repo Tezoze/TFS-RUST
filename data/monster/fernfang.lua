@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3058,
+    corpse = 4240,
   },
   change_target = { chance = 7 },
   target_strategy = { nearest = 70, weakest = 10, most_damage = 20, random = 0 },
@@ -114,23 +114,23 @@ return {
     { name = "War Wolf", delay = 8, max = 4 },
   },
   loot = {
-    { id = 2154, chance = 400 }, -- yellow gem
-    { id = 2129, chance = 10000 }, -- wolf tooth chain
-    { id = 2800, chance = 9000 }, -- star herb
-    { id = 2401, chance = 11000 }, -- staff
-    { id = 2401, chance = 11000 }, -- staff
-    { id = 2802, chance = 7000 }, -- sling herb
-    { id = 2642, chance = 9000 }, -- sandals
-    { id = 2166, chance = 500 }, -- power ring
-    { id = 2044, chance = 10000 }, -- lamp
-    { id = 2177, chance = 2000 }, -- life crystal
-    { id = 2652, chance = 9000 }, -- green tunic
-    { id = 2747, chance = 9000 }, -- grave flower
-    { id = 2148, chance = 15000, count_max = 18 }, -- gold coin
-    { id = 2220, chance = 7700 }, -- dirty fur
-    { id = 2015, chance = 9000 }, -- brown flask
-    { id = 2689, chance = 14000 }, -- bread
-    { id = 2032, chance = 6500 }, -- bowl
-    { id = 2260, chance = 18000 }, -- blank rune
+    { id = 3037, chance = 400 }, -- yellow gem
+    { id = 3012, chance = 10000 }, -- wolf tooth chain
+    { id = 3736, chance = 9000 }, -- star herb
+    { id = 3289, chance = 11000 }, -- staff
+    { id = 3289, chance = 11000 }, -- staff
+    { id = 3738, chance = 7000 }, -- sling herb
+    { id = 3551, chance = 9000 }, -- sandals
+    { id = 3050, chance = 500 }, -- power ring
+    { id = 2914, chance = 10000 }, -- lamp
+    { id = 3061, chance = 2000 }, -- life crystal
+    { id = 3563, chance = 9000 }, -- green tunic
+    { id = 3661, chance = 9000 }, -- grave flower
+    { id = 3031, chance = 15000, count_max = 18 }, -- gold coin
+    { id = 3105, chance = 7700 }, -- dirty fur
+    { id = 2885, chance = 9000 }, -- brown flask
+    { id = 3600, chance = 14000 }, -- bread
+    { id = 2902, chance = 6500 }, -- bowl
+    { id = 3147, chance = 18000 }, -- blank rune
   },
 }

@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3065,
+    corpse = 4247,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -77,18 +77,18 @@ return {
     { text = "Herba budinia ex!", yell = false },
   },
   loot = {
-    { id = 2129, chance = 10000 }, -- wolf tooth chain
-    { id = 2185, chance = 1000 }, -- volcanic rod
-    { id = 2800, chance = 9000 }, -- star herb
-    { id = 2402, chance = 500 }, -- silver dagger
-    { id = 2405, chance = 40000 }, -- sickle
-    { id = 2643, chance = 50000 }, -- leather boots
-    { id = 2148, chance = 10000, count_max = 10 }, -- gold coin
-    { id = 2199, chance = 2500 }, -- garlic necklace
-    { id = 2687, chance = 30000, count_max = 8 }, -- cookie
-    { id = 2651, chance = 20000 }, -- coat
-    { id = 2696, chance = 40000 }, -- cheese
-    { id = 2654, chance = 50000 }, -- cape
-    { id = 2551, chance = 20000 }, -- broom
+    { id = 3012, chance = 10000 }, -- wolf tooth chain
+    { id = 3069, chance = 1000 }, -- volcanic rod
+    { id = 3736, chance = 9000 }, -- star herb
+    { id = 3290, chance = 500 }, -- silver dagger
+    { id = 3293, chance = 40000 }, -- sickle
+    { id = 3552, chance = 50000 }, -- leather boots
+    { id = 3031, chance = 10000, count_max = 10 }, -- gold coin
+    { id = 3083, chance = 2500 }, -- garlic necklace
+    { id = 3598, chance = 30000, count_max = 8 }, -- cookie
+    { id = 3562, chance = 20000 }, -- coat
+    { id = 3607, chance = 40000 }, -- cheese
+    { id = 3565, chance = 50000 }, -- cape
+    { id = 3454, chance = 20000 }, -- broom
   },
 }

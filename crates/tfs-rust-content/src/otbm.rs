@@ -19,6 +19,13 @@ pub enum TileThing {
     ItemNodeProps(Vec<u8>),
 }
 
+/// Item-id counts from an OTBM walk (`all` includes house tiles).
+#[derive(Debug, Clone, Default)]
+pub struct ItemIdTally {
+    pub all: HashMap<u16, u32>,
+    pub house_tiles: HashMap<u16, u32>,
+}
+
 #[derive(Debug, Clone)]
 pub struct TileData {
     pub position: Position,
@@ -186,6 +193,56 @@ impl OtbmFile {
     }
 
     /// Metadata only (no tile stage). Spawn XML / house XML attach later.
+    /// Count every item type id in tile props and nested `OTBM_ITEM` nodes.
+    ///
+    /// `house_tiles` counts ids on `OTBM_HOUSETILE` and their children. The repo has
+    /// no `tile_store` seed blobs; those rows are not in the OTBM.
+    pub fn tally_item_ids(&self) -> Result<ItemIdTally> {
+        let mut tally = ItemIdTally::default();
+        self.tally_node(&self.root, false, &mut tally)?;
+        Ok(tally)
+    }
+
+    fn tally_node(&self, node: &Node, in_house: bool, tally: &mut ItemIdTally) -> Result<()> {
+        let house = in_house || node.node_type == OTBM_HOUSETILE;
+        if node.node_type == OTBM_ITEM {
+            let props = unescaped_props(&self.data, node, &self.path)?;
+            if props.len() >= 2 {
+                let id = u16::from_le_bytes([props[0], props[1]]);
+                *tally.all.entry(id).or_insert(0) += 1;
+                if house {
+                    *tally.house_tiles.entry(id).or_insert(0) += 1;
+                }
+            }
+        } else if node.node_type == OTBM_TILE || node.node_type == OTBM_HOUSETILE {
+            let props = unescaped_props(&self.data, node, &self.path)?;
+            let mut cursor = if node.node_type == OTBM_HOUSETILE { 6 } else { 2 };
+            while cursor < props.len() {
+                let attr = props[cursor];
+                cursor += 1;
+                match attr {
+                    OTBM_ATTR_TILE_FLAGS => cursor += 4,
+                    OTBM_ATTR_ITEM => {
+                        if cursor + 2 > props.len() {
+                            break;
+                        }
+                        let id = u16::from_le_bytes([props[cursor], props[cursor + 1]]);
+                        cursor += 2;
+                        *tally.all.entry(id).or_insert(0) += 1;
+                        if house {
+                            *tally.house_tiles.entry(id).or_insert(0) += 1;
+                        }
+                    }
+                    _ => break,
+                }
+            }
+        }
+        for child in &node.children {
+            self.tally_node(child, house, tally)?;
+        }
+        Ok(())
+    }
+
     pub fn map_data(&self) -> MapData {
         MapData {
             width: self.width,
@@ -595,28 +652,13 @@ fn read_prop_string(data: &[u8], cursor: &mut usize, path: &Path) -> Result<Stri
 
 // --- OTBM item stream ids (C++ `Item::CreateItem(PropStream&)` — `src/item.cpp`) ---
 
-/// PVP field / magic wall ids in map files map to persistent ids (same as C++ switch in `Item::CreateItem(PropStream&)`).
-pub fn remap_create_item_stream_id(id: u16) -> u16 {
-    match id {
-        1487 => 1492, // ITEM_FIREFIELD_PVP_FULL -> PERSISTENT_FULL
-        1488 => 1493,
-        1489 => 1494,
-        1490 => 1496, // ITEM_POISONFIELD_PVP -> PERSISTENT
-        1491 => 1495, // ITEM_ENERGYFIELD_PVP -> PERSISTENT
-        1497 => 1498, // ITEM_MAGICWALL -> PERSISTENT
-        1499 => 2721, // ITEM_WILDGROWTH -> ITEM_WILDGROWTH_PERSISTENT
-        _ => id,
-    }
-}
-
-/// First `u16` of an `OTBM_ITEM` props buffer is the item type id (`Item::CreateItem(PropStream)`).
+/// First `u16` of an `OTBM_ITEM` props buffer is the item type id.
+/// Map bytes are already persistent client ids; the PVP pair remap lives in the cutover rewriter.
 pub fn item_id_from_otbm_item_props(raw: &[u8]) -> Option<u16> {
     if raw.len() < 2 {
         return None;
     }
-    Some(remap_create_item_stream_id(u16::from_le_bytes([
-        raw[0], raw[1],
-    ])))
+    Some(u16::from_le_bytes([raw[0], raw[1]]))
 }
 
 #[cfg(test)]

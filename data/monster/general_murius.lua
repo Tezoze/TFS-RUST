@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2876,
+    corpse = 4057,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 10, most_damage = 20, random = 0 },
@@ -93,12 +93,12 @@ return {
     { name = "Minotaur Archer", delay = 7, max = 2 },
   },
   loot = {
-    { id = 2666, chance = 10000 }, -- meat
-    { id = 2148, chance = 60000, count_max = 50 }, -- gold coin
-    { id = 2580, chance = 5000 }, -- fishing rod
-    { id = 2387, chance = 7500 }, -- double axe
-    { id = 2648, chance = 35000 }, -- chain legs
-    { id = 2465, chance = 28000 }, -- brass armor
-    { id = 2513, chance = 18000 }, -- battle shield
+    { id = 3577, chance = 10000 }, -- meat
+    { id = 3031, chance = 60000, count_max = 50 }, -- gold coin
+    { id = 3483, chance = 5000 }, -- fishing rod
+    { id = 3275, chance = 7500 }, -- double axe
+    { id = 3558, chance = 35000 }, -- chain legs
+    { id = 3359, chance = 28000 }, -- brass armor
+    { id = 3413, chance = 18000 }, -- battle shield
   },
 }

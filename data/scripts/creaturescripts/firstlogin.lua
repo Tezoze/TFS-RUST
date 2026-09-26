@@ -6,24 +6,24 @@ function creatureevent.onLogin(player)
 		-- never fall through to a Wherever add that would scatter starter
 		-- gear over seeded/kept items (bench runes live in these hands).
 		if not player:getSlotItem(CONST_SLOT_LEFT) then
-			player:addItem(2382, 1, false, 1, CONST_SLOT_LEFT)
+			player:addItem(3270, 1, false, 1, CONST_SLOT_LEFT)
 		end
 		if not player:getSlotItem(CONST_SLOT_RIGHT) then
-			player:addItem(2050, 1, false, 1, CONST_SLOT_RIGHT)
+			player:addItem(2920, 1, false, 1, CONST_SLOT_RIGHT)
 		end
 
 		if not player:getSlotItem(CONST_SLOT_ARMOR) then
 			if player:getSex() == PLAYERSEX_FEMALE then
-				player:addItem(2485, 1, false, 1, CONST_SLOT_ARMOR)
+				player:addItem(3379, 1, false, 1, CONST_SLOT_ARMOR)
 			else
-				player:addItem(2650, 1, false, 1, CONST_SLOT_ARMOR)
+				player:addItem(3561, 1, false, 1, CONST_SLOT_ARMOR)
 			end
 		end
 
 		if not player:getSlotItem(CONST_SLOT_BACKPACK) then
-			local container = player:addItem(1987, 1, false, 1, CONST_SLOT_BACKPACK)
+			local container = player:addItem(2853, 1, false, 1, CONST_SLOT_BACKPACK)
 			if container then
-				container:addItem(2674, 1)
+				container:addItem(3585, 1)
 			end
 		end
 

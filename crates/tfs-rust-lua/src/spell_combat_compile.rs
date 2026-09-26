@@ -852,11 +852,11 @@ fn enum_name_to_i32(name: &str) -> Option<i32> {
         "CONDITIONID_RING" => 9,
         "CONDITIONID_AMMO" => 10,
         // ITEM_* (CREATEITEM)
-        "ITEM_POISONFIELD_PVP" => 1490,
-        "ITEM_FIREFIELD_PVP_FULL" => 1487,
-        "ITEM_ENERGYFIELD_PVP" => 1491,
-        "ITEM_MAGICWALL" => 1497,
-        "ITEM_WILDGROWTH" => 1499,
+        "ITEM_POISONFIELD_PVP" => 2121,
+        "ITEM_FIREFIELD_PVP_FULL" => 2118,
+        "ITEM_ENERGYFIELD_PVP" => 2122,
+        "ITEM_MAGICWALL" => 2128,
+        "ITEM_WILDGROWTH" => 2130,
         // COMBAT_PARAM_* (when used as values — rare)
         "COMBAT_PARAM_TYPE" => 0,
         "COMBAT_PARAM_EFFECT" => 1,

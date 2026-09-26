@@ -2,7 +2,7 @@
 -- Client: account `1`, password `1`.
 -- Characters: God, Master Sorcerer, Elder Druid, Royal Paladin, Elite Knight.
 -- Password is SHA1 hex of `1` (TFS `transformToSHA1`); first login upgrades to bcrypt.
--- Town + spawn: Thais temple (town_id 1, 32369,32241,7 — `the_oracle.lua` / `thais_home.lua`).
+-- Town + spawn: Thais temple (town_id 1, 32369,32241,7 â `the_oracle.lua` / `thais_home.lua`).
 -- Exp for level 100 = experience_for_level_poly(100, 100).
 
 -- `type` 6 = ACCOUNT_TYPE_GOD. Group 6 is not enough: `/m` also checks account type.
@@ -128,18 +128,18 @@ INSERT INTO `player_items` (`player_id`, `pid`, `sid`, `itemtype`, `count`, `att
 SELECT p.`id`, v.`pid`, v.`sid`, v.`itemtype`, v.`count`, ''
 FROM `players` p
 INNER JOIN (
-  SELECT 1 AS pid, 101 AS sid, 2471 AS itemtype, 1 AS `count` UNION ALL -- golden helmet
-  SELECT 2, 102, 2171, 1 UNION ALL -- platinum amulet
-  SELECT 3, 103, 1988, 1 UNION ALL -- backpack
-  SELECT 4, 104, 2472, 1 UNION ALL -- magic plate armor
-  SELECT 5, 105, 2514, 1 UNION ALL -- mastermind shield
-  SELECT 6, 106, 2400, 1 UNION ALL -- magic sword
-  SELECT 7, 107, 2470, 1 UNION ALL -- golden legs
-  SELECT 8, 108, 2195, 1 UNION ALL -- boots of haste
-  SELECT 9, 109, 2167, 1 UNION ALL -- energy ring
-  SELECT 103, 111, 2268, 100 UNION ALL -- SD
-  SELECT 103, 112, 2311, 100 UNION ALL -- HMM
-  SELECT 103, 113, 2273, 100           -- UH
+  SELECT 1 AS pid, 101 AS sid, 3365 AS itemtype, 1 AS `count` UNION ALL -- golden helmet
+  SELECT 2, 102, 3055, 1 UNION ALL -- platinum amulet
+  SELECT 3, 103, 2854, 1 UNION ALL -- backpack
+  SELECT 4, 104, 3366, 1 UNION ALL -- magic plate armor
+  SELECT 5, 105, 3414, 1 UNION ALL -- mastermind shield
+  SELECT 6, 106, 3288, 1 UNION ALL -- magic sword
+  SELECT 7, 107, 3364, 1 UNION ALL -- golden legs
+  SELECT 8, 108, 3079, 1 UNION ALL -- boots of haste
+  SELECT 9, 109, 3051, 1 UNION ALL -- energy ring
+  SELECT 103, 111, 3155, 100 UNION ALL -- SD
+  SELECT 103, 112, 3198, 100 UNION ALL -- HMM
+  SELECT 103, 113, 3160, 100           -- UH
 ) v
 WHERE p.`name` = 'God'
   AND NOT EXISTS (SELECT 1 FROM `player_items` i WHERE i.`player_id` = p.`id`);
@@ -148,18 +148,18 @@ INSERT INTO `player_items` (`player_id`, `pid`, `sid`, `itemtype`, `count`, `att
 SELECT p.`id`, v.`pid`, v.`sid`, v.`itemtype`, v.`count`, ''
 FROM `players` p
 INNER JOIN (
-  SELECT 1 AS pid, 101 AS sid, 2323 AS itemtype, 1 AS `count` UNION ALL -- hat of the mad
-  SELECT 2, 102, 2171, 1 UNION ALL -- platinum amulet
-  SELECT 3, 103, 1988, 1 UNION ALL -- backpack
-  SELECT 4, 104, 2656, 1 UNION ALL -- blue robe
-  SELECT 5, 105, 2175, 1 UNION ALL -- spellbook
-  SELECT 6, 106, 2187, 1 UNION ALL -- wand of inferno
-  SELECT 7, 107, 2649, 1 UNION ALL -- leather legs
-  SELECT 8, 108, 2195, 1 UNION ALL -- boots of haste
-  SELECT 9, 109, 2167, 1 UNION ALL -- energy ring
-  SELECT 103, 111, 2268, 100 UNION ALL -- SD
-  SELECT 103, 112, 2311, 100 UNION ALL -- HMM
-  SELECT 103, 113, 2304, 100           -- GFB
+  SELECT 1 AS pid, 101 AS sid, 3210 AS itemtype, 1 AS `count` UNION ALL -- hat of the mad
+  SELECT 2, 102, 3055, 1 UNION ALL -- platinum amulet
+  SELECT 3, 103, 2854, 1 UNION ALL -- backpack
+  SELECT 4, 104, 3567, 1 UNION ALL -- blue robe
+  SELECT 5, 105, 3059, 1 UNION ALL -- spellbook
+  SELECT 6, 106, 3071, 1 UNION ALL -- wand of inferno
+  SELECT 7, 107, 3559, 1 UNION ALL -- leather legs
+  SELECT 8, 108, 3079, 1 UNION ALL -- boots of haste
+  SELECT 9, 109, 3051, 1 UNION ALL -- energy ring
+  SELECT 103, 111, 3155, 100 UNION ALL -- SD
+  SELECT 103, 112, 3198, 100 UNION ALL -- HMM
+  SELECT 103, 113, 3191, 100           -- GFB
 ) v
 WHERE p.`name` = 'Master Sorcerer'
   AND NOT EXISTS (SELECT 1 FROM `player_items` i WHERE i.`player_id` = p.`id`);
@@ -168,18 +168,18 @@ INSERT INTO `player_items` (`player_id`, `pid`, `sid`, `itemtype`, `count`, `att
 SELECT p.`id`, v.`pid`, v.`sid`, v.`itemtype`, v.`count`, ''
 FROM `players` p
 INNER JOIN (
-  SELECT 1 AS pid, 101 AS sid, 2662 AS itemtype, 1 AS `count` UNION ALL -- magician hat
-  SELECT 2, 102, 2171, 1 UNION ALL -- platinum amulet
-  SELECT 3, 103, 1988, 1 UNION ALL -- backpack
-  SELECT 4, 104, 2656, 1 UNION ALL -- blue robe
-  SELECT 5, 105, 2175, 1 UNION ALL -- spellbook
-  SELECT 6, 106, 2183, 1 UNION ALL -- tempest rod
-  SELECT 7, 107, 2649, 1 UNION ALL -- leather legs
-  SELECT 8, 108, 2195, 1 UNION ALL -- boots of haste
-  SELECT 9, 109, 2167, 1 UNION ALL -- energy ring
-  SELECT 103, 111, 2273, 100 UNION ALL -- UH
-  SELECT 103, 112, 2274, 100 UNION ALL -- avalanche
-  SELECT 103, 113, 2268, 100           -- SD (support)
+  SELECT 1 AS pid, 101 AS sid, 3573 AS itemtype, 1 AS `count` UNION ALL -- magician hat
+  SELECT 2, 102, 3055, 1 UNION ALL -- platinum amulet
+  SELECT 3, 103, 2854, 1 UNION ALL -- backpack
+  SELECT 4, 104, 3567, 1 UNION ALL -- blue robe
+  SELECT 5, 105, 3059, 1 UNION ALL -- spellbook
+  SELECT 6, 106, 3067, 1 UNION ALL -- tempest rod
+  SELECT 7, 107, 3559, 1 UNION ALL -- leather legs
+  SELECT 8, 108, 3079, 1 UNION ALL -- boots of haste
+  SELECT 9, 109, 3051, 1 UNION ALL -- energy ring
+  SELECT 103, 111, 3160, 100 UNION ALL -- UH
+  SELECT 103, 112, 3161, 100 UNION ALL -- avalanche
+  SELECT 103, 113, 3155, 100           -- SD (support)
 ) v
 WHERE p.`name` = 'Elder Druid'
   AND NOT EXISTS (SELECT 1 FROM `player_items` i WHERE i.`player_id` = p.`id`);
@@ -188,18 +188,18 @@ INSERT INTO `player_items` (`player_id`, `pid`, `sid`, `itemtype`, `count`, `att
 SELECT p.`id`, v.`pid`, v.`sid`, v.`itemtype`, v.`count`, ''
 FROM `players` p
 INNER JOIN (
-  SELECT 1 AS pid, 101 AS sid, 2498 AS itemtype, 1 AS `count` UNION ALL -- royal helmet
-  SELECT 2, 102, 2171, 1 UNION ALL -- platinum amulet
-  SELECT 3, 103, 1988, 1 UNION ALL -- backpack
-  SELECT 4, 104, 2486, 1 UNION ALL -- noble armor
-  SELECT 6, 106, 2456, 1 UNION ALL -- bow (two-handed)
-  SELECT 7, 107, 2647, 1 UNION ALL -- plate legs
-  SELECT 8, 108, 2195, 1 UNION ALL -- boots of haste
-  SELECT 9, 109, 2165, 1 UNION ALL -- stealth ring
-  SELECT 10, 110, 2544, 100 UNION ALL -- arrows
-  SELECT 103, 111, 2547, 100 UNION ALL -- power bolts
-  SELECT 103, 112, 2273, 100 UNION ALL -- UH
-  SELECT 103, 113, 2311, 100           -- HMM
+  SELECT 1 AS pid, 101 AS sid, 3392 AS itemtype, 1 AS `count` UNION ALL -- royal helmet
+  SELECT 2, 102, 3055, 1 UNION ALL -- platinum amulet
+  SELECT 3, 103, 2854, 1 UNION ALL -- backpack
+  SELECT 4, 104, 3380, 1 UNION ALL -- noble armor
+  SELECT 6, 106, 3350, 1 UNION ALL -- bow (two-handed)
+  SELECT 7, 107, 3557, 1 UNION ALL -- plate legs
+  SELECT 8, 108, 3079, 1 UNION ALL -- boots of haste
+  SELECT 9, 109, 3049, 1 UNION ALL -- stealth ring
+  SELECT 10, 110, 3447, 100 UNION ALL -- arrows
+  SELECT 103, 111, 3450, 100 UNION ALL -- power bolts
+  SELECT 103, 112, 3160, 100 UNION ALL -- UH
+  SELECT 103, 113, 3198, 100           -- HMM
 ) v
 WHERE p.`name` = 'Royal Paladin'
   AND NOT EXISTS (SELECT 1 FROM `player_items` i WHERE i.`player_id` = p.`id`);
@@ -208,16 +208,16 @@ INSERT INTO `player_items` (`player_id`, `pid`, `sid`, `itemtype`, `count`, `att
 SELECT p.`id`, v.`pid`, v.`sid`, v.`itemtype`, v.`count`, ''
 FROM `players` p
 INNER JOIN (
-  SELECT 1 AS pid, 101 AS sid, 2493 AS itemtype, 1 AS `count` UNION ALL -- demon helmet
-  SELECT 2, 102, 2171, 1 UNION ALL -- platinum amulet
-  SELECT 3, 103, 1988, 1 UNION ALL -- backpack
-  SELECT 4, 104, 2492, 1 UNION ALL -- dragon scale mail
-  SELECT 5, 105, 2520, 1 UNION ALL -- demon shield
-  SELECT 6, 106, 2432, 1 UNION ALL -- fire axe
-  SELECT 7, 107, 2477, 1 UNION ALL -- knight legs
-  SELECT 8, 108, 2645, 1 UNION ALL -- steel boots
-  SELECT 9, 109, 2167, 1 UNION ALL -- energy ring
-  SELECT 103, 111, 2273, 100           -- UH
+  SELECT 1 AS pid, 101 AS sid, 3387 AS itemtype, 1 AS `count` UNION ALL -- demon helmet
+  SELECT 2, 102, 3055, 1 UNION ALL -- platinum amulet
+  SELECT 3, 103, 2854, 1 UNION ALL -- backpack
+  SELECT 4, 104, 3386, 1 UNION ALL -- dragon scale mail
+  SELECT 5, 105, 3420, 1 UNION ALL -- demon shield
+  SELECT 6, 106, 3320, 1 UNION ALL -- fire axe
+  SELECT 7, 107, 3371, 1 UNION ALL -- knight legs
+  SELECT 8, 108, 3554, 1 UNION ALL -- steel boots
+  SELECT 9, 109, 3051, 1 UNION ALL -- energy ring
+  SELECT 103, 111, 3160, 100           -- UH
 ) v
 WHERE p.`name` = 'Elite Knight'
   AND NOT EXISTS (SELECT 1 FROM `player_items` i WHERE i.`player_id` = p.`id`);

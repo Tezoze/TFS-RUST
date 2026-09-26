@@ -558,6 +558,28 @@ impl ItemType {
         self.flags & Self::FLAG_BLOCK_PATHFIND != 0
     }
 
+    /// RON flag name → OTB `itemflags_t` bit (`src/itemloader.h`).
+    pub(crate) fn flag_bit_from_name(name: &str) -> Option<u32> {
+        Some(match name {
+            "BlockSolid" => Self::FLAG_BLOCK_SOLID,
+            "BlockProjectile" => Self::FLAG_BLOCK_PROJECTILE,
+            "BlockPathFind" => Self::FLAG_BLOCK_PATHFIND,
+            "HasHeight" => Self::FLAG_HAS_HEIGHT,
+            "Useable" => Self::FLAG_USEABLE,
+            "Pickupable" => Self::FLAG_PICKUPABLE,
+            "Moveable" => Self::FLAG_MOVEABLE,
+            "Stackable" => Self::FLAG_STACKABLE,
+            "AlwaysOnTop" => Self::FLAG_ALWAYSONTOP,
+            "Readable" => Self::FLAG_READABLE,
+            "Rotatable" => Self::FLAG_ROTATABLE,
+            "Hangable" => Self::FLAG_HANGABLE,
+            "Vertical" => Self::FLAG_VERTICAL,
+            "Horizontal" => Self::FLAG_HORIZONTAL,
+            "Animation" => Self::FLAG_ANIMATION,
+            _ => return None,
+        })
+    }
+
     #[inline]
     pub fn has_height(&self) -> bool {
         self.flags & Self::FLAG_HAS_HEIGHT != 0
@@ -940,6 +962,17 @@ mod tests {
     use std::path::Path;
 
     #[test]
+    fn collision_ground_speeds_come_from_otb_not_merged_text() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.otb");
+        let db = OtbLoader::load_from_file(&path).expect("otb");
+        let sand = db.get(&425).expect("sandstone client id");
+        assert_eq!(sand.server_id, 425);
+        assert_eq!(sand.client_id, 425);
+        assert_eq!(sand.speed, 70);
+        assert!(sand.flags & super::ItemType::FLAG_BLOCK_SOLID != 0);
+    }
+
+    #[test]
     fn repo_items_otb_passes_root_validation_and_loads() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.otb");
         let db = OtbLoader::load_from_file(&path).expect("items.otb should load");
@@ -1095,7 +1128,7 @@ mod tests {
     fn elevation_loaded_from_item_db() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.otb");
         let db = OtbLoader::load_from_file(&path).expect("items.otb should load");
-        for id in [2595u16, 1738, 1739, 1650] {
+        for id in [3503u16, 2469, 2471, 2358] {
             let it = db
                 .get(&id)
                 .unwrap_or_else(|| panic!("item {id} missing from items.otb"));

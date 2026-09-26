@@ -1,5 +1,5 @@
 local items = {
-	1497, 1498, 1499
+	2128, 2129, 2130
 }
 
 local event = MoveEvent()

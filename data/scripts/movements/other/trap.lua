@@ -3,22 +3,22 @@
 -- else Change+poff; maw Change+Damage(2,30). No TILESTATE_PROTECTIONZONE skip.
 
 local traps = {
-	[1510] = { -- strange slits
-		transformTo = 1511,
+	[2145] = { -- strange slits
+		transformTo = 2146,
 	},
-	[1511] = { -- blades (xml decay 1511→1510)
+	[2146] = { -- blades (xml decay 1511→1510)
 		damage = {-60, -60}
 	},
-	[1513] = { -- spikes
+	[2148] = { -- spikes
 		damage = {-60, -60}
 	},
-	[2579] = { -- bear
-		transformTo = 2578,
+	[3482] = { -- bear
+		transformTo = 3481,
 		damage = {-30, -30},
 		dontDamagePlayers = true,
 	},
-	[4208] = { -- jungle maw
-		transformTo = 4209,
+	[3944] = { -- jungle maw
+		transformTo = 3945,
 		damage = {-30, -30},
 		type = COMBAT_EARTHDAMAGE
 	},
@@ -65,9 +65,9 @@ function onAddItem.onAddItem(moveitem, tileitem, pos)
 	pos:sendMagicEffect(CONST_ME_POFF)
 end
 
-stepInTrap:id(1510, 1511, 1513, 2579, 4208)
+stepInTrap:id(2145, 2146, 2148, 3482, 3944)
 stepInTrap:register()
 
-onAddItem:id(2579, 4208)
+onAddItem:id(3482, 3944)
 onAddItem:tileItem(true)
 onAddItem:register()

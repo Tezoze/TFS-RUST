@@ -363,9 +363,11 @@ fn minimal_player_record(name: &str) -> PlayerRecord {
 
 pub fn bag_item_type(server_id: u16) -> ItemType {
     let mut it = ItemType {
+        id: server_id,
         group: ItemType::GROUP_CONTAINER,
         allow_pickupable: true,
         server_id,
+        client_id: server_id,
         slot_position: SLOTP_BACKPACK,
         ..Default::default()
     };
@@ -376,9 +378,11 @@ pub fn bag_item_type(server_id: u16) -> ItemType {
 
 pub fn pickup_item_type(server_id: u16) -> ItemType {
     ItemType {
+        id: server_id,
         allow_pickupable: true,
         moveable_override: Some(true),
         server_id,
+        client_id: server_id,
         ..Default::default()
     }
 }
@@ -388,9 +392,11 @@ pub fn pickup_item_type(server_id: u16) -> ItemType {
 /// C++ mirror: `objects.srv` TypeID 102 (`grass`, `Waypoints=150`).
 pub fn synthetic_ground_item_type(server_id: u16, waypoint: u16) -> ItemType {
     ItemType {
+        id: server_id,
         group: ItemType::GROUP_GROUND,
         allow_pickupable: false,
         server_id,
+        client_id: server_id,
         speed: waypoint,
         ..Default::default()
     }
@@ -626,17 +632,11 @@ pub fn lay_synthetic_arena(
 }
 
 pub(crate) fn load_items_db_for(data_dir: &Path) -> Result<ItemDatabase, String> {
-    let otb = data_dir.join("items/items.otb");
-    let xml = data_dir.join("items/items.xml");
-    if !otb.is_file() {
-        return Err(format!("items.otb not found: {}", otb.display()));
+    let ron = ItemDatabase::ron_path(data_dir, tfs_rust_common::ProtocolVersion::V772);
+    if !ron.is_file() {
+        return Err(format!("items.ron not found: {}", ron.display()));
     }
-    if !xml.is_file() {
-        return Err(format!("items.xml not found: {}", xml.display()));
-    }
-    let db = ItemDatabase::load(&otb, &xml).map_err(|e| e.to_string())?;
-    // OTB-only — do not overlay `objects.srv` (server / sim parity with production load).
-    Ok(db)
+    ItemDatabase::load_ron(&ron).map_err(|e| e.to_string())
 }
 
 pub fn insert_player(world: &mut GameWorld, player: Player) -> CreatureId {

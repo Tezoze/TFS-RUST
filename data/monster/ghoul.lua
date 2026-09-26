@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2853,
+    corpse = 4034,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -70,14 +70,14 @@ return {
     invisible = true,
   },
   loot = {
-    { id = 3976, chance = 80000, count_max = 6 }, -- worm
-    { id = 2473, chance = 5000 }, -- viking helmet
-    { id = 2050, chance = 60000 }, -- torch
-    { id = 2229, chance = 3000 }, -- skull
-    { id = 2483, chance = 4000 }, -- scale armor
-    { id = 2168, chance = 200 }, -- life ring
-    { id = 2403, chance = 15000 }, -- knife
-    { id = 2148, chance = 75000, count_max = 30 }, -- gold coin
-    { id = 2460, chance = 20000 }, -- brass helmet
+    { id = 3492, chance = 80000, count_max = 6 }, -- worm
+    { id = 3367, chance = 5000 }, -- viking helmet
+    { id = 2920, chance = 60000 }, -- torch
+    { id = 3114, chance = 3000 }, -- skull
+    { id = 3377, chance = 4000 }, -- scale armor
+    { id = 3052, chance = 200 }, -- life ring
+    { id = 3291, chance = 15000 }, -- knife
+    { id = 3031, chance = 75000, count_max = 30 }, -- gold coin
+    { id = 3354, chance = 20000 }, -- brass helmet
   },
 }

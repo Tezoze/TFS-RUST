@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 4256,
+    corpse = 4321,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -57,14 +57,14 @@ return {
     { text = "Hissss!", yell = false },
   },
   loot = {
-    { id = 3963, chance = 500 }, -- templar scytheblade
-    { id = 2376, chance = 5000 }, -- sword
-    { id = 2457, chance = 2000 }, -- steel helmet
-    { id = 2149, chance = 300 }, -- small emerald
-    { id = 2406, chance = 10000 }, -- short sword
-    { id = 3975, chance = 100 }, -- salamander shield
-    { id = 2463, chance = 1000 }, -- plate armor
-    { id = 2394, chance = 700 }, -- morning star
-    { id = 2148, chance = 80000, count_max = 20 }, -- gold coin
+    { id = 3345, chance = 500 }, -- templar scytheblade
+    { id = 3264, chance = 5000 }, -- sword
+    { id = 3351, chance = 2000 }, -- steel helmet
+    { id = 3032, chance = 300 }, -- small emerald
+    { id = 3294, chance = 10000 }, -- short sword
+    { id = 3445, chance = 100 }, -- salamander shield
+    { id = 3357, chance = 1000 }, -- plate armor
+    { id = 3282, chance = 700 }, -- morning star
+    { id = 3031, chance = 80000, count_max = 20 }, -- gold coin
   },
 }

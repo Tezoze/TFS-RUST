@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 4304,
+    corpse = 4369,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -132,15 +132,15 @@ return {
     { text = "Prek tars, dekklep zurk.", yell = false },
   },
   loot = {
-    { id = 3955, chance = 100 }, -- voodoo doll
-    { id = 3967, chance = 500 }, -- tribal mask
-    { id = 2050, chance = 5500 }, -- torch
-    { id = 2174, chance = 500 }, -- strange symbol
-    { id = 2229, chance = 3000, count_max = 3 }, -- skull
-    { id = 2411, chance = 1000 }, -- poison dagger
-    { id = 2467, chance = 10000 }, -- leather armor
-    { id = 2148, chance = 80000, count_max = 10 }, -- gold coin
-    { id = 2230, chance = 10000 }, -- bone
-    { id = 2231, chance = 7000 }, -- big bone
+    { id = 3002, chance = 100 }, -- voodoo doll
+    { id = 3403, chance = 500 }, -- tribal mask
+    { id = 2920, chance = 5500 }, -- torch
+    { id = 3058, chance = 500 }, -- strange symbol
+    { id = 3114, chance = 3000, count_max = 3 }, -- skull
+    { id = 3299, chance = 1000 }, -- poison dagger
+    { id = 3361, chance = 10000 }, -- leather armor
+    { id = 3031, chance = 80000, count_max = 10 }, -- gold coin
+    { id = 3115, chance = 10000 }, -- bone
+    { id = 3116, chance = 7000 }, -- big bone
   },
 }

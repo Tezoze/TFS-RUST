@@ -26,7 +26,7 @@ use crate::formulas::NpcTuning;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::item::Item;
-use crate::player::inventory::money::{ITEM_GOLD_COIN, ITEM_PLATINUM_COIN};
+use crate::player::inventory::money::{ITEM_CRYSTAL_COIN, ITEM_GOLD_COIN, ITEM_PLATINUM_COIN};
 use crate::test_support::{
     ensure_walkable_tile, insert_player, minimal_creature_base, minimal_world, sim_hero_player,
 };
@@ -490,7 +490,7 @@ fn npc5_world() -> GameWorld {
     items.insert(1987u16, crate::test_support::bag_item_type(1987));
     items.insert(ITEM_GOLD_COIN, stackable_coin(ITEM_GOLD_COIN));
     items.insert(ITEM_PLATINUM_COIN, stackable_coin(ITEM_PLATINUM_COIN));
-    items.insert(2160u16, stackable_coin(2160));
+    items.insert(ITEM_CRYSTAL_COIN, stackable_coin(ITEM_CRYSTAL_COIN));
     items.insert(2006u16, fluid_container(2006));
     world.items_db = Arc::new(ItemDatabase {
         items,
@@ -605,7 +605,7 @@ fn bank_change_delete_then_create_ordering() {
                 },
                 DialoguePredicate::Expression {
                     expr: DialogueExpr::Count {
-                        item: Box::new(DialogueExpr::Lit(2148)),
+                        item: Box::new(DialogueExpr::Lit(i32::from(ITEM_GOLD_COIN))),
                     },
                     op: ExprOp::Ge,
                     rhs: DialogueExpr::Lit(200),
@@ -618,7 +618,7 @@ fn bank_change_delete_then_create_ordering() {
                     span: sp.clone(),
                 },
                 DialogueAction::Delete {
-                    item: DialogueExpr::Lit(2148),
+                    item: DialogueExpr::Lit(i32::from(ITEM_GOLD_COIN)),
                     count: DialogueExpr::Lit(200),
                     span: sp.clone(),
                 },
@@ -628,7 +628,7 @@ fn bank_change_delete_then_create_ordering() {
                     span: sp.clone(),
                 },
                 DialogueAction::Create {
-                    item: DialogueExpr::Lit(2152),
+                    item: DialogueExpr::Lit(i32::from(ITEM_PLATINUM_COIN)),
                     count: DialogueExpr::Session(SessionVar::Amount),
                     span: sp.clone(),
                 },
@@ -659,7 +659,7 @@ fn bank_change_delete_then_create_ordering() {
             DialogueEvent::Mutate {
                 op:
                     MutateOp::DeleteItem {
-                        item_id: 2148,
+                        item_id: 3031,
                         count: 200,
                     },
                 ..
@@ -670,7 +670,7 @@ fn bank_change_delete_then_create_ordering() {
             DialogueEvent::Mutate {
                 op:
                     MutateOp::CreateItem {
-                        item_id: 2152,
+                        item_id: 3035,
                         count: 2,
                     },
                 ..
@@ -838,12 +838,12 @@ fn partial_failure_keeps_prior_mutations() {
         }],
         actions: vec![
             DialogueAction::Delete {
-                item: DialogueExpr::Lit(2148),
+                item: DialogueExpr::Lit(i32::from(ITEM_GOLD_COIN)),
                 count: DialogueExpr::Lit(10),
                 span: sp.clone(),
             },
             DialogueAction::Delete {
-                item: DialogueExpr::Lit(2152),
+                item: DialogueExpr::Lit(i32::from(ITEM_PLATINUM_COIN)),
                 count: DialogueExpr::Lit(1),
                 span: sp.clone(),
             },
@@ -2460,7 +2460,7 @@ fn delete_failure_aborts_remaining_actions() {
             }],
             actions: vec![
                 DialogueAction::Delete {
-                    item: DialogueExpr::Lit(2148),
+                    item: DialogueExpr::Lit(i32::from(ITEM_GOLD_COIN)),
                     count: DialogueExpr::Lit(1),
                     span: sp.clone(),
                 },

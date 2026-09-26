@@ -1,11 +1,11 @@
 local moveevent = MoveEvent()
 
 function moveevent.onAddItem(item, tileitem, position)
-	if Game.isItemInPosition({x = 32476, y = 31900, z = 05},1739) and not Game.isItemInPosition ({x = 32478, y = 31904, z = 05}, 1386) then 
-		Game.createItem(1386, 1, {x = 32478, y = 31904, z = 05})
-		Game.transformItemInPosition({x = 32476, y = 31900, z = 05}, 426, 425)
-	elseif Game.isItemInPosition({x = 32476, y = 31900, z = 05}, 1739) then
-		Game.transformItemInPosition({x = 32476, y = 31900, z = 05}, 426, 425)
+	if Game.isItemInPosition({x = 32476, y = 31900, z = 05},2471) and not Game.isItemInPosition ({x = 32478, y = 31904, z = 05}, 1948) then 
+		Game.createItem(1948, 1, {x = 32478, y = 31904, z = 05})
+		Game.transformItemInPosition({x = 32476, y = 31900, z = 05}, 431, 430)
+	elseif Game.isItemInPosition({x = 32476, y = 31900, z = 05}, 2471) then
+		Game.transformItemInPosition({x = 32476, y = 31900, z = 05}, 431, 430)
 	end
 end
 
@@ -16,11 +16,11 @@ moveevent:register()
 local moveevent = MoveEvent()
 
 function moveevent.onRemoveItem(item, tileitem, position)
-	if Game.isItemInPosition({x = 32478, y = 31904, z = 05}, 1386) then 
-		Game.removeItemInPosition({x = 32478, y = 31904, z = 05}, 1386)
-		Game.transformItemInPosition({x = 32476, y = 31900, z = 05}, 425, 426)
+	if Game.isItemInPosition({x = 32478, y = 31904, z = 05}, 1948) then 
+		Game.removeItemInPosition({x = 32478, y = 31904, z = 05}, 1948)
+		Game.transformItemInPosition({x = 32476, y = 31900, z = 05}, 430, 431)
 	else
-		Game.transformItemInPosition({x = 32476, y = 31900, z = 05}, 425, 426)
+		Game.transformItemInPosition({x = 32476, y = 31900, z = 05}, 430, 431)
 	end
 end
 

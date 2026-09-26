@@ -606,28 +606,28 @@ mod tests {
         );
 
         let trap = registry
-            .get(MoveEventKind::StepIn, 1510)
-            .expect("trap.lua :id(1510)");
+            .get(MoveEventKind::StepIn, 2145)
+            .expect("trap.lua :id(2145)");
         let aid = registry
             .get_by_aid(MoveEventKind::StepIn, 3052)
             .expect("aid 3052");
         let resolved = registry
-            .get_event(MoveEventKind::StepIn, 1510, 3052, 0)
+            .get_event(MoveEventKind::StepIn, 2145, 3052, 0)
             .expect("get_event aid");
         assert!(
             std::ptr::eq(resolved, &aid.callback),
-            "aid 3052 must win over trap itemid 1510"
+            "aid 3052 must win over trap itemid 2145"
         );
         let id_only = registry
-            .get_event(MoveEventKind::StepIn, 1510, 0, 0)
+            .get_event(MoveEventKind::StepIn, 2145, 0, 0)
             .expect("get_event itemid");
         assert!(
             std::ptr::eq(id_only, &trap.callback),
             "aid 0 must hit :id() trap"
         );
         assert!(
-            registry.get(MoveEventKind::StepIn, 1511).is_some(),
-            "trap.lua :id(1511) blades"
+            registry.get(MoveEventKind::StepIn, 2146).is_some(),
+            "trap.lua :id(2146) blades"
         );
         assert!(
             registry.get(MoveEventKind::StepIn, 416).is_none(),

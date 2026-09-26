@@ -5,11 +5,11 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 		return false
 	end
 	
-	if target:getId() == 474 and toPosition.x == 32665 and toPosition.y == 32736 and toPosition.z == 6 and player:getStorageValue(320) == 5 then
+	if target:getId() == 599 and toPosition.x == 32665 and toPosition.y == 32736 and toPosition.z == 6 and player:getStorageValue(320) == 5 then
 		player:setStorageValue(321,1)
 		target:getPosition():sendMagicEffect(13)
 		return true
-	elseif target:getId() == 474 and toPosition.x == 32497 and toPosition.y == 31622 and toPosition.z == 6 and player:getStorageValue(320) == 5 then
+	elseif target:getId() == 599 and toPosition.x == 32497 and toPosition.y == 31622 and toPosition.z == 6 and player:getStorageValue(320) == 5 then
 		player:setStorageValue(322,1)
 		target:getPosition():sendMagicEffect(13)
 		return true
@@ -17,5 +17,5 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 	return false
 end
 
-action:id(4851) -- spectral stone
+action:id(4840) -- spectral stone
 action:register()

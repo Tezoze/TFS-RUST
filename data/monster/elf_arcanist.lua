@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2979,
+    corpse = 4160,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -97,22 +97,22 @@ return {
     { text = "Vihil Ealuel!", yell = false },
   },
   loot = {
-    { id = 2154, chance = 200 }, -- yellow gem
-    { id = 2189, chance = 1000 }, -- wand of cosmic energy
-    { id = 2401, chance = 11000 }, -- staff
-    { id = 2802, chance = 5000 }, -- sling herb
-    { id = 1949, chance = 30000 }, -- scroll
-    { id = 2642, chance = 13000 }, -- sandals
-    { id = 2682, chance = 22000 }, -- melon
-    { id = 2177, chance = 1000 }, -- life crystal
-    { id = 2600, chance = 9000 }, -- inkwell
-    { id = 2652, chance = 7000 }, -- green tunic
-    { id = 2747, chance = 7000 }, -- grave flower
-    { id = 2198, chance = 2000 }, -- elven amulet
-    { id = 2047, chance = 22000 }, -- candlestick
-    { id = 2689, chance = 14000 }, -- bread
-    { id = 2032, chance = 5500 }, -- bowl
-    { id = 2260, chance = 18000 }, -- blank rune
-    { id = 2544, chance = 6000, count_max = 3 }, -- arrow
+    { id = 3037, chance = 200 }, -- yellow gem
+    { id = 3073, chance = 1000 }, -- wand of cosmic energy
+    { id = 3289, chance = 11000 }, -- staff
+    { id = 3738, chance = 5000 }, -- sling herb
+    { id = 2815, chance = 30000 }, -- scroll
+    { id = 3551, chance = 13000 }, -- sandals
+    { id = 3593, chance = 22000 }, -- melon
+    { id = 3061, chance = 1000 }, -- life crystal
+    { id = 3509, chance = 9000 }, -- inkwell
+    { id = 3563, chance = 7000 }, -- green tunic
+    { id = 3661, chance = 7000 }, -- grave flower
+    { id = 3082, chance = 2000 }, -- elven amulet
+    { id = 2917, chance = 22000 }, -- candlestick
+    { id = 3600, chance = 14000 }, -- bread
+    { id = 2902, chance = 5500 }, -- bowl
+    { id = 3147, chance = 18000 }, -- blank rune
+    { id = 3447, chance = 6000, count_max = 3 }, -- arrow
   },
 }

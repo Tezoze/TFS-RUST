@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2983,
+    corpse = 4164,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 0, most_damage = 20, random = 10 },
@@ -59,15 +59,15 @@ return {
     { text = "Hail Durin!", yell = false },
   },
   loot = {
-    { id = 2787, chance = 55000, count_max = 2 }, -- white mushroom
-    { id = 2457, chance = 2000 }, -- steel helmet
-    { id = 2150, chance = 100 }, -- small amethyst
-    { id = 2483, chance = 10000 }, -- scale armor
-    { id = 2643, chance = 40000 }, -- leather boots
-    { id = 2148, chance = 50000, count_max = 30 }, -- gold coin
-    { id = 2387, chance = 600 }, -- double axe
-    { id = 2513, chance = 7500 }, -- battle shield
-    { id = 2417, chance = 4000 }, -- battle hammer
-    { id = 2208, chance = 200 }, -- axe ring
+    { id = 3723, chance = 55000, count_max = 2 }, -- white mushroom
+    { id = 3351, chance = 2000 }, -- steel helmet
+    { id = 3033, chance = 100 }, -- small amethyst
+    { id = 3377, chance = 10000 }, -- scale armor
+    { id = 3552, chance = 40000 }, -- leather boots
+    { id = 3031, chance = 50000, count_max = 30 }, -- gold coin
+    { id = 3275, chance = 600 }, -- double axe
+    { id = 3413, chance = 7500 }, -- battle shield
+    { id = 3305, chance = 4000 }, -- battle hammer
+    { id = 3092, chance = 200 }, -- axe ring
   },
 }

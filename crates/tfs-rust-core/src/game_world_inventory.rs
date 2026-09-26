@@ -891,6 +891,8 @@ impl GameWorld {
         };
         if !is_player && after == 0 {
             self.mark_dead(cid);
+            // Lua `addHealth` returns after `~TCreature` — scripts must not see the body.
+            self.finalize_creature_death(cid);
             return Ok(());
         }
         if is_player {
@@ -1234,7 +1236,11 @@ impl GameWorld {
                 return;
             };
             let sid = item.item_type;
-            let cid_client = self.items_db.client_id_for_server(sid);
+            if !self.items_db.items.contains_key(&sid) {
+                self.enqueue_outgoing(conn, send_inventory_slot_empty(slot).into_bytes());
+                return;
+            }
+            let cid_client = sid;
             if cid_client == 0 {
                 self.enqueue_outgoing(conn, send_inventory_slot_empty(slot).into_bytes());
                 return;
@@ -1265,7 +1271,7 @@ impl GameWorld {
 
     /// `Game::playerEquipItem` — `game.cpp` ~1851–1877.
     pub fn player_quick_equip(&mut self, conn_id: ConnId, cid: CreatureId, sprite_id: u16) {
-        let Some(server_id) = self.items_db.server_id_for_client(sprite_id) else {
+        let Some(server_id) = self.items_db.items.contains_key(&sprite_id).then_some(sprite_id) else {
             self.send_cancel_message(conn_id, ReturnValue::NotPossible);
             return;
         };
@@ -1493,7 +1499,7 @@ impl GameWorld {
         }
         let look_d = look_distance_tfs(player_pos, thing_pos);
 
-        // Track item ids for GM/God extras (ItemID / ClientID / ActionID / UniqueID).
+        // Track item ids for GM/God extras (ItemID / ActionID / UniqueID).
         let mut gm_item_type: Option<u16> = None;
         let mut gm_action_id: u16 = 0;
         let mut gm_unique_id: u16 = 0;
@@ -1582,26 +1588,14 @@ impl GameWorld {
             }
         };
 
-        // GM/God look: append ItemID / ClientID / ActionID / UniqueID / XYZ.
+        // GM/God look: append ItemID / ActionID / UniqueID / XYZ.
         // TFS `default_onLook.lua` — UniqueID is OTBM `ATTR_UNIQUE_ID` (map-editor uid).
         // Rust builds look text natively, so this is appended for access players.
         let msg = if let Some(item_type) = gm_item_type {
             if self.player_is_access_player(cid) {
-                let client_id = self
-                    .items_db
-                    .items
-                    .get(&item_type)
-                    .map(|it| it.client_id)
-                    .unwrap_or(item_type);
                 format!(
                     "{msg}\n{}",
-                    format_gm_item_look_suffix(
-                        item_type,
-                        client_id,
-                        gm_action_id,
-                        gm_unique_id,
-                        thing_pos,
-                    )
+                    format_gm_item_look_suffix(item_type, gm_action_id, gm_unique_id, thing_pos,)
                 )
             } else {
                 msg

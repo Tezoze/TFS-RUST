@@ -1255,8 +1255,7 @@ impl GameWorld {
         };
         self.next_window_text_id = self.next_window_text_id.wrapping_add(1);
         let window_text_id = self.next_window_text_id;
-        let client_id = self.items_db.client_id_for_server(item_type);
-        let client_id = if client_id == 0 { item_type } else { client_id };
+        let client_id = item_type;
         let stackable = self.items_db.stackable_for_server(item_type);
         let splash = self.items_db.is_splash_or_fluid_for_server(item_type);
         let anim = self.items_db.is_animation_for_server(item_type);

@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3019,
+    corpse = 4200,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -58,7 +58,7 @@ return {
     { text = "Hou hou hou!", yell = false },
   },
   loot = {
-    { id = 3976, chance = 50000, count_max = 3 }, -- worm
-    { id = 2666, chance = 50000, count_max = 2 }, -- meat
+    { id = 3492, chance = 50000, count_max = 3 }, -- worm
+    { id = 3577, chance = 50000, count_max = 2 }, -- meat
   },
 }

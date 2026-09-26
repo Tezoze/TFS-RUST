@@ -1867,6 +1867,16 @@ impl tfs_rust_common::ScriptContext for GameWorld {
     ) -> Result<bool, String> {
         self.game_is_item_in_position(tfs_rust_common::Position { x, y, z }, item_type)
     }
+
+    fn game_is_decaying_item_in_position(
+        &self,
+        x: u16,
+        y: u16,
+        z: u8,
+        item_type: u16,
+    ) -> Result<bool, String> {
+        self.game_is_decaying_item_in_position(tfs_rust_common::Position { x, y, z }, item_type)
+    }
 }
 
 #[cfg(test)]

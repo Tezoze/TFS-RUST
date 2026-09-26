@@ -38,10 +38,20 @@ impl GameWorld {
         if (1000..=2000).contains(&action_id) {
             return false;
         }
-        let Some(it) = self.items_db.items.get(&item.item_type) else {
+        let Some(decay_time) = self
+            .items_db
+            .items
+            .get(&item.item_type)
+            .map(|t| t.decay_time)
+        else {
             return false;
         };
-        if it.decay_time == 0 {
+        // Type duration, or instance duration + decay target (one lever type, puzzle state).
+        let instance_timed = item
+            .attributes
+            .as_ref()
+            .is_some_and(|a| a.has_duration() && a.get_duration_raw() > 0);
+        if decay_time == 0 && !instance_timed {
             return false;
         }
         if self.effective_decay_to(item) < 0 {
@@ -81,6 +91,31 @@ impl GameWorld {
         self.container_registry.get(id).is_some_and(|c| {
             c.container_type == ContainerType::Depot || c.depot_locker_town_id.is_some()
         })
+    }
+
+    /// Instance decay on a type that has no `duration` (puzzle lever on the switched id).
+    ///
+    /// Writes duration in milliseconds and `decay_to`, then [`Self::start_decay`].
+    /// `decay_to == 0` vanishes. A type-level `decay_time` of 0 is allowed.
+    pub fn set_item_decay(&mut self, item_id: ItemId, seconds: u32, decay_to: u16) -> bool {
+        if self.items.get(item_id).is_none() {
+            return false;
+        }
+        if self
+            .items
+            .get(item_id)
+            .is_some_and(|i| i.decaying() == DecayState::True)
+        {
+            self.stop_decay(item_id);
+        }
+        if let Some(item) = self.items.get_mut(item_id) {
+            item.set_duration((seconds as i32).saturating_mul(1000));
+            item.set_decay_to(u32::from(decay_to));
+        }
+        self.start_decay(item_id);
+        self.items
+            .get(item_id)
+            .is_some_and(|i| i.decaying() == DecayState::True)
     }
 
     /// TFS `Game::startDecay` — schedule remaining duration, or fire immediately if ≤ 0.
@@ -237,7 +272,9 @@ impl GameWorld {
                 item.set_decaying(DecayState::False);
             }
         } else if new_decay_time > 0 {
-            let duration_ms = if remaining == 0 {
+            // A popped cron stamps remainder 1 at the due round (`map.cc`). That
+            // sentinel is not leftover time — the successor arms its own decay.
+            let duration_ms = if saved_clock.is_some() || remaining == 0 {
                 (new_decay_time as i32).saturating_mul(1000)
             } else {
                 remaining.min(i32::MAX as u64) as i32
@@ -635,6 +672,43 @@ mod tests {
             world.decay.remaining_ms(iid, world.server_ms),
             Some(200_000)
         );
+    }
+
+    #[test]
+    fn instance_decay_without_type_duration_transforms() {
+        let mut world = minimal_world();
+        world.server_ms = 1_000;
+
+        let mut on = ItemType::default();
+        on.decay_time = 0;
+        on.decay_to = -1;
+        register_type(&mut world, 2773, on);
+        register_type(&mut world, 2772, ItemType::default());
+
+        let pos = Position::new(10, 10, 7);
+        let iid = place_on_tile(&mut world, pos, 2773);
+        assert!(!world.can_decay(iid));
+        assert!(!world.game_is_decaying_item_in_position(pos, 2773).unwrap());
+
+        assert!(world.set_item_decay(iid, 240, 2772));
+        assert!(world.game_is_decaying_item_in_position(pos, 2773).unwrap());
+        assert_eq!(
+            world.decay.remaining_ms(iid, world.server_ms),
+            Some(240_000)
+        );
+
+        let plain_pos = Position::new(11, 10, 7);
+        let plain = place_on_tile(&mut world, plain_pos, 2773);
+        assert!(!world.can_decay(plain));
+        assert!(!world
+            .game_is_decaying_item_in_position(plain_pos, 2773)
+            .unwrap());
+
+        let expired = world.decay.tick(world.server_ms + 240_000);
+        assert_eq!(expired.len(), 1);
+        world.process_decay_expiry(&expired);
+        assert_eq!(world.items.get(iid).map(|i| i.item_type), Some(2772));
+        assert!(!world.game_is_decaying_item_in_position(pos, 2773).unwrap());
     }
 
     #[test]
@@ -1323,6 +1397,55 @@ mod tests {
             world.map.get_tile(pos).expect("tile").body().flags & flags::BLOCKSOLID,
             0,
             "re-close must restore BLOCKSOLID"
+        );
+    }
+
+    /// Water → drawbridge must clear `BLOCKSOLID`. The ground being transformed
+    /// used to count as a remaining solid thing, so the flag stuck.
+    #[test]
+    fn transform_solid_ground_clears_blocksolid() {
+        use crate::cylinder::CylinderFlags;
+        use crate::tile::flags;
+
+        let mut world = minimal_world();
+        const WATER: u16 = 622;
+        const BRIDGE: u16 = 1771;
+
+        let mut water = ItemType::default();
+        water.group = ItemType::GROUP_GROUND;
+        water.block_solid_override = Some(true);
+        water.moveable_override = Some(false);
+        register_type(&mut world, WATER, water);
+
+        let mut bridge = ItemType::default();
+        bridge.group = ItemType::GROUP_GROUND;
+        bridge.block_solid_override = Some(false);
+        bridge.speed = 90;
+        register_type(&mut world, BRIDGE, bridge);
+
+        let pos = Position::new(50, 50, 7);
+        world.map.insert_tile(pos, Tile::empty_normal());
+        let iid = world.items.insert(Item::new_single(WATER));
+        world
+            .internal_add_item_to_tile(pos, iid, CylinderFlags::NO_LIMIT)
+            .expect("place water");
+        assert_eq!(
+            world.map.get_tile(pos).expect("tile").body().ground,
+            Some(WATER)
+        );
+        assert_ne!(
+            world.map.get_tile(pos).expect("tile").body().flags & flags::BLOCKSOLID,
+            0,
+            "water must set BLOCKSOLID"
+        );
+
+        world.change_item_type(iid, BRIDGE);
+        let body = world.map.get_tile(pos).expect("tile").body();
+        assert_eq!(body.ground, Some(BRIDGE));
+        assert_eq!(
+            body.flags & flags::BLOCKSOLID,
+            0,
+            "drawbridge must clear BLOCKSOLID"
         );
     }
 

@@ -299,7 +299,7 @@ impl GameWorld {
                     entry.name.clone()
                 };
                 Some(ShopItemWire {
-                    client_id: self.items_db.client_id_for_server(entry.item_id),
+                    client_id: entry.item_id,
                     fluid_subtype: entry.sub_type,
                     is_fluid: it.is_splash() || it.is_fluid_container(),
                     real_name: display_name,
@@ -338,7 +338,7 @@ impl GameWorld {
             };
             let count = self.player_get_item_type_count(player, entry.item_id, subtype_query);
             if count > 0 {
-                let client_id = self.items_db.client_id_for_server(entry.item_id);
+                let client_id = entry.item_id;
                 out.push((client_id, count.min(u8::MAX as u32) as u8));
             }
         }
@@ -446,7 +446,10 @@ impl GameWorld {
         count: u8,
     ) -> Option<(u16, u8)> {
         let _ = player;
-        let server_id = self.items_db.server_id_for_client(client_id)?;
+        if !self.items_db.items.contains_key(&client_id) {
+            return None;
+        }
+        let server_id = client_id;
         let it = self.items_db.items.get(&server_id)?;
         let sub_type = if it.is_splash() || it.is_fluid_container() {
             client_fluid_to_server(count)
@@ -559,10 +562,16 @@ mod tests {
         let mut world = minimal_world();
         {
             let db = Arc::make_mut(&mut world.items_db);
-            for &sid in &[2148u16, 1987u16] {
+            if !db.items.contains_key(&ITEM_GOLD_COIN) {
+                let mut it = pickup_item_type(ITEM_GOLD_COIN);
+                it.client_id = ITEM_GOLD_COIN;
+                it.flags |= 1 << 7;
+                db.items.insert(ITEM_GOLD_COIN, it);
+            }
+            for &sid in &[ITEM_GOLD_COIN, 1987u16] {
                 if let Some(it) = db.items.get_mut(&sid) {
                     it.client_id = sid;
-                    if sid == 2148 {
+                    if sid == ITEM_GOLD_COIN {
                         it.flags |= 1 << 7; // ItemType::FLAG_STACKABLE
                     }
                 }
@@ -644,7 +653,7 @@ mod tests {
     fn buy_requires_money() {
         let (mut world, player, npc) = shop_fixture();
         world.player_open_shop(player, npc, vec![gold_shop_item()]);
-        let client_id = world.items_db.client_id_for_server(ITEM_GOLD_COIN);
+        let client_id = ITEM_GOLD_COIN;
         world.player_purchase_item(player, client_id, 0, 5, false, false);
         assert_eq!(
             world.player_get_item_type_count(player, ITEM_GOLD_COIN, -1),
@@ -668,7 +677,7 @@ mod tests {
         world.player_create_money(player, 10).expect("seed money");
         let money_before = world.player_count_money(player);
         world.player_open_shop(player, npc, vec![bag_shop_item()]);
-        let client_id = world.items_db.client_id_for_server(1987);
+        let client_id = 1987u16;
         world.player_purchase_item(player, client_id, 0, 1, false, false);
         assert!(
             world.player_get_item_type_count(player, 1987, -1) >= 2,
@@ -712,7 +721,7 @@ mod tests {
         assert!(bags_before >= 2);
         let money_before = world.player_count_money(player);
         world.player_open_shop(player, npc, vec![bag_sell_item()]);
-        let client_id = world.items_db.client_id_for_server(1987);
+        let client_id = 1987u16;
         assert_ne!(client_id, 0);
         assert!(world.has_shop_item_for_sell(player, 1987, 0));
         world.player_sell_item(player, client_id, 0, 1, true);
@@ -738,7 +747,7 @@ mod tests {
                 _ => None,
             })
             .unwrap();
-        let gold_client = world.items_db.client_id_for_server(ITEM_GOLD_COIN);
+        let gold_client = ITEM_GOLD_COIN;
         let before = world.build_sale_counts(player, &shop_items);
         assert_eq!(
             before

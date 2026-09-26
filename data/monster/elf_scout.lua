@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2981,
+    corpse = 4162,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -71,15 +71,15 @@ return {
     { text = "Your existence will end here!", yell = false },
   },
   loot = {
-    { id = 2031, chance = 14000 }, -- waterskin
-    { id = 2482, chance = 8000 }, -- studded helmet
-    { id = 2484, chance = 12000 }, -- studded armor
-    { id = 2642, chance = 10000 }, -- sandals
-    { id = 2545, chance = 15000, count_max = 3 }, -- poison arrow
-    { id = 2397, chance = 6000 }, -- longsword
-    { id = 2681, chance = 18000 }, -- grapes
-    { id = 2148, chance = 30000, count_max = 5 }, -- gold coin
-    { id = 2456, chance = 4000 }, -- bow
-    { id = 2544, chance = 30000, count_max = 12 }, -- arrow
+    { id = 2901, chance = 14000 }, -- waterskin
+    { id = 3376, chance = 8000 }, -- studded helmet
+    { id = 3378, chance = 12000 }, -- studded armor
+    { id = 3551, chance = 10000 }, -- sandals
+    { id = 3448, chance = 15000, count_max = 3 }, -- poison arrow
+    { id = 3285, chance = 6000 }, -- longsword
+    { id = 3592, chance = 18000 }, -- grapes
+    { id = 3031, chance = 30000, count_max = 5 }, -- gold coin
+    { id = 3350, chance = 4000 }, -- bow
+    { id = 3447, chance = 30000, count_max = 12 }, -- arrow
   },
 }

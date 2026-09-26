@@ -9,7 +9,7 @@ spell:vocation("Druid", "Elder Druid")
 spell:words("ad,ura, vita")
 
 function spell.onCastSpell(creature, variant)
-	return creature:conjureItem(400, 2260, 2273, 1)
+	return creature:conjureItem(400, 3147, 3160, 1)
 end
 
 spell:register()
@@ -34,7 +34,7 @@ function rune.onCastSpell(creature, variant)
 end
 
 rune:runeMagicLevel(4)
-rune:runeId(2273)
+rune:runeId(3160)
 rune:charges(1)
 rune:allowFarUse(true)
 rune:needTarget(true)

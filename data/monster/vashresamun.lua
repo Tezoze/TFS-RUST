@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3016,
+    corpse = 4197,
   },
   change_target = { chance = 3 },
   target_strategy = { nearest = 80, weakest = 10, most_damage = 10, random = 0 },
@@ -103,16 +103,16 @@ return {
     { name = "Banshee", delay = 5, max = 2 },
   },
   loot = {
-    { id = 2143, chance = 10000 }, -- white pearl
-    { id = 2074, chance = 200 }, -- panpipes
-    { id = 2072, chance = 10000 }, -- lute
-    { id = 2148, chance = 35000, count_max = 95 }, -- gold coin
-    { id = 2148, chance = 50000, count_max = 85 }, -- gold coin
-    { id = 2148, chance = 70000, count_max = 80 }, -- gold coin
-    { id = 2124, chance = 1500 }, -- crystal ring
-    { id = 2445, chance = 100 }, -- crystal mace
-    { id = 2656, chance = 1000 }, -- blue robe
-    { id = 2349, chance = 100000 }, -- blue note
-    { id = 2139, chance = 100 }, -- ancient tiara
+    { id = 3026, chance = 10000 }, -- white pearl
+    { id = 2953, chance = 200 }, -- panpipes
+    { id = 2950, chance = 10000 }, -- lute
+    { id = 3031, chance = 35000, count_max = 95 }, -- gold coin
+    { id = 3031, chance = 50000, count_max = 85 }, -- gold coin
+    { id = 3031, chance = 70000, count_max = 80 }, -- gold coin
+    { id = 3007, chance = 1500 }, -- crystal ring
+    { id = 3333, chance = 100 }, -- crystal mace
+    { id = 3567, chance = 1000 }, -- blue robe
+    { id = 3236, chance = 100000 }, -- blue note
+    { id = 3022, chance = 100 }, -- ancient tiara
   },
 }

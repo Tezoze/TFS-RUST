@@ -258,6 +258,7 @@ function Item:moveTo(...) end
 function Item:remove(...) end
 function Item:setActionId(...) end
 function Item:setAttribute(...) end
+function Item:setDecay(...) end
 function Item:setStoreItem(...) end
 function Item:setUniqueId(...) end
 function Item:transform(...) end

@@ -11,6 +11,7 @@ use crate::spawns::load_spawn_xml;
 use crate::vocations::VocationRegistry;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tfs_rust_common::ProtocolVersion;
 use tfs_rust_common::error::Result;
 use tracing::info;
 
@@ -35,11 +36,18 @@ pub struct Content {
 /// Load server content. `map_otbm_relative` is under `data_dir` (e.g. `world/world.otbm`);
 /// default for this repo’s data pack: `world/forgotten.otbm`.
 ///
-pub async fn load_all(data_dir: &Path, map_otbm_relative: Option<&str>) -> Result<Content> {
-    info!("Starting concurrent content pipeline...");
+pub async fn load_all(
+    data_dir: &Path,
+    map_otbm_relative: Option<&str>,
+    version: ProtocolVersion,
+) -> Result<Content> {
+    info!(
+        version = version.raw(),
+        "starting concurrent content pipeline"
+    );
 
-    let otb_path = data_dir.join("items/items.otb");
-    let xml_path = data_dir.join("items/items.xml");
+    let ron_path = ItemDatabase::ron_path(data_dir, version);
+    info!(file = %ron_path.display(), "loading items.ron");
     let monsters_dir = data_dir.join("monster");
     let voc_path = data_dir.join("defs/vocations.lua");
     let groups_path = data_dir.join("defs/groups.lua");
@@ -49,8 +57,7 @@ pub async fn load_all(data_dir: &Path, map_otbm_relative: Option<&str>) -> Resul
     let map_path = data_dir.join(map_rel);
     let map_path_for_task = map_path.clone();
 
-    let items_future =
-        tokio::task::spawn_blocking(move || ItemDatabase::load(&otb_path, &xml_path));
+    let items_future = tokio::task::spawn_blocking(move || ItemDatabase::load_ron(&ron_path));
 
     let vocs_future = tokio::task::spawn_blocking(move || VocationRegistry::load(&voc_path));
 
@@ -72,8 +79,7 @@ pub async fn load_all(data_dir: &Path, map_otbm_relative: Option<&str>) -> Resul
     );
 
     let items = Arc::new(items_res.unwrap()?);
-    // Waypoints / DistUse live in patched `items.otb` only — never load `objects.srv` at runtime.
-    // Offline: `cargo run -p tfs-rust-content --bin patch-otb-waypoints`
+    // Ground walk speed is `ItemType.speed` from `items/<clientVersion>/items.ron`.
     let items_for_monsters = Arc::clone(&items);
     let monsters_future = tokio::task::spawn_blocking(move || {
         MonsterDatabase::load_dir(&monsters_dir, items_for_monsters.as_ref())

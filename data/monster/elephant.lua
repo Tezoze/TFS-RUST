@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 4295,
+    corpse = 4360,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 0, most_damage = 30, random = 0 },
@@ -61,9 +61,9 @@ return {
     { text = "Troooooot!", yell = false },
   },
   loot = {
-    { id = 3973, chance = 100 }, -- tusk shield
-    { id = 2666, chance = 90000, count_max = 4 }, -- meat
-    { id = 2671, chance = 60000, count_max = 3 }, -- ham
-    { id = 3956, chance = 1000, count_max = 2 }, -- elephant tusk
+    { id = 3443, chance = 100 }, -- tusk shield
+    { id = 3577, chance = 90000, count_max = 4 }, -- meat
+    { id = 3582, chance = 60000, count_max = 3 }, -- ham
+    { id = 3044, chance = 1000, count_max = 2 }, -- elephant tusk
   },
 }

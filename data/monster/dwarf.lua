@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2960,
+    corpse = 4141,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -57,15 +57,15 @@ return {
     { text = "Hail Durin!", yell = false },
   },
   loot = {
-    { id = 2787, chance = 50000 }, -- white mushroom
-    { id = 2484, chance = 8000 }, -- studded armor
-    { id = 2553, chance = 10000 }, -- pick
-    { id = 2597, chance = 8000 }, -- letter
-    { id = 2649, chance = 10000 }, -- leather legs
-    { id = 2388, chance = 25000 }, -- hatchet
-    { id = 2148, chance = 45000, count_max = 8 }, -- gold coin
-    { id = 2213, chance = 100 }, -- dwarven ring
-    { id = 2530, chance = 10000 }, -- copper shield
-    { id = 2386, chance = 15000 }, -- axe
+    { id = 3723, chance = 50000 }, -- white mushroom
+    { id = 3378, chance = 8000 }, -- studded armor
+    { id = 3456, chance = 10000 }, -- pick
+    { id = 3505, chance = 8000 }, -- letter
+    { id = 3559, chance = 10000 }, -- leather legs
+    { id = 3276, chance = 25000 }, -- hatchet
+    { id = 3031, chance = 45000, count_max = 8 }, -- gold coin
+    { id = 3097, chance = 100 }, -- dwarven ring
+    { id = 3430, chance = 10000 }, -- copper shield
+    { id = 3274, chance = 15000 }, -- axe
   },
 }

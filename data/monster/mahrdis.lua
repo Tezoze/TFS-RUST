@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3016,
+    corpse = 4197,
   },
   change_target = { chance = 3 },
   target_strategy = { nearest = 80, weakest = 10, most_damage = 10, random = 0 },
@@ -136,15 +136,15 @@ return {
     { name = "Fire Elemental", delay = 9, max = 4 },
   },
   loot = {
-    { id = 2147, chance = 10000, count_max = 3 }, -- small ruby
-    { id = 2156, chance = 1000 }, -- red gem
-    { id = 2539, chance = 100 }, -- phoenix shield
-    { id = 2168, chance = 5000 }, -- life ring
-    { id = 2141, chance = 100 }, -- holy falcon
-    { id = 2148, chance = 35000, count_max = 95 }, -- gold coin
-    { id = 2148, chance = 50000, count_max = 85 }, -- gold coin
-    { id = 2148, chance = 70000, count_max = 80 }, -- gold coin
-    { id = 2432, chance = 200 }, -- fire axe
-    { id = 2353, chance = 100000 }, -- burning heart
+    { id = 3030, chance = 10000, count_max = 3 }, -- small ruby
+    { id = 3039, chance = 1000 }, -- red gem
+    { id = 3439, chance = 100 }, -- phoenix shield
+    { id = 3052, chance = 5000 }, -- life ring
+    { id = 3024, chance = 100 }, -- holy falcon
+    { id = 3031, chance = 35000, count_max = 95 }, -- gold coin
+    { id = 3031, chance = 50000, count_max = 85 }, -- gold coin
+    { id = 3031, chance = 70000, count_max = 80 }, -- gold coin
+    { id = 3320, chance = 200 }, -- fire axe
+    { id = 3240, chance = 100000 }, -- burning heart
   },
 }

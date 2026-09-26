@@ -1,30 +1,30 @@
 local action = Action()
 
 function action.onUse(player, item, fromPosition, target, toPosition)
-	if item:getId() == 1945 then 
-		item:transform(1946, 1)
+	if item:getId() == 2772 then 
+		item:transform(2773, 1)
 		item:decay()
-		Game.transformItemInPosition({x = 32413, y = 32230, z = 10}, 1945, 1946)
+		Game.transformItemInPosition({x = 32413, y = 32230, z = 10}, 2772, 2773)
 		doRelocate({x = 32411, y = 32231, z = 10},{x = 32412, y = 32231, z = 10})
 		doRelocate({x = 32410, y = 32231, z = 10},{x = 32412, y = 32231, z = 10})
 		doRelocate({x = 32411, y = 32232, z = 10},{x = 32412, y = 32232, z = 10})
 		doRelocate({x = 32410, y = 32232, z = 10},{x = 32412, y = 32232, z = 10})
-		Game.transformItemInPosition({x = 32410, y = 32231, z = 10}, 1284, 493)
-		Game.transformItemInPosition({x = 32411, y = 32231, z = 10}, 1284, 493)
-		Game.transformItemInPosition({x = 32411, y = 32232, z = 10}, 1284, 493)
-		Game.transformItemInPosition({x = 32410, y = 32232, z = 10}, 1284, 493)
-		Game.createItem(4799, 1, {x = 32410, y = 32231, z = 10})
-		Game.createItem(4799, 1, {x = 32410, y = 32232, z = 10}) 
-	elseif item:getId() == 1946 then 
-		item:transform(1945, 1)
+		Game.transformItemInPosition({x = 32410, y = 32231, z = 10}, 1771, 622)
+		Game.transformItemInPosition({x = 32411, y = 32231, z = 10}, 1771, 622)
+		Game.transformItemInPosition({x = 32411, y = 32232, z = 10}, 1771, 622)
+		Game.transformItemInPosition({x = 32410, y = 32232, z = 10}, 1771, 622)
+		Game.createItem(4788, 1, {x = 32410, y = 32231, z = 10})
+		Game.createItem(4788, 1, {x = 32410, y = 32232, z = 10}) 
+	elseif item:getId() == 2773 then 
+		item:transform(2772, 1)
 		item:decay()
-		Game.transformItemInPosition({x = 32413, y = 32230, z = 10}, 1946, 1945)
-		Game.transformItemInPosition({x = 32411, y = 32231, z = 10}, 493, 1284)
-		Game.transformItemInPosition({x = 32411, y = 32232, z = 10}, 493, 1284)
-		Game.transformItemInPosition({x = 32410, y = 32231, z = 10}, 493, 1284)
-		Game.transformItemInPosition({x = 32410, y = 32232, z = 10}, 493, 1284)
-		Game.removeItemInPosition({x = 32410, y = 32231, z = 10}, 4799)
-		Game.removeItemInPosition({x = 32410, y = 32232, z = 10}, 4799)
+		Game.transformItemInPosition({x = 32413, y = 32230, z = 10}, 2773, 2772)
+		Game.transformItemInPosition({x = 32411, y = 32231, z = 10}, 622, 1771)
+		Game.transformItemInPosition({x = 32411, y = 32232, z = 10}, 622, 1771)
+		Game.transformItemInPosition({x = 32410, y = 32231, z = 10}, 622, 1771)
+		Game.transformItemInPosition({x = 32410, y = 32232, z = 10}, 622, 1771)
+		Game.removeItemInPosition({x = 32410, y = 32231, z = 10}, 4788)
+		Game.removeItemInPosition({x = 32410, y = 32232, z = 10}, 4788)
 	end
 	
 	return true

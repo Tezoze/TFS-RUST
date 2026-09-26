@@ -534,7 +534,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "fluid" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2006 } },
+				{ set = { var = "type", value = 2874 } },
 				{ set = { var = "data", value = 11 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 60 } },
@@ -549,7 +549,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "fluid" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2006 } },
+				{ set = { var = "type", value = 2874 } },
 				{ set = { var = "data", value = 10 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 55 } },
@@ -564,7 +564,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2260 } },
+				{ set = { var = "type", value = 3147 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10 } },
 				{ say = "Do you want to buy a blank rune for %P gold?" },
@@ -577,7 +577,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "spellbook" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2175 } },
+				{ set = { var = "type", value = 3059 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 150 } },
 				{ say = "Do you want to buy a spellbook for %P gold?" },
@@ -593,7 +593,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "fluid" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2006 } },
+				{ set = { var = "type", value = 2874 } },
 				{ set = { var = "data", value = 11 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 60, rhs = { capture = 1 } } } } },
@@ -610,7 +610,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "fluid" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2006 } },
+				{ set = { var = "type", value = 2874 } },
 				{ set = { var = "data", value = 10 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 55, rhs = { capture = 1 } } } } },
@@ -627,7 +627,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2260 } },
+				{ set = { var = "type", value = 3147 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 10, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A blank runes for %P gold?" },
@@ -642,7 +642,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "spellbook" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2175 } },
+				{ set = { var = "type", value = 3059 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 150, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A spellbooks for %P gold?" },
@@ -747,13 +747,13 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ expr = { session = "topic" }, op = "=", rhs = 3 },
 				{ words = { "yes" } },
-				{ expr = { count = 2006 }, op = ">", rhs = 0 },
+				{ expr = { count = 2874 }, op = ">", rhs = 0 },
 			},
 			actions = {
-				{ set = { var = "amount", value = { count = 2006 } } },
+				{ set = { var = "amount", value = { count = 2874 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = { session = "amount" }, rhs = 5 } } } },
 				{ say = "Here you are ... %P gold." },
-				{ delete = { item = 2006 } },
+				{ delete = { item = 2874 } },
 				{ createMoney = true },
 			},
 		},
@@ -863,7 +863,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2287 } },
+				{ set = { var = "type", value = 3174 } },
 				{ set = { var = "data", value = 5 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 40 } },
@@ -880,7 +880,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2285 } },
+				{ set = { var = "type", value = 3172 } },
 				{ set = { var = "data", value = 3 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 65 } },
@@ -896,7 +896,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2266 } },
+				{ set = { var = "type", value = 3153 } },
 				{ set = { var = "data", value = 1 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 65 } },
@@ -913,7 +913,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2301 } },
+				{ set = { var = "type", value = 3188 } },
 				{ set = { var = "data", value = 3 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 85 } },
@@ -930,7 +930,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2265 } },
+				{ set = { var = "type", value = 3152 } },
 				{ set = { var = "data", value = 1 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 95 } },
@@ -946,7 +946,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2302 } },
+				{ set = { var = "type", value = 3189 } },
 				{ set = { var = "data", value = 2 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 95 } },
@@ -963,7 +963,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2261 } },
+				{ set = { var = "type", value = 3148 } },
 				{ set = { var = "data", value = 3 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 45 } },
@@ -981,7 +981,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2311 } },
+				{ set = { var = "type", value = 3198 } },
 				{ set = { var = "data", value = 5 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 125 } },
@@ -998,7 +998,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2277 } },
+				{ set = { var = "type", value = 3164 } },
 				{ set = { var = "data", value = 3 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 115 } },
@@ -1015,7 +1015,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2273 } },
+				{ set = { var = "type", value = 3160 } },
 				{ set = { var = "data", value = 1 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 175 } },
@@ -1032,7 +1032,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2290 } },
+				{ set = { var = "type", value = 3177 } },
 				{ set = { var = "data", value = 1 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 80 } },
@@ -1049,7 +1049,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2304 } },
+				{ set = { var = "type", value = 3191 } },
 				{ set = { var = "data", value = 2 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 180 } },
@@ -1065,7 +1065,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2291 } },
+				{ set = { var = "type", value = 3178 } },
 				{ set = { var = "data", value = 1 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 210 } },
@@ -1082,7 +1082,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2305 } },
+				{ set = { var = "type", value = 3192 } },
 				{ set = { var = "data", value = 2 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 235 } },
@@ -1099,7 +1099,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2289 } },
+				{ set = { var = "type", value = 3176 } },
 				{ set = { var = "data", value = 4 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 210 } },
@@ -1115,7 +1115,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2313 } },
+				{ set = { var = "type", value = 3200 } },
 				{ set = { var = "data", value = 3 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 250 } },
@@ -1132,7 +1132,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2303 } },
+				{ set = { var = "type", value = 3190 } },
 				{ set = { var = "data", value = 4 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 245 } },
@@ -1149,7 +1149,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2268 } },
+				{ set = { var = "type", value = 3155 } },
 				{ set = { var = "data", value = 1 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 325 } },
@@ -1166,7 +1166,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2279 } },
+				{ set = { var = "type", value = 3166 } },
 				{ set = { var = "data", value = 4 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 340 } },
@@ -1278,7 +1278,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2287 } },
+				{ set = { var = "type", value = 3174 } },
 				{ set = { var = "data", value = 5 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 40, rhs = { capture = 1 } } } } },
@@ -1297,7 +1297,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2285 } },
+				{ set = { var = "type", value = 3172 } },
 				{ set = { var = "data", value = 3 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 65, rhs = { capture = 1 } } } } },
@@ -1315,7 +1315,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2266 } },
+				{ set = { var = "type", value = 3153 } },
 				{ set = { var = "data", value = 1 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 65, rhs = { capture = 1 } } } } },
@@ -1334,7 +1334,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2301 } },
+				{ set = { var = "type", value = 3188 } },
 				{ set = { var = "data", value = 3 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 85, rhs = { capture = 1 } } } } },
@@ -1353,7 +1353,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2265 } },
+				{ set = { var = "type", value = 3152 } },
 				{ set = { var = "data", value = 1 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 95, rhs = { capture = 1 } } } } },
@@ -1371,7 +1371,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2302 } },
+				{ set = { var = "type", value = 3189 } },
 				{ set = { var = "data", value = 2 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 95, rhs = { capture = 1 } } } } },
@@ -1390,7 +1390,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2261 } },
+				{ set = { var = "type", value = 3148 } },
 				{ set = { var = "data", value = 3 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 45, rhs = { capture = 1 } } } } },
@@ -1410,7 +1410,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2311 } },
+				{ set = { var = "type", value = 3198 } },
 				{ set = { var = "data", value = 5 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 125, rhs = { capture = 1 } } } } },
@@ -1429,7 +1429,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2277 } },
+				{ set = { var = "type", value = 3164 } },
 				{ set = { var = "data", value = 3 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 115, rhs = { capture = 1 } } } } },
@@ -1448,7 +1448,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2273 } },
+				{ set = { var = "type", value = 3160 } },
 				{ set = { var = "data", value = 1 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 175, rhs = { capture = 1 } } } } },
@@ -1467,7 +1467,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2290 } },
+				{ set = { var = "type", value = 3177 } },
 				{ set = { var = "data", value = 1 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 80, rhs = { capture = 1 } } } } },
@@ -1486,7 +1486,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2304 } },
+				{ set = { var = "type", value = 3191 } },
 				{ set = { var = "data", value = 2 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 180, rhs = { capture = 1 } } } } },
@@ -1504,7 +1504,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2291 } },
+				{ set = { var = "type", value = 3178 } },
 				{ set = { var = "data", value = 1 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 210, rhs = { capture = 1 } } } } },
@@ -1523,7 +1523,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2305 } },
+				{ set = { var = "type", value = 3192 } },
 				{ set = { var = "data", value = 2 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 235, rhs = { capture = 1 } } } } },
@@ -1542,7 +1542,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2289 } },
+				{ set = { var = "type", value = 3176 } },
 				{ set = { var = "data", value = 4 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 210, rhs = { capture = 1 } } } } },
@@ -1560,7 +1560,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2313 } },
+				{ set = { var = "type", value = 3200 } },
 				{ set = { var = "data", value = 3 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 250, rhs = { capture = 1 } } } } },
@@ -1579,7 +1579,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2303 } },
+				{ set = { var = "type", value = 3190 } },
 				{ set = { var = "data", value = 4 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 245, rhs = { capture = 1 } } } } },
@@ -1598,7 +1598,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2268 } },
+				{ set = { var = "type", value = 3155 } },
 				{ set = { var = "data", value = 1 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 325, rhs = { capture = 1 } } } } },
@@ -1617,7 +1617,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rune" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2279 } },
+				{ set = { var = "type", value = 3166 } },
 				{ set = { var = "data", value = 4 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 340, rhs = { capture = 1 } } } } },
@@ -1759,7 +1759,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Oh, is this your first wand of vortex? Take this little present from me as a free sample!" },
 				{ setQuestValue = { id = 333, value = 1 } },
-				{ set = { var = "type", value = 2190 } },
+				{ set = { var = "type", value = 3074 } },
 				{ set = { var = "amount", value = 1 } },
 				{ create = { item = { session = "type" } } },
 			},
@@ -1776,7 +1776,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Oh, is this your first snakebite rod? Take this little present from me as a free sample!" },
 				{ setQuestValue = { id = 333, value = 1 } },
-				{ set = { var = "type", value = 2182 } },
+				{ set = { var = "type", value = 3066 } },
 				{ set = { var = "amount", value = 1 } },
 				{ create = { item = { session = "type" } } },
 			},
@@ -1790,7 +1790,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "vortex" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2190 } },
+				{ set = { var = "type", value = 3074 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 500 } },
 				{ say = "This wand is only for sorcerers of level 7 and above. Would you like to buy a wand of vortex for %P gold?" },
@@ -1806,7 +1806,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "dragonbreath" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2191 } },
+				{ set = { var = "type", value = 3075 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 1000 } },
 				{ say = "This wand is only for sorcerers of level 13 and above. Would you like to buy a wand of dragonbreath for %P gold?" },
@@ -1822,7 +1822,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "plague" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2188 } },
+				{ set = { var = "type", value = 3072 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 5000 } },
 				{ say = "This wand is only for sorcerers of level 19 and above. Would you like to buy a wand of plague for %P gold?" },
@@ -1839,7 +1839,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "energy" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2189 } },
+				{ set = { var = "type", value = 3073 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10000 } },
 				{ say = "This wand is only for sorcerers of level 26 and above. Would you like to buy a wand of cosmic energy for %P gold?" },
@@ -1866,7 +1866,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rod" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2182 } },
+				{ set = { var = "type", value = 3066 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 500 } },
 				{ say = "This rod is only for druids of level 7 and above. Would you like to buy a snakebite rod for %P gold?" },
@@ -1881,7 +1881,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rod" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2186 } },
+				{ set = { var = "type", value = 3070 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 1000 } },
 				{ say = "This rod is only for druids of level 13 and above. Would you like to buy a moonlight rod for %P gold?" },
@@ -1896,7 +1896,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rod" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2185 } },
+				{ set = { var = "type", value = 3069 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 5000 } },
 				{ say = "This rod is only for druids of level 19 and above. Would you like to buy a volcanic rod for %P gold?" },
@@ -1911,7 +1911,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rod" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2181 } },
+				{ set = { var = "type", value = 3065 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10000 } },
 				{ say = "This rod is only for druids of level 26 and above. Would you like to buy a quagmire rod for %P gold?" },
@@ -1940,7 +1940,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "vortex" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2190 } },
+				{ set = { var = "type", value = 3074 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 500, rhs = { capture = 1 } } } } },
 				{ say = "This wand is only for sorcerers of level 7 and above. Would you like to buy %A wands of vortex for %P gold?" },
@@ -1958,7 +1958,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "dragonbreath" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2191 } },
+				{ set = { var = "type", value = 3075 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 1000, rhs = { capture = 1 } } } } },
 				{ say = "This wand is only for sorcerers of level 13 and above. Would you like to buy %A wands of dragonbreath for %P gold?" },
@@ -1976,7 +1976,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "plague" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2188 } },
+				{ set = { var = "type", value = 3072 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 5000, rhs = { capture = 1 } } } } },
 				{ say = "This wand is only for sorcerers of level 19 and above. Would you like to buy %A wands of plague for %P gold?" },
@@ -1995,7 +1995,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "energy" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2189 } },
+				{ set = { var = "type", value = 3073 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 10000, rhs = { capture = 1 } } } } },
 				{ say = "This wand is only for sorcerers of level 26 and above. Would you like to buy %A wands of cosmic energy for %P gold?" },
@@ -2026,7 +2026,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rod" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2182 } },
+				{ set = { var = "type", value = 3066 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 500, rhs = { capture = 1 } } } } },
 				{ say = "This rod is only for druids of level 7 and above. Would you like to buy %A snakebite rods for %P gold?" },
@@ -2043,7 +2043,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rod" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2186 } },
+				{ set = { var = "type", value = 3070 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 1000, rhs = { capture = 1 } } } } },
 				{ say = "This rod is only for druids of level 13 and above. Would you like to buy %A moonlight rods for %P gold?" },
@@ -2060,7 +2060,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rod" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2185 } },
+				{ set = { var = "type", value = 3069 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 5000, rhs = { capture = 1 } } } } },
 				{ say = "This rod is only for druids of level 19 and above. Would you like to buy %A volcanic rods for %P gold?" },
@@ -2077,7 +2077,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "rod" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2181 } },
+				{ set = { var = "type", value = 3065 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 10000, rhs = { capture = 1 } } } } },
 				{ say = "This rod is only for druids of level 26 and above. Would you like to buy %A quagmire rods for %P gold?" },

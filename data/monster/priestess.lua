@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3065,
+    corpse = 4247,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -90,20 +90,20 @@ return {
     { name = "Ghoul", delay = 13, max = 2 },
   },
   loot = {
-    { id = 2070, chance = 1400 }, -- wooden flute
-    { id = 2791, chance = 3500 }, -- wood mushroom
-    { id = 2183, chance = 1000 }, -- tempest rod
-    { id = 2151, chance = 700 }, -- talon
-    { id = 2802, chance = 14000 }, -- sling herb
-    { id = 2674, chance = 7500, count_max = 2 }, -- red apple
-    { id = 2803, chance = 6000 }, -- powder herb
-    { id = 2760, chance = 12000 }, -- goat grass
-    { id = 2379, chance = 23000 }, -- dagger
-    { id = 2125, chance = 600 }, -- crystal necklace
-    { id = 2192, chance = 1200 }, -- crystal ball
-    { id = 2423, chance = 1500 }, -- clerical mace
-    { id = 2032, chance = 20000 }, -- bowl
-    { id = 1977, chance = 7000 }, -- book
-    { id = 2529, chance = 200 }, -- black shield
+    { id = 2948, chance = 1400 }, -- wooden flute
+    { id = 3727, chance = 3500 }, -- wood mushroom
+    { id = 3067, chance = 1000 }, -- tempest rod
+    { id = 3034, chance = 700 }, -- talon
+    { id = 3738, chance = 14000 }, -- sling herb
+    { id = 3585, chance = 7500, count_max = 2 }, -- red apple
+    { id = 3739, chance = 6000 }, -- powder herb
+    { id = 3674, chance = 12000 }, -- goat grass
+    { id = 3267, chance = 23000 }, -- dagger
+    { id = 3008, chance = 600 }, -- crystal necklace
+    { id = 3076, chance = 1200 }, -- crystal ball
+    { id = 3311, chance = 1500 }, -- clerical mace
+    { id = 2902, chance = 20000 }, -- bowl
+    { id = 2843, chance = 7000 }, -- book
+    { id = 3429, chance = 200 }, -- black shield
   },
 }

@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 4265,
+    corpse = 4330,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -58,8 +58,8 @@ return {
     { text = "Cluck Cluck", yell = false },
   },
   loot = {
-    { id = 3976, chance = 30000, count_max = 3 }, -- worm
-    { id = 2666, chance = 2000, count_max = 2 }, -- meat
-    { id = 2695, chance = 1000 }, -- egg
+    { id = 3492, chance = 30000, count_max = 3 }, -- worm
+    { id = 3577, chance = 2000, count_max = 2 }, -- meat
+    { id = 3606, chance = 1000 }, -- egg
   },
 }

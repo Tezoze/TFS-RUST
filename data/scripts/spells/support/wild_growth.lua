@@ -1,6 +1,6 @@
 local combat = Combat()
 combat:setParameter(COMBAT_PARAM_DISTANCEEFFECT, CONST_ANI_ENERGY)
-combat:setParameter(COMBAT_PARAM_CREATEITEM, 1499)
+combat:setParameter(COMBAT_PARAM_CREATEITEM, 2130)
 combat:setParameter(COMBAT_PARAM_AGGRESSIVE, true)
 
 local spell = Spell(SPELL_INSTANT)

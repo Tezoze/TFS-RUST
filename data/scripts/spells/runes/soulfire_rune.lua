@@ -10,7 +10,7 @@ spell:vocation("Sorcerer", "Master Sorcerer", "Druid", "Elder Druid")
 spell:words("ad,evo, res, flam")
 
 function spell.onCastSpell(creature, variant)
-	return creature:conjureItem(600, 2260, 2308, 2)
+	return creature:conjureItem(600, 3147, 3195, 2)
 end
 
 spell:register()
@@ -40,7 +40,7 @@ function rune.onCastSpell(creature, variant)
 end
 
 rune:runeMagicLevel(7)
-rune:runeId(2308)
+rune:runeId(3195)
 rune:charges(2)
 rune:allowFarUse(true)
 rune:blockWalls(true)

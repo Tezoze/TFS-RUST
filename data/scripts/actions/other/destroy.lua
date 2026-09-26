@@ -1,9 +1,9 @@
 local items = {
-	{fromid=2376, toid=2404},
-	{fromid=2406, toid=2415},
-	{fromid=2417, toid=2419},
-	{fromid=2421, toid=2441},
-	{fromid=2443, toid=2453},
+	{fromid=3264, toid=3292},
+	{fromid=3294, toid=3303},
+	{fromid=3305, toid=3307},
+	{fromid=3309, toid=3329},
+	{fromid=3331, toid=3341},
 }
 
 local action = Action()

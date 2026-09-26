@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3001,
+    corpse = 4182,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -101,12 +101,12 @@ return {
     { text = "Wishes can come true.", yell = false },
   },
   loot = {
-    { id = 2146, chance = 2500, count_max = 4 }, -- small sapphire
-    { id = 2063, chance = 7500 }, -- small oil lamp
-    { id = 2663, chance = 100 }, -- mystic turban
-    { id = 2148, chance = 70000, count_max = 50 }, -- gold coin
-    { id = 2684, chance = 25000 }, -- carrot
-    { id = 1978, chance = 2500 }, -- book
-    { id = 2745, chance = 500 }, -- blue rose
+    { id = 3029, chance = 2500, count_max = 4 }, -- small sapphire
+    { id = 2933, chance = 7500 }, -- small oil lamp
+    { id = 3574, chance = 100 }, -- mystic turban
+    { id = 3031, chance = 70000, count_max = 50 }, -- gold coin
+    { id = 3595, chance = 25000 }, -- carrot
+    { id = 2844, chance = 2500 }, -- book
+    { id = 3659, chance = 500 }, -- blue rose
   },
 }

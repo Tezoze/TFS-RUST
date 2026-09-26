@@ -6,12 +6,12 @@ local action = Action()
 
 function action.onUse(player, item, fromPosition, target, toPosition)
 	if math.random(1, 100) <= 1 and math.random(1, 100) <= 10 then
-		item:transform(2094)
+		item:transform(2975)
 	else
 		item:getPosition():sendMagicEffect(CONST_ME_SOUND_YELLOW)
 	end
 	return true
 end
 
-action:id(2095)
+action:id(2976)
 action:register()

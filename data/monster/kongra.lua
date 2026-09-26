@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 4268,
+    corpse = 4333,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -69,13 +69,13 @@ return {
     { text = "Huaauaauaauaa!", yell = false },
   },
   loot = {
-    { id = 2200, chance = 1000 }, -- protection amulet
-    { id = 2166, chance = 500 }, -- power ring
-    { id = 2463, chance = 1000 }, -- plate armor
-    { id = 2148, chance = 10000, count_max = 30 }, -- gold coin
-    { id = 2148, chance = 80000, count_max = 25 }, -- gold coin
-    { id = 2209, chance = 200 }, -- club ring
-    { id = 2676, chance = 5000, count_max = 10 }, -- banana
-    { id = 2676, chance = 30000, count_max = 2 }, -- banana
+    { id = 3084, chance = 1000 }, -- protection amulet
+    { id = 3050, chance = 500 }, -- power ring
+    { id = 3357, chance = 1000 }, -- plate armor
+    { id = 3031, chance = 10000, count_max = 30 }, -- gold coin
+    { id = 3031, chance = 80000, count_max = 25 }, -- gold coin
+    { id = 3093, chance = 200 }, -- club ring
+    { id = 3587, chance = 5000, count_max = 10 }, -- banana
+    { id = 3587, chance = 30000, count_max = 2 }, -- banana
   },
 }

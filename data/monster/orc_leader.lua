@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2938,
+    corpse = 4119,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 15, most_damage = 15, random = 0 },
@@ -67,20 +67,20 @@ return {
     { text = "Ulderek futgyr human!", yell = false },
   },
   loot = {
-    { id = 2475, chance = 100 }, -- warrior helmet
-    { id = 2410, chance = 10000, count_max = 4 }, -- throwing knife
-    { id = 2207, chance = 4000 }, -- sword ring
-    { id = 2419, chance = 12000 }, -- scimitar
-    { id = 2510, chance = 10000 }, -- plate shield
-    { id = 2647, chance = 400 }, -- plate legs
-    { id = 2463, chance = 1500 }, -- plate armor
-    { id = 2666, chance = 15000, count_max = 2 }, -- meat
-    { id = 2397, chance = 8000 }, -- longsword
-    { id = 2148, chance = 28000, count_max = 35 }, -- gold coin
-    { id = 2667, chance = 30000 }, -- fish
-    { id = 2379, chance = 23000 }, -- dagger
-    { id = 2413, chance = 800 }, -- broadsword
-    { id = 2478, chance = 2500 }, -- brass legs
-    { id = 1988, chance = 20000 }, -- backpack
+    { id = 3369, chance = 100 }, -- warrior helmet
+    { id = 3298, chance = 10000, count_max = 4 }, -- throwing knife
+    { id = 3091, chance = 4000 }, -- sword ring
+    { id = 3307, chance = 12000 }, -- scimitar
+    { id = 3410, chance = 10000 }, -- plate shield
+    { id = 3557, chance = 400 }, -- plate legs
+    { id = 3357, chance = 1500 }, -- plate armor
+    { id = 3577, chance = 15000, count_max = 2 }, -- meat
+    { id = 3285, chance = 8000 }, -- longsword
+    { id = 3031, chance = 28000, count_max = 35 }, -- gold coin
+    { id = 3578, chance = 30000 }, -- fish
+    { id = 3267, chance = 23000 }, -- dagger
+    { id = 3301, chance = 800 }, -- broadsword
+    { id = 3372, chance = 2500 }, -- brass legs
+    { id = 2854, chance = 20000 }, -- backpack
   },
 }

@@ -1,6 +1,6 @@
 //! TFS-shaped money helpers with 772 denomination / change outcomes.
 //!
-//! Coin ids: gold `2148`×1, platinum `2152`×100, crystal `2160`×10000.
+//! Coin ids: gold `3031`×1, platinum `3035`×100, crystal `3043`×10000.
 //! C++: `TNPC::GiveMoney` / `GetMoney` (`crnonpl.cc:1904-1934`),
 //! `CalculateChange` (`info.cc:634-687`).
 
@@ -9,12 +9,12 @@ use slotmap::Key;
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 
-/// 772 / TFS gold coin.
-pub const ITEM_GOLD_COIN: u16 = 2148;
-/// 772 / TFS platinum coin.
-pub const ITEM_PLATINUM_COIN: u16 = 2152;
-/// 772 / TFS crystal coin.
-pub const ITEM_CRYSTAL_COIN: u16 = 2160;
+/// Gold coin client id (former server 2148).
+pub const ITEM_GOLD_COIN: u16 = 3031;
+/// Platinum coin client id (former server 2152).
+pub const ITEM_PLATINUM_COIN: u16 = 3035;
+/// Crystal coin client id (former server 2160).
+pub const ITEM_CRYSTAL_COIN: u16 = 3043;
 
 const GOLD_WORTH: u64 = 1;
 const PLATINUM_WORTH: u64 = 100;

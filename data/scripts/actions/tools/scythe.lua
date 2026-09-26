@@ -4,5 +4,5 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 	return onUseScythe(player, item, fromPosition, target, toPosition)
 end
 
-action:id(2550)
+action:id(3453)
 action:register()

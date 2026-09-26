@@ -340,29 +340,28 @@ fn register_inventory_slots(globals: &mlua::Table) -> Result<(), mlua::Error> {
 
 fn register_item_constants(globals: &mlua::Table) -> Result<(), mlua::Error> {
     // const.h:196-216 — field/wall item ids used by `combat:setParameter(COMBAT_PARAM_CREATEITEM, ...)`.
-    globals.set("ITEM_FIREFIELD_PVP_FULL", 1487i32)?; // const.h:196
-    globals.set("ITEM_FIREFIELD_PVP_MEDIUM", 1488i32)?; // const.h:197
-    globals.set("ITEM_FIREFIELD_PVP_SMALL", 1489i32)?; // const.h:198
-    globals.set("ITEM_FIREFIELD_PERSISTENT_FULL", 1492i32)?; // const.h:199
-    globals.set("ITEM_FIREFIELD_PERSISTENT_MEDIUM", 1493i32)?; // const.h:200
-    globals.set("ITEM_FIREFIELD_PERSISTENT_SMALL", 1494i32)?; // const.h:201
-    globals.set("ITEM_FIREFIELD_NOPVP", 1500i32)?; // const.h:203
-    globals.set("ITEM_POISONFIELD_PVP", 1490i32)?; // const.h:204
-    globals.set("ITEM_POISONFIELD_PERSISTENT", 1496i32)?; // const.h:205
-    globals.set("ITEM_POISONFIELD_NOPVP", 1503i32)?; // const.h:207
-    globals.set("ITEM_ENERGYFIELD_PVP", 1491i32)?; // const.h:208
-    globals.set("ITEM_ENERGYFIELD_PERSISTENT", 1495i32)?; // const.h:209
-    globals.set("ITEM_ENERGYFIELD_NOPVP", 1504i32)?; // const.h:210
-    globals.set("ITEM_MAGICWALL", 1497i32)?; // const.h:212
-    globals.set("ITEM_MAGICWALL_PERSISTENT", 1498i32)?; // const.h:213
-    globals.set("ITEM_MAGICWALL_NOPVP", 20669i32)?; // const.h:214
-    globals.set("ITEM_WILDGROWTH", 1499i32)?; // const.h:215
-    globals.set("ITEM_WILDGROWTH_PERSISTENT", 2721i32)?; // const.h:216
-    globals.set("ITEM_WILDGROWTH_NOPVP", 20670i32)?; // const.h:217
-    // const.h:451-453 — 1098 `change_gold.lua` + `data/lib/core/player.lua`.
-    globals.set("ITEM_GOLD_COIN", 2148i32)?;
-    globals.set("ITEM_PLATINUM_COIN", 2152i32)?;
-    globals.set("ITEM_CRYSTAL_COIN", 2160i32)?;
+    globals.set("ITEM_FIREFIELD_PVP_FULL", 2118i32)?;
+    globals.set("ITEM_FIREFIELD_PVP_MEDIUM", 2119i32)?;
+    globals.set("ITEM_FIREFIELD_PVP_SMALL", 2120i32)?;
+    globals.set("ITEM_FIREFIELD_PERSISTENT_FULL", 2123i32)?;
+    globals.set("ITEM_FIREFIELD_PERSISTENT_MEDIUM", 2124i32)?;
+    globals.set("ITEM_FIREFIELD_PERSISTENT_SMALL", 2125i32)?;
+    globals.set("ITEM_FIREFIELD_NOPVP", 2131i32)?;
+    globals.set("ITEM_POISONFIELD_PVP", 2121i32)?;
+    globals.set("ITEM_POISONFIELD_PERSISTENT", 2127i32)?;
+    globals.set("ITEM_POISONFIELD_NOPVP", 2134i32)?;
+    globals.set("ITEM_ENERGYFIELD_PVP", 2122i32)?;
+    globals.set("ITEM_ENERGYFIELD_PERSISTENT", 2126i32)?;
+    globals.set("ITEM_ENERGYFIELD_NOPVP", 2135i32)?;
+    globals.set("ITEM_MAGICWALL", 2128i32)?;
+    globals.set("ITEM_MAGICWALL_PERSISTENT", 2129i32)?;
+    globals.set("ITEM_MAGICWALL_NOPVP", 20669i32)?;
+    globals.set("ITEM_WILDGROWTH", 2130i32)?;
+    globals.set("ITEM_WILDGROWTH_PERSISTENT", 3635i32)?;
+    globals.set("ITEM_WILDGROWTH_NOPVP", 20670i32)?;
+    globals.set("ITEM_GOLD_COIN", 3031i32)?;
+    globals.set("ITEM_PLATINUM_COIN", 3035i32)?;
+    globals.set("ITEM_CRYSTAL_COIN", 3043i32)?;
     Ok(())
 }
 
@@ -521,9 +520,9 @@ mod tests {
             globals.get::<i32>("CONDITION_PARAM_DRUNKENNESS").unwrap(),
             55
         );
-        assert_eq!(globals.get::<i32>("ITEM_GOLD_COIN").unwrap(), 2148);
-        assert_eq!(globals.get::<i32>("ITEM_PLATINUM_COIN").unwrap(), 2152);
-        assert_eq!(globals.get::<i32>("ITEM_CRYSTAL_COIN").unwrap(), 2160);
+        assert_eq!(globals.get::<i32>("ITEM_GOLD_COIN").unwrap(), 3031);
+        assert_eq!(globals.get::<i32>("ITEM_PLATINUM_COIN").unwrap(), 3035);
+        assert_eq!(globals.get::<i32>("ITEM_CRYSTAL_COIN").unwrap(), 3043);
         assert_eq!(globals.get::<i32>("CONST_ANI_BURSTARROW").unwrap(), 7);
         assert_eq!(globals.get::<i32>("SKULL_RED").unwrap(), 4);
         assert_eq!(globals.get::<i32>("CONST_SLOT_LEFT").unwrap(), 6);

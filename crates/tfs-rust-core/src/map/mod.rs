@@ -227,7 +227,10 @@ pub(crate) fn tile_remaining_props(
         }
     };
 
-    if let Some(ground_type) = body.ground
+    // The departing ground is `exclude`. Counting `body.ground` here left
+    // BLOCKSOLID set after water → drawbridge (`change_item_type`).
+    if body.ground_item != Some(exclude)
+        && let Some(ground_type) = body.ground
         && let Some(it) = items_db.items.get(&ground_type)
     {
         consider(it);

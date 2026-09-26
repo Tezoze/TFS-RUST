@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2876,
+    corpse = 4057,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 10, most_damage = 20, random = 0 },
@@ -60,15 +60,15 @@ return {
     { text = "Kaplar!", yell = false },
   },
   loot = {
-    { id = 2666, chance = 10000 }, -- meat
-    { id = 2649, chance = 15000 }, -- leather legs
-    { id = 2388, chance = 10000 }, -- hatchet
-    { id = 2148, chance = 60000, count_max = 20 }, -- gold coin
-    { id = 2580, chance = 5000 }, -- fishing rod
-    { id = 2387, chance = 400 }, -- double axe
-    { id = 2648, chance = 1000 }, -- chain legs
-    { id = 2464, chance = 3000 }, -- chain armor
-    { id = 2465, chance = 4000 }, -- brass armor
-    { id = 2513, chance = 2000 }, -- battle shield
+    { id = 3577, chance = 10000 }, -- meat
+    { id = 3559, chance = 15000 }, -- leather legs
+    { id = 3276, chance = 10000 }, -- hatchet
+    { id = 3031, chance = 60000, count_max = 20 }, -- gold coin
+    { id = 3483, chance = 5000 }, -- fishing rod
+    { id = 3275, chance = 400 }, -- double axe
+    { id = 3558, chance = 1000 }, -- chain legs
+    { id = 3358, chance = 3000 }, -- chain armor
+    { id = 3359, chance = 4000 }, -- brass armor
+    { id = 3413, chance = 2000 }, -- battle shield
   },
 }

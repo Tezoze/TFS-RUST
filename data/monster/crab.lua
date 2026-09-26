@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 4253,
+    corpse = 4318,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -54,7 +54,7 @@ return {
     invisible = false,
   },
   loot = {
-    { id = 2148, chance = 80000, count_max = 10 }, -- gold coin
-    { id = 2667, chance = 20000 }, -- fish
+    { id = 3031, chance = 80000, count_max = 10 }, -- gold coin
+    { id = 3578, chance = 20000 }, -- fish
   },
 }

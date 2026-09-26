@@ -1,7 +1,7 @@
 //! Lower import AST → [`PendingNpcDefinition`] / [`DialogueProgram`].
 //!
 //! When an [`ItemDatabase`] is provided, CipSoft TypeIDs (OTB `client_id`) on
-//! item literals are remapped to OTB `server_id` via [`ItemDatabase::server_id_for_client`].
+//! item literals stay client ids; the catalog key is that same id.
 
 use crate::items::ItemDatabase;
 use crate::npc_import::ast::{RawAction, RawCond, RawExpr, RawNpcFile, RawOp, RawRule};
@@ -574,12 +574,9 @@ fn remap_client_item_id(
         ));
     }
     let client_id = n as u16;
-    // Remap when this is a known OTB client_id. Leave unknowns alone — `Type=` is
-    // also used for spell ids on teacher NPCs (e.g. Type=20 for "find person").
-    Ok(match db.server_id_for_client(client_id) {
-        Some(server_id) => i32::from(server_id),
-        None => n,
-    })
+    // Catalog ids are client ids. Unknown `Type=` values are spell ids (e.g. 20).
+    let _ = (db, client_id);
+    Ok(n)
 }
 
 fn lower_op(op: RawOp) -> ExprOp {
@@ -661,12 +658,12 @@ mod tests {
 
     fn repo_items() -> Option<ItemDatabase> {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let otb = root.join("data/items/items.otb");
-        let xml = root.join("data/items/items.xml");
-        if !otb.exists() || !xml.exists() {
+        let ron =
+            ItemDatabase::ron_path(&root.join("data"), tfs_rust_common::ProtocolVersion::V772);
+        if !ron.exists() {
             return None;
         }
-        Some(ItemDatabase::load(&otb, &xml).expect("load items"))
+        Some(ItemDatabase::load_ron(&ron).expect("load items"))
     }
 
     #[test]
@@ -675,8 +672,7 @@ mod tests {
             eprintln!("skip: data/items missing");
             return;
         };
-        // objects.srv TypeID 3587 = banana → OTB server_id 2676
-        assert_eq!(items.server_id_for_client(3587), Some(2676));
+        assert!(items.items.contains_key(&3587), "banana client id");
 
         let src = r#"
 Name = "Shop"
@@ -699,7 +695,7 @@ Topic=1,"yes" -> "ok", Create(3587)
             } => Some(*n),
             _ => None,
         });
-        assert_eq!(type_set, Some(2676));
+        assert_eq!(type_set, Some(3587));
 
         let create_item = dialogue.rules[1].actions.iter().find_map(|a| match a {
             DialogueAction::Create {
@@ -708,7 +704,7 @@ Topic=1,"yes" -> "ok", Create(3587)
             } => Some(*n),
             _ => None,
         });
-        assert_eq!(create_item, Some(2676));
+        assert_eq!(create_item, Some(3587));
 
         let count_item = dialogue.rules[2].predicates.iter().find_map(|p| match p {
             DialoguePredicate::Expression {
@@ -720,7 +716,7 @@ Topic=1,"yes" -> "ok", Create(3587)
             },
             _ => None,
         });
-        assert_eq!(count_item, Some(2676));
+        assert_eq!(count_item, Some(3587));
     }
 
     #[test]
@@ -729,7 +725,7 @@ Topic=1,"yes" -> "ok", Create(3587)
             eprintln!("skip: data/items missing");
             return;
         };
-        assert!(items.server_id_for_client(20).is_none());
+        assert!(!items.items.contains_key(&20));
 
         let src = r#"
 Name = "Teacher"

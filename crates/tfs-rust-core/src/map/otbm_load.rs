@@ -188,7 +188,6 @@ fn internal_add_item_id(
     items: &mut SlotMap<ItemId, Item>,
     otbm_attr_blob: Option<&[u8]>,
 ) {
-    let id = otbm::remap_create_item_stream_id(id);
     let it = items_db.items.get(&id);
     let is_ground = it.map(|t| t.is_ground_tile()).unwrap_or(false);
 
@@ -270,7 +269,7 @@ fn tile_from_data(
     for thing in things {
         match thing {
             TileThing::EmbeddedItemId(stream_id) => {
-                let id = otbm::remap_create_item_stream_id(*stream_id);
+                let id = *stream_id;
                 if let Some(item_type) = items_db.items.get(&id) {
                     apply_item_tile_flags(&mut body, item_type, items_db);
                 }
@@ -281,7 +280,7 @@ fn tile_from_data(
                     continue;
                 }
                 let stream_id = u16::from_le_bytes([raw[0], raw[1]]);
-                let id = otbm::remap_create_item_stream_id(stream_id);
+                let id = stream_id;
                 if let Some(item_type) = items_db.items.get(&id) {
                     apply_item_tile_flags(&mut body, item_type, items_db);
                 }

@@ -15,7 +15,7 @@ return {
     look_body = 116,
     look_legs = 95,
     look_feet = 95,
-    corpse = 3058,
+    corpse = 4240,
   },
   change_target = { chance = 10 },
   target_strategy = { nearest = 60, weakest = 0, most_damage = 0, random = 40 },
@@ -71,14 +71,14 @@ return {
     invisible = true,
   },
   loot = {
-    { id = 2410, chance = 11000, count_max = 2 }, -- throwing knife
-    { id = 2425, chance = 1200 }, -- obsidian lance
-    { id = 2649, chance = 10000 }, -- leather legs
-    { id = 2412, chance = 6000 }, -- katana
-    { id = 2148, chance = 13000, count_max = 8 }, -- gold coin
-    { id = 2511, chance = 5500 }, -- brass shield
-    { id = 2478, chance = 3500 }, -- brass legs
-    { id = 2260, chance = 9000 }, -- blank rune
-    { id = 1988, chance = 4500 }, -- backpack
+    { id = 3298, chance = 11000, count_max = 2 }, -- throwing knife
+    { id = 3313, chance = 1200 }, -- obsidian lance
+    { id = 3559, chance = 10000 }, -- leather legs
+    { id = 3300, chance = 6000 }, -- katana
+    { id = 3031, chance = 13000, count_max = 8 }, -- gold coin
+    { id = 3411, chance = 5500 }, -- brass shield
+    { id = 3372, chance = 3500 }, -- brass legs
+    { id = 3147, chance = 9000 }, -- blank rune
+    { id = 2854, chance = 4500 }, -- backpack
   },
 }

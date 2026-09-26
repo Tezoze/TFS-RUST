@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3040,
+    corpse = 4221,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -132,16 +132,16 @@ return {
     { name = "Blue Djinn", delay = 7, max = 2 },
   },
   loot = {
-    { id = 2070, chance = 300 }, -- wooden flute
-    { id = 2183, chance = 500 }, -- tempest rod
-    { id = 2146, chance = 7000, count_max = 2 }, -- small sapphire
-    { id = 2063, chance = 20000 }, -- small oil lamp
-    { id = 2663, chance = 200 }, -- mystic turban
-    { id = 2442, chance = 20000 }, -- heavy machete
-    { id = 2148, chance = 50000, count_max = 80 }, -- gold coin
-    { id = 2148, chance = 70000, count_max = 50 }, -- gold coin
-    { id = 2677, chance = 25000, count_max = 25 }, -- blueberry
-    { id = 1872, chance = 2500 }, -- blue tapestry
-    { id = 2158, chance = 100 }, -- blue gem
+    { id = 2948, chance = 300 }, -- wooden flute
+    { id = 3067, chance = 500 }, -- tempest rod
+    { id = 3029, chance = 7000, count_max = 2 }, -- small sapphire
+    { id = 2933, chance = 20000 }, -- small oil lamp
+    { id = 3574, chance = 200 }, -- mystic turban
+    { id = 3330, chance = 20000 }, -- heavy machete
+    { id = 3031, chance = 50000, count_max = 80 }, -- gold coin
+    { id = 3031, chance = 70000, count_max = 50 }, -- gold coin
+    { id = 3588, chance = 25000, count_max = 25 }, -- blueberry
+    { id = 2659, chance = 2500 }, -- blue tapestry
+    { id = 3041, chance = 100 }, -- blue gem
   },
 }

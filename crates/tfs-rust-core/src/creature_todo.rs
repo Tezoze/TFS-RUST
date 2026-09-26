@@ -1309,7 +1309,7 @@ mod tests {
         ActionObjectRef {
             pos,
             stack_pos: 0,
-            sprite_id: 0, // matches default `client_id=0` in test items_db
+            sprite_id: 1987,
             creature_id: None,
         }
     }
@@ -1331,7 +1331,7 @@ mod tests {
         ActionObjectRef {
             pos,
             stack_pos: 0,
-            sprite_id: 0,
+            sprite_id: 2148,
             creature_id: None,
         }
     }
@@ -1641,7 +1641,7 @@ mod tests {
         ActionObjectRef {
             pos,
             stack_pos: 0,
-            sprite_id: 0, // default client_id=0 in test items_db
+            sprite_id: server_id,
             creature_id: None,
         }
     }
@@ -2751,7 +2751,7 @@ mod tests {
         let obj1 = ActionObjectRef {
             pos: Position::new(0xFFFF, 10, 0), // inventory ammo slot
             stack_pos: 0,
-            sprite_id: 0,
+            sprite_id: rune_type,
             creature_id: None,
         };
         // Client empty-ground aim: stackpos 0 + ground sprite — no ItemId on tile.

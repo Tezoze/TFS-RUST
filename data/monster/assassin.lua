@@ -15,7 +15,7 @@ return {
     look_body = 95,
     look_legs = 95,
     look_feet = 95,
-    corpse = 3058,
+    corpse = 4240,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 20, most_damage = 10, random = 0 },
@@ -94,17 +94,17 @@ return {
     { text = "You are on my deathlist!", yell = false },
   },
   loot = {
-    { id = 2050, chance = 30000, count_max = 2 }, -- torch
-    { id = 2509, chance = 1000 }, -- steel shield
-    { id = 2457, chance = 3000 }, -- steel helmet
-    { id = 2145, chance = 200 }, -- small diamond
-    { id = 2510, chance = 2000 }, -- plate shield
-    { id = 3968, chance = 500 }, -- leopard armor
-    { id = 2403, chance = 10000 }, -- knife
-    { id = 3969, chance = 200 }, -- horseman helmet
-    { id = 2148, chance = 15000, count_max = 10 }, -- gold coin
-    { id = 2148, chance = 80000, count_max = 40 }, -- gold coin
-    { id = 2404, chance = 4000 }, -- combat knife
-    { id = 2513, chance = 1500 }, -- battle shield
+    { id = 2920, chance = 30000, count_max = 2 }, -- torch
+    { id = 3409, chance = 1000 }, -- steel shield
+    { id = 3351, chance = 3000 }, -- steel helmet
+    { id = 3028, chance = 200 }, -- small diamond
+    { id = 3410, chance = 2000 }, -- plate shield
+    { id = 3404, chance = 500 }, -- leopard armor
+    { id = 3291, chance = 10000 }, -- knife
+    { id = 3405, chance = 200 }, -- horseman helmet
+    { id = 3031, chance = 15000, count_max = 10 }, -- gold coin
+    { id = 3031, chance = 80000, count_max = 40 }, -- gold coin
+    { id = 3292, chance = 4000 }, -- combat knife
+    { id = 3413, chance = 1500 }, -- battle shield
   },
 }

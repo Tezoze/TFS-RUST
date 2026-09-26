@@ -7,7 +7,7 @@ weapon:damage(8, 18)
 weapon:vocation("Sorcerer", true)
 weapon:vocation("Master Sorcerer", false)
 
-weapon:id(2190) -- Wand of Vortex
+weapon:id(3074) -- Wand of Vortex
 weapon:register()
 
 local weapon = Weapon(WEAPON_WAND)
@@ -19,7 +19,7 @@ weapon:damage(13, 25)
 weapon:vocation("Sorcerer", true)
 weapon:vocation("Master Sorcerer", false)
 
-weapon:id(2191) -- Wand of Dragonbreath
+weapon:id(3075) -- Wand of Dragonbreath
 weapon:register()
 
 local weapon = Weapon(WEAPON_WAND)
@@ -31,7 +31,7 @@ weapon:damage(27, 33)
 weapon:vocation("Sorcerer", true)
 weapon:vocation("Master Sorcerer", false)
 
-weapon:id(2188) -- Wand of Plague
+weapon:id(3072) -- Wand of Plague
 weapon:register()
 
 local weapon = Weapon(WEAPON_WAND)
@@ -43,7 +43,7 @@ weapon:damage(42, 48)
 weapon:vocation("Sorcerer", true)
 weapon:vocation("Master Sorcerer", false)
 
-weapon:id(2189) -- Wand of Cosmic Energy
+weapon:id(3073) -- Wand of Cosmic Energy
 weapon:register()
 
 local weapon = Weapon(WEAPON_WAND)
@@ -55,5 +55,5 @@ weapon:damage(55, 75)
 weapon:vocation("Sorcerer", true)
 weapon:vocation("Master Sorcerer", false)
 
-weapon:id(2187) -- Wand of Inferno
+weapon:id(3071) -- Wand of Inferno
 weapon:register()

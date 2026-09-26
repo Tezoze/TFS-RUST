@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 4320,
+    corpse = 4385,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 0, most_damage = 30, random = 0 },
@@ -74,11 +74,11 @@ return {
     invisible = false,
   },
   loot = {
-    { id = 2169, chance = 100 }, -- time ring
-    { id = 2457, chance = 1000 }, -- steel helmet
-    { id = 2510, chance = 2000 }, -- plate shield
-    { id = 2148, chance = 30000, count_max = 30 }, -- gold coin
-    { id = 2148, chance = 70000, count_max = 10 }, -- gold coin
-    { id = 2478, chance = 3000 }, -- brass legs
+    { id = 3053, chance = 100 }, -- time ring
+    { id = 3351, chance = 1000 }, -- steel helmet
+    { id = 3410, chance = 2000 }, -- plate shield
+    { id = 3031, chance = 30000, count_max = 30 }, -- gold coin
+    { id = 3031, chance = 70000, count_max = 10 }, -- gold coin
+    { id = 3372, chance = 3000 }, -- brass legs
   },
 }

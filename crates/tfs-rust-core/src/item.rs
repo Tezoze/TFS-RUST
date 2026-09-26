@@ -46,11 +46,12 @@ impl Item {
     /// Chargeable non-stackable jewelry (might ring) with `count` 0 or 1 gets
     /// [`ItemType::charges`], not a dummy 1. Explicit `count >= 2` is remaining uses.
     pub fn from_item_type(it: &ItemType, count: u16) -> Self {
+        let type_id = Self::catalog_type_id(it);
         if it.stackable() {
-            return Self::new(it.id, count.clamp(1, 100));
+            return Self::new(type_id, count.clamp(1, 100));
         }
         if it.is_fluid_container() || it.is_splash() {
-            let mut item = Self::new(it.id, count);
+            let mut item = Self::new(type_id, count);
             if count > 0 {
                 item.set_fluid_type(count);
             }
@@ -62,11 +63,16 @@ impl Item {
             } else {
                 count
             };
-            let mut item = Self::new(it.id, 1);
+            let mut item = Self::new(type_id, 1);
             item.set_charges(charges);
             return item;
         }
-        Self::new(it.id, count.max(1))
+        Self::new(type_id, count.max(1))
+    }
+
+    /// Catalog key. RON rows set `id`; synthetic fixtures often set only `server_id`.
+    fn catalog_type_id(it: &ItemType) -> u16 {
+        if it.id != 0 { it.id } else { it.server_id }
     }
 
     /// Seed `RemainingUses` when the blob/create path never wrote `ITEM_ATTRIBUTE_CHARGES`.
@@ -247,6 +253,12 @@ impl Item {
         self.attributes
             .get_or_insert_with(|| Box::new(ItemAttributes::new()))
             .set_duration(value);
+    }
+
+    pub fn set_decay_to(&mut self, value: u32) {
+        self.attributes
+            .get_or_insert_with(|| Box::new(ItemAttributes::new()))
+            .set_decay_to(value);
     }
 
     pub fn decaying(&self) -> DecayState {

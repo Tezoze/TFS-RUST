@@ -246,7 +246,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "table" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3908 } },
+				{ set = { var = "type", value = 2782 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 20 } },
 				{ say = "Do you want to buy a small table for %P gold?" },
@@ -261,7 +261,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "table" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3909 } },
+				{ set = { var = "type", value = 2783 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "Do you want to buy a round table for %P gold?" },
@@ -276,7 +276,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "table" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3910 } },
+				{ set = { var = "type", value = 2784 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "Do you want to buy a square table for %P gold?" },
@@ -291,7 +291,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "table" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3911 } },
+				{ set = { var = "type", value = 2785 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 30 } },
 				{ say = "Do you want to buy a big table for %P gold?" },

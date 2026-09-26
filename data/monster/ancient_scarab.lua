@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3004,
+    corpse = 4185,
   },
   change_target = { chance = 10 },
   target_strategy = { nearest = 70, weakest = 20, most_damage = 0, random = 10 },
@@ -118,18 +118,18 @@ return {
     { name = "Larva", delay = 7, max = 3 },
   },
   loot = {
-    { id = 2149, chance = 600, count_max = 3 }, -- small emerald
-    { id = 2150, chance = 1200, count_max = 4 }, -- small amethyst
-    { id = 2540, chance = 500 }, -- scarab shield
-    { id = 2159, chance = 1000 }, -- scarab coin
-    { id = 2159, chance = 5000, count_max = 2 }, -- scarab coin
-    { id = 2135, chance = 500 }, -- scarab amulet
-    { id = 2463, chance = 10000 }, -- plate armor
-    { id = 2162, chance = 10900 }, -- magic light wand
-    { id = 2148, chance = 99900, count_max = 22 }, -- gold coin
-    { id = 2148, chance = 75700, count_max = 66 }, -- gold coin
-    { id = 2148, chance = 44400, count_max = 100 }, -- gold coin
-    { id = 2440, chance = 300 }, -- daramanian waraxe
-    { id = 2142, chance = 1000 }, -- ancient amulet
+    { id = 3032, chance = 600, count_max = 3 }, -- small emerald
+    { id = 3033, chance = 1200, count_max = 4 }, -- small amethyst
+    { id = 3440, chance = 500 }, -- scarab shield
+    { id = 3042, chance = 1000 }, -- scarab coin
+    { id = 3042, chance = 5000, count_max = 2 }, -- scarab coin
+    { id = 3018, chance = 500 }, -- scarab amulet
+    { id = 3357, chance = 10000 }, -- plate armor
+    { id = 3046, chance = 10900 }, -- magic light wand
+    { id = 3031, chance = 99900, count_max = 22 }, -- gold coin
+    { id = 3031, chance = 75700, count_max = 66 }, -- gold coin
+    { id = 3031, chance = 44400, count_max = 100 }, -- gold coin
+    { id = 3328, chance = 300 }, -- daramanian waraxe
+    { id = 3025, chance = 1000 }, -- ancient amulet
   },
 }

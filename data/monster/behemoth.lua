@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2931,
+    corpse = 4112,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 0, most_damage = 30, random = 0 },
@@ -79,21 +79,21 @@ return {
     { text = "Crush the intruders!", yell = true },
   },
   loot = {
-    { id = 2377, chance = 4000 }, -- two handed sword
-    { id = 2174, chance = 800 }, -- strange symbol
-    { id = 2645, chance = 400 }, -- steel boots
-    { id = 2150, chance = 4000, count_max = 2 }, -- small amethyst
-    { id = 2463, chance = 2000 }, -- plate armor
-    { id = 2553, chance = 6000 }, -- pick
-    { id = 2666, chance = 40000, count_max = 6 }, -- meat
-    { id = 2148, chance = 50000, count_max = 80 }, -- gold coin
-    { id = 2148, chance = 70000, count_max = 60 }, -- gold coin
-    { id = 2393, chance = 1000 }, -- giant sword
-    { id = 2387, chance = 10000 }, -- double axe
-    { id = 2489, chance = 3000 }, -- dark armor
-    { id = 2125, chance = 300 }, -- crystal necklace
-    { id = 2416, chance = 15000 }, -- crowbar
-    { id = 2231, chance = 7000 }, -- big bone
-    { id = 2023, chance = 11000 }, -- amphora
+    { id = 3265, chance = 4000 }, -- two handed sword
+    { id = 3058, chance = 800 }, -- strange symbol
+    { id = 3554, chance = 400 }, -- steel boots
+    { id = 3033, chance = 4000, count_max = 2 }, -- small amethyst
+    { id = 3357, chance = 2000 }, -- plate armor
+    { id = 3456, chance = 6000 }, -- pick
+    { id = 3577, chance = 40000, count_max = 6 }, -- meat
+    { id = 3031, chance = 50000, count_max = 80 }, -- gold coin
+    { id = 3031, chance = 70000, count_max = 60 }, -- gold coin
+    { id = 3281, chance = 1000 }, -- giant sword
+    { id = 3275, chance = 10000 }, -- double axe
+    { id = 3383, chance = 3000 }, -- dark armor
+    { id = 3008, chance = 300 }, -- crystal necklace
+    { id = 3304, chance = 15000 }, -- crowbar
+    { id = 3116, chance = 7000 }, -- big bone
+    { id = 2893, chance = 11000 }, -- amphora
   },
 }

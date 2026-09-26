@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 4262,
+    corpse = 4327,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -93,16 +93,16 @@ return {
     { name = "Cobra", delay = 4, max = 6 },
   },
   loot = {
-    { id = 2154, chance = 200 }, -- yellow gem
-    { id = 2182, chance = 100 }, -- snakebite rod
-    { id = 2150, chance = 500 }, -- small amethyst
-    { id = 2181, chance = 1000 }, -- quagmire rod
-    { id = 2168, chance = 200 }, -- life ring
-    { id = 2177, chance = 1000 }, -- life crystal
-    { id = 2148, chance = 80000, count_max = 25 }, -- gold coin
-    { id = 2237, chance = 19900 }, -- dirty cape
-    { id = 2817, chance = 70000 }, -- dead snake
-    { id = 3971, chance = 100 }, -- charmer's tiara
-    { id = 2654, chance = 9000 }, -- cape
+    { id = 3037, chance = 200 }, -- yellow gem
+    { id = 3066, chance = 100 }, -- snakebite rod
+    { id = 3033, chance = 500 }, -- small amethyst
+    { id = 3065, chance = 1000 }, -- quagmire rod
+    { id = 3052, chance = 200 }, -- life ring
+    { id = 3061, chance = 1000 }, -- life crystal
+    { id = 3031, chance = 80000, count_max = 25 }, -- gold coin
+    { id = 3122, chance = 19900 }, -- dirty cape
+    { id = 3998, chance = 70000 }, -- dead snake
+    { id = 3407, chance = 100 }, -- charmer's tiara
+    { id = 3565, chance = 9000 }, -- cape
   },
 }

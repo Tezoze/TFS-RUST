@@ -1,7 +1,7 @@
 local spell = Spell(SPELL_INSTANT)
 
 function spell.onCastSpell(creature, variant)
-	return creature:conjureItem(spell, 2401, 2433, 1)
+	return creature:conjureItem(spell, 3289, 3321, 1)
 end
 
 spell:mana(80)

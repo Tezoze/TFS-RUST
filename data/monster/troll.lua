@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2806,
+    corpse = 3987,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -61,15 +61,15 @@ return {
     { text = "Hmmm, dogs.", yell = false },
   },
   loot = {
-    { id = 2512, chance = 15000 }, -- wooden shield
-    { id = 2448, chance = 5000 }, -- studded club
-    { id = 2389, chance = 20000 }, -- spear
-    { id = 2170, chance = 100 }, -- silver amulet
-    { id = 2120, chance = 8000 }, -- rope
-    { id = 2666, chance = 15000 }, -- meat
-    { id = 2461, chance = 10000 }, -- leather helmet
-    { id = 2643, chance = 10000 }, -- leather boots
-    { id = 2380, chance = 18000 }, -- hand axe
-    { id = 2148, chance = 60000, count_max = 10 }, -- gold coin
+    { id = 3412, chance = 15000 }, -- wooden shield
+    { id = 3336, chance = 5000 }, -- studded club
+    { id = 3277, chance = 20000 }, -- spear
+    { id = 3054, chance = 100 }, -- silver amulet
+    { id = 3003, chance = 8000 }, -- rope
+    { id = 3577, chance = 15000 }, -- meat
+    { id = 3355, chance = 10000 }, -- leather helmet
+    { id = 3552, chance = 10000 }, -- leather boots
+    { id = 3268, chance = 18000 }, -- hand axe
+    { id = 3031, chance = 60000, count_max = 10 }, -- gold coin
   },
 }

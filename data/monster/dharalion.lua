@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2979,
+    corpse = 4160,
   },
   change_target = { chance = 7 },
   target_strategy = { nearest = 10, weakest = 10, most_damage = 20, random = 60 },
@@ -107,20 +107,20 @@ return {
     { name = "Demon Skeleton", delay = 18, max = 2 },
   },
   loot = {
-    { id = 2154, chance = 400 }, -- yellow gem
-    { id = 2401, chance = 11000 }, -- staff
-    { id = 2802, chance = 7000 }, -- sling herb
-    { id = 1949, chance = 30000 }, -- scroll
-    { id = 2642, chance = 9000 }, -- sandals
-    { id = 2682, chance = 20000 }, -- melon
-    { id = 2177, chance = 1500 }, -- life crystal
-    { id = 2600, chance = 9000 }, -- inkwell
-    { id = 2652, chance = 9000 }, -- green tunic
-    { id = 2747, chance = 9000 }, -- grave flower
-    { id = 2198, chance = 2000 }, -- elven amulet
-    { id = 2047, chance = 9000 }, -- candlestick
-    { id = 2689, chance = 14000 }, -- bread
-    { id = 2032, chance = 6500 }, -- bowl
-    { id = 2260, chance = 18000 }, -- blank rune
+    { id = 3037, chance = 400 }, -- yellow gem
+    { id = 3289, chance = 11000 }, -- staff
+    { id = 3738, chance = 7000 }, -- sling herb
+    { id = 2815, chance = 30000 }, -- scroll
+    { id = 3551, chance = 9000 }, -- sandals
+    { id = 3593, chance = 20000 }, -- melon
+    { id = 3061, chance = 1500 }, -- life crystal
+    { id = 3509, chance = 9000 }, -- inkwell
+    { id = 3563, chance = 9000 }, -- green tunic
+    { id = 3661, chance = 9000 }, -- grave flower
+    { id = 3082, chance = 2000 }, -- elven amulet
+    { id = 2917, chance = 9000 }, -- candlestick
+    { id = 3600, chance = 14000 }, -- bread
+    { id = 2902, chance = 6500 }, -- bowl
+    { id = 3147, chance = 18000 }, -- blank rune
   },
 }

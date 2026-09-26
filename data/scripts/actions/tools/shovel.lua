@@ -4,5 +4,5 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 	return onUseShovel(player, item, fromPosition, target, toPosition)
 end
 
-action:id(2554)
+action:id(3457)
 action:register()

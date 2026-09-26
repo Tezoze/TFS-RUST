@@ -16,7 +16,7 @@ function moveevent.onStepIn(creature, item, position, fromPosition)
 	for _, data in ipairs(vocationTiles) do
 		if position.x == data.pos.x and position.y == data.pos.y and position.z == data.pos.z then
 			if table.contains(data.vocations, player:getVocation():getId()) then
-				item:transform(425)
+				item:transform(430)
 				break
 			end
 		end
@@ -31,9 +31,9 @@ moveevent:register()
 local moveevent = MoveEvent()
 
 function moveevent.onStepOut(creature, item, position, fromPosition)
-	item = Tile(position):getItemById(425)
+	item = Tile(position):getItemById(430)
 	if item then
-		item:transform(426)
+		item:transform(431)
 	end
 	return false
 end

@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2908,
+    corpse = 4089,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -115,16 +115,16 @@ return {
     { name = "Skeleton", delay = 9, max = 6 },
   },
   loot = {
-    { id = 2512, chance = 3000 }, -- wooden shield
-    { id = 2377, chance = 4000 }, -- two handed sword
-    { id = 2509, chance = 4000 }, -- steel shield
-    { id = 2175, chance = 5000 }, -- spellbook
-    { id = 2181, chance = 500 }, -- quagmire rod
-    { id = 2394, chance = 7000 }, -- morning star
-    { id = 2397, chance = 9000 }, -- longsword
-    { id = 2148, chance = 70000, count_max = 20 }, -- gold coin
-    { id = 2148, chance = 80000, count_max = 16 }, -- gold coin
-    { id = 2148, chance = 90000, count_max = 12 }, -- gold coin
-    { id = 2518, chance = 100 }, -- beholder shield
+    { id = 3412, chance = 3000 }, -- wooden shield
+    { id = 3265, chance = 4000 }, -- two handed sword
+    { id = 3409, chance = 4000 }, -- steel shield
+    { id = 3059, chance = 5000 }, -- spellbook
+    { id = 3065, chance = 500 }, -- quagmire rod
+    { id = 3282, chance = 7000 }, -- morning star
+    { id = 3285, chance = 9000 }, -- longsword
+    { id = 3031, chance = 70000, count_max = 20 }, -- gold coin
+    { id = 3031, chance = 80000, count_max = 16 }, -- gold coin
+    { id = 3031, chance = 90000, count_max = 12 }, -- gold coin
+    { id = 3418, chance = 100 }, -- beholder shield
   },
 }

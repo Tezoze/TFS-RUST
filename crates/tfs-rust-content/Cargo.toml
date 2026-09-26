@@ -22,3 +22,11 @@ path = "src/bin/patch_otb_waypoints.rs"
 [[bin]]
 name = "dump-items-json"
 path = "src/bin/dump_items_json.rs"
+
+[[bin]]
+name = "client-id-cutover"
+path = "src/bin/client_id_cutover.rs"
+
+[[bin]]
+name = "client-id-pass2"
+path = "src/bin/client_id_pass2.rs"

@@ -15,7 +15,7 @@ return {
     look_body = 52,
     look_legs = 128,
     look_feet = 95,
-    corpse = 3058,
+    corpse = 4240,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -140,23 +140,23 @@ return {
     { name = "Stone Golem", delay = 10, max = 1 },
   },
   loot = {
-    { id = 2151, chance = 1100 }, -- talon
-    { id = 2197, chance = 500 }, -- stone skin amulet
-    { id = 2146, chance = 1400 }, -- small sapphire
-    { id = 2436, chance = 7000 }, -- skull staff
-    { id = 2123, chance = 200 }, -- ring of the sky
-    { id = 1986, chance = 400 }, -- red tome
-    { id = 2411, chance = 10000 }, -- poison dagger
-    { id = 2178, chance = 2500 }, -- mind stone
-    { id = 2600, chance = 13000 }, -- inkwell
-    { id = 2466, chance = 300 }, -- golden armor
-    { id = 2148, chance = 30000, count_max = 80 }, -- gold coin
-    { id = 2167, chance = 3000 }, -- energy ring
-    { id = 2792, chance = 3000 }, -- dark mushroom
-    { id = 2124, chance = 1000 }, -- crystal ring
-    { id = 2679, chance = 20000, count_max = 4 }, -- cherry
-    { id = 2047, chance = 15000 }, -- candlestick
-    { id = 2689, chance = 11000 }, -- bread
-    { id = 2656, chance = 2000 }, -- blue robe
+    { id = 3034, chance = 1100 }, -- talon
+    { id = 3081, chance = 500 }, -- stone skin amulet
+    { id = 3029, chance = 1400 }, -- small sapphire
+    { id = 3324, chance = 7000 }, -- skull staff
+    { id = 3006, chance = 200 }, -- ring of the sky
+    { id = 2852, chance = 400 }, -- red tome
+    { id = 3299, chance = 10000 }, -- poison dagger
+    { id = 3062, chance = 2500 }, -- mind stone
+    { id = 3509, chance = 13000 }, -- inkwell
+    { id = 3360, chance = 300 }, -- golden armor
+    { id = 3031, chance = 30000, count_max = 80 }, -- gold coin
+    { id = 3051, chance = 3000 }, -- energy ring
+    { id = 3728, chance = 3000 }, -- dark mushroom
+    { id = 3007, chance = 1000 }, -- crystal ring
+    { id = 3590, chance = 20000, count_max = 4 }, -- cherry
+    { id = 2917, chance = 15000 }, -- candlestick
+    { id = 3600, chance = 11000 }, -- bread
+    { id = 3567, chance = 2000 }, -- blue robe
   },
 }

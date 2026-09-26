@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2886,
+    corpse = 4067,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -82,14 +82,14 @@ return {
     { text = "Hell, oh hell!", yell = false },
   },
   loot = {
-    { id = 2185, chance = 500 }, -- volcanic rod
-    { id = 2050, chance = 15000, count_max = 2 }, -- torch
-    { id = 2150, chance = 300 }, -- small amethyst
-    { id = 2419, chance = 6000 }, -- scimitar
-    { id = 2548, chance = 50000 }, -- pitchfork
-    { id = 2515, chance = 200 }, -- guardian shield
-    { id = 2387, chance = 1500 }, -- double axe
-    { id = 2568, chance = 9000 }, -- cleaver
-    { id = 2260, chance = 11000 }, -- blank rune
+    { id = 3069, chance = 500 }, -- volcanic rod
+    { id = 2920, chance = 15000, count_max = 2 }, -- torch
+    { id = 3033, chance = 300 }, -- small amethyst
+    { id = 3307, chance = 6000 }, -- scimitar
+    { id = 3451, chance = 50000 }, -- pitchfork
+    { id = 3415, chance = 200 }, -- guardian shield
+    { id = 3275, chance = 1500 }, -- double axe
+    { id = 3471, chance = 9000 }, -- cleaver
+    { id = 3147, chance = 11000 }, -- blank rune
   },
 }

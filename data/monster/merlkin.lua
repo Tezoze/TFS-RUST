@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 4271,
+    corpse = 4336,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -96,13 +96,13 @@ return {
     { text = "Chakka! Chakka!", yell = false },
   },
   loot = {
-    { id = 2188, chance = 1000 }, -- wand of plague
-    { id = 2150, chance = 500 }, -- small amethyst
-    { id = 2675, chance = 1000, count_max = 5 }, -- orange
-    { id = 2162, chance = 5000 }, -- magic light wand
-    { id = 2148, chance = 80000, count_max = 25 }, -- gold coin
-    { id = 3966, chance = 100 }, -- banana staff
-    { id = 2676, chance = 5000, count_max = 10 }, -- banana
-    { id = 2676, chance = 30000, count_max = 2 }, -- banana
+    { id = 3072, chance = 1000 }, -- wand of plague
+    { id = 3033, chance = 500 }, -- small amethyst
+    { id = 3586, chance = 1000, count_max = 5 }, -- orange
+    { id = 3046, chance = 5000 }, -- magic light wand
+    { id = 3031, chance = 80000, count_max = 25 }, -- gold coin
+    { id = 3348, chance = 100 }, -- banana staff
+    { id = 3587, chance = 5000, count_max = 10 }, -- banana
+    { id = 3587, chance = 30000, count_max = 2 }, -- banana
   },
 }

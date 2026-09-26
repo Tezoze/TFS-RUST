@@ -1,7 +1,7 @@
 local moveevent = MoveEvent()
 
 function moveevent.onStepIn(creature, item, position, fromPosition)
-	if Game.isItemInPosition({x = 32803, y = 31584, z = 01},1946) and Game.isItemInPosition ({x = 32805, y = 31584, z = 01},1946) and Game.isItemInPosition ({x = 32802, y = 31584, z = 01},1945) and Game.isItemInPosition ({x = 32804, y = 31584, z = 01}, 1945) then 
+	if Game.isItemInPosition({x = 32803, y = 31584, z = 01},2773) and Game.isItemInPosition ({x = 32805, y = 31584, z = 01},2773) and Game.isItemInPosition ({x = 32802, y = 31584, z = 01},2772) and Game.isItemInPosition ({x = 32804, y = 31584, z = 01}, 2772) then 
 		doRelocate(item:getPosition(),{x = 32701, y = 31639, z = 06})
 		Game.sendMagicEffect({x = 32701, y = 31639, z = 06}, 11)
 	else

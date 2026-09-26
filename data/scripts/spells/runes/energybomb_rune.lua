@@ -10,7 +10,7 @@ spell:vocation("Sorcerer", "Master Sorcerer")
 spell:words("ad,evo, mas, vis")
 
 function spell.onCastSpell(creature, variant)
-	return creature:conjureItem(880, 2260, 2262, 2)
+	return creature:conjureItem(880, 3147, 3149, 2)
 end
 
 spell:register()
@@ -29,7 +29,7 @@ function rune.onCastSpell(creature, variant)
 end
 
 rune:runeMagicLevel(10)
-rune:runeId(2262)
+rune:runeId(3149)
 rune:charges(2)
 rune:allowFarUse(true)
 rune:checkFloor(true)

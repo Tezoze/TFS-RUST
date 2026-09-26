@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3028,
+    corpse = 4209,
   },
   change_target = { chance = 4 },
   target_strategy = { nearest = 70, weakest = 0, most_damage = 30, random = 0 },
@@ -69,16 +69,16 @@ return {
     { text = "Chhhhhhh!", yell = false },
   },
   loot = {
-    { id = 3976, chance = 90000, count_max = 10 }, -- worm
-    { id = 2377, chance = 2000 }, -- two handed sword
-    { id = 2399, chance = 1000, count_max = 3 }, -- throwing star
-    { id = 2145, chance = 500 }, -- small diamond
-    { id = 2227, chance = 20000 }, -- rotten meat
-    { id = 2459, chance = 2000 }, -- iron helmet
-    { id = 2148, chance = 30000, count_max = 30 }, -- gold coin
-    { id = 2148, chance = 40000, count_max = 25 }, -- gold coin
-    { id = 2450, chance = 1000 }, -- bone sword
-    { id = 2541, chance = 1000 }, -- bone shield
-    { id = 2230, chance = 50000 }, -- bone
+    { id = 3492, chance = 90000, count_max = 10 }, -- worm
+    { id = 3265, chance = 2000 }, -- two handed sword
+    { id = 3287, chance = 1000, count_max = 3 }, -- throwing star
+    { id = 3028, chance = 500 }, -- small diamond
+    { id = 3112, chance = 20000 }, -- rotten meat
+    { id = 3353, chance = 2000 }, -- iron helmet
+    { id = 3031, chance = 30000, count_max = 30 }, -- gold coin
+    { id = 3031, chance = 40000, count_max = 25 }, -- gold coin
+    { id = 3338, chance = 1000 }, -- bone sword
+    { id = 3441, chance = 1000 }, -- bone shield
+    { id = 3115, chance = 50000 }, -- bone
   },
 }

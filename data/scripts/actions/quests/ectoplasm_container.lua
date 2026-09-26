@@ -5,8 +5,8 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 		return false
 	end
 	
-	if target:getId() == 2913 then 
-		item:transform(4864, 1) -- full ectoplasm container
+	if target:getId() == 4094 then 
+		item:transform(4853, 1) -- full ectoplasm container
 		item:decay()
 		target:getPosition():sendMagicEffect(12)
 		item:getPosition():sendMagicEffect(13)
@@ -14,5 +14,5 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 	end
 end
 
-action:id(4863) -- empty ectoplasm container
+action:id(4852) -- empty ectoplasm container
 action:register()

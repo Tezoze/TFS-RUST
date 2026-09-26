@@ -1,9 +1,9 @@
 local moveevent = MoveEvent()
 
 function moveevent.onStepIn(creature, item, position, fromPosition)
-	if Game.isItemInPosition({x = 32816, y = 31601, z = 09},2319) and creature:isPlayer() then 
+	if Game.isItemInPosition({x = 32816, y = 31601, z = 09},3206) and creature:isPlayer() then 
 		doRelocate(item:getPosition(),{x = 32701, y = 31639, z = 06})
-		Game.removeItemInPosition({x = 32816, y = 31601, z = 09}, 2319)
+		Game.removeItemInPosition({x = 32816, y = 31601, z = 09}, 3206)
 		Game.sendMagicEffect({x = 32701, y = 31639, z = 06}, 11)
 		Game.sendMagicEffect({x = 32816, y = 31601, z = 09}, 14)
 		creature:getPlayer():setStorageValue(65,0)

@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3058,
+    corpse = 4240,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 20, most_damage = 10, random = 0 },
@@ -85,17 +85,17 @@ return {
     { text = "You are no match for us!", yell = false },
   },
   loot = {
-    { id = 2401, chance = 11000 }, -- staff
-    { id = 1949, chance = 20000 }, -- scroll
-    { id = 2642, chance = 8000 }, -- sandals
-    { id = 2166, chance = 100 }, -- power ring
-    { id = 2044, chance = 10000 }, -- lamp
-    { id = 2177, chance = 1000 }, -- life crystal
-    { id = 2467, chance = 5500 }, -- leather armor
-    { id = 2148, chance = 15000, count_max = 18 }, -- gold coin
-    { id = 1987, chance = 13000 }, -- bag
-    { id = 2015, chance = 9000 }, -- brown flask
-    { id = 2689, chance = 20000 }, -- bread
-    { id = 2193, chance = 100 }, -- ankh
+    { id = 3289, chance = 11000 }, -- staff
+    { id = 2815, chance = 20000 }, -- scroll
+    { id = 3551, chance = 8000 }, -- sandals
+    { id = 3050, chance = 100 }, -- power ring
+    { id = 2914, chance = 10000 }, -- lamp
+    { id = 3061, chance = 1000 }, -- life crystal
+    { id = 3361, chance = 5500 }, -- leather armor
+    { id = 3031, chance = 15000, count_max = 18 }, -- gold coin
+    { id = 2853, chance = 13000 }, -- bag
+    { id = 2885, chance = 9000 }, -- brown flask
+    { id = 3600, chance = 20000 }, -- bread
+    { id = 3077, chance = 100 }, -- ankh
   },
 }

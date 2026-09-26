@@ -15,7 +15,7 @@ return {
     look_body = 40,
     look_legs = 24,
     look_feet = 95,
-    corpse = 3058,
+    corpse = 4240,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -60,16 +60,16 @@ return {
     { text = "Hand me your purse!", yell = false },
   },
   loot = {
-    { id = 2391, chance = 100 }, -- war hammer
-    { id = 2666, chance = 10000 }, -- meat
-    { id = 2398, chance = 10000 }, -- mace
-    { id = 2649, chance = 15000 }, -- leather legs
-    { id = 2459, chance = 500 }, -- iron helmet
-    { id = 2148, chance = 15000, count_max = 10 }, -- gold coin
-    { id = 2148, chance = 40000, count_max = 20 }, -- gold coin
-    { id = 2458, chance = 5000 }, -- chain helmet
-    { id = 2511, chance = 17000 }, -- brass shield
-    { id = 2465, chance = 2500 }, -- brass armor
-    { id = 2386, chance = 30000 }, -- axe
+    { id = 3279, chance = 100 }, -- war hammer
+    { id = 3577, chance = 10000 }, -- meat
+    { id = 3286, chance = 10000 }, -- mace
+    { id = 3559, chance = 15000 }, -- leather legs
+    { id = 3353, chance = 500 }, -- iron helmet
+    { id = 3031, chance = 15000, count_max = 10 }, -- gold coin
+    { id = 3031, chance = 40000, count_max = 20 }, -- gold coin
+    { id = 3352, chance = 5000 }, -- chain helmet
+    { id = 3411, chance = 17000 }, -- brass shield
+    { id = 3359, chance = 2500 }, -- brass armor
+    { id = 3274, chance = 30000 }, -- axe
   },
 }

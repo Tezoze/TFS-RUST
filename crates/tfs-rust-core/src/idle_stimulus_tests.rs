@@ -6854,7 +6854,7 @@ fn place_bag_on_tile_772(
     crate::creature_todo::ActionObjectRef {
         pos,
         stack_pos: 0,
-        sprite_id: 0,
+        sprite_id: 1987,
         creature_id: None,
     }
 }
@@ -7045,7 +7045,7 @@ fn setup_action_far_use_world(
         // CONST_SLOT_AMMO = 10 → array index 9
         p.equipment_slots[9] = Some(rod_id);
     }
-    let sprite_id = world.items_db.client_id_for_server(FISHING_ROD);
+    let sprite_id = FISHING_ROD;
     let obj1 = ActionObjectRef {
         pos: Position::new(0xFFFF, 10, 0),
         stack_pos: 0,
@@ -7601,7 +7601,7 @@ fn test_772_poisonfield_places_item_on_destination() {
 
     let mut world = beat_driven_test_world();
     world.server_ms = 1000;
-    register_magic_field_type(&mut world, 1490);
+    register_magic_field_type(&mut world, 2121);
 
     let mpos = Position::new(100, 100, 7);
     let ppos = Position::new(103, 100, 7);
@@ -7643,8 +7643,8 @@ fn test_772_poisonfield_places_item_on_destination() {
 
     world.monster_idle_stimulus(monster);
     assert!(
-        tile_has_item_type(&world, ppos, 1490),
-        "Destination poisonfield must place ITEM_POISONFIELD_PVP (1490) on target tile"
+        tile_has_item_type(&world, ppos, 2121),
+        "Destination poisonfield must place ITEM_POISONFIELD_PVP (2121) on target tile"
     );
 }
 
@@ -7656,27 +7656,27 @@ fn test_772_create_field_replaces_existing_magic_field() {
     use crate::item::Item;
 
     let mut world = beat_driven_test_world();
-    register_magic_field_type(&mut world, 1490);
-    register_magic_field_type(&mut world, 1487);
+    register_magic_field_type(&mut world, 2121);
+    register_magic_field_type(&mut world, 2118);
 
     let pos = Position::new(100, 100, 7);
     ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
     let caster = insert_monster(&mut world, "Caster", pos, 200);
     world.map.register_creature_at(pos, caster);
 
-    let old = world.items.insert(Item::new_single(1487));
+    let old = world.items.insert(Item::new_single(2118));
     world
         .internal_add_item_to_tile(pos, old, CylinderFlags::NONE)
         .expect("place fire field");
-    assert!(tile_has_item_type(&world, pos, 1487));
+    assert!(tile_has_item_type(&world, pos, 2118));
 
     world.monster_create_field(caster, pos, MonsterFieldType::Poison);
     assert!(
-        tile_has_item_type(&world, pos, 1490),
+        tile_has_item_type(&world, pos, 2121),
         "CreateField must place poison field"
     );
     assert!(
-        !tile_has_item_type(&world, pos, 1487),
+        !tile_has_item_type(&world, pos, 2118),
         "CreateField must remove prior MAGICFIELD"
     );
 }
@@ -7745,7 +7745,7 @@ fn test_772_aggressive_destination_skips_pz_tiles() {
 
     let mut world = beat_driven_test_world();
     world.server_ms = 1000;
-    register_magic_field_type(&mut world, 1490);
+    register_magic_field_type(&mut world, 2121);
 
     let mpos = Position::new(100, 100, 7);
     let ppos = Position::new(102, 100, 7);
@@ -7800,11 +7800,11 @@ fn test_772_aggressive_destination_skips_pz_tiles() {
 
     world.monster_idle_stimulus(monster);
     assert!(
-        !tile_has_item_type(&world, pz, 1490),
+        !tile_has_item_type(&world, pz, 2121),
         "PZ tile in Destination disc must not receive aggressive field"
     );
     assert!(
-        tile_has_item_type(&world, ppos, 1490),
+        tile_has_item_type(&world, ppos, 2121),
         "non-PZ Destination center must still receive field"
     );
 }

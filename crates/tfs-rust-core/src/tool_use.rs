@@ -1008,10 +1008,10 @@ mod tests {
         assert!(!tables.action_ids.contains_key("citizenship"));
         assert!(tables.pick_grounds.contains(&354));
         assert!(tables.pick_grounds.contains(&355));
-        assert!(tables.holes.contains(&468));
-        assert_eq!(tables.jungle_grass.get(&2782), Some(&2781));
-        assert!(tables.rope_spots.contains(&384));
-        assert!(tables.rope_spots.contains(&418));
+        assert!(tables.holes.contains(&593));
+        assert_eq!(tables.jungle_grass.get(&3696), Some(&3695));
+        assert!(tables.rope_spots.contains(&386));
+        assert!(tables.rope_spots.contains(&421));
         assert!(tables.named_ids.contains_key("pumpkin"));
         assert!(tables.named_ids.contains_key("wheatMature"));
         assert!(!tables.scarab_monster.is_empty());
@@ -1019,12 +1019,12 @@ mod tests {
         assert_eq!(tables.move_item_policy.quest_object_aid_min, Some(1000));
         assert_eq!(tables.move_item_policy.quest_object_aid_max, Some(2000));
         assert_eq!(
-            tables.move_item_policy.pre_move_transforms.get(&2057),
-            Some(&2042)
+            tables.move_item_policy.pre_move_transforms.get(&2927),
+            Some(&2912)
         );
         assert_eq!(
-            tables.move_item_policy.post_move_transforms.get(&2579),
-            Some(&2578)
+            tables.move_item_policy.post_move_transforms.get(&3482),
+            Some(&3481)
         );
         assert_eq!(tables.move_item_policy.post_move_effect_id, Some(3));
     }
@@ -1033,8 +1033,8 @@ mod tests {
     fn defs_rope_spots_384_418() {
         let tables = load_from_data_dir(&workspace_data());
         assert_eq!(tables.rope_spots.len(), 2);
-        assert!(tables.rope_spots.contains(&384));
-        assert!(tables.rope_spots.contains(&418));
+        assert!(tables.rope_spots.contains(&386));
+        assert!(tables.rope_spots.contains(&421));
     }
 
     #[test]

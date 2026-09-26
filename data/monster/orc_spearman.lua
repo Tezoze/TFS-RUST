@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2920,
+    corpse = 4101,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -67,12 +67,12 @@ return {
     { text = "Ugaar!", yell = false },
   },
   loot = {
-    { id = 2468, chance = 10000 }, -- studded legs
-    { id = 2482, chance = 9000 }, -- studded helmet
-    { id = 2389, chance = 23000 }, -- spear
-    { id = 2666, chance = 30000 }, -- meat
-    { id = 2420, chance = 10000 }, -- machete
-    { id = 2148, chance = 22000, count_max = 7 }, -- gold coin
-    { id = 2220, chance = 7700 }, -- dirty fur
+    { id = 3362, chance = 10000 }, -- studded legs
+    { id = 3376, chance = 9000 }, -- studded helmet
+    { id = 3277, chance = 23000 }, -- spear
+    { id = 3577, chance = 30000 }, -- meat
+    { id = 3308, chance = 10000 }, -- machete
+    { id = 3031, chance = 22000, count_max = 7 }, -- gold coin
+    { id = 3105, chance = 7700 }, -- dirty fur
   },
 }

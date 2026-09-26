@@ -19,8 +19,8 @@ use crate::event_dispatcher::TileMoveEventItem;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 
-const ITEM_MAGICWALL: u16 = 1497;
-const ITEM_WILDGROWTH: u16 = 1499;
+const ITEM_MAGICWALL: u16 = 2128;
+const ITEM_WILDGROWTH: u16 = 2130;
 const CONST_ME_POFF: u8 = 3;
 
 /// Boot-built registry of native move handlers keyed by `(kind, aid)`.

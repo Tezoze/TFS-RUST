@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 4280,
+    corpse = 4345,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 0, most_damage = 30, random = 0 },
@@ -85,14 +85,14 @@ return {
     invisible = true,
   },
   loot = {
-    { id = 2802, chance = 500 }, -- sling herb
-    { id = 2802, chance = 500 }, -- sling herb
-    { id = 2804, chance = 1000 }, -- shadow herb
-    { id = 2666, chance = 70000, count_max = 2 }, -- meat
-    { id = 2671, chance = 40000 }, -- ham
-    { id = 2747, chance = 500 }, -- grave flower
-    { id = 2148, chance = 40000, count_max = 10 }, -- gold coin
-    { id = 2148, chance = 80000, count_max = 30 }, -- gold coin
-    { id = 2792, chance = 8000 }, -- dark mushroom
+    { id = 3738, chance = 500 }, -- sling herb
+    { id = 3738, chance = 500 }, -- sling herb
+    { id = 3740, chance = 1000 }, -- shadow herb
+    { id = 3577, chance = 70000, count_max = 2 }, -- meat
+    { id = 3582, chance = 40000 }, -- ham
+    { id = 3661, chance = 500 }, -- grave flower
+    { id = 3031, chance = 40000, count_max = 10 }, -- gold coin
+    { id = 3031, chance = 80000, count_max = 30 }, -- gold coin
+    { id = 3728, chance = 8000 }, -- dark mushroom
   },
 }

@@ -5,8 +5,8 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 		return false
 	end
 	
-	if target:getId() == 1560 and toPosition.x == 32754 and toPosition.y == 32559 and toPosition.z == 9 and player:getStorageValue(315) == 1 then
-		item:transform(4854, 1)
+	if target:getId() == 2199 and toPosition.x == 32754 and toPosition.y == 32559 and toPosition.z == 9 and player:getStorageValue(315) == 1 then
+		item:transform(4843, 1)
 		item:decay()
 		player:setStorageValue(316, 1)
 		target:getPosition():sendMagicEffect(4)
@@ -15,5 +15,5 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 	return false
 end
 
-action:id(4853) -- sheet of tracing paper (empty)
+action:id(4842) -- sheet of tracing paper (empty)
 action:register()

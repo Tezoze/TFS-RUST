@@ -236,7 +236,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "flower" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2100 } },
+				{ set = { var = "type", value = 2981 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 5 } },
 				{ say = "Do you want to buy god flowers for %P gold?" },
@@ -251,7 +251,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "plant" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3937 } },
+				{ set = { var = "type", value = 2811 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 8 } },
 				{ say = "Do you want to buy an indoor plant for %P gold?" },
@@ -266,7 +266,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "bowl" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2102 } },
+				{ set = { var = "type", value = 2983 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 6 } },
 				{ say = "Do you want to buy a flower bowl for %P gold?" },
@@ -281,7 +281,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "flower" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2103 } },
+				{ set = { var = "type", value = 2984 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 5 } },
 				{ say = "Do you want to buy a honey flower for %P gold?" },
@@ -296,7 +296,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "flower" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 2104 } },
+				{ set = { var = "type", value = 2985 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 5 } },
 				{ say = "Do you want to buy a potted flower for %P gold?" },

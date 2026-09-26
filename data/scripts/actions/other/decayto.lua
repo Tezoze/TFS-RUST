@@ -1,14 +1,14 @@
 -- Cuckoo 1873–1876 are InformationType=2 + Expire (`objects.srv`); use announces
 -- time via watch.lua. Do not toggle them here.
 local decayItems = {
-	[2041] = 2042, [2042] = 2041, -- candelabrum
-	[2044] = 2045, [2045] = 2044, -- lamp
-	[2047] = 2048, [2048] = 2047, -- candlestick
-	[2050] = 2051, [2051] = 2050, -- torch
-	[2052] = 2053, [2053] = 2052, -- torch
-	[2054] = 2055, [2055] = 2054, -- torch
-	[2162] = 2163, [2163] = 2162, -- magic light wand
-	[2057] = 2041, -- eternal candelabrum into expiring candelabrum
+	[2911] = 2912, [2912] = 2911, -- candelabrum
+	[2914] = 2915, [2915] = 2914, -- lamp
+	[2917] = 2918, [2918] = 2917, -- candlestick
+	[2920] = 2921, [2921] = 2920, -- torch
+	[2922] = 2923, [2923] = 2922, -- torch
+	[2924] = 2925, [2925] = 2924, -- torch
+	[3046] = 3047, [3047] = 3046, -- magic light wand
+	[2927] = 2911, -- eternal candelabrum into expiring candelabrum
 }
 
 local action = Action()

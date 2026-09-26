@@ -101,12 +101,18 @@ fn logout_packet_enqueues_stop_fight_true() {
 
     let (_tx, mut game_rx, _ctrl_rx) = tfs_rust_net::open_game_command_channels();
     let mut pending = VecDeque::new();
+    let mut immediate_logout = None;
     super::handle_game_packet(
         &mut world,
         conn,
         GamePacket::Logout,
         &mut game_rx,
         &mut pending,
+        &mut immediate_logout,
+    );
+    assert!(
+        immediate_logout.is_none(),
+        "772 Logout(0) waits for the next Process"
     );
     assert!(
         pending.is_empty(),
@@ -120,6 +126,53 @@ fn logout_packet_enqueues_stop_fight_true() {
             .get(pid)
             .is_some_and(|k| k.base().logging_out),
         "CL_CMD_LOGOUT → StopFight / StartLogout now"
+    );
+}
+
+/// 8.0 quit closes in this call (`800src/protocolgame.cpp` `logout`), not next round.
+#[tokio::test(flavor = "current_thread")]
+async fn logout_packet_on_800_closes_in_the_same_call() {
+    let mut world = beat_driven_test_world();
+    world.codec = tfs_rust_net::Codec::from_version(tfs_rust_common::ProtocolVersion::V800)
+        .expect("800 codec");
+    let pos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+    let pid = insert_player(&mut world, test_player("Quit8", pos));
+    world.map.register_creature_at(pos, pid);
+    let conn = ConnId(2);
+    world.register_conn_mapping(conn, pid);
+
+    let (_tx, mut game_rx, _ctrl_rx) = tfs_rust_net::open_game_command_channels();
+    let mut pending = VecDeque::new();
+    let mut immediate_logout = None;
+    super::handle_game_packet(
+        &mut world,
+        conn,
+        GamePacket::Logout,
+        &mut game_rx,
+        &mut pending,
+        &mut immediate_logout,
+    );
+    assert!(
+        world.logout_at_round.get(&conn).is_none(),
+        "8.0 must not wait a round"
+    );
+    assert!(immediate_logout.is_some());
+    let mut pending_login = LoginIngest::new();
+    let mut sinks = HashMap::new();
+    let logout = immediate_logout.expect("same-call logout");
+    handle_player_disconnect(
+        &mut world,
+        &mut pending_login,
+        conn,
+        logout.display_effect,
+        logout.stop_fight,
+        &mut sinks,
+        &None,
+    );
+    assert!(
+        !world.creatures.contains_key(pid),
+        "allowed 8.0 logout removes the body before the client returns to login"
     );
 }
 

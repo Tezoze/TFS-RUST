@@ -191,12 +191,12 @@ mod tests {
 
     fn repo_items() -> Option<ItemDatabase> {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let otb = root.join("data/items/items.otb");
-        let xml = root.join("data/items/items.xml");
-        if !otb.exists() || !xml.exists() {
+        let ron =
+            ItemDatabase::ron_path(&root.join("data"), tfs_rust_common::ProtocolVersion::V772);
+        if !ron.exists() {
             return None;
         }
-        Some(ItemDatabase::load(&otb, &xml).expect("load items"))
+        Some(ItemDatabase::load_ron(&ron).expect("load items"))
     }
 
     #[test]

@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2808,
+    corpse = 3989,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 0, most_damage = 30, random = 0 },
@@ -63,16 +63,16 @@ return {
     { text = "Let da mashing begin!", yell = false },
   },
   loot = {
-    { id = 2129, chance = 200 }, -- wolf tooth chain
-    { id = 2406, chance = 8000 }, -- short sword
-    { id = 2510, chance = 2000 }, -- plate shield
-    { id = 2666, chance = 50000 }, -- meat
-    { id = 2671, chance = 20000, count_max = 2 }, -- ham
-    { id = 2381, chance = 700 }, -- halberd
-    { id = 2148, chance = 40000, count_max = 20 }, -- gold coin
-    { id = 2148, chance = 70000, count_max = 10 }, -- gold coin
-    { id = 2490, chance = 200 }, -- dark helmet
-    { id = 2209, chance = 100 }, -- club ring
-    { id = 2513, chance = 1500 }, -- battle shield
+    { id = 3012, chance = 200 }, -- wolf tooth chain
+    { id = 3294, chance = 8000 }, -- short sword
+    { id = 3410, chance = 2000 }, -- plate shield
+    { id = 3577, chance = 50000 }, -- meat
+    { id = 3582, chance = 20000, count_max = 2 }, -- ham
+    { id = 3269, chance = 700 }, -- halberd
+    { id = 3031, chance = 40000, count_max = 20 }, -- gold coin
+    { id = 3031, chance = 70000, count_max = 10 }, -- gold coin
+    { id = 3384, chance = 200 }, -- dark helmet
+    { id = 3093, chance = 100 }, -- club ring
+    { id = 3413, chance = 1500 }, -- battle shield
   },
 }

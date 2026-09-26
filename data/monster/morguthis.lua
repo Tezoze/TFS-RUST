@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3016,
+    corpse = 4197,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 80, weakest = 10, most_damage = 10, random = 0 },
@@ -126,15 +126,15 @@ return {
     { name = "Hero", delay = 15, max = 2 },
   },
   loot = {
-    { id = 2350, chance = 100000 }, -- sword hilt
-    { id = 2197, chance = 5000 }, -- stone skin amulet
-    { id = 2645, chance = 100 }, -- steel boots
-    { id = 2443, chance = 100 }, -- ravager's axe
-    { id = 2430, chance = 5000 }, -- knight axe
-    { id = 2148, chance = 35000, count_max = 95 }, -- gold coin
-    { id = 2148, chance = 50000, count_max = 85 }, -- gold coin
-    { id = 2148, chance = 70000, count_max = 80 }, -- gold coin
-    { id = 2136, chance = 100 }, -- demonbone amulet
-    { id = 2144, chance = 10000 }, -- black pearl
+    { id = 3237, chance = 100000 }, -- sword hilt
+    { id = 3081, chance = 5000 }, -- stone skin amulet
+    { id = 3554, chance = 100 }, -- steel boots
+    { id = 3331, chance = 100 }, -- ravager's axe
+    { id = 3318, chance = 5000 }, -- knight axe
+    { id = 3031, chance = 35000, count_max = 95 }, -- gold coin
+    { id = 3031, chance = 50000, count_max = 85 }, -- gold coin
+    { id = 3031, chance = 70000, count_max = 80 }, -- gold coin
+    { id = 3019, chance = 100 }, -- demonbone amulet
+    { id = 3027, chance = 10000 }, -- black pearl
   },
 }

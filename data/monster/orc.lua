@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2820,
+    corpse = 4001,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -59,12 +59,12 @@ return {
     { text = "Prek tars, dekklep zurk.", yell = false },
   },
   loot = {
-    { id = 2526, chance = 10000 }, -- studded shield
-    { id = 2482, chance = 9000 }, -- studded helmet
-    { id = 2484, chance = 12000 }, -- studded armor
-    { id = 2385, chance = 6000 }, -- sabre
-    { id = 2666, chance = 20000 }, -- meat
-    { id = 2148, chance = 85000, count_max = 8 }, -- gold coin
-    { id = 2386, chance = 8000 }, -- axe
+    { id = 3426, chance = 10000 }, -- studded shield
+    { id = 3376, chance = 9000 }, -- studded helmet
+    { id = 3378, chance = 12000 }, -- studded armor
+    { id = 3273, chance = 6000 }, -- sabre
+    { id = 3577, chance = 20000 }, -- meat
+    { id = 3031, chance = 85000, count_max = 8 }, -- gold coin
+    { id = 3274, chance = 8000 }, -- axe
   },
 }

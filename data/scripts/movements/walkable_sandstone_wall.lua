@@ -1,11 +1,11 @@
 local moveevent = MoveEvent()
 
 function moveevent.onStepIn(creature, item, position, fromPosition)
-	if item:getId() == 464 then
-		item:transform(465, 1)
+	if item:getId() == 478 then
+		item:transform(479, 1)
 		item:decay()
-	elseif item:getId() == 466 then
-		item:transform(467, 1)
+	elseif item:getId() == 480 then
+		item:transform(481, 1)
 		item:decay()
 	end
 end
@@ -16,11 +16,11 @@ moveevent:register()
 local moveevent = MoveEvent()
 
 function moveevent.onStepOut(creature, item, position, fromPosition)
-	if item:getId() == 465 then
-		item:transform(464, 1)
+	if item:getId() == 479 then
+		item:transform(478, 1)
 		item:decay()
-	elseif item:getId() == 467 then
-		item:transform(466, 1)
+	elseif item:getId() == 481 then
+		item:transform(480, 1)
 		item:decay()
 	end
 end
@@ -31,11 +31,11 @@ moveevent:register()
 local moveevent = MoveEvent()
 
 function moveevent.onAddItem(item, tileitem, position)
-	if tileitem:getId() == 464 then
-		tileitem:transform(465, 1)
+	if tileitem:getId() == 478 then
+		tileitem:transform(479, 1)
 		tileitem:decay()
-	elseif tileitem:getId() == 466 then
-		tileitem:transform(467, 1)
+	elseif tileitem:getId() == 480 then
+		tileitem:transform(481, 1)
 		tileitem:decay()
 	end
 end
@@ -47,11 +47,11 @@ moveevent:register()
 local moveevent = MoveEvent()
 
 function moveevent.onRemoveItem(item, tileitem, position)
-	if tileitem:getId() == 465 then
-		tileitem:transform(464, 1)
+	if tileitem:getId() == 479 then
+		tileitem:transform(478, 1)
 		tileitem:decay()
-	elseif tileitem:getId() == 467 then
-		tileitem:transform(466, 1)
+	elseif tileitem:getId() == 481 then
+		tileitem:transform(480, 1)
 		tileitem:decay()
 	end
 end

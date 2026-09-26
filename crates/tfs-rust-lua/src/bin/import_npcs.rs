@@ -191,15 +191,11 @@ Options:
 }
 
 fn load_items(data_dir: &Path) -> Result<ItemDatabase, String> {
-    let otb = data_dir.join("items/items.otb");
-    let xml = data_dir.join("items/items.xml");
-    if !otb.exists() || !xml.exists() {
-        return Err(format!(
-            "need items.otb and items.xml under {}/items",
-            data_dir.display()
-        ));
+    let ron = ItemDatabase::ron_path(data_dir, tfs_rust_common::ProtocolVersion::V772);
+    if !ron.exists() {
+        return Err(format!("items.ron not found: {}", ron.display()));
     }
-    ItemDatabase::load(&otb, &xml).map_err(|e| format!("load items: {e}"))
+    ItemDatabase::load_ron(&ron).map_err(|e| format!("load items: {e}"))
 }
 
 fn staging_dir(out: &Path) -> Result<PathBuf, String> {

@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2864,
+    corpse = 4045,
   },
   change_target = { chance = 10 },
   target_strategy = { nearest = 60, weakest = 40, most_damage = 0, random = 0 },
@@ -69,12 +69,12 @@ return {
     { text = "KRAK ORRRRRRK!", yell = true },
   },
   loot = {
-    { id = 2044, chance = 8000 }, -- lamp
-    { id = 2671, chance = 17000 }, -- ham
-    { id = 2381, chance = 7000 }, -- halberd
-    { id = 2148, chance = 55000, count_max = 12 }, -- gold coin
-    { id = 2458, chance = 11000 }, -- chain helmet
-    { id = 2464, chance = 10000 }, -- chain armor
-    { id = 2378, chance = 6000 }, -- battle axe
+    { id = 2914, chance = 8000 }, -- lamp
+    { id = 3582, chance = 17000 }, -- ham
+    { id = 3269, chance = 7000 }, -- halberd
+    { id = 3031, chance = 55000, count_max = 12 }, -- gold coin
+    { id = 3352, chance = 11000 }, -- chain helmet
+    { id = 3358, chance = 10000 }, -- chain armor
+    { id = 3266, chance = 6000 }, -- battle axe
   },
 }

@@ -15,7 +15,7 @@ return {
     look_body = 120,
     look_legs = 95,
     look_feet = 115,
-    corpse = 3065,
+    corpse = 4247,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -68,15 +68,15 @@ return {
     { text = "Your head will be mine!", yell = false },
   },
   loot = {
-    { id = 2050, chance = 5000 }, -- torch
-    { id = 2526, chance = 5000 }, -- studded shield
-    { id = 2147, chance = 100 }, -- small ruby
-    { id = 2229, chance = 80000, count_max = 2 }, -- skull
-    { id = 2385, chance = 23000 }, -- sabre
-    { id = 2467, chance = 50000 }, -- leather armor
-    { id = 2148, chance = 40000, count_max = 10 }, -- gold coin
-    { id = 2379, chance = 80000 }, -- dagger
-    { id = 2125, chance = 200 }, -- crystal necklace
-    { id = 2691, chance = 30000 }, -- brown bread
+    { id = 2920, chance = 5000 }, -- torch
+    { id = 3426, chance = 5000 }, -- studded shield
+    { id = 3030, chance = 100 }, -- small ruby
+    { id = 3114, chance = 80000, count_max = 2 }, -- skull
+    { id = 3273, chance = 23000 }, -- sabre
+    { id = 3361, chance = 50000 }, -- leather armor
+    { id = 3031, chance = 40000, count_max = 10 }, -- gold coin
+    { id = 3267, chance = 80000 }, -- dagger
+    { id = 3008, chance = 200 }, -- crystal necklace
+    { id = 3602, chance = 30000 }, -- brown bread
   },
 }

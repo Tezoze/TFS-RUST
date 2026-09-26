@@ -6,6 +6,7 @@
 mod access;
 mod auction;
 mod depot_cash;
+mod legacy_ids;
 mod look;
 mod ownership;
 mod persist;

@@ -6,8 +6,8 @@ function action.onUse(player, item, fromPosition, target, toPosition, isHotkey)
 		return false
 	end
 	
-	if target:getId() == 2047 then
-		item:transform(2097, 1)
+	if target:getId() == 2917 then
+		item:transform(2978, 1)
 		item:decay()
 		target:remove()
 		return true
@@ -15,5 +15,5 @@ function action.onUse(player, item, fromPosition, target, toPosition, isHotkey)
 	return false
 end
 
-action:id(2096)
+action:id(2977)
 action:register()

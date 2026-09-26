@@ -5,20 +5,20 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 		return false
 	end
 	
-	if target:getId() == 4138 and player:getStorageValue(305) == 1 then
-		item:transform(4870, 1) -- jungle bells plant
+	if target:getId() == 3874 and player:getStorageValue(305) == 1 then
+		item:transform(4868, 1) -- jungle bells plant
 		target:getPosition():sendMagicEffect(10)
 		return true
-	elseif target:getId() == 4149 and player:getStorageValue(305) == 3 then
-		item:transform(4872, 1) -- witches cauldrom
+	elseif target:getId() == 3885 and player:getStorageValue(305) == 3 then
+		item:transform(4870, 1) -- witches cauldrom
 		target:getPosition():sendMagicEffect(10)
 		return true
-	elseif target:getId() == 4142 and player:getStorageValue(305) == 5 then 
-		item:transform(4871, 1) -- giant jungle rose
+	elseif target:getId() == 3878 and player:getStorageValue(305) == 5 then 
+		item:transform(4869, 1) -- giant jungle rose
 		target:getPosition():sendMagicEffect(10)
 		return true
 	end
 end
 
-action:id(4869) -- empty botanist container
+action:id(4867) -- empty botanist container
 action:register()

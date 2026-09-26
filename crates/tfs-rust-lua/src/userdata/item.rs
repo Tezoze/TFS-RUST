@@ -8,7 +8,8 @@ use std::cell::RefCell;
 use crate::context::{CURRENT_CTX, CreatureRef, ItemData, ItemRef, LuaContext};
 use crate::lua_mutation::{
     LuaMoveDestination, call_lua_item_decay, call_lua_item_move_to, call_lua_item_remove,
-    call_lua_item_transform, call_lua_set_action_id, call_lua_set_custom_attribute,
+    call_lua_item_set_decay, call_lua_item_transform, call_lua_set_action_id,
+    call_lua_set_custom_attribute,
     call_lua_set_store_item, call_lua_set_unique_id,
 };
 use crate::userdata::container::ContainerRef;
@@ -478,6 +479,11 @@ impl UserData for ItemRef {
         // `item:decay()` — TFS `luaItemDecay` → `Item::startDecaying` → `Game::startDecay`.
         methods.add_method("decay", |_, this, ()| {
             call_lua_item_decay(this.0).map_err(mlua::Error::runtime)
+        });
+
+        // Instance decay when the type has no duration (puzzle lever on one id).
+        methods.add_method("setDecay", |_, this, (seconds, decay_to): (u32, u16)| {
+            call_lua_item_set_decay(this.0, seconds, decay_to).map_err(mlua::Error::runtime)
         });
 
         // Gap 7b — `__index` fallback so `item:getType()` / `item:isCreature()`

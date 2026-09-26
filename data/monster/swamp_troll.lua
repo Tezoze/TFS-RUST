@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2995,
+    corpse = 4176,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -60,11 +60,11 @@ return {
     { text = "Me strong! Me ate spinach!", yell = false },
   },
   loot = {
-    { id = 2050, chance = 15000 }, -- torch
-    { id = 2643, chance = 10000 }, -- leather boots
-    { id = 2148, chance = 50000, count_max = 5 }, -- gold coin
-    { id = 2580, chance = 100 }, -- fishing rod
-    { id = 2667, chance = 60000 }, -- fish
-    { id = 2379, chance = 30000 }, -- dagger
+    { id = 2920, chance = 15000 }, -- torch
+    { id = 3552, chance = 10000 }, -- leather boots
+    { id = 3031, chance = 50000, count_max = 5 }, -- gold coin
+    { id = 3483, chance = 100 }, -- fishing rod
+    { id = 3578, chance = 60000 }, -- fish
+    { id = 3267, chance = 30000 }, -- dagger
   },
 }

@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2998,
+    corpse = 4179,
   },
   change_target = { chance = 3 },
   target_strategy = { nearest = 80, weakest = 10, most_damage = 10, random = 0 },
@@ -100,24 +100,24 @@ return {
     { text = "Feel my gentle kiss of death.", yell = false },
   },
   loot = {
-    { id = 2143, chance = 1000 }, -- white pearl
-    { id = 2121, chance = 500 }, -- wedding ring
-    { id = 2197, chance = 800 }, -- stone skin amulet
-    { id = 2175, chance = 500 }, -- spellbook
-    { id = 2657, chance = 60000 }, -- simple dress
-    { id = 2134, chance = 1500 }, -- silver brooch
-    { id = 2170, chance = 9000 }, -- silver amulet
-    { id = 2214, chance = 800 }, -- ring of healing
-    { id = 2655, chance = 100 }, -- red robe
-    { id = 2411, chance = 1500 }, -- poison dagger
-    { id = 2560, chance = 7000 }, -- mirror
-    { id = 2071, chance = 1000 }, -- lyre
-    { id = 2177, chance = 100 }, -- life crystal
-    { id = 2148, chance = 30000, count_max = 80 }, -- gold coin
-    { id = 2237, chance = 19900 }, -- dirty cape
-    { id = 2124, chance = 100 }, -- crystal ring
-    { id = 2047, chance = 70000 }, -- candlestick
-    { id = 2656, chance = 600 }, -- blue robe
-    { id = 2144, chance = 2000 }, -- black pearl
+    { id = 3026, chance = 1000 }, -- white pearl
+    { id = 3004, chance = 500 }, -- wedding ring
+    { id = 3081, chance = 800 }, -- stone skin amulet
+    { id = 3059, chance = 500 }, -- spellbook
+    { id = 3568, chance = 60000 }, -- simple dress
+    { id = 3017, chance = 1500 }, -- silver brooch
+    { id = 3054, chance = 9000 }, -- silver amulet
+    { id = 3098, chance = 800 }, -- ring of healing
+    { id = 3566, chance = 100 }, -- red robe
+    { id = 3299, chance = 1500 }, -- poison dagger
+    { id = 3463, chance = 7000 }, -- mirror
+    { id = 2949, chance = 1000 }, -- lyre
+    { id = 3061, chance = 100 }, -- life crystal
+    { id = 3031, chance = 30000, count_max = 80 }, -- gold coin
+    { id = 3122, chance = 19900 }, -- dirty cape
+    { id = 3007, chance = 100 }, -- crystal ring
+    { id = 2917, chance = 70000 }, -- candlestick
+    { id = 3567, chance = 600 }, -- blue robe
+    { id = 3027, chance = 2000 }, -- black pearl
   },
 }

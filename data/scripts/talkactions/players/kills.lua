@@ -2,7 +2,7 @@ local talkaction = TalkAction("!kills")
 
 function talkaction.onSay(player, words, param)
 	if Game.getWorldType() == WORLD_TYPE_PVP_ENFORCED then
-		player:showTextDialog(2598, "Your character has no murder history.", false)
+		player:showTextDialog(3506, "Your character has no murder history.", false)
 		return false
 	end
 	
@@ -76,7 +76,7 @@ function talkaction.onSay(player, words, param)
 	message = message .. "- Within a week " .. killsWeekBanishment - lastWeek .. " murders.\n"
 	message = message .. "- Within a month " .. killsMonthBanishment - lastDay .. " murders.\n"
 			
-	player:showTextDialog(2598, message, false)
+	player:showTextDialog(3506, message, false)
 	return false
 end
 

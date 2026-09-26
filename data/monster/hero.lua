@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3058,
+    corpse = 4240,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 80, weakest = 10, most_damage = 10, random = 0 },
@@ -79,25 +79,25 @@ return {
     { text = "I will sing a tune at your grave.", yell = false },
   },
   loot = {
-    { id = 2121, chance = 5000 }, -- wedding ring
-    { id = 2391, chance = 1000 }, -- war hammer
-    { id = 2377, chance = 1500 }, -- two handed sword
-    { id = 1949, chance = 45000 }, -- scroll
-    { id = 2661, chance = 12000 }, -- scarf
-    { id = 2120, chance = 20000 }, -- rope
-    { id = 2744, chance = 20000 }, -- red rose
-    { id = 2164, chance = 500 }, -- might ring
-    { id = 2666, chance = 18000, count_max = 2 }, -- meat
-    { id = 2071, chance = 15000 }, -- lyre
-    { id = 2652, chance = 8000 }, -- green tunic
-    { id = 2681, chance = 20000 }, -- grapes
-    { id = 2148, chance = 60000, count_max = 100 }, -- gold coin
-    { id = 2392, chance = 500 }, -- fire sword
-    { id = 2519, chance = 400 }, -- crown shield
-    { id = 2488, chance = 500 }, -- crown legs
-    { id = 2491, chance = 500 }, -- crown helmet
-    { id = 2487, chance = 600 }, -- crown armor
-    { id = 2456, chance = 13000 }, -- bow
-    { id = 2544, chance = 27000, count_max = 13 }, -- arrow
+    { id = 3004, chance = 5000 }, -- wedding ring
+    { id = 3279, chance = 1000 }, -- war hammer
+    { id = 3265, chance = 1500 }, -- two handed sword
+    { id = 2815, chance = 45000 }, -- scroll
+    { id = 3572, chance = 12000 }, -- scarf
+    { id = 3003, chance = 20000 }, -- rope
+    { id = 3658, chance = 20000 }, -- red rose
+    { id = 3048, chance = 500 }, -- might ring
+    { id = 3577, chance = 18000, count_max = 2 }, -- meat
+    { id = 2949, chance = 15000 }, -- lyre
+    { id = 3563, chance = 8000 }, -- green tunic
+    { id = 3592, chance = 20000 }, -- grapes
+    { id = 3031, chance = 60000, count_max = 100 }, -- gold coin
+    { id = 3280, chance = 500 }, -- fire sword
+    { id = 3419, chance = 400 }, -- crown shield
+    { id = 3382, chance = 500 }, -- crown legs
+    { id = 3385, chance = 500 }, -- crown helmet
+    { id = 3381, chance = 600 }, -- crown armor
+    { id = 3350, chance = 13000 }, -- bow
+    { id = 3447, chance = 27000, count_max = 13 }, -- arrow
   },
 }

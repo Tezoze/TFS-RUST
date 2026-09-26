@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2843,
+    corpse = 4024,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -61,13 +61,13 @@ return {
     invisible = false,
   },
   loot = {
-    { id = 2473, chance = 8000 }, -- viking helmet
-    { id = 2050, chance = 50000 }, -- torch
-    { id = 2376, chance = 2000 }, -- sword
-    { id = 2398, chance = 20000 }, -- mace
-    { id = 2388, chance = 25000 }, -- hatchet
-    { id = 2148, chance = 45000, count_max = 10 }, -- gold coin
-    { id = 2511, chance = 12000 }, -- brass shield
-    { id = 2230, chance = 50000 }, -- bone
+    { id = 3367, chance = 8000 }, -- viking helmet
+    { id = 2920, chance = 50000 }, -- torch
+    { id = 3264, chance = 2000 }, -- sword
+    { id = 3286, chance = 20000 }, -- mace
+    { id = 3276, chance = 25000 }, -- hatchet
+    { id = 3031, chance = 45000, count_max = 10 }, -- gold coin
+    { id = 3411, chance = 12000 }, -- brass shield
+    { id = 3115, chance = 50000 }, -- bone
   },
 }

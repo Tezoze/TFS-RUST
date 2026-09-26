@@ -4,8 +4,8 @@
 local action = Action()
 
 function action.onUse(player, item, fromPosition, target, toPosition)
-	if item:getId() == 1945 then 
-		item:transform(4384, 1)
+	if item:getId() == 2772 then 
+		item:transform(2773, 1)
 		item:decay()
 	else
 		player:sendTextMessage(MESSAGE_STATUS_SMALL, "It doesn't move.")

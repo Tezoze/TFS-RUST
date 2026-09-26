@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3049,
+    corpse = 4230,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -87,9 +87,9 @@ return {
     { text = "Me need mana!", yell = false },
   },
   loot = {
-    { id = 2512, chance = 3000 }, -- wooden shield
-    { id = 2148, chance = 70000, count_max = 10 }, -- gold coin
-    { id = 2148, chance = 80000, count_max = 8 }, -- gold coin
-    { id = 2148, chance = 90000, count_max = 6 }, -- gold coin
+    { id = 3412, chance = 3000 }, -- wooden shield
+    { id = 3031, chance = 70000, count_max = 10 }, -- gold coin
+    { id = 3031, chance = 80000, count_max = 8 }, -- gold coin
+    { id = 3031, chance = 90000, count_max = 6 }, -- gold coin
   },
 }

@@ -441,13 +441,13 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ expr = { session = "topic" }, op = "=", rhs = 96 },
 				{ words = { "yes" } },
-				{ expr = { count = 2148 }, op = ">=", rhs = { session = "amount" } },
+				{ expr = { count = 3031 }, op = ">=", rhs = { session = "amount" } },
 			},
 			actions = {
 				{ say = "Here you are." },
-				{ delete = { item = 2148 } },
+				{ delete = { item = 3031 } },
 				{ set = { var = "amount", value = { session = "price" } } },
-				{ create = { item = 2152 } },
+				{ create = { item = 3035 } },
 			},
 		},
 		-- from gen-bank.ndb:43
@@ -477,13 +477,13 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ expr = { session = "topic" }, op = "=", rhs = 97 },
 				{ words = { "yes" } },
-				{ expr = { count = 2160 }, op = ">=", rhs = { session = "amount" } },
+				{ expr = { count = 3043 }, op = ">=", rhs = { session = "amount" } },
 			},
 			actions = {
 				{ say = "Here you are." },
-				{ delete = { item = 2160 } },
+				{ delete = { item = 3043 } },
 				{ set = { var = "amount", value = { session = "price" } } },
-				{ create = { item = 2152 } },
+				{ create = { item = 3035 } },
 			},
 		},
 		-- from gen-bank.ndb:47
@@ -513,13 +513,13 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ expr = { session = "topic" }, op = "=", rhs = 98 },
 				{ words = { "yes" } },
-				{ expr = { count = 2152 }, op = ">=", rhs = { session = "amount" } },
+				{ expr = { count = 3035 }, op = ">=", rhs = { session = "amount" } },
 			},
 			actions = {
 				{ say = "Here you are." },
-				{ delete = { item = 2152 } },
+				{ delete = { item = 3035 } },
 				{ set = { var = "amount", value = { session = "price" } } },
-				{ create = { item = 2148 } },
+				{ create = { item = 3031 } },
 			},
 		},
 		-- from gen-bank.ndb:51
@@ -549,13 +549,13 @@ npc:dialogue(NpcDialogue({
 			when = {
 				{ expr = { session = "topic" }, op = "=", rhs = 99 },
 				{ words = { "yes" } },
-				{ expr = { count = 2152 }, op = ">=", rhs = { session = "amount" } },
+				{ expr = { count = 3035 }, op = ">=", rhs = { session = "amount" } },
 			},
 			actions = {
 				{ say = "Here you are." },
-				{ delete = { item = 2152 } },
+				{ delete = { item = 3035 } },
 				{ set = { var = "amount", value = { session = "price" } } },
-				{ create = { item = 2160 } },
+				{ create = { item = 3043 } },
 			},
 		},
 		-- from gen-bank.ndb:55

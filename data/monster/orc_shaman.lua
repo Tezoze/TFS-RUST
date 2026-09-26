@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2860,
+    corpse = 4041,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -93,14 +93,14 @@ return {
     { name = "Snake", delay = 4, max = 4 },
   },
   loot = {
-    { id = 2188, chance = 1000 }, -- wand of plague
-    { id = 2401, chance = 7000 }, -- staff
-    { id = 2389, chance = 10000 }, -- spear
-    { id = 2148, chance = 90000, count_max = 5 }, -- gold coin
-    { id = 2686, chance = 11000, count_max = 2 }, -- corncob
-    { id = 1987, chance = 11000 }, -- bag
-    { id = 2458, chance = 9000 }, -- chain helmet
-    { id = 2464, chance = 9000 }, -- chain armor
-    { id = 1973, chance = 4500 }, -- book
+    { id = 3072, chance = 1000 }, -- wand of plague
+    { id = 3289, chance = 7000 }, -- staff
+    { id = 3277, chance = 10000 }, -- spear
+    { id = 3031, chance = 90000, count_max = 5 }, -- gold coin
+    { id = 3597, chance = 11000, count_max = 2 }, -- corncob
+    { id = 2853, chance = 11000 }, -- bag
+    { id = 3352, chance = 9000 }, -- chain helmet
+    { id = 3358, chance = 9000 }, -- chain armor
+    { id = 2839, chance = 4500 }, -- book
   },
 }

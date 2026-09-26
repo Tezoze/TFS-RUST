@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 4323,
+    corpse = 4388,
   },
   change_target = { chance = 25 },
   target_strategy = { nearest = 70, weakest = 30, most_damage = 0, random = 0 },
@@ -126,24 +126,24 @@ return {
     { text = "I bring you deathhhh, mortalssss", yell = false },
   },
   loot = {
-    { id = 2528, chance = 400 }, -- tower shield
-    { id = 2479, chance = 600 }, -- strange helmet
-    { id = 2146, chance = 6000 }, -- small sapphire
-    { id = 2498, chance = 100 }, -- royal helmet
-    { id = 2547, chance = 6000 }, -- power bolt
-    { id = 4842, chance = 500 }, -- old parchment
-    { id = 2168, chance = 3000 }, -- life ring
-    { id = 2177, chance = 800 }, -- life crystal
-    { id = 2796, chance = 18000 }, -- green mushroom
-    { id = 2182, chance = 1000 }, -- snakebite rod
-    { id = 2033, chance = 3000 }, -- golden mug
-    { id = 2148, chance = 40000, count_max = 50 }, -- gold coin
-    { id = 2148, chance = 60000, count_max = 100 }, -- gold coin
-    { id = 2148, chance = 80000, count_max = 100 }, -- gold coin
-    { id = 2392, chance = 300 }, -- fire sword
-    { id = 2167, chance = 3000 }, -- energy ring
-    { id = 2492, chance = 200 }, -- dragon scale mail
-    { id = 3971, chance = 2000 }, -- charmer's tiara
-    { id = 1976, chance = 9000 }, -- book
+    { id = 3428, chance = 400 }, -- tower shield
+    { id = 3373, chance = 600 }, -- strange helmet
+    { id = 3029, chance = 6000 }, -- small sapphire
+    { id = 3392, chance = 100 }, -- royal helmet
+    { id = 3450, chance = 6000 }, -- power bolt
+    { id = 4831, chance = 500 }, -- old parchment
+    { id = 3052, chance = 3000 }, -- life ring
+    { id = 3061, chance = 800 }, -- life crystal
+    { id = 3732, chance = 18000 }, -- green mushroom
+    { id = 3066, chance = 1000 }, -- snakebite rod
+    { id = 2903, chance = 3000 }, -- golden mug
+    { id = 3031, chance = 40000, count_max = 50 }, -- gold coin
+    { id = 3031, chance = 60000, count_max = 100 }, -- gold coin
+    { id = 3031, chance = 80000, count_max = 100 }, -- gold coin
+    { id = 3280, chance = 300 }, -- fire sword
+    { id = 3051, chance = 3000 }, -- energy ring
+    { id = 3386, chance = 200 }, -- dragon scale mail
+    { id = 3407, chance = 2000 }, -- charmer's tiara
+    { id = 2842, chance = 9000 }, -- book
   },
 }

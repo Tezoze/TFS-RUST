@@ -2226,12 +2226,12 @@ impl GameWorld {
         }
 
         // TFS field item ids — same as `aoe.rs` CREATEITEM path (`combatTileEffects`).
-        const ITEM_FIREFIELD_PVP: u16 = 1487;
-        const ITEM_POISONFIELD_PVP: u16 = 1490;
-        const ITEM_ENERGYFIELD_PVP: u16 = 1491;
-        const ITEM_FIREFIELD_NOPVP: u16 = 1500;
-        const ITEM_POISONFIELD_NOPVP: u16 = 1503;
-        const ITEM_ENERGYFIELD_NOPVP: u16 = 1504;
+        const ITEM_FIREFIELD_PVP: u16 = 2118;
+        const ITEM_POISONFIELD_PVP: u16 = 2121;
+        const ITEM_ENERGYFIELD_PVP: u16 = 2122;
+        const ITEM_FIREFIELD_NOPVP: u16 = 2131;
+        const ITEM_POISONFIELD_NOPVP: u16 = 2134;
+        const ITEM_ENERGYFIELD_NOPVP: u16 = 2135;
 
         let (caster_is_player, summon_master) = match self.creatures.get(caster_id) {
             Some(CreatureKind::Player(_)) => (true, None),

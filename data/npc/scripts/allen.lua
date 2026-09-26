@@ -208,7 +208,7 @@ npc:dialogue(NpcDialogue({
 				{ select = true },
 			},
 			actions = {
-				{ set = { var = "type", value = 3901 } },
+				{ set = { var = "type", value = 2775 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 40 } },
 				{ say = "You want to buy a red cushioned chair for %P gold?" },
@@ -236,7 +236,7 @@ npc:dialogue(NpcDialogue({
 				{ select = true },
 			},
 			actions = {
-				{ set = { var = "type", value = 3902 } },
+				{ set = { var = "type", value = 2776 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 40 } },
 				{ say = "You want to buy a green cushioned chair for %P gold?" },
@@ -273,7 +273,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "chair" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3903 } },
+				{ set = { var = "type", value = 2777 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 15 } },
 				{ say = "You want to buy a wooden chair for %P gold?" },
@@ -288,7 +288,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "chair" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3904 } },
+				{ set = { var = "type", value = 2778 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a rocking chair for %P gold?" },
@@ -314,7 +314,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "chair" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3905 } },
+				{ set = { var = "type", value = 2779 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 55 } },
 				{ say = "You want to buy a sofa chair for %P gold?" },

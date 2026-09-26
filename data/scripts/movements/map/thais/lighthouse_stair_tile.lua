@@ -2,9 +2,9 @@ local moveevent = MoveEvent()
 
 function moveevent.onStepIn(creature, item, position, fromPosition)
 	if creature:isPlayer() then 
-		item:transform(425, 1)
+		item:transform(430, 1)
 		item:decay()
-		Game.transformItemInPosition({x = 32225, y = 32282, z = 09}, 424, 433)
+		Game.transformItemInPosition({x = 32225, y = 32282, z = 09}, 429, 438)
 	end
 end
 
@@ -15,9 +15,9 @@ local moveevent = MoveEvent()
 
 function moveevent.onStepOut(creature, item, position, fromPosition)
 	if creature:isPlayer() then 
-		item:transform(426, 1)
+		item:transform(431, 1)
 		item:decay()
-		Game.transformItemInPosition({x = 32225, y = 32282, z = 09}, 433, 424)
+		Game.transformItemInPosition({x = 32225, y = 32282, z = 09}, 438, 429)
 	end
 end
 

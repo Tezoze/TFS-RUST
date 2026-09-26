@@ -1,41 +1,41 @@
 local liquidContainers = {
-	2005, 1775
+	2873, 2524
 }
 
 local millstones = {
-	1381, 1382, 1383, 1384
+	1943, 1944, 1945, 1946
 }
 
 local ovens = {
-	1786, 1788, 1790, 1792,
+	2535, 2537, 2539, 2541,
 }
 
 local action = Action()
 
 function action.onUse(player, item, fromPosition, target, toPosition)
 	local itemId = item:getId()
-	if itemId == 2692 then
+	if itemId == 3603 then
 		if target.type == FLUID_WATER and table.contains(liquidContainers, target.itemid) then
 			item:remove(1)
-			player:addItem(2693, 1)
+			player:addItem(3604, 1)
 			target:transform(target.itemid, FLUID_NONE)
 			return true
 		end
-	elseif table.contains(millstones, target.itemid) and item.itemid ~= 2693 then
+	elseif table.contains(millstones, target.itemid) and item.itemid ~= 3604 then
 		item:remove(1)
-		player:addItem(2692, 1)
+		player:addItem(3603, 1)
 		return true
 	elseif table.contains(ovens, target.itemid) then
-		if itemId == 2693 then
+		if itemId == 3604 then
 			item:remove(1)
-			Game.createItem(2689, 1, toPosition)
+			Game.createItem(3600, 1, toPosition)
 			return true
 		end
 	end
 	return false
 end
 
-action:id(2692)
-action:id(2694)
-action:id(2693)
+action:id(3603)
+action:id(3605)
+action:id(3604)
 action:register()

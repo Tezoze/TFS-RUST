@@ -370,12 +370,12 @@ mod tests {
     #[test]
     fn load_door_ids_from_defs() {
         let tables = load_from_data_dir(&workspace_data());
-        assert!(tables.keys.contains(&2091));
-        assert!(tables.locked.contains(&1212));
-        assert!(tables.closed.contains(&1210));
-        assert!(tables.open.contains(&1211));
-        assert!(tables.closed_quest.contains(&1223));
-        assert!(tables.open_level.contains(&1228));
+        assert!(tables.keys.contains(&2972));
+        assert!(tables.locked.contains(&1631));
+        assert!(tables.closed.contains(&1629));
+        assert!(tables.open.contains(&1630));
+        assert!(tables.closed_quest.contains(&1642));
+        assert!(tables.open_level.contains(&1647));
     }
 
     #[test]

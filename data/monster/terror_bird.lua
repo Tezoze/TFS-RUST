@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 4317,
+    corpse = 4382,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 0, most_damage = 30, random = 0 },
@@ -61,10 +61,10 @@ return {
     { text = "Carrah Carrah!", yell = false },
   },
   loot = {
-    { id = 3976, chance = 20000, count_max = 3 }, -- worm
-    { id = 2666, chance = 50000, count_max = 2 }, -- meat
-    { id = 2148, chance = 40000, count_max = 20 }, -- gold coin
-    { id = 2148, chance = 70000, count_max = 10 }, -- gold coin
-    { id = 3970, chance = 100 }, -- feather headdress
+    { id = 3492, chance = 20000, count_max = 3 }, -- worm
+    { id = 3577, chance = 50000, count_max = 2 }, -- meat
+    { id = 3031, chance = 40000, count_max = 20 }, -- gold coin
+    { id = 3031, chance = 70000, count_max = 10 }, -- gold coin
+    { id = 3406, chance = 100 }, -- feather headdress
   },
 }

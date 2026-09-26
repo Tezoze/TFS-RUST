@@ -73,13 +73,6 @@ fn extract_attribute_key_value(elem: &BytesStart<'_>) -> Option<(String, String)
 }
 
 impl ItemDatabase {
-    /// OTB / `ItemType::clientId` for map and inventory protocol (`addItem`); 0 if unknown.
-    // C++: `Items::getItemType(serverId).clientId` — `src/items.cpp`
-    #[inline]
-    pub fn client_id_for_server(&self, server_id: u16) -> u16 {
-        self.items.get(&server_id).map(|t| t.client_id).unwrap_or(0)
-    }
-
     /// C++ `luaSpellRegister` rune arm — `luascript.cpp:15889–15895`.
     /// Patches `ItemType` name / rune levels / charges so look text and defaults match.
     pub fn apply_rune_spell_registration(&mut self, rune: &crate::spells::RuneSpellDef) {
@@ -112,12 +105,6 @@ impl ItemDatabase {
         for rune in registry.runes_by_id.values() {
             self.apply_rune_spell_registration(rune);
         }
-    }
-
-    /// Reverse lookup: OT client sprite id → server item id (`Items::getServerId` patterns / `clientIdToServerIdMap`).
-    #[inline]
-    pub fn server_id_for_client(&self, client_id: u16) -> Option<u16> {
-        self.client_to_server.get(&client_id).copied()
     }
 
     /// C++ `Items::buildInventoryList` — `src/items.cpp` (lines 511–530): `clientId`s for equipment-relevant
@@ -717,7 +704,7 @@ fn parse_partner_direction(value: &str) -> u8 {
 
 /// C++ `ITEM_PARSE_MALETRANSFORMTO` / `FEMALETRANSFORMTO` other-type `transformToFree` link
 /// (`src/items.cpp`). Runs after the full XML merge so destination types exist.
-fn link_bed_transforms(items: &mut HashMap<u16, ItemType>) {
+pub(crate) fn link_bed_transforms(items: &mut HashMap<u16, ItemType>) {
     let links: Vec<(u16, u16, u16)> = items
         .iter()
         .map(|(&id, it)| (id, it.transform_to_on_use[0], it.transform_to_on_use[1]))
@@ -783,6 +770,7 @@ fn parse_fluid_source(value: &str) -> Option<u8> {
         "mana" | "manafluid" => 10, // FLUID_MANAFLUID
         "life" | "lifefluid" => 11, // FLUID_LIFEFLUID
         "lemonade" => 12,           // FLUID_LEMONADE
+        "rum" => 13,                // sequential fluid after lemonade (`items.srv` TypeID 13)
         _ => return None,
     })
 }
@@ -840,7 +828,7 @@ fn warn_unknown_xml_key_once(item_id: u16, key: &str) {
     }
 }
 
-fn apply_xml_attribute(item: &mut ItemType, key: &str, value: &str, item_id: u16) {
+pub(crate) fn apply_xml_attribute(item: &mut ItemType, key: &str, value: &str, item_id: u16) {
     let k = key.to_ascii_lowercase();
     item.xml_attributes.insert(k.clone(), value.to_string());
     if apply_ability_attribute(&mut item.abilities, k.as_str(), value) {
@@ -1490,25 +1478,25 @@ mod tests {
         let xml = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.xml");
         let db = ItemDatabase::load(&otb, &xml).expect("items load");
 
-        let ladder = db.items.get(&1386).expect("1386");
+        let ladder = db.items.get(&1948).expect("1948");
         assert!(ladder.force_use());
 
-        let portal = db.items.get(&1387).expect("1387");
+        let portal = db.items.get(&1949).expect("1949");
         assert!(portal.is_teleport());
         assert_eq!(portal.magic_effect, 11);
 
-        let paper = db.items.get(&1947).expect("1947");
-        assert_eq!(paper.write_once_item_id, 1954);
+        let paper = db.items.get(&2813).expect("2813");
+        assert_eq!(paper.write_once_item_id, 2820);
 
-        let parchment = db.items.get(&1948).expect("1948");
+        let parchment = db.items.get(&2814).expect("2814");
         assert_eq!(parchment.name, "parchment");
         assert!(parchment.can_write_text);
 
-        let bed = db.items.get(&1754).expect("1754");
+        let bed = db.items.get(&2487).expect("2487");
         assert!(bed.is_bed());
         assert_eq!(bed.bed_partner_dir, 2);
-        assert_eq!(bed.transform_to_on_use[1], 1762);
-        assert_eq!(db.items.get(&1762).map(|t| t.transform_to_free), Some(1754));
+        assert_eq!(bed.transform_to_on_use[1], 2495);
+        assert_eq!(db.items.get(&2495).map(|t| t.transform_to_free), Some(2487));
     }
 
     /// Pack absorb percents match 772 `objects.srv` `ProtectionDamageTypes` / `DamageReduction`
@@ -1528,24 +1516,24 @@ mod tests {
             db.items.get(&id).expect("item").abilities.absorb_percent[combat_absorb_index(ct)]
         };
 
-        assert_eq!(absorb(2161, CombatType::Energy), 10);
-        assert_eq!(absorb(2170, CombatType::Earth), 10);
-        assert_eq!(absorb(2172, CombatType::ManaDrain), 15);
-        assert_eq!(absorb(2197, CombatType::Physical), 80);
-        assert_eq!(absorb(2199, CombatType::LifeDrain), 20);
-        assert_eq!(absorb(2200, CombatType::Physical), 6);
-        assert_eq!(absorb(2201, CombatType::Fire), 8);
+        assert_eq!(absorb(3045, CombatType::Energy), 10);
+        assert_eq!(absorb(3054, CombatType::Earth), 10);
+        assert_eq!(absorb(3056, CombatType::ManaDrain), 15);
+        assert_eq!(absorb(3081, CombatType::Physical), 80);
+        assert_eq!(absorb(3083, CombatType::LifeDrain), 20);
+        assert_eq!(absorb(3084, CombatType::Physical), 6);
+        assert_eq!(absorb(3085, CombatType::Fire), 8);
 
         for ct in [CombatType::Energy, CombatType::Fire, CombatType::Earth] {
-            assert_eq!(absorb(2164, ct), 25);
-            assert_eq!(absorb(2198, ct), 10);
+            assert_eq!(absorb(3048, ct), 25);
+            assert_eq!(absorb(3082, ct), 10);
         }
-        assert_eq!(absorb(2164, CombatType::Physical), 25);
-        assert_eq!(absorb(2164, CombatType::LifeDrain), 25);
-        assert_eq!(absorb(2198, CombatType::Physical), 10);
-        assert_eq!(absorb(2198, CombatType::LifeDrain), 10);
+        assert_eq!(absorb(3048, CombatType::Physical), 25);
+        assert_eq!(absorb(3048, CombatType::LifeDrain), 25);
+        assert_eq!(absorb(3082, CombatType::Physical), 10);
+        assert_eq!(absorb(3082, CombatType::LifeDrain), 10);
 
-        for id in [2502_u16, 2503, 2504, 2664] {
+        for id in [3396_u16, 3397, 3398, 3575] {
             assert_eq!(absorb(id, CombatType::Physical), 0);
             assert_eq!(absorb(id, CombatType::Earth), 0);
         }
@@ -2051,22 +2039,22 @@ mod tests {
         let xml = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.xml");
         let db = ItemDatabase::load(&otb, &xml).expect("items load");
 
-        let statue = db.items.get(&1442).expect("statue 1442");
-        assert_eq!(statue.destroy_to, 2256);
+        let statue = db.items.get(&2025).expect("statue 2025");
+        assert_eq!(statue.destroy_to, 3141);
 
         let mud = db.items.get(&355).expect("muddy floor 355");
         assert_eq!(mud.fluid_source, 4); // FLUID_MUD
 
-        let water_cask = db.items.get(&1771).expect("water cask 1771");
+        let water_cask = db.items.get(&2520).expect("water cask 2520");
         assert_eq!(water_cask.fluid_source, 1); // FLUID_WATER
 
-        let lemonade_cask = db.items.get(&1772).expect("lemonade cask 1772");
+        let lemonade_cask = db.items.get(&2521).expect("lemonade cask 2521");
         assert_eq!(lemonade_cask.fluid_source, 12); // FLUID_LEMONADE
 
-        let wine_cask = db.items.get(&1773).expect("wine cask 1773");
+        let wine_cask = db.items.get(&2522).expect("wine cask 2522");
         assert_eq!(wine_cask.fluid_source, 2); // FLUID_WINE
 
-        let beer_cask = db.items.get(&1776).expect("beer cask 1776");
+        let beer_cask = db.items.get(&2525).expect("beer cask 1776");
         assert_eq!(beer_cask.fluid_source, 3); // FLUID_BEER
 
         let grass = db.items.get(&102).expect("grass 102");
@@ -2084,14 +2072,14 @@ mod tests {
         let xml = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.xml");
         let db = ItemDatabase::load(&otb, &xml).expect("items load");
 
-        let gold = db.items.get(&2148).expect("gold coin 2148");
+        let gold = db.items.get(&3031).expect("gold coin 3031");
         assert_eq!(gold.name, "gold coin");
         assert_eq!(gold.article, "a");
         assert_eq!(gold.get_plural_name(), "gold coins");
         assert_eq!(gold.weight, 10);
         assert!(!gold.is_container());
 
-        let bag = db.items.get(&1987).expect("bag 1987");
+        let bag = db.items.get(&2853).expect("bag 2853");
         assert_eq!(bag.name, "bag");
         assert_eq!(bag.article, "a");
         assert_eq!(bag.get_plural_name(), "bags");

@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2987,
+    corpse = 4168,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -85,18 +85,18 @@ return {
     { text = "Dust to dust.", yell = false },
   },
   loot = {
-    { id = 2787, chance = 60000, count_max = 2 }, -- white mushroom
-    { id = 2468, chance = 20000 }, -- studded legs
-    { id = 2175, chance = 400 }, -- spellbook
-    { id = 2481, chance = 8000 }, -- soldier helmet
-    { id = 2146, chance = 100 }, -- small sapphire
-    { id = 2673, chance = 18000, count_max = 2 }, -- pear
-    { id = 2162, chance = 12000 }, -- magic light wand
-    { id = 2643, chance = 40000 }, -- leather boots
-    { id = 2148, chance = 70000, count_max = 30 }, -- gold coin
-    { id = 2213, chance = 300 }, -- dwarven ring
-    { id = 2423, chance = 1000 }, -- clerical mace
-    { id = 2260, chance = 10000 }, -- blank rune
-    { id = 1987, chance = 50000 }, -- bag
+    { id = 3723, chance = 60000, count_max = 2 }, -- white mushroom
+    { id = 3362, chance = 20000 }, -- studded legs
+    { id = 3059, chance = 400 }, -- spellbook
+    { id = 3375, chance = 8000 }, -- soldier helmet
+    { id = 3029, chance = 100 }, -- small sapphire
+    { id = 3584, chance = 18000, count_max = 2 }, -- pear
+    { id = 3046, chance = 12000 }, -- magic light wand
+    { id = 3552, chance = 40000 }, -- leather boots
+    { id = 3031, chance = 70000, count_max = 30 }, -- gold coin
+    { id = 3097, chance = 300 }, -- dwarven ring
+    { id = 3311, chance = 1000 }, -- clerical mace
+    { id = 3147, chance = 10000 }, -- blank rune
+    { id = 2853, chance = 50000 }, -- bag
   },
 }

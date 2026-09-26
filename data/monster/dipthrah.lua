@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3034,
+    corpse = 4215,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 0, most_damage = 30, random = 0 },
@@ -112,16 +112,16 @@ return {
     { name = "Priestess", delay = 7, max = 4 },
   },
   loot = {
-    { id = 2146, chance = 10000, count_max = 3 }, -- small sapphire
-    { id = 2436, chance = 500 }, -- skull staff
-    { id = 2446, chance = 100 }, -- pharaoh sword
-    { id = 2354, chance = 100000 }, -- ornamented ankh
-    { id = 2178, chance = 1000 }, -- mind stone
-    { id = 2148, chance = 35000, count_max = 95 }, -- gold coin
-    { id = 2148, chance = 50000, count_max = 85 }, -- gold coin
-    { id = 2148, chance = 70000, count_max = 80 }, -- gold coin
-    { id = 2167, chance = 5000 }, -- energy ring
-    { id = 2158, chance = 1000 }, -- blue gem
-    { id = 2193, chance = 500 }, -- ankh
+    { id = 3029, chance = 10000, count_max = 3 }, -- small sapphire
+    { id = 3324, chance = 500 }, -- skull staff
+    { id = 3334, chance = 100 }, -- pharaoh sword
+    { id = 3241, chance = 100000 }, -- ornamented ankh
+    { id = 3062, chance = 1000 }, -- mind stone
+    { id = 3031, chance = 35000, count_max = 95 }, -- gold coin
+    { id = 3031, chance = 50000, count_max = 85 }, -- gold coin
+    { id = 3031, chance = 70000, count_max = 80 }, -- gold coin
+    { id = 3051, chance = 5000 }, -- energy ring
+    { id = 3041, chance = 1000 }, -- blue gem
+    { id = 3077, chance = 500 }, -- ankh
   },
 }

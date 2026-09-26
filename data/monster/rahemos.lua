@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3034,
+    corpse = 4215,
   },
   change_target = { chance = 3 },
   target_strategy = { nearest = 80, weakest = 10, most_damage = 10, random = 0 },
@@ -136,16 +136,16 @@ return {
     { name = "Demon", delay = 9, max = 1 },
   },
   loot = {
-    { id = 2153, chance = 1000 }, -- violet gem
-    { id = 2447, chance = 100 }, -- twin axe
-    { id = 2150, chance = 10000, count_max = 3 }, -- small amethyst
-    { id = 2214, chance = 5000 }, -- ring of healing
-    { id = 2176, chance = 500 }, -- orb
-    { id = 2662, chance = 2000 }, -- magician hat
-    { id = 2148, chance = 35000, count_max = 95 }, -- gold coin
-    { id = 2148, chance = 50000, count_max = 85 }, -- gold coin
-    { id = 2148, chance = 70000, count_max = 80 }, -- gold coin
-    { id = 2184, chance = 100 }, -- crystal wand
-    { id = 2348, chance = 100000 }, -- ancient rune
+    { id = 3036, chance = 1000 }, -- violet gem
+    { id = 3335, chance = 100 }, -- twin axe
+    { id = 3033, chance = 10000, count_max = 3 }, -- small amethyst
+    { id = 3098, chance = 5000 }, -- ring of healing
+    { id = 3060, chance = 500 }, -- orb
+    { id = 3573, chance = 2000 }, -- magician hat
+    { id = 3031, chance = 35000, count_max = 95 }, -- gold coin
+    { id = 3031, chance = 50000, count_max = 85 }, -- gold coin
+    { id = 3031, chance = 70000, count_max = 80 }, -- gold coin
+    { id = 3068, chance = 100 }, -- crystal wand
+    { id = 3235, chance = 100000 }, -- ancient rune
   },
 }

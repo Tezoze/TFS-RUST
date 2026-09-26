@@ -1727,12 +1727,10 @@
 		<attribute key="speed" value="70"/>
 		<attribute key="minimapcolor" value="129"/>
 	</item>
-	<item id="425" name="sandstone floor" editorsuffix="Blocking Disguise Tile">
+	<item id="425" name="sandstone floor">
 		<attribute key="group" value="ground"/>
 		<attribute key="blocking" value="true"/>
 		<attribute key="blockpathfind" value="true"/>
-		<attribute key="speed" value="70"/>
-		<attribute key="minimapcolor" value="129"/>
 	</item>
 	<item id="427" name="sandstone floor">
 		<attribute key="blocking" value="true"/>
@@ -14146,16 +14144,8 @@
 		<attribute key="pickupable" value="true"/>
 		<attribute key="moveable" value="true"/>
 	</item>
-	<item id="2474" article="a" name="wooden coffin" editorsuffix="(Container Item)">
-		<attribute key="containersize" value="6"/>
-		<attribute key="type" value="container"/>
+	<item id="2474" article="a" name="wooden coffin">
 		<attribute key="allowpickupable" value="true"/>
-		<attribute key="group" value="container"/>
-		<attribute key="blocking" value="true"/>
-		<attribute key="hasheight" value="true"/>
-		<attribute key="alwaysontop" value="true"/>
-		<attribute key="toporder" value="2"/>
-		<attribute key="minimapcolor" value="186"/>
 	</item>
 	<item id="2475" article="a" name="wooden coffin">
 		<attribute key="allowpickupable" value="true"/>
@@ -15360,11 +15350,7 @@
 		<attribute key="minimapcolor" value="186"/>
 	</item>
 	<item id="2772" article="a" name="lever"/>
-	<item id="2773" article="a" name="lever" editorsuffix="(Expires into normal lever)">
-		<attribute key="description" value="It doesn't move."/>
-		<attribute key="decayto" value="2772"/>
-		<attribute key="duration" value="240"/>
-	</item>
+	<item id="2773" article="a" name="lever"/>
 	<item id="2774" article="a" name="torch bearer">
 		<attribute key="moveable" value="true"/>
 	</item>
@@ -21467,15 +21453,7 @@
 		<attribute key="toporder" value="2"/>
 		<attribute key="minimapcolor" value="12"/>
 	</item>
-	<item id="3617" article="a" name="plum tree" editorsuffix="(Container Tree)">
-		<attribute key="containersize" value="4"/>
-		<attribute key="type" value="container"/>
-		<attribute key="group" value="container"/>
-		<attribute key="blocking" value="true"/>
-		<attribute key="alwaysontop" value="true"/>
-		<attribute key="toporder" value="2"/>
-		<attribute key="minimapcolor" value="12"/>
-	</item>
+	<item id="3617" article="a" name="plum tree"/>
 	<item id="3618" article="a" name="red maple">
 		<attribute key="blocking" value="true"/>
 		<attribute key="alwaysontop" value="true"/>
@@ -25385,9 +25363,13 @@
 		<attribute key="corpsetype" value="blood"/>
 		<attribute key="moveable" value="true"/>
 	</item>
-	<item id="4240" article="a" name="dead human" editorsuffix=" (Unmoveable corpse)">
-		<attribute key="containersize" value="6"/>
+	<item id="4240" article="a" name="dead human">
+		<attribute key="containersize" value="10"/>
+		<attribute key="decayto" value="4241"/>
+		<attribute key="duration" value="1800"/>
+		<attribute key="corpsetype" value="blood"/>
 		<attribute key="group" value="container"/>
+		<attribute key="moveable" value="true"/>
 	</item>
 	<item id="4241" article="a" name="dead human">
 		<attribute key="containersize" value="10"/>

@@ -16,7 +16,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 4992,
+    corpse = 4991,
   },
   change_target = { chance = 10 },
   target_strategy = { nearest = 60, weakest = 0, most_damage = 0, random = 40 },

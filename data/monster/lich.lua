@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3025,
+    corpse = 4206,
   },
   change_target = { chance = 3 },
   target_strategy = { nearest = 80, weakest = 10, most_damage = 10, random = 0 },
@@ -123,18 +123,18 @@ return {
     { name = "Bonebeast", delay = 6, max = 4 },
   },
   loot = {
-    { id = 2143, chance = 2500 }, -- white pearl
-    { id = 2479, chance = 500 }, -- strange helmet
-    { id = 2401, chance = 60000 }, -- staff
-    { id = 2175, chance = 10000 }, -- spellbook
-    { id = 2214, chance = 1000 }, -- ring of healing
-    { id = 2171, chance = 100 }, -- platinum amulet
-    { id = 2178, chance = 500 }, -- mind stone
-    { id = 2148, chance = 40000, count_max = 40 }, -- gold coin
-    { id = 2148, chance = 30000, count_max = 80 }, -- gold coin
-    { id = 2237, chance = 20000 }, -- dirty cape
-    { id = 2535, chance = 200 }, -- castle shield
-    { id = 2656, chance = 100 }, -- blue robe
-    { id = 2144, chance = 5000 }, -- black pearl
+    { id = 3026, chance = 2500 }, -- white pearl
+    { id = 3373, chance = 500 }, -- strange helmet
+    { id = 3289, chance = 60000 }, -- staff
+    { id = 3059, chance = 10000 }, -- spellbook
+    { id = 3098, chance = 1000 }, -- ring of healing
+    { id = 3055, chance = 100 }, -- platinum amulet
+    { id = 3062, chance = 500 }, -- mind stone
+    { id = 3031, chance = 40000, count_max = 40 }, -- gold coin
+    { id = 3031, chance = 30000, count_max = 80 }, -- gold coin
+    { id = 3122, chance = 20000 }, -- dirty cape
+    { id = 3435, chance = 200 }, -- castle shield
+    { id = 3567, chance = 100 }, -- blue robe
+    { id = 3027, chance = 5000 }, -- black pearl
   },
 }

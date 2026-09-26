@@ -288,10 +288,10 @@ mod tests {
     #[test]
     fn load_stepping_tiles_from_pack_lua() {
         let maps = load_from_data_dir(&workspace_data());
-        assert_eq!(maps.step_in.get(&416), Some(&417));
-        assert_eq!(maps.step_in.get(&426), Some(&425));
-        assert_eq!(maps.step_out.get(&417), Some(&416));
-        assert_eq!(maps.step_out.get(&425), Some(&426));
+        assert_eq!(maps.step_in.get(&419), Some(&420));
+        assert_eq!(maps.step_in.get(&431), Some(&430));
+        assert_eq!(maps.step_out.get(&420), Some(&419));
+        assert_eq!(maps.step_out.get(&430), Some(&431));
     }
 
     #[test]

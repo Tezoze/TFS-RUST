@@ -1239,6 +1239,18 @@ pub trait ScriptContext {
         let _ = (x, y, z, item_type);
         Err("Game.isItemInPosition - Tile not found".to_string())
     }
+
+    /// `Game.isDecayingItemInPosition` — type match plus live decay state.
+    fn game_is_decaying_item_in_position(
+        &self,
+        x: u16,
+        y: u16,
+        z: u8,
+        item_type: u16,
+    ) -> Result<bool, String> {
+        let _ = (x, y, z, item_type);
+        Err("Game.isDecayingItemInPosition - Tile not found".to_string())
+    }
 }
 
 /// House snapshot for Lua `House` userdata (`luascript.cpp` house bindings).

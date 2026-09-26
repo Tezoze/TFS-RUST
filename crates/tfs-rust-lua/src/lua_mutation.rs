@@ -131,6 +131,12 @@ pub enum LuaMutation {
     ItemDecay {
         item_id: u64,
     },
+    /// `item:setDecay(seconds, decayToId)` — instance duration + target, then `startDecay`.
+    ItemSetDecay {
+        item_id: u64,
+        seconds: u32,
+        decay_to: u16,
+    },
     /// `player:addMana(manaChange)` — `luascript.cpp` `luaPlayerAddMana`.
     /// PC-3a Phase 5: `conjureItem` dual-hand second-conjure mana deduction.
     /// Clamps to `[0, max_mana]`; no combat animation path.
@@ -1026,6 +1032,16 @@ pub fn call_lua_send_magic_effect(x: u16, y: u16, z: u8, effect: u8) -> Result<(
 /// `item:decay()` — schedules via core `GameWorld::start_decay`.
 pub fn call_lua_item_decay(item_id: u64) -> Result<(), String> {
     apply_mutation(LuaMutation::ItemDecay { item_id })
+}
+
+/// `item:setDecay(seconds, decayToId)` — instance decay on a type with no duration.
+pub fn call_lua_item_set_decay(item_id: u64, seconds: u32, decay_to: u16) -> Result<bool, String> {
+    apply_mutation(LuaMutation::ItemSetDecay {
+        item_id,
+        seconds,
+        decay_to,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
 }
 
 /// `player:addMana(manaChange)` — PC-3a Phase 5. Clamps mana to `[0, max_mana]`.

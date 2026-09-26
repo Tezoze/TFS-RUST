@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 4292,
+    corpse = 4357,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 0, most_damage = 30, random = 0 },
@@ -66,7 +66,7 @@ return {
     invisible = false,
   },
   loot = {
-    { id = 2666, chance = 55000, count_max = 3 }, -- meat
-    { id = 2671, chance = 22000, count_max = 2 }, -- ham
+    { id = 3577, chance = 55000, count_max = 3 }, -- meat
+    { id = 3582, chance = 22000, count_max = 2 }, -- ham
   },
 }

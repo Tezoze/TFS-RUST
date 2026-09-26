@@ -7,5 +7,5 @@ function moveevent.onStepIn(creature, item, position, fromPosition)
 	return true
 end
 
-moveevent:id(293, 461, 3310) -- grass hole, trapdoor and pitfall
+moveevent:id(293, 475, 1066) -- grass hole, trapdoor and pitfall
 moveevent:register()

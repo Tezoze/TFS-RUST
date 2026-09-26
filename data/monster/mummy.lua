@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2949,
+    corpse = 4130,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -79,16 +79,16 @@ return {
     { text = "Flesssh to dussst!", yell = false },
   },
   loot = {
-    { id = 3976, chance = 70000, count_max = 3 }, -- worm
-    { id = 2161, chance = 5000 }, -- strange talisman
-    { id = 2134, chance = 4000 }, -- silver brooch
-    { id = 2170, chance = 100 }, -- silver amulet
-    { id = 2406, chance = 8000 }, -- short sword
-    { id = 2411, chance = 2500 }, -- poison dagger
-    { id = 2162, chance = 16000 }, -- magic light wand
-    { id = 2148, chance = 40000, count_max = 80 }, -- gold coin
-    { id = 2124, chance = 1500 }, -- crystal ring
-    { id = 2529, chance = 200 }, -- black shield
-    { id = 2144, chance = 1000 }, -- black pearl
+    { id = 3492, chance = 70000, count_max = 3 }, -- worm
+    { id = 3045, chance = 5000 }, -- strange talisman
+    { id = 3017, chance = 4000 }, -- silver brooch
+    { id = 3054, chance = 100 }, -- silver amulet
+    { id = 3294, chance = 8000 }, -- short sword
+    { id = 3299, chance = 2500 }, -- poison dagger
+    { id = 3046, chance = 16000 }, -- magic light wand
+    { id = 3031, chance = 40000, count_max = 80 }, -- gold coin
+    { id = 3007, chance = 1500 }, -- crystal ring
+    { id = 3429, chance = 200 }, -- black shield
+    { id = 3027, chance = 1000 }, -- black pearl
   },
 }

@@ -1,13 +1,13 @@
 local action = Action()
 
 function action.onUse(player, item, fromPosition, target, toPosition)
-	if item:getId() == 1945 then 
-		item:transform(1946, 1)
+	if item:getId() == 2772 then 
+		item:transform(2773, 1)
 		item:decay()
 		doRelocate({x = 32225, y = 32276, z = 08},{x = 32225, y = 32276, z = 09})
 		Game.transformItemInPosition({x = 32225, y = 32276, z = 08}, 351, 369)
-	elseif item:getId() == 1946 then 
-		item:transform(1945, 1)
+	elseif item:getId() == 2773 then 
+		item:transform(2772, 1)
 		item:decay()
 		Game.transformItemInPosition({x = 32225, y = 32276, z = 08}, 369, 351)
 	end

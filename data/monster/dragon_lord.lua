@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2881,
+    corpse = 4062,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 10, most_damage = 10, random = 10 },
@@ -97,21 +97,21 @@ return {
     { text = "YOU WILL BURN!", yell = true },
   },
   loot = {
-    { id = 2528, chance = 300 }, -- tower shield
-    { id = 2479, chance = 400 }, -- strange helmet
-    { id = 2146, chance = 5000 }, -- small sapphire
-    { id = 2498, chance = 200 }, -- royal helmet
-    { id = 2547, chance = 6000 }, -- power bolt
-    { id = 2177, chance = 600 }, -- life crystal
-    { id = 2796, chance = 12000 }, -- green mushroom
-    { id = 2033, chance = 3000 }, -- golden mug
-    { id = 2148, chance = 40000, count_max = 50 }, -- gold coin
-    { id = 2148, chance = 60000, count_max = 100 }, -- gold coin
-    { id = 2148, chance = 80000, count_max = 100 }, -- gold coin
-    { id = 2392, chance = 300 }, -- fire sword
-    { id = 2167, chance = 5000 }, -- energy ring
-    { id = 2492, chance = 100 }, -- dragon scale mail
-    { id = 2672, chance = 60000, count_max = 5 }, -- dragon ham
-    { id = 1976, chance = 9000 }, -- book
+    { id = 3428, chance = 300 }, -- tower shield
+    { id = 3373, chance = 400 }, -- strange helmet
+    { id = 3029, chance = 5000 }, -- small sapphire
+    { id = 3392, chance = 200 }, -- royal helmet
+    { id = 3450, chance = 6000 }, -- power bolt
+    { id = 3061, chance = 600 }, -- life crystal
+    { id = 3732, chance = 12000 }, -- green mushroom
+    { id = 2903, chance = 3000 }, -- golden mug
+    { id = 3031, chance = 40000, count_max = 50 }, -- gold coin
+    { id = 3031, chance = 60000, count_max = 100 }, -- gold coin
+    { id = 3031, chance = 80000, count_max = 100 }, -- gold coin
+    { id = 3280, chance = 300 }, -- fire sword
+    { id = 3051, chance = 5000 }, -- energy ring
+    { id = 3386, chance = 100 }, -- dragon scale mail
+    { id = 3583, chance = 60000, count_max = 5 }, -- dragon ham
+    { id = 2842, chance = 9000 }, -- book
   },
 }

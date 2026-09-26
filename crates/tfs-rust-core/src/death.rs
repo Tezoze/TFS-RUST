@@ -531,6 +531,11 @@ mod tests {
         let mut world = minimal_world();
         world.mechanics.profile =
             MechanicsProfile::for_version(tfs_rust_common::ProtocolVersion::V772);
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/defs/vocations.lua");
+        world.vocations = std::sync::Arc::new(
+            tfs_rust_content::vocations::VocationRegistry::load(&path).expect("vocations.lua"),
+        );
         world
     }
 
@@ -564,9 +569,9 @@ mod tests {
             p.experience = 10_000;
             p.level = 20;
             p.blessings = 0;
-            // Promoted: from_vocation != id && from_vocation != 0.
-            p.vocation_profile.from_vocation = 1;
-            p.vocation_profile.id = 5;
+            // Master sorcerer (id 5, from vocation 1) on a premium account.
+            p.vocation_id = 5;
+            p.premium_ends_at = u32::MAX;
             p
         });
         let _ = death_call(&mut world, cid, WorldType::Pvp);
@@ -604,8 +609,8 @@ mod tests {
             p.experience = 10_000;
             p.level = 20;
             p.blessings = 0b11111; // 5 blessings
-            p.vocation_profile.from_vocation = 1;
-            p.vocation_profile.id = 5;
+            p.vocation_id = 5;
+            p.premium_ends_at = u32::MAX;
             p
         });
         let _ = death_call(&mut world, cid, WorldType::Pvp);

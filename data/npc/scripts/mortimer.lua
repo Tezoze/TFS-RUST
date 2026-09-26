@@ -217,7 +217,7 @@ npc:dialogue(NpcDialogue({
 				{ expr = { questValue = 300 }, op = "<", rhs = 1 },
 			},
 			actions = {
-				{ set = { var = "type", value = 4856 } },
+				{ set = { var = "type", value = 4845 } },
 				{ set = { var = "amount", value = 1 } },
 				{ say = "Did you get the requested pickaxe from Uzgod in Kazordoon?" },
 				{ set = { var = "topic", value = 9 } },
@@ -318,7 +318,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Ratha was a great explorer and even greater ladies' man. Sadly he never returned from a visit to the amazons. Probably he is dead ..." },
 				{ say = "The society offers a substantial reward for the retrieval of Ratha or his remains. Do you have any news about Ratha?" },
-				{ set = { var = "type", value = 2320 } },
+				{ set = { var = "type", value = 3207 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 250 } },
 				{ set = { var = "topic", value = 3 } },
@@ -385,7 +385,7 @@ npc:dialogue(NpcDialogue({
 				{ say = "Our members travel to far away places and cross dangerous areas, many fall prey to enemies or the land ..." },
 				{ say = "Sometimes the personal explorer brooches can be recovered. That way we learn about the fate of our members ..." },
 				{ say = "We offer a reward for each brooch returned to us. Have you found an explorer brooch?" },
-				{ set = { var = "type", value = 2122 } },
+				{ set = { var = "type", value = 3005 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 50 } },
 				{ set = { var = "topic", value = 53 } },
@@ -437,7 +437,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "The explorer society is looking for a genuine giant smith hammer for our collection. It is rumoured the cyclopses of the Plains of Havoc might be using one. Did you by chance obtain such a hammer?" },
-				{ set = { var = "type", value = 2321 } },
+				{ set = { var = "type", value = 3208 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 250 } },
 				{ set = { var = "topic", value = 4 } },
@@ -502,7 +502,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "The examination of hydra eggs is a valuable source of information. We buy hydra eggs for 500 gold. Are you interested in selling one?" },
-				{ set = { var = "type", value = 4850 } },
+				{ set = { var = "type", value = 4839 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 500 } },
 				{ set = { var = "topic", value = 40 } },
@@ -519,7 +519,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "egg" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 4850 } },
+				{ set = { var = "type", value = 4839 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 500, rhs = { capture = 1 } } } } },
 				{ say = "The examination of hydra eggs is a valuable source of information. We buy hydra eggs for 500 gold each. Do you want to sell %A hydra eggs for %P gold?" },
@@ -572,7 +572,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "The examination of scrolls with lizard writings is a valuable source of information. We buy such scrolls for 500 gold. Are you interested to sell one?" },
-				{ set = { var = "type", value = 4842 } },
+				{ set = { var = "type", value = 4831 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 500 } },
 				{ set = { var = "topic", value = 41 } },
@@ -672,7 +672,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "This preparation kit will allow you to collect a purple butterfly you have killed ..." },
 				{ say = "Just use it on the fresh corpse of a purple butterfly, return the prepared butterfly to me and give me a report of your butterfly hunt." },
-				{ create = { item = 4865 } },
+				{ create = { item = 4863 } },
 				{ setQuestValue = { id = 304, value = 1 } },
 			},
 		},
@@ -686,7 +686,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Did you acquire the purple butterfly we are looking for?" },
-				{ set = { var = "type", value = 4867 } },
+				{ set = { var = "type", value = 4865 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "topic", value = 6 } },
 			},
@@ -739,7 +739,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "This preparation kit will allow you to collect a blue butterfly you have killed ..." },
 				{ say = "Just use it on the fresh corpse of a blue butterfly, return the prepared butterfly to me and give me a report of your butterfly hunt." },
-				{ create = { item = 4865 } },
+				{ create = { item = 4863 } },
 				{ setQuestValue = { id = 304, value = 3 } },
 			},
 		},
@@ -753,7 +753,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Did you acquire the blue butterfly we are looking for?" },
-				{ set = { var = "type", value = 4868 } },
+				{ set = { var = "type", value = 4866 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "topic", value = 7 } },
 			},
@@ -806,7 +806,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "This preparation kit will allow you to collect a red butterfly you have killed ..." },
 				{ say = "Just use it on the fresh corpse of a red butterfly, return the prepared butterfly to me and give me a report of your butterfly hunt." },
-				{ create = { item = 4865 } },
+				{ create = { item = 4863 } },
 				{ setQuestValue = { id = 304, value = 5 } },
 			},
 		},
@@ -820,7 +820,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Did you acquire the red butterfly we are looking for?" },
-				{ set = { var = "type", value = 4866 } },
+				{ set = { var = "type", value = 4864 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "topic", value = 8 } },
 			},
@@ -909,7 +909,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Fine! Here take this botanist's container. Use it on a jungle bells plant to collect a sample for us. Report about your plant collection when you have been successful." },
-				{ create = { item = 4869 } },
+				{ create = { item = 4867 } },
 				{ setQuestValue = { id = 305, value = 1 } },
 			},
 		},
@@ -923,7 +923,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Did you acquire the sample of the jungle bells plant we are looking for?" },
-				{ set = { var = "type", value = 4870 } },
+				{ set = { var = "type", value = 4868 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "topic", value = 11 } },
 			},
@@ -975,7 +975,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Use this botanist's container on a witches cauldron to collect a sample for us. Bring it here and report about your plant collection." },
-				{ create = { item = 4869 } },
+				{ create = { item = 4867 } },
 				{ setQuestValue = { id = 305, value = 3 } },
 			},
 		},
@@ -989,7 +989,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Did you acquire the sample of the witches cauldron we are looking for?" },
-				{ set = { var = "type", value = 4872 } },
+				{ set = { var = "type", value = 4870 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "topic", value = 12 } },
 			},
@@ -1041,7 +1041,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Use this botanist's container on a giant jungle rose to obtain a sample for us. Bring it here and report about your plant collection." },
-				{ create = { item = 4869 } },
+				{ create = { item = 4867 } },
 				{ setQuestValue = { id = 305, value = 5 } },
 			},
 		},
@@ -1055,7 +1055,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Did you acquire the sample of the giant jungle rose we are looking for?" },
-				{ set = { var = "type", value = 4871 } },
+				{ set = { var = "type", value = 4869 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "topic", value = 13 } },
 			},
@@ -1147,7 +1147,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "So listen please: Take this ice pick and use it on a block of ice in the caves beneath Folda. Get some ice and bring it here as fast as you can ..." },
 				{ say = "Should the ice melt away, report on your ice delivery mission anyway. I will then tell you if the time is right to start another mission." },
-				{ create = { item = 4874 } },
+				{ create = { item = 4872 } },
 				{ setQuestValue = { id = 306, value = 1 } },
 			},
 		},
@@ -1161,7 +1161,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Did you get the ice we are looking for?" },
-				{ set = { var = "type", value = 4848 } },
+				{ set = { var = "type", value = 4837 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "topic", value = 15 } },
 			},
@@ -1343,7 +1343,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Did you manage to get the ancient urn?" },
-				{ set = { var = "type", value = 4858 } },
+				{ set = { var = "type", value = 4847 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "topic", value = 18 } },
 			},
@@ -1448,7 +1448,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Have you found any proof that the pyramid was built by beholders?" },
-				{ set = { var = "type", value = 4857 } },
+				{ set = { var = "type", value = 4846 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "topic", value = 20 } },
 			},
@@ -1553,7 +1553,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Did you acquire some of the orcish powder?" },
-				{ set = { var = "type", value = 4849 } },
+				{ set = { var = "type", value = 4838 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "topic", value = 34 } },
 			},
@@ -1668,7 +1668,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Did you acquire a copy of 'Songs of the Forest' for us?" },
-				{ set = { var = "type", value = 4855 } },
+				{ set = { var = "type", value = 4844 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "topic", value = 23 } },
 			},
@@ -1809,7 +1809,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Were you able to acquire a memory stone for our society?" },
-				{ set = { var = "type", value = 4852 } },
+				{ set = { var = "type", value = 4841 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "topic", value = 25 } },
 			},
@@ -1915,7 +1915,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Excellent! Here, take this tracing paper and use it on the object you will find there to create a copy of the ancient runes." },
-				{ create = { item = 4853 } },
+				{ create = { item = 4842 } },
 				{ setQuestValue = { id = 315, value = 1 } },
 			},
 		},
@@ -1929,7 +1929,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Did you create a copy of the ancient runes as requested?" },
-				{ set = { var = "type", value = 4854 } },
+				{ set = { var = "type", value = 4843 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "topic", value = 27 } },
 			},
@@ -2057,7 +2057,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Good! Take this container and use it on a ghost that was recently slain. Return with the collected ectoplasm and hand me that container ..." },
 				{ say = "Don't lose the container. They are expensive!" },
-				{ create = { item = 4863 } },
+				{ create = { item = 4852 } },
 				{ setQuestValue = { id = 317, value = 1 } },
 			},
 		},
@@ -2070,7 +2070,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Do you have some collected ectoplasm with you?" },
-				{ set = { var = "type", value = 4864 } },
+				{ set = { var = "type", value = 4853 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "topic", value = 30 } },
 			},
@@ -2194,7 +2194,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ say = "Have you acquired the spectral dress we need?" },
-				{ set = { var = "type", value = 4847 } },
+				{ set = { var = "type", value = 4836 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "topic", value = 32 } },
 			},
@@ -2308,7 +2308,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ set = { var = "amount", value = 6 } },
-				{ set = { var = "type", value = 5022 } },
+				{ set = { var = "type", value = 5021 } },
 				{ say = "Both carvings are now charged and harmonised. In theory you should be able to travel in zero time from one base to the other ..." },
 				{ say = "However, you will need to have an orichalcum pearl in your possession to use it as power source. It will be destroyed during the process. I will give you 6 of such pearls and you can buy new ones in our bases ..." },
 				{ say = "In addition, you need to be a premium explorer to use the astral travel ..." },
@@ -2367,7 +2367,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "type", value = 5022 } },
+				{ set = { var = "type", value = 5021 } },
 				{ set = { var = "price", value = 80 } },
 				{ say = "Do you want to buy an orichalcum pearl for %P gold?" },
 				{ set = { var = "topic", value = 51 } },
@@ -2418,7 +2418,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ set = { var = "amount", value = { capture = 1 } } },
-				{ set = { var = "type", value = 5022 } },
+				{ set = { var = "type", value = 5021 } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 80, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to buy %A orichalcum pearls for %P gold?" },
 				{ set = { var = "topic", value = 52 } },
@@ -2468,7 +2468,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "type", value = 4869 } },
+				{ set = { var = "type", value = 4867 } },
 				{ set = { var = "price", value = 500 } },
 				{ say = "Do you want to buy a botanist container for %P gold?" },
 				{ set = { var = "topic", value = 56 } },
@@ -2483,7 +2483,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "type", value = 4865 } },
+				{ set = { var = "type", value = 4863 } },
 				{ set = { var = "price", value = 250 } },
 				{ say = "Do you want to buy a preparation kit for %P gold?" },
 				{ set = { var = "topic", value = 56 } },
@@ -2498,7 +2498,7 @@ npc:dialogue(NpcDialogue({
 			},
 			actions = {
 				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "type", value = 4863 } },
+				{ set = { var = "type", value = 4852 } },
 				{ set = { var = "price", value = 750 } },
 				{ say = "Do you want to buy an ectoplasm container for %P gold?" },
 				{ set = { var = "topic", value = 56 } },
@@ -2604,7 +2604,7 @@ npc:dialogue(NpcDialogue({
 			actions = {
 				{ say = "Good, just take this spectral essence and use it on the strange carving in this building as well as on the corresponding tile in our base at Port Hope ..." },
 				{ say = "As soon as you have charged the portal tiles that way, report about the spectral portals." },
-				{ create = { item = 4851 } },
+				{ create = { item = 4840 } },
 				{ setQuestValue = { id = 320, value = 5 } },
 			},
 		},

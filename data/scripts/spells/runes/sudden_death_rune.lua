@@ -9,7 +9,7 @@ spell:vocation("Sorcerer", "Master Sorcerer")
 spell:words("ad,ori, vita, vis")
 
 function spell.onCastSpell(creature, variant)
-	return creature:conjureItem(880, 2260, 2268, 1)
+	return creature:conjureItem(880, 3147, 3155, 1)
 end
 
 spell:register()
@@ -35,7 +35,7 @@ function rune.onCastSpell(creature, variant)
 end
 
 rune:runeMagicLevel(15)
-rune:runeId(2268)
+rune:runeId(3155)
 rune:charges(1)
 rune:allowFarUse(true)
 rune:blockWalls(true)

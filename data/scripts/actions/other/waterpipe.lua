@@ -12,8 +12,8 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 	return true
 end
 
-action:id(2093)
+action:id(2974)
 if formulas and formulas.otherActions and formulas.otherActions.extraInstruments then
-	action:id(2099)
+	action:id(2980)
 end
 action:register()

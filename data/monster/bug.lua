@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2902,
+    corpse = 4083,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -54,7 +54,7 @@ return {
     invisible = false,
   },
   loot = {
-    { id = 2148, chance = 35000, count_max = 6 }, -- gold coin
-    { id = 2679, chance = 3000, count_max = 3 }, -- cherry
+    { id = 3031, chance = 35000, count_max = 6 }, -- gold coin
+    { id = 3590, chance = 3000, count_max = 3 }, -- cherry
   },
 }

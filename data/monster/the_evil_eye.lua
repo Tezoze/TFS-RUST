@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3052,
+    corpse = 4233,
   },
   change_target = { chance = 30 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -153,15 +153,15 @@ return {
     { name = "Demon Skeleton", delay = 8, max = 6 },
   },
   loot = {
-    { id = 2512, chance = 1500 }, -- wooden shield
-    { id = 2377, chance = 4000 }, -- two handed sword
-    { id = 2509, chance = 4000 }, -- steel shield
-    { id = 2175, chance = 5000 }, -- spellbook
-    { id = 2394, chance = 7000 }, -- morning star
-    { id = 2397, chance = 9000 }, -- longsword
-    { id = 2148, chance = 70000, count_max = 40 }, -- gold coin
-    { id = 2148, chance = 80000, count_max = 32 }, -- gold coin
-    { id = 2148, chance = 90000, count_max = 24 }, -- gold coin
-    { id = 2518, chance = 200 }, -- beholder shield
+    { id = 3412, chance = 1500 }, -- wooden shield
+    { id = 3265, chance = 4000 }, -- two handed sword
+    { id = 3409, chance = 4000 }, -- steel shield
+    { id = 3059, chance = 5000 }, -- spellbook
+    { id = 3282, chance = 7000 }, -- morning star
+    { id = 3285, chance = 9000 }, -- longsword
+    { id = 3031, chance = 70000, count_max = 40 }, -- gold coin
+    { id = 3031, chance = 80000, count_max = 32 }, -- gold coin
+    { id = 3031, chance = 90000, count_max = 24 }, -- gold coin
+    { id = 3418, chance = 200 }, -- beholder shield
   },
 }

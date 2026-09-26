@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2824,
+    corpse = 4005,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -54,15 +54,15 @@ return {
     invisible = false,
   },
   loot = {
-    { id = 3976, chance = 50000, count_max = 5 }, -- worm
-    { id = 2376, chance = 3000 }, -- sword
-    { id = 2666, chance = 20000 }, -- meat
-    { id = 2398, chance = 4500 }, -- mace
-    { id = 2480, chance = 1500 }, -- legion helmet
-    { id = 2412, chance = 300 }, -- katana
-    { id = 2671, chance = 20000 }, -- ham
-    { id = 2148, chance = 30000, count_max = 12 }, -- gold coin
-    { id = 2148, chance = 60000, count_max = 8 }, -- gold coin
-    { id = 2530, chance = 1000 }, -- copper shield
+    { id = 3492, chance = 50000, count_max = 5 }, -- worm
+    { id = 3264, chance = 3000 }, -- sword
+    { id = 3577, chance = 20000 }, -- meat
+    { id = 3286, chance = 4500 }, -- mace
+    { id = 3374, chance = 1500 }, -- legion helmet
+    { id = 3300, chance = 300 }, -- katana
+    { id = 3582, chance = 20000 }, -- ham
+    { id = 3031, chance = 30000, count_max = 12 }, -- gold coin
+    { id = 3031, chance = 60000, count_max = 8 }, -- gold coin
+    { id = 3430, chance = 1000 }, -- copper shield
   },
 }

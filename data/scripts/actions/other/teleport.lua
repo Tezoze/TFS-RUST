@@ -1,9 +1,9 @@
 local items = {
-	430, 1386, 3678,
+	435, 1948, 1968,
 }
 
 local upFloorIds = {
-	1386, 3678
+	1948, 1968
 }
 
 local action = Action()

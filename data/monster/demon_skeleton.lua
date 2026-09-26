@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2809,
+    corpse = 3990,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 0, most_damage = 30, random = 0 },
@@ -63,15 +63,15 @@ return {
     invisible = false,
   },
   loot = {
-    { id = 2050, chance = 50000 }, -- torch
-    { id = 2399, chance = 10000, count_max = 3 }, -- throwing star
-    { id = 2194, chance = 300 }, -- mysterious fetish
-    { id = 2178, chance = 200 }, -- mind stone
-    { id = 2459, chance = 2000 }, -- iron helmet
-    { id = 2515, chance = 100 }, -- guardian shield
-    { id = 2148, chance = 30000, count_max = 25 }, -- gold coin
-    { id = 2148, chance = 40000, count_max = 20 }, -- gold coin
-    { id = 2513, chance = 1000 }, -- battle shield
-    { id = 2417, chance = 3000 }, -- battle hammer
+    { id = 2920, chance = 50000 }, -- torch
+    { id = 3287, chance = 10000, count_max = 3 }, -- throwing star
+    { id = 3078, chance = 300 }, -- mysterious fetish
+    { id = 3062, chance = 200 }, -- mind stone
+    { id = 3353, chance = 2000 }, -- iron helmet
+    { id = 3415, chance = 100 }, -- guardian shield
+    { id = 3031, chance = 30000, count_max = 25 }, -- gold coin
+    { id = 3031, chance = 40000, count_max = 20 }, -- gold coin
+    { id = 3413, chance = 1000 }, -- battle shield
+    { id = 3305, chance = 3000 }, -- battle hammer
   },
 }

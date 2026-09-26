@@ -26,5 +26,5 @@ function action.onUse(player, item, fromPosition, target, toPosition, isHotkey)
 	return true
 end
 
-action:id(2501)
+action:id(3395)
 action:register()

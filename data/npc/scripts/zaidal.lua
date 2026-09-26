@@ -417,7 +417,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "tusk" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3956 } },
+				{ set = { var = "type", value = 3044 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 100 } },
 				{ say = "Do you want to sell a tusk for %P gold?" },
@@ -433,7 +433,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "tusk" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3956 } },
+				{ set = { var = "type", value = 3044 } },
 				{ set = { var = "amount", value = { capture = 1 } } },
 				{ set = { var = "price", value = { binary = { op = "*", lhs = 100, rhs = { capture = 1 } } } } },
 				{ say = "Do you want to sell %A tusks for %P gold?" },
@@ -501,7 +501,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "chair" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3906 } },
+				{ set = { var = "type", value = 2780 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a tusk chair for %P gold?" },
@@ -516,7 +516,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "chair" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3907 } },
+				{ set = { var = "type", value = 2781 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy an ivory chair for %P gold?" },
@@ -531,7 +531,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "chair" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3935 } },
+				{ set = { var = "type", value = 2809 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 20 } },
 				{ say = "You want to buy a trunk chair for %P gold?" },
@@ -556,7 +556,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "table" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3912 } },
+				{ set = { var = "type", value = 2786 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 30 } },
 				{ say = "You want to buy a stone table for %P gold?" },
@@ -571,7 +571,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "table" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3913 } },
+				{ set = { var = "type", value = 2787 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a tusk table for %P gold?" },
@@ -586,7 +586,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "table" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3914 } },
+				{ set = { var = "type", value = 2788 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a bamboo table for %P gold?" },
@@ -601,7 +601,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "table" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3936 } },
+				{ set = { var = "type", value = 2810 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 20 } },
 				{ say = "You want to buy a trunk table for %P gold?" },
@@ -626,7 +626,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "drawer" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3921 } },
+				{ set = { var = "type", value = 2795 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 20 } },
 				{ say = "You want to buy a bamboo drawer for %P gold?" },

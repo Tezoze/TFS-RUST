@@ -1,8 +1,8 @@
 //! Corpus `MOVEMENTEVENT` after cylinder transfer (`moveuse.cc:2263-2287`).
 //!
 //! `moveuse.dat` Movement rules (not TFS tile `MoveEvent`): eternal lit
-//! candelabrum 2057→2042, armed trap, dress-toggle rings. OTB has no flag bit
-//! — match known type ids. Normal lit 2042 is ChangeUse only (stays lit on move).
+//! candelabrum 2927→2912, armed trap, dress-toggle rings. OTB has no flag bit
+//! — match known type ids. Normal lit 2912 is ChangeUse only (stays lit on move).
 
 use tfs_rust_common::Position;
 
@@ -10,24 +10,24 @@ use crate::cylinder::Cylinder;
 use crate::game_world::GameWorld;
 use crate::ids::ItemId;
 
-/// Eternal (non-expiring) lit candelabrum — pack id for corpus 2927.
-const ITEM_CANDELABRUM_ETERNAL: u16 = 2057;
-/// Expiring lit candelabrum — pack id for corpus 2912 (`Change(Obj1,2912)`).
-const ITEM_CANDELABRUM_LIT: u16 = 2042;
-const ITEM_TRAP_ARMED: u16 = 2579;
-const ITEM_TRAP: u16 = 2578;
+/// Eternal (non-expiring) lit candelabrum — catalog id for corpus 2927.
+const ITEM_CANDELABRUM_ETERNAL: u16 = 2927;
+/// Expiring lit candelabrum — catalog id for corpus 2912 (`Change(Obj1,2912)`).
+const ITEM_CANDELABRUM_LIT: u16 = 2912;
+const ITEM_TRAP_ARMED: u16 = 3482;
+const ITEM_TRAP: u16 = 3481;
 const CONST_ME_POFF: u8 = 3;
 
 /// Inactive → active (dressed) and reverse for 772 ring pairs (OTB).
 const RING_DRESS: &[(u16, u16)] = &[
-    (2165, 2202), // stealth
-    (2166, 2203), // power
-    (2167, 2204), // energy
-    (2168, 2205), // life
-    (2169, 2206), // time
-    (2207, 2210), // sword
-    (2208, 2211), // axe
-    (2209, 2212), // club
+    (3049, 3086), // stealth
+    (3050, 3087), // power
+    (3051, 3088), // energy
+    (3052, 3089), // life
+    (3053, 3090), // time
+    (3091, 3094), // sword
+    (3092, 3095), // axe
+    (3093, 3096), // club
 ];
 
 impl GameWorld {
@@ -37,7 +37,7 @@ impl GameWorld {
             return;
         };
         // Corpus `moveuse.dat` Movement: eternal lit → expiring lit (stays lit).
-        // Normal lit 2042 has ChangeUse only — Use toggles to 2041, Move does not.
+        // Normal lit 2912 has ChangeUse only — Use toggles to 2911, Move does not.
         if ty == ITEM_CANDELABRUM_ETERNAL {
             self.change_item_type(item_id, ITEM_CANDELABRUM_LIT);
             return;
@@ -107,21 +107,21 @@ mod tests {
     }
 
     /// Regression: moving a lit candelabrum on the ground must not unlight it.
-    /// `moveuse.dat` Movement is 2057→2042, not 2042→2041 (that is ChangeUse).
+    /// `moveuse.dat` Movement is 2927→2912, not 2912→2911 (that is ChangeUse).
     #[test]
     fn lit_candelabrum_stays_lit_when_moved_on_ground() {
         let mut world = minimal_world();
-        register_types(&mut world, &[2041, 2042, 2057]);
+        register_types(&mut world, &[2911, 2912, 2927]);
         let from = Position::new(100, 100, 7);
         let to = Position::new(101, 100, 7);
         ensure_walkable_tile(&mut world.map, from, 100);
         ensure_walkable_tile(&mut world.map, to, 100);
 
-        let iid = world.items.insert(Item::new_single(2042));
+        let iid = world.items.insert(Item::new_single(2912));
         world
             .internal_add_item_to_tile(from, iid, CylinderFlags::NONE)
             .expect("place lit candelabrum");
-        assert_eq!(world.items.get(iid).map(|i| i.item_type), Some(2042));
+        assert_eq!(world.items.get(iid).map(|i| i.item_type), Some(2912));
 
         world
             .internal_move_item(
@@ -136,7 +136,7 @@ mod tests {
             .expect("move on ground");
         assert_eq!(
             world.items.get(iid).map(|i| i.item_type),
-            Some(2042),
+            Some(2912),
             "expiring lit candelabrum stays lit on move"
         );
     }
@@ -144,13 +144,13 @@ mod tests {
     #[test]
     fn eternal_candelabrum_becomes_expiring_on_tile_add() {
         let mut world = minimal_world();
-        register_types(&mut world, &[2041, 2042, 2057]);
+        register_types(&mut world, &[2911, 2912, 2927]);
         let pos = Position::new(100, 100, 7);
         ensure_walkable_tile(&mut world.map, pos, 100);
-        let iid = world.items.insert(Item::new_single(2057));
+        let iid = world.items.insert(Item::new_single(2927));
         world
             .internal_add_item_to_tile(pos, iid, CylinderFlags::NONE)
             .expect("place eternal candelabrum");
-        assert_eq!(world.items.get(iid).map(|i| i.item_type), Some(2042));
+        assert_eq!(world.items.get(iid).map(|i| i.item_type), Some(2912));
     }
 }

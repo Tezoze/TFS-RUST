@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3022,
+    corpse = 4203,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 0, most_damage = 30, random = 0 },
@@ -72,17 +72,17 @@ return {
     { text = "There is a stone in your shoe!", yell = false },
   },
   loot = {
-    { id = 2129, chance = 200 }, -- wolf tooth chain
-    { id = 2448, chance = 8000 }, -- studded club
-    { id = 2457, chance = 200 }, -- steel helmet
-    { id = 1294, chance = 10000, count_max = 10 }, -- small stone
-    { id = 2394, chance = 1000 }, -- morning star
-    { id = 2666, chance = 50000 }, -- meat
-    { id = 2671, chance = 20000, count_max = 2 }, -- ham
-    { id = 2148, chance = 40000, count_max = 20 }, -- gold coin
-    { id = 2148, chance = 70000, count_max = 10 }, -- gold coin
-    { id = 2489, chance = 200 }, -- dark armor
-    { id = 2209, chance = 100 }, -- club ring
-    { id = 2513, chance = 1500 }, -- battle shield
+    { id = 3012, chance = 200 }, -- wolf tooth chain
+    { id = 3336, chance = 8000 }, -- studded club
+    { id = 3351, chance = 200 }, -- steel helmet
+    { id = 1781, chance = 10000, count_max = 10 }, -- small stone
+    { id = 3282, chance = 1000 }, -- morning star
+    { id = 3577, chance = 50000 }, -- meat
+    { id = 3582, chance = 20000, count_max = 2 }, -- ham
+    { id = 3031, chance = 40000, count_max = 20 }, -- gold coin
+    { id = 3031, chance = 70000, count_max = 10 }, -- gold coin
+    { id = 3383, chance = 200 }, -- dark armor
+    { id = 3093, chance = 100 }, -- club ring
+    { id = 3413, chance = 1500 }, -- battle shield
   },
 }

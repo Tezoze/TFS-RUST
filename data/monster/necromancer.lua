@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3058,
+    corpse = 4240,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -93,13 +93,13 @@ return {
     { name = "Ghoul", delay = 6, max = 2 },
   },
   loot = {
-    { id = 2436, chance = 100 }, -- skull staff
-    { id = 2406, chance = 15000 }, -- short sword
-    { id = 2483, chance = 10000 }, -- scale armor
-    { id = 2663, chance = 500 }, -- mystic turban
-    { id = 2796, chance = 1500 }, -- green mushroom
-    { id = 2148, chance = 30000, count_max = 90 }, -- gold coin
-    { id = 2423, chance = 1000 }, -- clerical mace
-    { id = 2195, chance = 200 }, -- boots of haste
+    { id = 3324, chance = 100 }, -- skull staff
+    { id = 3294, chance = 15000 }, -- short sword
+    { id = 3377, chance = 10000 }, -- scale armor
+    { id = 3574, chance = 500 }, -- mystic turban
+    { id = 3732, chance = 1500 }, -- green mushroom
+    { id = 3031, chance = 30000, count_max = 90 }, -- gold coin
+    { id = 3311, chance = 1000 }, -- clerical mace
+    { id = 3079, chance = 200 }, -- boots of haste
   },
 }

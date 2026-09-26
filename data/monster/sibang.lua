@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 4274,
+    corpse = 4339,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -79,13 +79,13 @@ return {
     { text = "Ahhuuaaa!", yell = false },
   },
   loot = {
-    { id = 1294, chance = 30000, count_max = 3 }, -- small stone
-    { id = 2675, chance = 20000, count_max = 5 }, -- orange
-    { id = 2682, chance = 10000 }, -- melon
-    { id = 2148, chance = 80000, count_max = 25 }, -- gold coin
-    { id = 2678, chance = 20000, count_max = 5 }, -- coconut
-    { id = 2458, chance = 4000 }, -- chain helmet
-    { id = 2676, chance = 5000, count_max = 10 }, -- banana
-    { id = 2676, chance = 30000, count_max = 2 }, -- banana
+    { id = 1781, chance = 30000, count_max = 3 }, -- small stone
+    { id = 3586, chance = 20000, count_max = 5 }, -- orange
+    { id = 3593, chance = 10000 }, -- melon
+    { id = 3031, chance = 80000, count_max = 25 }, -- gold coin
+    { id = 3589, chance = 20000, count_max = 5 }, -- coconut
+    { id = 3352, chance = 4000 }, -- chain helmet
+    { id = 3587, chance = 5000, count_max = 10 }, -- banana
+    { id = 3587, chance = 30000, count_max = 2 }, -- banana
   },
 }

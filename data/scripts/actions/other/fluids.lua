@@ -1,12 +1,12 @@
 -- 772 UseLiquidContainer (`moveuse.cc:1692-1818`).
--- Fill LIQUIDSOURCE → pour empty dest container → drink iff dest is self → else spill 2016.
+-- Fill LIQUIDSOURCE → pour empty dest container → drink iff dest is self → else spill 2886.
 -- Drink: beer/wine stack drunk; slime POISON_PERIODIC 200/3/3; mana 50–150; life 25–75.
 
 local items = {
-	1775, 2005, 2006, 2007, 2008, 2009,
-	2011, 2012, 2013, 2014, 2015, 2023,
-	2031, 2032, 2033, 2034, 2574, 2575,
-	2576, 2577, 2562
+	2524, 2873, 2874, 2875, 2876, 2877,
+	2879, 2880, 2881, 2882, 2885, 2893,
+	2901, 2902, 2903, 2904, 3477, 3478,
+	3479, 3480, 3465
 }
 
 local drunk = Condition(CONDITION_DRUNK)
@@ -81,7 +81,7 @@ function action.onUse(player, item, fromPosition, target, toPosition, isHotkey)
 	if spillPos.x == 0xFFFF then
 		spillPos = player:getPosition()
 	end
-	local splash = Game.createItem(2016, fluidType, spillPos)
+	local splash = Game.createItem(2886, fluidType, spillPos)
 	if splash then
 		splash:decay()
 	end

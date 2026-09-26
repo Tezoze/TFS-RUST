@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3016,
+    corpse = 4197,
   },
   change_target = { chance = 3 },
   target_strategy = { nearest = 80, weakest = 10, most_damage = 10, random = 0 },
@@ -131,15 +131,15 @@ return {
     { name = "Slime", delay = 12, max = 8 },
   },
   loot = {
-    { id = 2169, chance = 5000 }, -- time ring
-    { id = 2149, chance = 10000, count_max = 3 }, -- small emerald
-    { id = 2409, chance = 2000 }, -- serpent sword
-    { id = 2411, chance = 20000 }, -- poison dagger
-    { id = 2155, chance = 1000 }, -- green gem
-    { id = 2148, chance = 35000, count_max = 95 }, -- gold coin
-    { id = 2148, chance = 50000, count_max = 85 }, -- gold coin
-    { id = 2148, chance = 70000, count_max = 80 }, -- gold coin
-    { id = 2451, chance = 1500 }, -- djinn blade
-    { id = 2351, chance = 100000 }, -- cobrafang dagger
+    { id = 3053, chance = 5000 }, -- time ring
+    { id = 3032, chance = 10000, count_max = 3 }, -- small emerald
+    { id = 3297, chance = 2000 }, -- serpent sword
+    { id = 3299, chance = 20000 }, -- poison dagger
+    { id = 3038, chance = 1000 }, -- green gem
+    { id = 3031, chance = 35000, count_max = 95 }, -- gold coin
+    { id = 3031, chance = 50000, count_max = 85 }, -- gold coin
+    { id = 3031, chance = 70000, count_max = 80 }, -- gold coin
+    { id = 3339, chance = 1500 }, -- djinn blade
+    { id = 3238, chance = 100000 }, -- cobrafang dagger
   },
 }

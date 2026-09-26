@@ -100,7 +100,7 @@ fn fillmap_mountain_rock_soil_blocked_clip_grass_defaults() {
     let pos = Position::new(100, 100, 7);
 
     // OTB server 4422 ↔ client 4411 `"a mountain"` (not server 4417 — that row is walkable rock soil).
-    const MOUNTAIN_BANK: u16 = 4422;
+    const MOUNTAIN_BANK: u16 = 4411;
     assert!(
         !world.items_db.is_unpassable(MOUNTAIN_BANK),
         "OTBM mountain bank must stay player-walkable (no blockSolid)"
@@ -121,18 +121,18 @@ fn fillmap_mountain_rock_soil_blocked_clip_grass_defaults() {
         "dirt wall must keep blockSolid so players cannot walk through"
     );
 
-    ensure_walkable_tile(&mut world.map, pos, 4408);
+    ensure_walkable_tile(&mut world.map, pos, 4397);
     assert_eq!(
         world.fillmap_terrain_waypoints_at(pos),
         120,
-        "walkable rock soil 4408"
+        "walkable rock soil 4397"
     );
 
     assert!(
-        !world.items_db.is_unpassable(4533),
+        !world.items_db.is_unpassable(4522),
         "Clip grass border must remain passable"
     );
-    ensure_walkable_tile(&mut world.map, pos, 4533);
+    ensure_walkable_tile(&mut world.map, pos, 4522);
     assert_eq!(
         world.fillmap_terrain_waypoints_at(pos),
         DEFAULT_TERRAIN_WAYPOINTS as i32,

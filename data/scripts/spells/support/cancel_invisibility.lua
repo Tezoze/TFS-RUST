@@ -10,7 +10,7 @@ function onTargetCreature(creature, target)
 		if target:isPlayer() then
 			if Game.getWorldType() == WORLD_TYPE_PVP_ENFORCED then
 				local item = target:getSlotItem(CONST_SLOT_RING)
-				if item and item:getId() == 2202 and math.random(1, 5) == 1 then
+				if item and item:getId() == 3086 and math.random(1, 5) == 1 then
 					item:remove()
 				end
 			end

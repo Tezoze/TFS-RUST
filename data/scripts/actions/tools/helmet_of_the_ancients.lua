@@ -5,9 +5,9 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 		return false
 	end
 	
-	if target:getId() == 2147 then
+	if target:getId() == 3030 then
 		item:getPosition():sendMagicEffect(14)
-		item:transform(2343, 1)
+		item:transform(3230, 1)
 		item:decay()
 		target:remove(1)
 		return true
@@ -15,5 +15,5 @@ function action.onUse(player, item, fromPosition, target, toPosition)
 	return false
 end
 
-action:id(2342) -- helmet of the ancients (no gem)
+action:id(3229) -- helmet of the ancients (no gem)
 action:register()

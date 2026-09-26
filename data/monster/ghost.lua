@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2913,
+    corpse = 4094,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -66,13 +66,13 @@ return {
     { text = "Buuuuuh", yell = false },
   },
   loot = {
-    { id = 2165, chance = 200 }, -- stealth ring
-    { id = 2804, chance = 15000 }, -- shadow herb
-    { id = 2642, chance = 20000 }, -- sandals
-    { id = 2394, chance = 11000 }, -- morning star
-    { id = 2404, chance = 7000 }, -- combat knife
-    { id = 2654, chance = 9000 }, -- cape
-    { id = 1977, chance = 1500 }, -- book
-    { id = 2532, chance = 800 }, -- ancient shield
+    { id = 3049, chance = 200 }, -- stealth ring
+    { id = 3740, chance = 15000 }, -- shadow herb
+    { id = 3551, chance = 20000 }, -- sandals
+    { id = 3282, chance = 11000 }, -- morning star
+    { id = 3292, chance = 7000 }, -- combat knife
+    { id = 3565, chance = 9000 }, -- cape
+    { id = 2843, chance = 1500 }, -- book
+    { id = 3432, chance = 800 }, -- ancient shield
   },
 }

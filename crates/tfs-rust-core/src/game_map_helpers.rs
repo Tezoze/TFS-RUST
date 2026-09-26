@@ -32,6 +32,29 @@ impl GameWorld {
         Ok(self.tile_item_by_type(pos, item_type).is_some())
     }
 
+    /// Puzzle-lever check: matching type that is actually decaying (instance state).
+    pub fn game_is_decaying_item_in_position(
+        &self,
+        pos: Position,
+        item_type: u16,
+    ) -> Result<bool, String> {
+        if self.map.get_tile(pos).is_none() {
+            return Err("Game.isDecayingItemInPosition - Tile not found".to_string());
+        }
+        let tile = self.map.get_tile(pos).expect("checked");
+        for iid in tile.body().script_stack_item_ids() {
+            let Some(item) = self.items.get(iid) else {
+                continue;
+            };
+            if item.item_type == item_type
+                && item.decaying() == crate::item_attributes::DecayState::True
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// `Game.removeItemInPosition` — `game.lua`.
     pub fn game_remove_item_in_position(
         &mut self,

@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2857,
+    corpse = 4038,
   },
   change_target = { chance = 10 },
   target_strategy = { nearest = 70, weakest = 20, most_damage = 0, random = 10 },
@@ -105,15 +105,15 @@ return {
     { name = "Giant Spider", delay = 8, max = 2 },
   },
   loot = {
-    { id = 2169, chance = 1400 }, -- time ring
-    { id = 2457, chance = 10000 }, -- steel helmet
-    { id = 2171, chance = 200 }, -- platinum amulet
-    { id = 2463, chance = 20000 }, -- plate armor
-    { id = 2477, chance = 600 }, -- knight legs
-    { id = 2476, chance = 600 }, -- knight armor
-    { id = 2148, chance = 99900, count_max = 22 }, -- gold coin
-    { id = 2148, chance = 99900, count_max = 66 }, -- gold coin
-    { id = 2148, chance = 66600, count_max = 77 }, -- gold coin
-    { id = 2478, chance = 16000 }, -- brass legs
+    { id = 3053, chance = 1400 }, -- time ring
+    { id = 3351, chance = 10000 }, -- steel helmet
+    { id = 3055, chance = 200 }, -- platinum amulet
+    { id = 3357, chance = 20000 }, -- plate armor
+    { id = 3371, chance = 600 }, -- knight legs
+    { id = 3370, chance = 600 }, -- knight armor
+    { id = 3031, chance = 99900, count_max = 22 }, -- gold coin
+    { id = 3031, chance = 99900, count_max = 66 }, -- gold coin
+    { id = 3031, chance = 66600, count_max = 77 }, -- gold coin
+    { id = 3372, chance = 16000 }, -- brass legs
   },
 }

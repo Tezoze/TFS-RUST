@@ -1137,6 +1137,8 @@ mod item_move_event_tests {
         let dest = Position::new(61, 60, 7);
         insert_walkable(&mut world, from);
         insert_walkable(&mut world, dest);
+        // RemoveItem fires when the source tile still has an action-id sibling.
+        place_aid_sibling(&mut world, from);
         let sibling = place_aid_sibling(&mut world, dest);
 
         let dropped = world.items.insert(Item::new_single(DROP_TYPE));

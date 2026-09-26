@@ -73,5 +73,5 @@ function spellbook.onUse(player, item, fromPosition, target, toPosition, isHotke
 	return true
 end
 
-spellbook:id(2175)
+spellbook:id(3059)
 spellbook:register()

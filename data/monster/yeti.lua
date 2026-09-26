@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3055,
+    corpse = 4236,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 0, most_damage = 30, random = 0 },
@@ -78,12 +78,12 @@ return {
     { text = "Yooodelaaaheeeheee!", yell = false },
   },
   loot = {
-    { id = 2129, chance = 500 }, -- wolf tooth chain
-    { id = 2111, chance = 50000, count_max = 22 }, -- snowball
-    { id = 2666, chance = 75000, count_max = 4 }, -- meat
-    { id = 2671, chance = 35000, count_max = 6 }, -- ham
-    { id = 2148, chance = 30000, count_max = 20 }, -- gold coin
-    { id = 2148, chance = 60000, count_max = 10 }, -- gold coin
-    { id = 2644, chance = 100 }, -- bunnyslippers
+    { id = 3012, chance = 500 }, -- wolf tooth chain
+    { id = 2992, chance = 50000, count_max = 22 }, -- snowball
+    { id = 3577, chance = 75000, count_max = 4 }, -- meat
+    { id = 3582, chance = 35000, count_max = 6 }, -- ham
+    { id = 3031, chance = 30000, count_max = 20 }, -- gold coin
+    { id = 3031, chance = 60000, count_max = 10 }, -- gold coin
+    { id = 3553, chance = 100 }, -- bunnyslippers
   },
 }

@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3013,
+    corpse = 4194,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -81,15 +81,15 @@ return {
     invisible = false,
   },
   loot = {
-    { id = 2149, chance = 300 }, -- small emerald
-    { id = 2150, chance = 500 }, -- small amethyst
-    { id = 2159, chance = 100 }, -- scarab coin
-    { id = 2159, chance = 1000 }, -- scarab coin
-    { id = 2666, chance = 54000, count_max = 2 }, -- meat
-    { id = 2442, chance = 500 }, -- heavy machete
-    { id = 2148, chance = 44500, count_max = 40 }, -- gold coin
-    { id = 2148, chance = 70500, count_max = 12 }, -- gold coin
-    { id = 2439, chance = 300 }, -- daramanian mace
-    { id = 2544, chance = 5000, count_max = 3 }, -- arrow
+    { id = 3032, chance = 300 }, -- small emerald
+    { id = 3033, chance = 500 }, -- small amethyst
+    { id = 3042, chance = 100 }, -- scarab coin
+    { id = 3042, chance = 1000 }, -- scarab coin
+    { id = 3577, chance = 54000, count_max = 2 }, -- meat
+    { id = 3330, chance = 500 }, -- heavy machete
+    { id = 3031, chance = 44500, count_max = 40 }, -- gold coin
+    { id = 3031, chance = 70500, count_max = 12 }, -- gold coin
+    { id = 3327, chance = 300 }, -- daramanian mace
+    { id = 3447, chance = 5000, count_max = 3 }, -- arrow
   },
 }

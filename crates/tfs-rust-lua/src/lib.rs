@@ -70,6 +70,7 @@ pub use lua_mutation::{
     call_lua_bank_deposit, call_lua_bank_withdraw, call_lua_conjure_item,
     call_lua_container_add_item, call_lua_game_create_item, call_lua_game_create_tile,
     call_lua_get_depot_chest, call_lua_get_inbox, call_lua_item_decay, call_lua_item_move_to,
+    call_lua_item_set_decay,
     call_lua_item_remove, call_lua_item_transform, call_lua_npc_say, call_lua_npc_set_focus,
     call_lua_remove_condition, call_lua_remove_item, call_lua_send_cancel_message,
     call_lua_send_channel_message, call_lua_send_magic_effect, call_lua_set_action_id,

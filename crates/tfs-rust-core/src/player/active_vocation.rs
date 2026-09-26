@@ -145,13 +145,20 @@ mod tests {
     use tfs_rust_content::vocations::VocationRegistry;
 
     fn test_vocations() -> VocationRegistry {
-        VocationRegistry::load(std::path::Path::new("data/defs/vocations.lua"))
-            .expect("vocations.lua")
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data/defs/vocations.lua");
+        VocationRegistry::load(&path).expect("vocations.lua")
     }
 
     fn temp_config(contents: &str) -> ConfigManager {
         let mut path = PathBuf::from(std::env::temp_dir());
-        path.push(format!("tfs-premium-promotion-{}.lua", std::process::id()));
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        path.push(format!(
+            "tfs-premium-promotion-{}-{nanos}.lua",
+            std::process::id()
+        ));
         fs::write(&path, contents).expect("write temp config");
         ConfigManager::load(&path).expect("load temp config")
     }

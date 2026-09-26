@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 4277,
+    corpse = 4342,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 0, most_damage = 30, random = 0 },
@@ -56,11 +56,11 @@ return {
     invisible = false,
   },
   loot = {
-    { id = 2666, chance = 70000, count_max = 4 }, -- meat
-    { id = 2649, chance = 8000 }, -- leather legs
-    { id = 2461, chance = 8000 }, -- leather helmet
-    { id = 2671, chance = 40000, count_max = 2 }, -- ham
-    { id = 2148, chance = 50000, count_max = 10 }, -- gold coin
-    { id = 3982, chance = 100 }, -- crocodile boots
+    { id = 3577, chance = 70000, count_max = 4 }, -- meat
+    { id = 3559, chance = 8000 }, -- leather legs
+    { id = 3355, chance = 8000 }, -- leather helmet
+    { id = 3582, chance = 40000, count_max = 2 }, -- ham
+    { id = 3031, chance = 50000, count_max = 10 }, -- gold coin
+    { id = 3556, chance = 100 }, -- crocodile boots
   },
 }

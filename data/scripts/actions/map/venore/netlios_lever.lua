@@ -1,33 +1,33 @@
 local action = Action()
 
 function action.onUse(player, item, fromPosition, target, toPosition)
-	if item:getId() == 1946 and Game.isItemInPosition({x = 32685, y = 32084, z = 09}, 1284) then 
-		item:transform(1945, 1)
+	if item:getId() == 2773 and Game.isItemInPosition({x = 32685, y = 32084, z = 09}, 1771) then 
+		item:transform(2772, 1)
 		item:decay()
 		doRelocate({x = 32687, y = 32084, z = 09},{x = 32683, y = 32084, z = 09})
 		doRelocate({x = 32686, y = 32084, z = 09},{x = 32683, y = 32084, z = 09})
 		doRelocate({x = 32685, y = 32084, z = 09},{x = 32683, y = 32084, z = 09})
 		doRelocate({x = 32684, y = 32084, z = 09},{x = 32683, y = 32084, z = 09})
-		Game.transformItemInPosition({x = 32687, y = 32084, z = 09}, 1284, 598)
-		Game.createItem(4809, 1, {x = 32687, y = 32084, z = 09})
-		Game.transformItemInPosition({x = 32686, y = 32084, z = 09}, 1284, 598)
-		Game.transformItemInPosition({x = 32685, y = 32084, z = 09}, 1284, 598)
-		Game.transformItemInPosition({x = 32684, y = 32084, z = 09}, 1284, 598)
-		Game.createItem(4811, 1, {x = 32684, y = 32084, z = 09})
-	elseif item:getId() == 1946 then
-		item:transform(1945, 1)
+		Game.transformItemInPosition({x = 32687, y = 32084, z = 09}, 1771, 727)
+		Game.createItem(4798, 1, {x = 32687, y = 32084, z = 09})
+		Game.transformItemInPosition({x = 32686, y = 32084, z = 09}, 1771, 727)
+		Game.transformItemInPosition({x = 32685, y = 32084, z = 09}, 1771, 727)
+		Game.transformItemInPosition({x = 32684, y = 32084, z = 09}, 1771, 727)
+		Game.createItem(4800, 1, {x = 32684, y = 32084, z = 09})
+	elseif item:getId() == 2773 then
+		item:transform(2772, 1)
 		item:decay()
-	elseif item:getId() == 1945 and Game.isItemInPosition({x = 32685, y = 32084, z = 09},598) then
-		item:transform(1946, 1)
+	elseif item:getId() == 2772 and Game.isItemInPosition({x = 32685, y = 32084, z = 09},727) then
+		item:transform(2773, 1)
 		item:decay()
-		Game.removeItemInPosition({x = 32684, y = 32084, z = 09}, 4811)
-		Game.transformItemInPosition({x = 32684, y = 32084, z = 09}, 598, 1284)
-		Game.transformItemInPosition({x = 32685, y = 32084, z = 09}, 598, 1284)
-		Game.removeItemInPosition({x = 32687, y = 32084, z = 09}, 4809)
-		Game.transformItemInPosition({x = 32687, y = 32084, z = 09}, 598, 1284)
-		Game.transformItemInPosition({x = 32686, y = 32084, z = 09}, 598, 1284)
-	elseif item:getId() == 1945 then
-		item:transform(1946, 1)
+		Game.removeItemInPosition({x = 32684, y = 32084, z = 09}, 4800)
+		Game.transformItemInPosition({x = 32684, y = 32084, z = 09}, 727, 1771)
+		Game.transformItemInPosition({x = 32685, y = 32084, z = 09}, 727, 1771)
+		Game.removeItemInPosition({x = 32687, y = 32084, z = 09}, 4798)
+		Game.transformItemInPosition({x = 32687, y = 32084, z = 09}, 727, 1771)
+		Game.transformItemInPosition({x = 32686, y = 32084, z = 09}, 727, 1771)
+	elseif item:getId() == 2772 then
+		item:transform(2773, 1)
 		item:decay()
 	end
 	return true

@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2862,
+    corpse = 4043,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -59,13 +59,13 @@ return {
     { text = "Alk!", yell = false },
   },
   loot = {
-    { id = 2512, chance = 18000 }, -- wooden shield
-    { id = 2385, chance = 50000 }, -- sabre
-    { id = 2411, chance = 100 }, -- poison dagger
-    { id = 2666, chance = 15000 }, -- meat
-    { id = 2148, chance = 65000, count_max = 15 }, -- gold coin
-    { id = 2530, chance = 500 }, -- copper shield
-    { id = 2464, chance = 7500 }, -- chain armor
-    { id = 2007, chance = 7000 }, -- bottle
+    { id = 3412, chance = 18000 }, -- wooden shield
+    { id = 3273, chance = 50000 }, -- sabre
+    { id = 3299, chance = 100 }, -- poison dagger
+    { id = 3577, chance = 15000 }, -- meat
+    { id = 3031, chance = 65000, count_max = 15 }, -- gold coin
+    { id = 3430, chance = 500 }, -- copper shield
+    { id = 3358, chance = 7500 }, -- chain armor
+    { id = 2875, chance = 7000 }, -- bottle
   },
 }

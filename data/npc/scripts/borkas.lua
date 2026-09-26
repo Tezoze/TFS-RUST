@@ -275,7 +275,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "drawer" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3915 } },
+				{ set = { var = "type", value = 2789 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 18 } },
 				{ say = "You want to buy drawers for %P gold?" },
@@ -289,7 +289,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "dresser" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3916 } },
+				{ set = { var = "type", value = 2790 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 25 } },
 				{ say = "You want to buy a dresser for %P gold?" },
@@ -303,7 +303,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "locker" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3917 } },
+				{ set = { var = "type", value = 2791 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 30 } },
 				{ say = "You want to buy a locker for %P gold?" },
@@ -317,7 +317,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "crate" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 1739 } },
+				{ set = { var = "type", value = 2471 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10 } },
 				{ say = "Do you want to buy a crate for %P gold?" },
@@ -331,7 +331,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "chest" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 1740 } },
+				{ set = { var = "type", value = 2472 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10 } },
 				{ say = "Do you want to buy a chest for %P gold?" },
@@ -345,7 +345,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "box" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 1738 } },
+				{ set = { var = "type", value = 2469 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10 } },
 				{ say = "Do you want to buy a box for %P gold?" },
@@ -359,7 +359,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "barrel" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3919 } },
+				{ set = { var = "type", value = 2793 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 12 } },
 				{ say = "Do you want to buy a barrel for %P gold?" },
@@ -373,7 +373,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "trough" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3918 } },
+				{ set = { var = "type", value = 2792 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 7 } },
 				{ say = "Do you want to buy a trough for %P gold?" },
@@ -387,7 +387,7 @@ npc:dialogue(NpcDialogue({
 				{ words = { "trunk" } },
 			},
 			actions = {
-				{ set = { var = "type", value = 3920 } },
+				{ set = { var = "type", value = 2794 } },
 				{ set = { var = "amount", value = 1 } },
 				{ set = { var = "price", value = 10 } },
 				{ say = "Do you want to buy a trunk for %P gold?" },

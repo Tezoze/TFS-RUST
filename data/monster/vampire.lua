@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2956,
+    corpse = 4137,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 30, most_damage = 0, random = 0 },
@@ -87,18 +87,18 @@ return {
     { text = "I call you, my bats! Come!", yell = false },
   },
   loot = {
-    { id = 2534, chance = 100 }, -- vampire shield
-    { id = 2479, chance = 400 }, -- strange helmet
-    { id = 2383, chance = 1000 }, -- spike sword
-    { id = 2229, chance = 10000 }, -- skull
-    { id = 2649, chance = 8000 }, -- leather legs
-    { id = 2412, chance = 15000 }, -- katana
-    { id = 2396, chance = 300 }, -- ice rapier
-    { id = 2747, chance = 18000 }, -- grave flower
-    { id = 2148, chance = 15000, count_max = 20 }, -- gold coin
-    { id = 2127, chance = 200 }, -- emerald bangle
-    { id = 2172, chance = 200 }, -- bronze amulet
-    { id = 2032, chance = 11000 }, -- bowl
-    { id = 2144, chance = 1500 }, -- black pearl
+    { id = 3434, chance = 100 }, -- vampire shield
+    { id = 3373, chance = 400 }, -- strange helmet
+    { id = 3271, chance = 1000 }, -- spike sword
+    { id = 3114, chance = 10000 }, -- skull
+    { id = 3559, chance = 8000 }, -- leather legs
+    { id = 3300, chance = 15000 }, -- katana
+    { id = 3284, chance = 300 }, -- ice rapier
+    { id = 3661, chance = 18000 }, -- grave flower
+    { id = 3031, chance = 15000, count_max = 20 }, -- gold coin
+    { id = 3010, chance = 200 }, -- emerald bangle
+    { id = 3056, chance = 200 }, -- bronze amulet
+    { id = 2902, chance = 11000 }, -- bowl
+    { id = 3027, chance = 1500 }, -- black pearl
   },
 }

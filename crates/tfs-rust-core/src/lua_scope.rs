@@ -187,6 +187,18 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             }
             Ok(())
         }
+        LuaMutation::ItemSetDecay {
+            item_id,
+            seconds,
+            decay_to,
+        } => {
+            let world = unsafe { &mut *world };
+            let ok = world
+                .resolve_item_u64(item_id)
+                .is_some_and(|id| world.set_item_decay(id, seconds, decay_to));
+            set_mutation_bool_result(ok);
+            Ok(())
+        }
         LuaMutation::PlayerAddMana {
             creature_id,
             mana_change,

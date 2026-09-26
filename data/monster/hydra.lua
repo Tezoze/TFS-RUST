@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 4283,
+    corpse = 4348,
   },
   change_target = { chance = 5 },
   target_strategy = { nearest = 70, weakest = 10, most_damage = 10, random = 10 },
@@ -99,20 +99,20 @@ return {
     { text = "HISSSS", yell = true },
   },
   loot = {
-    { id = 2475, chance = 1000 }, -- warrior helmet
-    { id = 2197, chance = 800 }, -- stone skin amulet
-    { id = 2146, chance = 5000 }, -- small sapphire
-    { id = 2498, chance = 200 }, -- royal helmet
-    { id = 2214, chance = 1200 }, -- ring of healing
-    { id = 2536, chance = 100 }, -- medusa shield
-    { id = 2666, chance = 90000, count_max = 4 }, -- meat
-    { id = 2177, chance = 600 }, -- life crystal
-    { id = 2476, chance = 1000 }, -- knight armor
-    { id = 4850, chance = 900 }, -- hydra egg
-    { id = 2671, chance = 60000, count_max = 3 }, -- ham
-    { id = 2148, chance = 40000, count_max = 50 }, -- gold coin
-    { id = 2148, chance = 60000, count_max = 100 }, -- gold coin
-    { id = 2148, chance = 80000, count_max = 100 }, -- gold coin
-    { id = 2195, chance = 100 }, -- boots of haste
+    { id = 3369, chance = 1000 }, -- warrior helmet
+    { id = 3081, chance = 800 }, -- stone skin amulet
+    { id = 3029, chance = 5000 }, -- small sapphire
+    { id = 3392, chance = 200 }, -- royal helmet
+    { id = 3098, chance = 1200 }, -- ring of healing
+    { id = 3436, chance = 100 }, -- medusa shield
+    { id = 3577, chance = 90000, count_max = 4 }, -- meat
+    { id = 3061, chance = 600 }, -- life crystal
+    { id = 3370, chance = 1000 }, -- knight armor
+    { id = 4839, chance = 900 }, -- hydra egg
+    { id = 3582, chance = 60000, count_max = 3 }, -- ham
+    { id = 3031, chance = 40000, count_max = 50 }, -- gold coin
+    { id = 3031, chance = 60000, count_max = 100 }, -- gold coin
+    { id = 3031, chance = 80000, count_max = 100 }, -- gold coin
+    { id = 3079, chance = 100 }, -- boots of haste
   },
 }

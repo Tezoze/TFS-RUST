@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3016,
+    corpse = 4197,
   },
   change_target = { chance = 7 },
   target_strategy = { nearest = 70, weakest = 10, most_damage = 20, random = 0 },
@@ -127,18 +127,18 @@ return {
     { name = "Stalker", delay = 7, max = 4 },
   },
   loot = {
-    { id = 2154, chance = 1000 }, -- yellow gem
-    { id = 2165, chance = 5000 }, -- stealth ring
-    { id = 2145, chance = 10000, count_max = 3 }, -- small diamond
-    { id = 2674, chance = 80000, count_max = 2 }, -- red apple
-    { id = 2547, chance = 10000, count_max = 5 }, -- power bolt
-    { id = 2545, chance = 60000, count_max = 20 }, -- poison arrow
-    { id = 2148, chance = 35000, count_max = 95 }, -- gold coin
-    { id = 2148, chance = 50000, count_max = 85 }, -- gold coin
-    { id = 2148, chance = 70000, count_max = 80 }, -- gold coin
-    { id = 2352, chance = 100000 }, -- crystal arrow
-    { id = 2546, chance = 40000, count_max = 15 }, -- burst arrow
-    { id = 2195, chance = 100 }, -- boots of haste
-    { id = 2544, chance = 20000, count_max = 25 }, -- arrow
+    { id = 3037, chance = 1000 }, -- yellow gem
+    { id = 3049, chance = 5000 }, -- stealth ring
+    { id = 3028, chance = 10000, count_max = 3 }, -- small diamond
+    { id = 3585, chance = 80000, count_max = 2 }, -- red apple
+    { id = 3450, chance = 10000, count_max = 5 }, -- power bolt
+    { id = 3448, chance = 60000, count_max = 20 }, -- poison arrow
+    { id = 3031, chance = 35000, count_max = 95 }, -- gold coin
+    { id = 3031, chance = 50000, count_max = 85 }, -- gold coin
+    { id = 3031, chance = 70000, count_max = 80 }, -- gold coin
+    { id = 3239, chance = 100000 }, -- crystal arrow
+    { id = 3449, chance = 40000, count_max = 15 }, -- burst arrow
+    { id = 3079, chance = 100 }, -- boots of haste
+    { id = 3447, chance = 20000, count_max = 25 }, -- arrow
   },
 }

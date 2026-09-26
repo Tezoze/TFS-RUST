@@ -34,8 +34,8 @@ const BAG: u16 = 1987;
 const GOLD: u16 = 2148;
 const RAT_CORPSE: u16 = 2813;
 const SPLASH: u16 = 2016;
-const AOL: u16 = 2173;
-const DEAD_HUMAN: u16 = 3128;
+const AOL: u16 = 3057;
+const DEAD_HUMAN: u16 = 4311;
 const RARITY_AID: u16 = 4242;
 
 fn data_root() -> PathBuf {
@@ -294,6 +294,9 @@ end, 0}
 "#,
         )
         .expect("inject onSpawn rarity callback");
+    runtime
+        .sync_event_callbacks_from_lua()
+        .expect("sync onSpawn into the callback registry");
 
     let mut world = loot_world(ProtocolVersion::V772);
     world.events = Box::new(LuaEventDispatcher::new(
@@ -482,7 +485,7 @@ fn player_death_aol(version: ProtocolVersion, with_lua: bool) {
     apply_death(&mut world, cid);
     assert!(
         world.items.get(aol).is_none(),
-        "AoL 2173 must be consumed (LOSE_INVENTORY_NONE)"
+        "AoL 3057 must be consumed (LOSE_INVENTORY_NONE)"
     );
     assert!(
         world.items.get(gold).is_some(),
@@ -490,7 +493,7 @@ fn player_death_aol(version: ProtocolVersion, with_lua: bool) {
     );
     assert!(
         tile_has_corpse_type(&world, pos, DEAD_HUMAN),
-        "player corpse 3128 must exist on the tile"
+        "player corpse 4311 must exist on the tile"
     );
 }
 
@@ -540,7 +543,7 @@ fn player_death_some_lua(version: ProtocolVersion) {
     apply_death(&mut world, cid);
     assert!(
         tile_has_corpse_type(&world, pos, DEAD_HUMAN),
-        "SOME death must still place corpse 3128"
+        "SOME death must still place corpse 4311"
     );
 }
 

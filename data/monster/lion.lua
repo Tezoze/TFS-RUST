@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 2889,
+    corpse = 4070,
   },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
   flags = {
@@ -57,7 +57,7 @@ return {
     { text = "Groarrr!", yell = false },
   },
   loot = {
-    { id = 2666, chance = 45000, count_max = 3 }, -- meat
-    { id = 2671, chance = 20000, count_max = 2 }, -- ham
+    { id = 3577, chance = 45000, count_max = 3 }, -- meat
+    { id = 3582, chance = 20000, count_max = 2 }, -- ham
   },
 }

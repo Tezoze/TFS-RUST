@@ -20,16 +20,17 @@ use crate::inventory::{
 };
 use crate::item::Item;
 
-/// Default internal bag for spawn-rolled loot — TVP `item id="1987"`.
-pub const DEFAULT_MONSTER_BAG_TYPE: u16 = 1987;
+/// Default internal bag for spawn-rolled loot. Catalog id of the old bag 1987.
+pub const DEFAULT_MONSTER_BAG_TYPE: u16 = 2853;
 
-/// 1098 generic corpse fallback when race corpse is unset.
-pub const GENERIC_CORPSE_TYPE: u16 = 3058;
+/// Generic corpse fallback when race corpse is unset. Catalog id of the old corpse 3058.
+pub const GENERIC_CORPSE_TYPE: u16 = 4240;
 
-/// Blood/slime splash item ids (TFS data pack — `src/const.h` `ITEM_FULLSPLASH`/`ITEM_SMALLSPLASH`;
-/// CipSoft special objects `BLOOD_POOL`/`BLOOD_SPLASH`, `tibia-game-master/src/enums.hh:609`).
-pub const ITEM_FULLSPLASH: u16 = 2016;
-pub const ITEM_SMALLSPLASH: u16 = 2019;
+/// Blood/slime splash item ids. Catalog keys are the client ids (`const.h`
+/// `ITEM_FULLSPLASH` / `ITEM_SMALLSPLASH`). Old server ids were 2016 and 2019.
+/// `BLOOD_POOL` / `BLOOD_SPLASH` — `tibia-game-master/src/enums.hh:609`.
+pub const ITEM_FULLSPLASH: u16 = 2886;
+pub const ITEM_SMALLSPLASH: u16 = 2889;
 
 /// 772 physical-hit graphical effect keyed on blood family (raw client wire effect byte).
 /// C++ `TCreature::Damage` physical switch — `tibia-game-master/src/crmain.cc:709-745`; matches
@@ -676,7 +677,8 @@ mod tests {
     use tfs_rust_content::otb::ItemType;
 
     use super::{
-        ITEM_FULLSPLASH, ITEM_SMALLSPLASH, MonsterInventory, effective_monster_combat_stats,
+        DEFAULT_MONSTER_BAG_TYPE, ITEM_FULLSPLASH, ITEM_SMALLSPLASH, MonsterInventory,
+        effective_monster_combat_stats,
     };
     use crate::combat::{CombatDamage, CombatParams};
     use crate::creature::{CreatureKind, MonsterAiConfig};
@@ -964,7 +966,7 @@ mod tests {
     #[test]
     fn test_e6_corpse_contains_spawn_loot() {
         let mut items = HashMap::new();
-        items.insert(1987u16, bag_item_type(1987));
+        items.insert(DEFAULT_MONSTER_BAG_TYPE, bag_item_type(DEFAULT_MONSTER_BAG_TYPE));
         items.insert(2148u16, stackable_pickup_item_type(2148));
         items.insert(2813u16, {
             let mut c = bag_item_type(2813);
@@ -1043,7 +1045,7 @@ mod tests {
     #[test]
     fn test_e6_summon_spawns_without_loot() {
         let mut items = HashMap::new();
-        items.insert(1987u16, bag_item_type(1987));
+        items.insert(DEFAULT_MONSTER_BAG_TYPE, bag_item_type(DEFAULT_MONSTER_BAG_TYPE));
         items.insert(2148u16, stackable_pickup_item_type(2148));
         let mut world = beat_world(items);
         world.seed_parity_rng(99);

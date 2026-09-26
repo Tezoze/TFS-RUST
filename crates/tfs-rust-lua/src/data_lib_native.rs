@@ -49,6 +49,16 @@ pub fn register_data_lib_native(lua: &Lua) -> Result<(), mlua::Error> {
     )?;
 
     game.set(
+        "isDecayingItemInPosition",
+        lua.create_function(|_, (pos, item_type): (Value, u16)| {
+            let (x, y, z) = parse_position(pos)?;
+            current_ctx(|ctx| ctx.game_is_decaying_item_in_position(x, y, z, item_type))
+                .ok_or_else(|| mlua::Error::runtime("LuaContext not set"))?
+                .map_err(mlua::Error::runtime)
+        })?,
+    )?;
+
+    game.set(
         "removeItemInPosition",
         lua.create_function(|_, (pos, item_type): (Value, u16)| {
             let (x, y, z) = parse_position(pos)?;

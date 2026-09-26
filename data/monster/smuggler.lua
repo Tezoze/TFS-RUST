@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 113,
     look_feet = 115,
-    corpse = 3058,
+    corpse = 4240,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -60,15 +60,15 @@ return {
     { text = "You saw something you shouldn't!", yell = false },
   },
   loot = {
-    { id = 2050, chance = 30000, count_max = 2 }, -- torch
-    { id = 2376, chance = 5000 }, -- sword
-    { id = 2406, chance = 10000 }, -- short sword
-    { id = 2666, chance = 50000 }, -- meat
-    { id = 2649, chance = 15000 }, -- leather legs
-    { id = 2461, chance = 10000 }, -- leather helmet
-    { id = 2403, chance = 10000 }, -- knife
-    { id = 2671, chance = 10000 }, -- ham
-    { id = 2148, chance = 80000, count_max = 10 }, -- gold coin
-    { id = 2404, chance = 4000 }, -- combat knife
+    { id = 2920, chance = 30000, count_max = 2 }, -- torch
+    { id = 3264, chance = 5000 }, -- sword
+    { id = 3294, chance = 10000 }, -- short sword
+    { id = 3577, chance = 50000 }, -- meat
+    { id = 3559, chance = 15000 }, -- leather legs
+    { id = 3355, chance = 10000 }, -- leather helmet
+    { id = 3291, chance = 10000 }, -- knife
+    { id = 3582, chance = 10000 }, -- ham
+    { id = 3031, chance = 80000, count_max = 10 }, -- gold coin
+    { id = 3292, chance = 4000 }, -- combat knife
   },
 }

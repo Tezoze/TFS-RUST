@@ -15,7 +15,7 @@ return {
     look_body = 0,
     look_legs = 0,
     look_feet = 0,
-    corpse = 3058,
+    corpse = 4240,
   },
   change_target = { chance = 50 },
   target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
@@ -93,19 +93,19 @@ return {
     { name = "Ghoul", delay = 5, max = 2 },
   },
   loot = {
-    { id = 2436, chance = 400 }, -- skull staff
-    { id = 2229, chance = 16000 }, -- skull
-    { id = 2406, chance = 8600 }, -- short sword
-    { id = 2483, chance = 8500 }, -- scale armor
-    { id = 2663, chance = 1800 }, -- mystic turban
-    { id = 2796, chance = 22500 }, -- green mushroom
-    { id = 2148, chance = 67300, count_max = 99 }, -- gold coin
-    { id = 2186, chance = 500 }, -- moonlight rod
-    { id = 2423, chance = 5700 }, -- clerical mace
-    { id = 2195, chance = 200 }, -- boots of haste
-    { id = 2541, chance = 7500 }, -- bone shield
-    { id = 2449, chance = 19900 }, -- bone club
-    { id = 2230, chance = 30000 }, -- bone
-    { id = 2231, chance = 6000 }, -- big bone
+    { id = 3324, chance = 400 }, -- skull staff
+    { id = 3114, chance = 16000 }, -- skull
+    { id = 3294, chance = 8600 }, -- short sword
+    { id = 3377, chance = 8500 }, -- scale armor
+    { id = 3574, chance = 1800 }, -- mystic turban
+    { id = 3732, chance = 22500 }, -- green mushroom
+    { id = 3031, chance = 67300, count_max = 99 }, -- gold coin
+    { id = 3070, chance = 500 }, -- moonlight rod
+    { id = 3311, chance = 5700 }, -- clerical mace
+    { id = 3079, chance = 200 }, -- boots of haste
+    { id = 3441, chance = 7500 }, -- bone shield
+    { id = 3337, chance = 19900 }, -- bone club
+    { id = 3115, chance = 30000 }, -- bone
+    { id = 3116, chance = 6000 }, -- big bone
   },
 }
