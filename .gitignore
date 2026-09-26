@@ -256,6 +256,7 @@ data/logs/*
 /docs/*
 !/docs/COMPILING.md
 !/docs/DOCKER.md
+/tests/fixtures/npc/
 
 #############
 ## Python
