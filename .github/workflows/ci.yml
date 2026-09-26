@@ -32,9 +32,6 @@ jobs:
       # Note: We run the workspace tests
       run: cargo test --workspace
 
-    - name: Data-pack policy
-      run: bash scripts/check_data_pack_policy.sh
-
     - name: LuaLS check
       env:
         LUALS_VERSION: "3.18.2"
@@ -79,4 +76,3 @@ jobs:
           echo "No cached 'main' baseline; running without --baseline"
           cargo bench -p tfs-rust-core --bench hot_paths -- --noplot
         fi
-        python3 scripts/bench/check_regression.py

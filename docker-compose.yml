@@ -3,7 +3,7 @@
 #   docker compose up --build                     # compile locally
 #
 # Login 7171 / game 7172. Account `1` / password `1` (God + four vocations, seeded after migrations).
-# Stop a host `./scripts/run_server.sh` first (same ports).
+# Stop a host server first (same ports).
 # Clients on this machine: TFS_PUBLIC_IP=127.0.0.1 (default). LAN: set your host IP.
 
 services:

@@ -27,14 +27,14 @@ I/O threads parse packets and run DB queries; the game thread owns all world sta
 
 ## Quick start
 
-1. **Build and run** — follow [docs/COMPILING.md](docs/COMPILING.md) (requirements, `cargo build`, `config.lua`, MariaDB, `scripts/run_server.sh`).
+1. **Build and run** — follow [docs/COMPILING.md](docs/COMPILING.md) (requirements, `cargo build`, `config.lua`, MariaDB).
 2. Copy `config.lua.dist` → `config.lua` and set `clientVersion = 772` (and MySQL credentials).
 3. Ensure `data/`, `key.pem`, and your OTBM map path (`TFS_DATA_DIR` / `TFS_MAP_OTBM`) are in place.
 
 ```bash
 cargo build --release --bin tfs-rust
 cp config.lua.dist config.lua
-./scripts/run_server.sh
+cargo run --release --bin tfs-rust
 ```
 
 Login **7171**, game **7172** by default.

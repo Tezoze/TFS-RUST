@@ -25,7 +25,7 @@ Guide to building and running the server from source on Linux, macOS, and Window
 |------|---------|
 | `rustfmt`, `clippy` | `rustup component add rustfmt clippy` |
 | `cargo-sqlx` CLI | Regenerate `.sqlx/` offline query cache after schema/query changes |
-| `psmisc` (`fuser`) | `scripts/run_server.sh` frees ports 7171/7172 before start (Linux) |
+| `psmisc` (`fuser`) | Free ports 7171/7172 before a restart (Linux) |
 
 ### Not required to compile
 
@@ -240,10 +240,8 @@ The repo includes `data/` (scripts, monsters, NPCs, XML) and `data/world/forgott
 ### Quick start (debug build via Cargo)
 
 ```bash
-./scripts/run_server.sh
+cargo run --bin tfs-rust
 ```
-
-Equivalent to `cargo run --bin tfs-rust` from the repo root.
 
 ### Release binary directly
 
@@ -324,7 +322,6 @@ Release + LuaJIT compile is heavy. Use `cargo build --release -j $(nproc)` and e
 |-----|----------|
 | `docs/PROJECT_STATUS.md` | Feature status and architecture |
 | `config.lua.dist` | All config keys and defaults |
-| `scripts/run_server.sh` | Dev launcher |
 | `README.md` | Project overview |
 | `docs/DOCKER.md` | Compose, GHCR, ports, seeded account |
 | `docker-compose.yml` | Containerized server + MariaDB |

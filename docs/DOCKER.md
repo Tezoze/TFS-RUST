@@ -2,7 +2,7 @@
 
 Compose runs **MariaDB 11** and the **tfs-rust** game server. Schema is SQLx migrations on first boot (`TFS_MIGRATIONS_DIR`), not a dumped `schema.sql`.
 
-Stop a host `./scripts/run_server.sh` first — it binds the same login/game ports.
+Stop a host server first — it binds the same login/game ports.
 
 ## Quick start (prebuilt image)
 
