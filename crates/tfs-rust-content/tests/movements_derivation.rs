@@ -20,10 +20,11 @@ const XML_FIELD_IDS: &[u16] = &[
 const EXTRA_NATIVE_FIELD_IDS: &[u16] = &[1506, 1507, 1508];
 
 /// Frozen Equip ids from the last `movements.xml`.
+/// Plain armor with no ability or transform is omitted: dwarven helmet 2502,
+/// dwarven armor 2503, dwarven legs 2504, wood cape 2664.
 const XML_EQUIP_IDS: &[u16] = &[
     2161, 2164, 2165, 2166, 2167, 2168, 2169, 2170, 2172, 2173, 2195, 2197, 2198, 2199, 2200, 2201,
-    2202, 2203, 2204, 2205, 2206, 2207, 2208, 2209, 2210, 2211, 2212, 2213, 2214, 2215, 2216, 2502,
-    2503, 2504, 2640, 2664,
+    2202, 2203, 2204, 2205, 2206, 2207, 2208, 2209, 2210, 2211, 2212, 2213, 2214, 2215, 2216, 2640,
 ];
 
 /// Amulet of loss: XML Equip/DeEquip stub, no abilities / no transform. Native no-op.

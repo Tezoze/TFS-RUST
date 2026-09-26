@@ -23,6 +23,7 @@ use crate::login_out::{
     item_stack_from_server_id, map_tile_content_into,
 };
 
+#[derive(Default)]
 struct MapPointBuf {
     ground: Option<ItemStack>,
     top: Vec<ItemStack>,
@@ -50,20 +51,6 @@ impl MapPointBuf {
             && self.low.is_empty()
             && self.creatures.is_empty()
             && !self.inject_self
-    }
-}
-
-impl Default for MapPointBuf {
-    fn default() -> Self {
-        Self {
-            ground: None,
-            top: Vec::new(),
-            bottom: Vec::new(),
-            low: Vec::new(),
-            creatures: Vec::new(),
-            inject_self: false,
-            wire: AddCreatureWire::default(),
-        }
     }
 }
 

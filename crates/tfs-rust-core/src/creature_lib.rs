@@ -17,6 +17,8 @@ use crate::player_flags::{PLAYER_FLAG_CAN_ILLUSION_ALL, flags_for_group, has_pla
 use crate::spawn_placement::spiral_free_field_positions;
 
 /// Damage list kind — `data/lib/core/constants.lua` `DAMAGELIST_*`.
+/// Value 0 is the `_` arm below (exponential and any unknown kind).
+#[allow(dead_code)]
 pub const DAMAGELIST_EXPONENTIAL_DAMAGE: i32 = 0;
 pub const DAMAGELIST_LOGARITHMIC_DAMAGE: i32 = 1;
 pub const DAMAGELIST_VARYING_PERIOD: i32 = 2;
@@ -129,7 +131,7 @@ impl GameWorld {
         {
             return Ok(false);
         }
-        let look_type = mtype.outfit.look_type as i32;
+        let look_type = mtype.outfit.look_type;
         self.apply_outfit_condition(cid, look_type, 0, ticks_ms);
         Ok(true)
     }
@@ -144,7 +146,7 @@ impl GameWorld {
         let cid = self
             .resolve_creature_u64(creature_u64)
             .ok_or_else(|| "setItemOutfit: creature not found".to_string())?;
-        if self.items_db.items.get(&item_type).is_none() {
+        if !self.items_db.items.contains_key(&item_type) {
             return Ok(false);
         }
         self.apply_outfit_condition(cid, 0, item_type, ticks_ms);
@@ -313,7 +315,7 @@ fn build_damage_list_condition(
             )
             .with_skill_timer(4, 4)
         }
-        DAMAGELIST_EXPONENTIAL_DAMAGE | _ => {
+        _ => {
             let rank = damage.max(1);
             ActiveCondition::new(
                 0,

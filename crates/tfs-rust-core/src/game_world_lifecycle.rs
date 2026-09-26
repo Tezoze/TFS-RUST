@@ -76,7 +76,11 @@ impl GameWorld {
         {
             return;
         }
-        let (color, verb) = if logged_in { ("32", "in") } else { ("31", "out") };
+        let (color, verb) = if logged_in {
+            ("32", "in")
+        } else {
+            ("31", "out")
+        };
         eprintln!("\x1b[{color}m{name} has logged {verb}\x1b[0m");
     }
 

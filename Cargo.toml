@@ -1,6 +1,6 @@
 [package]
 name = "tfs-rust"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 
 [[bin]]
@@ -20,6 +20,9 @@ members = [
     "tools/loadgen",
 ]
 resolver = "2"
+
+[workspace.package]
+version = "1.0.0"
 
 [workspace.dependencies]
 tfs-rust-common = { path = "crates/tfs-rust-common" }

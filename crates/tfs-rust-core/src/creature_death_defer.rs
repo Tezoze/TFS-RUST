@@ -209,7 +209,10 @@ impl GameWorld {
         if let Some(conn) = dead_conn {
             self.unregister_conn_mapping(conn);
             // `~TCreature` `Logout(30)` — not InGame for those rounds (`crmain.cc:300`).
-            self.schedule_tcp_close_after(conn, crate::connection_logout::DEATH_LOGOUT_DELAY_ROUNDS);
+            self.schedule_tcp_close_after(
+                conn,
+                crate::connection_logout::DEATH_LOGOUT_DELAY_ROUNDS,
+            );
         }
     }
 

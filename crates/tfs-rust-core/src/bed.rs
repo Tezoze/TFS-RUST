@@ -142,10 +142,10 @@ impl GameWorld {
             return Err(ReturnValue::NotPossible);
         };
         let _ = internal_teleport_player(self, conn_id, cid, bed_pos, true);
-        if let Some(pos) = self.creatures.get(cid).map(|k| k.position()) {
-            if matches!(self.codec, Codec::V1098(_)) {
-                self.broadcast_magic_effect(pos, ME_SLEEP);
-            }
+        if let Some(pos) = self.creatures.get(cid).map(|k| k.position())
+            && matches!(self.codec, Codec::V1098(_))
+        {
+            self.broadcast_magic_effect(pos, ME_SLEEP);
         }
         self.bed_update_appearance(item_id, Some(cid));
         if let Some(pid) = partner {

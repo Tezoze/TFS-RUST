@@ -73,15 +73,14 @@ impl SectorIndex {
             self.player_ids.insert(id);
         }
         let as_player = is_player || self.player_ids.contains(&id);
-        if as_player {
-            if let Some(old) = self.player_sector.insert(id, key)
-                && old != key
-            {
-                if let Some(prev) = self.sectors.get_mut(&old) {
-                    prev.players.retain(|c| *c != id);
-                }
-                self.drop_empty(old);
+        if as_player
+            && let Some(old) = self.player_sector.insert(id, key)
+            && old != key
+        {
+            if let Some(prev) = self.sectors.get_mut(&old) {
+                prev.players.retain(|c| *c != id);
             }
+            self.drop_empty(old);
         }
 
         let lists = self.lists_mut(key);

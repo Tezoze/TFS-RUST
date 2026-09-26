@@ -317,7 +317,10 @@ mod tests {
         world.round_nr = 90;
         let conn = tfs_rust_common::ConnId(1);
         let kick = world.process_connections();
-        assert!(kick.is_empty(), "timeout Logout(0) waits for the next Process");
+        assert!(
+            kick.is_empty(),
+            "timeout Logout(0) waits for the next Process"
+        );
         assert_eq!(world.logout_at_round.get(&conn), Some(&90));
         let kick = world.process_connections();
         assert_eq!(kick, vec![(conn, false)]);
@@ -361,7 +364,10 @@ mod tests {
             p.last_command_round = 660;
         }
         let kick = world.process_connections();
-        assert!(kick.is_empty(), "kick at 660 schedules Logout, does not close TCP");
+        assert!(
+            kick.is_empty(),
+            "kick at 660 schedules Logout, does not close TCP"
+        );
         assert!(
             world
                 .logout_at_round

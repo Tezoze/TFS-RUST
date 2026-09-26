@@ -420,16 +420,11 @@ impl GameWorld {
         ) {
             return false;
         }
-        let payout = i32::try_from(u32::from(sell_price) * u32::from(amount)).unwrap_or(i32::MAX);
+        let payout = i32::try_from(sell_price * u32::from(amount)).unwrap_or(i32::MAX);
         self.player_create_money(player, payout).is_ok()
     }
 
-    fn shop_line<'a>(
-        &'a self,
-        player: CreatureId,
-        item_id: u16,
-        sub_type: u8,
-    ) -> Option<&'a ActiveShopItem> {
+    fn shop_line(&self, player: CreatureId, item_id: u16, sub_type: u8) -> Option<&ActiveShopItem> {
         let CreatureKind::Player(p) = self.creatures.get(player)? else {
             return None;
         };

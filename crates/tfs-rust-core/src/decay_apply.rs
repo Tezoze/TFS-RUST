@@ -168,12 +168,7 @@ impl GameWorld {
     }
 
     /// `saved_clock` is `CronInfo` units from a popped cron entry (`map.cc:316-318`).
-    fn change_item_type_inner(
-        &mut self,
-        item_id: ItemId,
-        new_type: u16,
-        saved_clock: Option<u64>,
-    ) {
+    fn change_item_type_inner(&mut self, item_id: ItemId, new_type: u16, saved_clock: Option<u64>) {
         let Some(item) = self.items.get(item_id) else {
             return;
         };

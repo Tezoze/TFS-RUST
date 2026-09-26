@@ -1,6 +1,6 @@
 [package]
 name = "tfs-loadgen"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 description = "Open-loop 772 client loadgen (Tier 3). Does not depend on tfs-rust-core."
 autobins = false

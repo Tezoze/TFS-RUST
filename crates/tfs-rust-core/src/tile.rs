@@ -629,7 +629,7 @@ impl CreatureStackIndex {
     /// Stack byte for `viewer`. Hidden bodies above the target occupy a slot only
     /// on that hidden creature's own client.
     pub fn for_viewer(&self, viewer: CreatureId) -> i32 {
-        if self.shared >= 0 && self.own_client_only.iter().any(|&c| c == viewer) {
+        if self.shared >= 0 && self.own_client_only.contains(&viewer) {
             self.shared + 1
         } else {
             self.shared

@@ -9,6 +9,7 @@ function Action:aid(...) end
 function Action:allowFarUse(...) end
 function Action:id(...) end
 function Action:register(...) end
+function Action:uid(...) end
 
 ---@class Channel
 Channel = {}
@@ -21,6 +22,7 @@ Combat = {}
 
 function Combat:addCondition(...) end
 function Combat:execute(...) end
+function Combat:getPositions(...) end
 function Combat:getTargets(...) end
 function Combat:setArea(...) end
 function Combat:setCallback(...) end
@@ -39,6 +41,7 @@ function Condition:setTicks(...) end
 Creature = {}
 
 function Creature:addCondition(...) end
+function Creature:addDamageCondition(...) end
 function Creature:addHealth(...) end
 function Creature:addItem(...) end
 function Creature:addItemEx(...) end
@@ -46,6 +49,8 @@ function Creature:addMana(...) end
 function Creature:addManaSpent(...) end
 function Creature:addSkillTries(...) end
 function Creature:addSummon(...) end
+function Creature:canAccessPz(...) end
+function Creature:canCarryMoney(...) end
 function Creature:canSeeCreature(...) end
 function Creature:computeDamage(...) end
 function Creature:computeHealing(...) end
@@ -57,11 +62,13 @@ function Creature:getAccountId(...) end
 function Creature:getAccountType(...) end
 function Creature:getBankBalance(...) end
 function Creature:getCapacity(...) end
+function Creature:getClosestFreePosition(...) end
 function Creature:getCondition(...) end
 function Creature:getContainerById(...) end
 function Creature:getContainerId(...) end
 function Creature:getContainerIndex(...) end
 function Creature:getDepotChest(...) end
+function Creature:getDepotItems(...) end
 function Creature:getDepotLocker(...) end
 function Creature:getDirection(...) end
 function Creature:getEffectiveSkillLevel(...) end
@@ -88,6 +95,8 @@ function Creature:getMurderTimestamps(...) end
 function Creature:getName(...) end
 function Creature:getOutfit(...) end
 function Creature:getParty(...) end
+function Creature:getPathTo(...) end
+function Creature:getPlayer(...) end
 function Creature:getPlayerKillerEnd(...) end
 function Creature:getPosition(...) end
 function Creature:getPremiumEndsAt(...) end
@@ -120,6 +129,8 @@ function Creature:remove(...) end
 function Creature:removeCondition(...) end
 function Creature:removeItem(...) end
 function Creature:removeMoney(...) end
+function Creature:removeSummon(...) end
+function Creature:removeTotalMoney(...) end
 function Creature:say(...) end
 function Creature:sendCancelMessage(...) end
 function Creature:sendHouseWindow(...) end
@@ -130,6 +141,8 @@ function Creature:setDirection(...) end
 function Creature:setEditHouse(...) end
 function Creature:setGhostMode(...) end
 function Creature:setInFight(...) end
+function Creature:setItemOutfit(...) end
+function Creature:setMonsterOutfit(...) end
 function Creature:setOutfit(...) end
 function Creature:setPremiumEndsAt(...) end
 function Creature:setSex(...) end
@@ -224,9 +237,11 @@ function Item:getActionId(...) end
 function Item:getAttribute(...) end
 function Item:getContainer(...) end
 function Item:getCount(...) end
+function Item:getDescription(...) end
 function Item:getFluidType(...) end
 function Item:getId(...) end
 function Item:getName(...) end
+function Item:getNameDescription(...) end
 function Item:getParent(...) end
 function Item:getPosition(...) end
 function Item:getSubType(...) end
@@ -252,10 +267,12 @@ ItemType = {}
 
 function ItemType:getArticle(...) end
 function ItemType:getCharges(...) end
+function ItemType:getDescription(...) end
 function ItemType:getDestroyId(...) end
 function ItemType:getFluidSource(...) end
 function ItemType:getId(...) end
 function ItemType:getName(...) end
+function ItemType:getNameDescription(...) end
 function ItemType:getPluralName(...) end
 function ItemType:getWeight(...) end
 function ItemType:isContainer(...) end
@@ -264,6 +281,7 @@ function ItemType:isFluidContainer(...) end
 function ItemType:isGroundTile(...) end
 function ItemType:isMovable(...) end
 function ItemType:isStackable(...) end
+function ItemType:usesSlot(...) end
 
 ---@class MonsterType
 MonsterType = {}
@@ -285,6 +303,7 @@ function MoveEvent:register(...) end
 function MoveEvent:slot(...) end
 function MoveEvent:tileItem(...) end
 function MoveEvent:type(...) end
+function MoveEvent:uid(...) end
 
 ---@class Npc
 Npc = {}
@@ -323,7 +342,9 @@ function NpcType:voice(...) end
 ---@class Party
 Party = {}
 
+function Party:broadcastPartyLoot(...) end
 function Party:getLeader(...) end
+function Party:getMembers(...) end
 function Party:isSharedExperienceActive(...) end
 function Party:setSharedExperience(...) end
 
@@ -337,6 +358,7 @@ function Position:getNextPosition(...) end
 function Position:getX(...) end
 function Position:getY(...) end
 function Position:getZ(...) end
+function Position:isInRange(...) end
 function Position:moveUpstairs(...) end
 function Position:sendMagicEffect(...) end
 
@@ -416,6 +438,7 @@ function Tile:hasProperty(...) end
 function Tile:isTile(...) end
 function Tile:isWalkable(...) end
 function Tile:queryAdd(...) end
+function Tile:relocateTo(...) end
 
 ---@class Town
 Town = {}
@@ -430,6 +453,7 @@ Variant = {}
 ---@class Vocation
 Vocation = {}
 
+function Vocation:getBase(...) end
 function Vocation:getDemotion(...) end
 function Vocation:getId(...) end
 function Vocation:getPromotion(...) end

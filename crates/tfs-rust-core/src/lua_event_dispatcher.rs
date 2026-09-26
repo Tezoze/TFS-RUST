@@ -967,10 +967,10 @@ impl EventDispatcher for LuaEventDispatcher {
                 Err(e) => tracing::warn!(error = %e, "Game.reload: talkactions failed"),
             }
         }
-        if reload_type == SCRIPTS || reload_type == ALL {
-            if let Err(e) = load_scripts_interface(&self.runtime, &self.data_dir) {
-                tracing::warn!(error = %e, "Game.reload: scripts-interface failed");
-            }
+        if (reload_type == SCRIPTS || reload_type == ALL)
+            && let Err(e) = load_scripts_interface(&self.runtime, &self.data_dir)
+        {
+            tracing::warn!(error = %e, "Game.reload: scripts-interface failed");
         }
         if reload_type != ALL && reload_type != SCRIPTS && reload_type != TALKACTIONS {
             tracing::info!(reload_type, "Game.reload: type not implemented (ok)");

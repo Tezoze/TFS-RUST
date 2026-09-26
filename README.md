@@ -1,10 +1,10 @@
 # TFS Rust
 
-[![Build Status](https://github.com/Tezoze/TFS-RUST/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/Tezoze/TFS-RUST/actions/workflows/rust.yml)
+[![Build Status](https://github.com/Tezoze/TFS-RUST/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Tezoze/TFS-RUST/actions/workflows/ci.yml)
 
-Rust rewrite of the **7.72** reference server. The goal is exact observable parity with 7.72 wire protocol, mechanics, and outcomes, using a modern architecture: Tokio for I/O, a single-threaded game simulation, and generational entity storage via `slotmap`.
+Rust rewrite of the **7.72** reference server. **1.0.0** is a playable 7.72 shard: 772 wire, native mechanics, and the TFS `data/` script surface. Tokio handles I/O, the game simulation stays single-threaded, and entities live in `slotmap`.
 
-**Default target today:** Tibia protocol **7.72**. TFS 1.4.2 / protocol **10.98** support is planned but not the current focus.
+Later client wire stays behind version gates. See [CHANGELOG.md](CHANGELOG.md) for what 1.0.0 ships and what it leaves out.
 
 Use a **7.72-compatible client** (or a custom OTClient aligned with this server’s protocol expectations).
 

@@ -29,7 +29,7 @@ impl GameWorld {
             .get(&house_id)
             .and_then(|a| a.owner_guid)
             .unwrap_or(0);
-        if old == new_guid && self.houses.records.get(&house_id).is_some() {
+        if old == new_guid && self.houses.records.contains_key(&house_id) {
             self.houses.set_owner(house_id, new_guid);
             return;
         }
@@ -50,9 +50,7 @@ impl GameWorld {
         if let Some(rec) = self.houses.records.get_mut(&house_id) {
             rec.clear_bid();
             rec.warnings = 0;
-            if old == 0 && new_guid != 0 {
-                rec.paid_until = now_unix.saturating_add(HOUSE_MONTH_SECS);
-            } else if new_guid != 0 {
+            if new_guid != 0 {
                 rec.paid_until = now_unix.saturating_add(HOUSE_MONTH_SECS);
             }
         }
@@ -365,12 +363,9 @@ fn collect_clean_field(
             depot_tile.push((pos, id));
             continue;
         }
-        if world.container_registry.get(id).is_some() || world.items_db.is_container(item.item_type)
-        {
-            if let Some(c) = world.container_registry.get(id) {
-                for &child in &c.items {
-                    from_container.push((id, child));
-                }
+        if let Some(c) = world.container_registry.get(id) {
+            for &child in &c.items {
+                from_container.push((id, child));
             }
         }
         if !unmove {

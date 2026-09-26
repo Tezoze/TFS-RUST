@@ -1,5 +1,10 @@
 # `tfs-rust-core` lib test failures (snapshot)
 
+**Re-run:** 2026-09-26, `SQLX_OFFLINE=true cargo test --workspace --no-fail-fast`  
+**Core:** 1457 passed, **29 failed**, 1 ignored — same clusters as the 2026-09-12 list below.  
+**Also red:** `tfs-rust-sim` cyclops bowl (2): still `Idle` at the attack asserts.  
+**Lua defs:** regenerated in the 1.0.0 commit (`emit-lua-defs`).
+
 **Captured:** 2026-09-12 during Sim harness Phase 3 verification  
 **Command:** `/home/jessec/.local/bin/rtk cargo test -p tfs-rust-core`  
 **Result:** 1421 passed, **29 failed**, 2 ignored  

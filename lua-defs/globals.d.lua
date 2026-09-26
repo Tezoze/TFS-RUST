@@ -7,6 +7,7 @@ function NpcDialogue(...) end
 function Outfit(...) end
 function addEvent(...) end
 function checkScarabTile(...) end
+function closeShopWindow(...) end
 function createCombatArea(...) end
 function debugPrint(...) end
 function destroyItem(...) end
@@ -30,6 +31,7 @@ function onUseQuest(...) end
 function onUseRope(...) end
 function onUseScythe(...) end
 function onUseShovel(...) end
+function openShopWindow(...) end
 function refreshMap(...) end
 function saveServer(...) end
 function sendChannelMessage(...) end

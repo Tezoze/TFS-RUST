@@ -181,11 +181,7 @@ pub fn decode_tile_store_blob(
 ) -> Result<Vec<(Position, Vec<LoadedHouseItem>)>> {
     let mut stream = PropStream::new(data);
     let mut out = Vec::new();
-    loop {
-        let x = match stream.read_u16() {
-            Ok(v) => v,
-            Err(_) => break,
-        };
+    while let Ok(x) = stream.read_u16() {
         let y = stream.read_u16()?;
         let z = stream.read_u8()?;
         let count = stream.read_u32()?;

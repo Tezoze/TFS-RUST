@@ -156,10 +156,10 @@ pub fn teach_spell_persist_key_for_registry(nr: i32, registry: &SpellRegistry) -
     if registry.instant_by_name.contains_key(corpus) {
         return corpus.to_string();
     }
-    if let Some(pack) = pack_alias_for_corpus(corpus) {
-        if registry.instant_by_name.contains_key(pack) {
-            return pack.to_string();
-        }
+    if let Some(pack) = pack_alias_for_corpus(corpus)
+        && registry.instant_by_name.contains_key(pack)
+    {
+        return pack.to_string();
     }
     corpus.to_string()
 }
@@ -212,10 +212,10 @@ pub fn spell_level_for_nr(registry: &SpellRegistry, nr: i32) -> i32 {
     if let Some(d) = registry.instant_by_name.get(corpus) {
         return d.level as i32;
     }
-    if let Some(pack) = pack_alias_for_corpus(corpus) {
-        if let Some(d) = registry.instant_by_name.get(pack) {
-            return d.level as i32;
-        }
+    if let Some(pack) = pack_alias_for_corpus(corpus)
+        && let Some(d) = registry.instant_by_name.get(pack)
+    {
+        return d.level as i32;
     }
     0
 }

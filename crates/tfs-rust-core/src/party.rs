@@ -336,9 +336,7 @@ impl GameWorld {
                 self.send_party_info(guest, format!("{host_name} has not invited you."));
                 return;
             };
-            if !party.is_invited(guest) {
-                false
-            } else if party.members.len() >= MAX_PARTY_MEMBERS {
+            if !party.is_invited(guest) || party.members.len() >= MAX_PARTY_MEMBERS {
                 false
             } else {
                 party.accept_invite(guest);

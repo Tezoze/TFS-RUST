@@ -9,7 +9,7 @@ return {
       from_vocation = 0,
       gain_cap = 10, gain_hp = 5, gain_mana = 5,
       gain_hp_ticks = 6, gain_hp_amount = 1,
-      gain_mana_ticks = 6, gain_mana_amount = 1,
+      gain_mana_ticks = 6, gain_mana_amount = 2,
       mana_multiplier = 4.0, attack_speed_ms = 2000, base_speed = 70,
       soul_max = 100, gain_soul_ticks = 120, allow_pvp = false,
       base_hp = 150, base_mana = 0, base_cap = 400,

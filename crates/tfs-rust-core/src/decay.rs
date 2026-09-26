@@ -32,11 +32,7 @@ pub struct DecayEntry {
 
 /// `CronInfo` remainder while the entry is still in the cron table (`map.cc:316-318`).
 pub(crate) fn cron_remaining(deadline: u64, now: u64) -> u64 {
-    if deadline > now {
-        deadline - now
-    } else {
-        1
-    }
+    if deadline > now { deadline - now } else { 1 }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

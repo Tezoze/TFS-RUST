@@ -1,3 +1,13 @@
+# 1.0.0 release (2026-09-26)
+
+Playable 772 shard. Known corpus gaps stay in the changelog.
+
+- [x] Workspace `version` is `1.0.0` via `[workspace.package]`
+- [x] `CHANGELOG.md` and README describe the 1.0 contract
+- [x] Bench job stays advisory, with the expired “required after 2026-09-26” note replaced
+- [x] `cargo fmt`, `clippy -D warnings`. `cargo test --workspace` is not green: the 2026-09-12 core snapshot is still 29 failures, plus 2 sim scenario asserts. Lua defs were regenerated.
+- [x] Annotated tag `v1.0.0`
+
 # Player combat audit fixes (2026-09-26)
 
 Four live divergences from the player combat canvas. Melee probe, armor, and fight mode stay.

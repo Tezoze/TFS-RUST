@@ -840,7 +840,7 @@ pub fn fire_on_monster_spawned(
         .creatures
         .get(cid)
         .map(|k| k.position())
-        .unwrap_or(Position::default());
+        .unwrap_or_default();
     let world_ptr = std::ptr::from_mut(world);
     with_lua_mutation_scope(world_ptr as *mut (), || {
         let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };

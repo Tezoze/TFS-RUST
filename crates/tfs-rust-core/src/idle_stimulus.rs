@@ -708,10 +708,9 @@ impl GameWorld {
             let target_is_player =
                 matches!(self.creatures.get(target), Some(CreatureKind::Player(_)));
             self.player_block_logout_infight(attacker_id, target_is_player);
-            if target_is_player {
-                if let Some(resp) = self.player_responsible_for_attack(attacker_id) {
-                    self.player_record_attack(resp, target);
-                }
+            if target_is_player && let Some(resp) = self.player_responsible_for_attack(attacker_id)
+            {
+                self.player_record_attack(resp, target);
             }
         }
         // Periodic arms deal no HP damage — C++ returns 0 (no HP delta, just arms the timer).

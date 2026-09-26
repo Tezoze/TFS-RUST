@@ -286,17 +286,17 @@ impl GameWorld {
                 .homes
                 .get(home_index)
                 .map(|h| (h.act_monsters, h.max_monsters));
-            if let Some((act, max)) = act_max {
-                if act < max {
-                    let regen = self
-                        .spawns
-                        .homes
-                        .get(home_index)
-                        .map(|h| h.spawntime_ms)
-                        .unwrap_or(0);
-                    let delay = crate::spawn::ms_to_rounds(self.compute_respawn_delay_ms(regen));
-                    self.spawns.arm_home(home_index, now_round, delay);
-                }
+            if let Some((act, max)) = act_max
+                && act < max
+            {
+                let regen = self
+                    .spawns
+                    .homes
+                    .get(home_index)
+                    .map(|h| h.spawntime_ms)
+                    .unwrap_or(0);
+                let delay = crate::spawn::ms_to_rounds(self.compute_respawn_delay_ms(regen));
+                self.spawns.arm_home(home_index, now_round, delay);
             }
         }
     }

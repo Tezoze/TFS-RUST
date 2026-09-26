@@ -438,12 +438,11 @@ fn parse_conditions_from_file(content: &str, combat_var: &str) -> Vec<ConditionA
             }
             continue;
         }
-        if line.starts_with(&format!("{combat_var}:addCondition(")) {
-            if let Some(var) = parse_combat_add_condition(line) {
-                if let Some(spec) = cond_vars.remove(&var) {
-                    specs.push(spec);
-                }
-            }
+        if line.starts_with(&format!("{combat_var}:addCondition("))
+            && let Some(var) = parse_combat_add_condition(line)
+            && let Some(spec) = cond_vars.remove(&var)
+        {
+            specs.push(spec);
         }
     }
     specs

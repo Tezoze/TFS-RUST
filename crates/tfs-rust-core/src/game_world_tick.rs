@@ -235,7 +235,10 @@ mod tests {
         world.advance_beat(1000);
         assert!(world.lag);
         world.advance_beat(1000);
-        assert!(world.lag, "a second stalled beat stays inside the same episode");
+        assert!(
+            world.lag,
+            "a second stalled beat stays inside the same episode"
+        );
         world.advance_beat(50);
         assert!(!world.lag);
     }
