@@ -123,10 +123,11 @@ pub struct RuneSpellDef {
     /// Triggers PZ lock on aggressive use.
     /// C++ `RuneSpell::isPzLock` — `spells.h:295`.
     pub is_pz_lock: bool,
-    /// Whether the rune's cooldown counts as a spell cooldown.
+    /// Whether Lua `:cooldown()` also moves `EarliestSpellTime`.
     /// C++ `RuneSpell::cooldownSpellTime` — `spells.h:296`.
-    /// Default **false**: 772 runes only set `EarliestMultiuseTime`; set true to also
-    /// bump `EarliestSpellTime` (TFS-style shared spell exhaust).
+    /// Damage and field runes move that clock from the effect itself
+    /// (`magic.cc` `CheckMana` inside `Combat` / `MassCombat` / `CreateField`),
+    /// even when this flag is false.
     pub cooldown_spell_time: bool,
     /// Max Chebyshev range for `playerRuneSpellCheck` (`-1` = unlimited).
     /// C++ `Spell::range` — `spells.h:294` / `spells.cpp:719`.

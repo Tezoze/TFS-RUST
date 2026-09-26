@@ -1830,3 +1830,179 @@ mod v772_floor_change {
         assert_eq!(b[5], dest.z);
     }
 }
+
+mod v800 {
+    use tfs_rust_common::{Position, ProtocolVersion};
+    use tfs_rust_net::codec::wire::{ChannelMessageWire, CreatureSayWire, ToChannelWire};
+    use tfs_rust_net::codec::{
+        Codec, ItemTemplateArgs, OutfitWire, PlayerStatsWire, TextWindowWire,
+    };
+    use tfs_rust_net::outgoing_extra::send_outfit_window_800;
+
+    fn codec() -> Codec {
+        Codec::from_version(ProtocolVersion::V800).expect("800 codec")
+    }
+
+    fn stats() -> PlayerStatsWire {
+        PlayerStatsWire {
+            health: 150,
+            max_health: 150,
+            free_capacity: 40000,
+            total_capacity: 40000,
+            experience: 4200,
+            level: 8,
+            level_percent: 50,
+            mana: 35,
+            max_mana: 35,
+            magic_level: 3,
+            base_magic_level: 3,
+            magic_level_percent: 25,
+            soul: 100,
+            stamina_minutes: 2520,
+            base_speed_half: 110,
+            regeneration_ticks_sec: 0,
+            offline_training_time: 0,
+        }
+    }
+
+    #[test]
+    fn outfit_addons_without_mount() {
+        let o = OutfitWire {
+            look_type: 128,
+            look_head: 1,
+            look_body: 2,
+            look_legs: 3,
+            look_feet: 4,
+            look_addons: 5,
+            look_mount: 9,
+            look_type_ex: 0,
+        };
+        let m = codec().encode_creature_outfit(0x1122_3344, &o);
+        // 0x8E + id + lookType + colors + addons. Mount 9 is not written.
+        assert_eq!(
+            m.as_bytes(),
+            &[0x8E, 0x44, 0x33, 0x22, 0x11, 128, 0, 1, 2, 3, 4, 5]
+        );
+    }
+
+    #[test]
+    fn stats_append_stamina_minutes() {
+        let b = codec().encode_player_stats(&stats()).into_bytes();
+        assert_eq!(
+            &b[b.len() - 2..],
+            &[0xD8, 0x09],
+            "stamina 2520 little-endian"
+        );
+        assert_eq!(b.len(), 23);
+    }
+
+    #[test]
+    fn creature_say_inserts_level_and_remaps_channel_r2() {
+        let w = CreatureSayWire {
+            speaker_name: "A".into(),
+            level: 8,
+            speak_type: 14,
+            pos: Position::new(0, 0, 7),
+            text: "hi".into(),
+        };
+        let b = codec().encode_creature_say(1, &w).into_bytes();
+        assert_eq!(
+            b,
+            vec![
+                0xAA, 1, 0, 0, 0, // statement
+                1, 0, b'A', // name
+                8, 0,  // level
+                13, // CHANNEL_R2 on the 8.0 wire
+                0, 0, 0, 0, 7, // position
+                2, 0, b'h', b'i',
+            ]
+        );
+    }
+
+    #[test]
+    fn channel_message_writes_zero_level() {
+        let w = ChannelMessageWire {
+            author: "A".into(),
+            speak_type: 5,
+            channel_id: 1,
+            text: "x".into(),
+        };
+        let b = codec().encode_channel_message(&w).into_bytes();
+        assert_eq!(
+            b,
+            vec![
+                0xAA, 0, 0, 0, 0, 1, 0, b'A', 0, 0, // level 0
+                5, 1, 0, 1, 0, b'x',
+            ]
+        );
+    }
+
+    #[test]
+    fn to_channel_anonymous_omits_level() {
+        let w = ToChannelWire {
+            speaker_name: None,
+            level: 9,
+            speak_type: 5,
+            channel_id: 4,
+            text: "z".into(),
+        };
+        let b = codec().encode_to_channel(1, &w).into_bytes();
+        // u32 0 stands in for the name; the stored level is not written.
+        assert_eq!(b, vec![0xAA, 1, 0, 0, 0, 0, 0, 0, 0, 5, 4, 0, 1, 0, b'z']);
+    }
+
+    #[test]
+    fn text_window_appends_date() {
+        let w = TextWindowWire {
+            window_text_id: 1,
+            item: ItemTemplateArgs {
+                client_id: 100,
+                count: 1,
+                stackable: false,
+                is_splash_or_fluid: false,
+                is_animation: false,
+                with_description: false,
+            },
+            text: "hi".into(),
+            writer: String::new(),
+            written_date: None,
+            can_write: false,
+            max_text_len: 0,
+        };
+        let b = codec().encode_text_window(&w).into_bytes();
+        assert_eq!(
+            b,
+            vec![
+                0x96, 1, 0, 0, 0, // window id
+                100, 0, // item id, no extra byte
+                2, 0, // maxlen
+                2, 0, b'h', b'i', // text
+                0, 0, // empty writer
+                0, 0, // empty date
+            ]
+        );
+    }
+
+    #[test]
+    fn outfit_window_has_no_mount_list() {
+        let current = OutfitWire {
+            look_type: 128,
+            look_head: 1,
+            look_body: 2,
+            look_legs: 3,
+            look_feet: 4,
+            look_addons: 1,
+            look_mount: 7,
+            look_type_ex: 0,
+        };
+        let b = send_outfit_window_800(&current, &[(128, "Citizen", 3)]).into_bytes();
+        assert_eq!(
+            b,
+            vec![
+                0xC8, 128, 0, 1, 2, 3, 4, 1, // outfit + addons, no mount
+                1, // count
+                128, 0, 7, 0, b'C', b'i', b't', b'i', b'z', b'e', b'n', 3,
+            ]
+        );
+    }
+}

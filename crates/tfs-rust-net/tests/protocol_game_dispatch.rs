@@ -118,3 +118,68 @@ fn parse_auto_walk_max_dirs_772() {
         _ => panic!("expected Game command"),
     }
 }
+
+/// Classic 8.0 accepts the 772 opcode set and rejects market.
+#[test]
+fn rejects_market_opcode_on_800() {
+    let payload = [0xF4u8];
+    assert!(game_command_from_payload(ConnId(1), &payload, ProtocolVersion::V800).is_err());
+    let err = game_command_from_payload(ConnId(1), &[0x9Bu8], ProtocolVersion::V800)
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_default();
+    assert!(
+        !err.contains("not valid for protocol"),
+        "0x9B should be a supported 800 opcode, got: {err}"
+    );
+}
+
+#[test]
+fn parse_auto_walk_800_allows_over_128() {
+    let mut payload = vec![0x64, 129];
+    payload.extend(std::iter::repeat_n(1, 129));
+    let cmd = game_command_from_payload(ConnId(1), &payload, ProtocolVersion::V800).expect("parse");
+    match cmd {
+        GameCommand::Game { packet, .. } => match packet {
+            GamePacket::AutoWalk { path } => assert_eq!(path.len(), 129),
+            p => panic!("expected AutoWalk, got {:?}", p),
+        },
+        _ => panic!("expected Game command"),
+    }
+}
+
+#[test]
+fn parse_set_outfit_800_reads_addons_not_mount() {
+    // lookType 128, colors 1..4, addons 3. No mount u16.
+    let payload = [0xD3, 128, 0, 1, 2, 3, 4, 3];
+    let cmd = game_command_from_payload(ConnId(1), &payload, ProtocolVersion::V800).expect("parse");
+    match cmd {
+        GameCommand::Game { packet, .. } => match packet {
+            GamePacket::SetOutfit(o) => {
+                assert_eq!(o.look_type, 128);
+                assert_eq!(o.look_addons, 3);
+                assert_eq!(o.look_mount, 0);
+            }
+            p => panic!("expected SetOutfit, got {:?}", p),
+        },
+        _ => panic!("expected Game command"),
+    }
+}
+
+#[test]
+fn parse_say_800_channel_r2_maps_to_corpus() {
+    // speak class 13 (8.0 CHANNEL_R2), channel 1, text "hi" → corpus class 14.
+    let payload = [0x96, 13, 1, 0, 2, 0, b'h', b'i'];
+    let cmd = game_command_from_payload(ConnId(1), &payload, ProtocolVersion::V800).expect("parse");
+    match cmd {
+        GameCommand::Game { packet, .. } => match packet {
+            GamePacket::Say(s) => {
+                assert_eq!(s.speak_class, 14);
+                assert_eq!(s.channel_id, 1);
+                assert_eq!(s.text, "hi");
+            }
+            p => panic!("expected Say, got {:?}", p),
+        },
+        _ => panic!("expected Game command"),
+    }
+}

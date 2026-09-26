@@ -743,7 +743,7 @@ impl GameWorld {
         Some(ItemTemplateArgs {
             client_id: it.client_id,
             count: item.wire_count_byte(it),
-            stackable: it.stackable(),
+            stackable: self.item_wire_has_count(item.item_type),
             is_splash_or_fluid: it.is_splash() || it.is_fluid_container(),
             is_animation: it.is_animation(),
             with_description: false,

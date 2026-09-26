@@ -355,7 +355,7 @@ pub(crate) fn item_stack_from_server_id(
     if cid == 0 {
         return None;
     }
-    let stackable = world.items_db.stackable_for_server(iid);
+    let stackable = world.item_wire_has_count(iid);
     let splash_fluid = world.items_db.is_splash_or_fluid_for_server(iid);
     Some(ItemStack {
         client_id: cid,
@@ -545,7 +545,7 @@ pub(crate) fn map_tile_content_into(
             if cid == 0 {
                 continue;
             }
-            let stackable = itype.stackable();
+            let stackable = world.item_wire_has_count(iid);
             let splash_fluid = (itype.is_splash() || itype.is_fluid_container()) && !stackable;
             let stack = ItemStack {
                 client_id: cid,
@@ -615,7 +615,8 @@ pub fn enqueue_initial_login_packets(
     creature_id: CreatureId,
 ) {
     match world.codec {
-        tfs_rust_net::Codec::V772(_) => {
+        // 800 uses the same login burst as 772. Icons width follows caps.
+        tfs_rust_net::Codec::V772(_) | tfs_rust_net::Codec::V800(_) => {
             enqueue_initial_login_packets_classic(world, conn_id, creature_id)
         }
         tfs_rust_net::Codec::V1098(_) => {
@@ -688,7 +689,7 @@ fn enqueue_initial_login_packets_classic(
                 continue;
             }
             let cnt = world.item_wire_count(item);
-            let stackable = world.items_db.stackable_for_server(sid);
+            let stackable = world.item_wire_has_count(sid);
             let splash = world.items_db.is_splash_or_fluid_for_server(sid);
             let anim = world.items_db.is_animation_for_server(sid);
             world.enqueue_encoded(
@@ -742,7 +743,12 @@ fn enqueue_initial_login_packets_classic(
         );
         world.enqueue_encoded(conn_id, pkt);
     }
-    world.enqueue_outgoing(conn_id, send_icons_classic(0).into_bytes());
+    let icons_zero = if world.codec.caps().icons_u16 {
+        send_icons(0)
+    } else {
+        send_icons_classic(0)
+    };
+    world.enqueue_outgoing(conn_id, icons_zero.into_bytes());
     // Overwrite the zeroed icons with live condition icons (mana shield / swords / …).
     // TFS `Player::sendIcons` after stored conditions are applied (`player.cpp:1142-1145`).
     world.send_player_icons(creature_id);
@@ -838,7 +844,7 @@ fn enqueue_initial_login_packets_1098(
                 continue;
             }
             let cnt = world.item_wire_count(item);
-            let stackable = world.items_db.stackable_for_server(sid);
+            let stackable = world.item_wire_has_count(sid);
             let splash = world.items_db.is_splash_or_fluid_for_server(sid);
             let anim = world.items_db.is_animation_for_server(sid);
             world.enqueue_encoded(

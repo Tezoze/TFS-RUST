@@ -250,7 +250,9 @@ pub mod client {
     /// rejected by the caller (`game_parse`).
     pub fn is_supported(op: u8, version: super::ProtocolVersion) -> bool {
         match version.raw() {
-            772 => is_supported_v772(op),
+            // Classic 8.0 uses the 772 opcode set. Market, quest, and mount
+            // (`800src` OT extras) stay unsupported.
+            772 | 800 => is_supported_v772(op),
             1098 => is_supported_v1098(op),
             _ => false,
         }

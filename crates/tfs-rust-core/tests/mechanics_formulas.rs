@@ -1,4 +1,4 @@
-//! B5 — validate the shipped `data/formulas/{772,1098}.lua` load into the expected era profiles.
+//! B5 — validate the shipped `data/formulas/{772,800,1098}.lua` load into the expected era profiles.
 //!
 //! These exercise the real files a server deploys (not synthetic Lua), confirming the Tier-1 loader
 //! overlay matches the built-in `MechanicsProfile::for_version` defaults end-to-end. If someone edits
@@ -85,4 +85,21 @@ fn shipped_772_formulas_match_profile_defaults() {
     assert_eq!(p.destroyable_stone, DestroyableStoneTuning::tvp_pick());
     // Tier-2 hooks are unset by default in the shipped file → native fast path.
     assert!(m.hooks.weapon_damage(10, 50, 1, 8).is_none());
+}
+
+#[test]
+fn shipped_800_formulas_match_772() {
+    let dir = data_dir();
+    if !dir.join("formulas").join("800.lua").is_file() {
+        eprintln!("skipping: data/formulas/800.lua not present");
+        return;
+    }
+    assert_eq!(
+        MechanicsProfile::for_version(ProtocolVersion::V800),
+        MechanicsProfile::for_version(ProtocolVersion::V772),
+    );
+    let loaded_800 = load_mechanics(&dir, ProtocolVersion::V800);
+    let loaded_772 = load_mechanics(&dir, ProtocolVersion::V772);
+    assert_eq!(loaded_800.profile, loaded_772.profile);
+    assert!(loaded_800.hooks.weapon_damage(10, 50, 1, 8).is_none());
 }

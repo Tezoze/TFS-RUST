@@ -4,9 +4,11 @@
 
 mod v1098;
 mod v772;
+mod v800;
 pub mod wire;
 
 pub use v772::Codec772;
+pub use v800::Codec800;
 pub use v1098::Codec1098;
 pub use wire::{
     AddCreatureWire, AnimatedTextWire, ChannelOpenWire, ChannelsDialogWire, CombatDamageNotifyWire,
@@ -929,11 +931,12 @@ impl ProtocolCodec for Codec772 {
     }
 }
 
-/// Zero-cost dispatcher for the active wire codec (A5: `V1098` + `V772`).
+/// Zero-cost dispatcher for the active wire codec (`V1098`, `V772`, `V800`).
 #[derive(Debug, Clone, Copy)]
 pub enum Codec {
     V1098(Codec1098),
     V772(Codec772),
+    V800(Codec800),
 }
 
 impl Codec {
@@ -941,8 +944,9 @@ impl Codec {
         match v.raw() {
             1098 => Ok(Self::V1098(Codec1098)),
             772 => Ok(Self::V772(Codec772)),
+            800 => Ok(Self::V800(Codec800)),
             other => Err(format!(
-                "unsupported clientVersion `{other}` for wire codec (supported: 772, 1098)"
+                "unsupported clientVersion `{other}` for wire codec (supported: 772, 800, 1098)"
             )),
         }
     }
@@ -951,6 +955,7 @@ impl Codec {
         match self {
             Self::V1098(c) => c.caps(),
             Self::V772(c) => c.caps(),
+            Self::V800(c) => c.caps(),
         }
     }
 }
@@ -965,6 +970,7 @@ macro_rules! delegate_codec {
                 match self {
                     Self::V1098(c) => ProtocolCodec::$name(c, $($arg),*),
                     Self::V772(c) => ProtocolCodec::$name(c, $($arg),*),
+                    Self::V800(c) => ProtocolCodec::$name(c, $($arg),*),
                 }
             }
         )+
@@ -1345,6 +1351,7 @@ impl ProtocolCodec for Codec {
         match self {
             Self::V1098(c) => ProtocolCodec::encode_creature_speed(c, w),
             Self::V772(c) => ProtocolCodec::encode_creature_speed(c, w),
+            Self::V800(c) => ProtocolCodec::encode_creature_speed(c, w),
         }
     }
 
@@ -1356,6 +1363,7 @@ impl ProtocolCodec for Codec {
         match self {
             Self::V1098(c) => ProtocolCodec::encode_creature_outfit(c, creature_id, outfit),
             Self::V772(c) => ProtocolCodec::encode_creature_outfit(c, creature_id, outfit),
+            Self::V800(c) => ProtocolCodec::encode_creature_outfit(c, creature_id, outfit),
         }
     }
 

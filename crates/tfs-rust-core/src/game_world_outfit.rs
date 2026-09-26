@@ -12,6 +12,7 @@ use tfs_rust_net::Codec;
 use tfs_rust_net::creature_encode::OutfitWire;
 use tfs_rust_net::outgoing_extra::{
     send_outfit_window, send_outfit_window_772_classic, send_outfit_window_772_otclient,
+    send_outfit_window_800,
 };
 
 use crate::creature::{CreatureKind, Outfit};
@@ -80,7 +81,7 @@ impl GameWorld {
                     send_outfit_window_772_classic(&current, first, last)
                 }
             }
-            Codec::V1098(_) => {
+            Codec::V1098(_) | Codec::V800(_) => {
                 let owned = match self.creatures.get(cid) {
                     Some(CreatureKind::Player(p)) => p.outfits.clone(),
                     _ => Vec::new(),
@@ -104,7 +105,11 @@ impl GameWorld {
                     .iter()
                     .map(|(lt, n, a)| (*lt, n.as_str(), *a))
                     .collect();
-                send_outfit_window(&current, &refs, &[])
+                if matches!(self.codec, Codec::V800(_)) {
+                    send_outfit_window_800(&current, &refs)
+                } else {
+                    send_outfit_window(&current, &refs, &[])
+                }
             }
         };
         self.enqueue_encoded(conn_id, msg);
@@ -122,7 +127,7 @@ impl GameWorld {
         }
         let addons = match &self.codec {
             Codec::V772(_) => 0u8,
-            Codec::V1098(_) => payload.look_addons,
+            Codec::V1098(_) | Codec::V800(_) => payload.look_addons,
         };
         // Mounts not wired yet — ignore client lookMount (same as missing mount entry).
         let _ = payload.look_mount;
@@ -218,7 +223,7 @@ impl GameWorld {
                 }
                 p.outfits.iter().any(|e| e.look_type == look_type)
             }
-            Codec::V1098(_) => {
+            Codec::V1098(_) | Codec::V800(_) => {
                 if def.unlocked && addons == 0 {
                     return true;
                 }

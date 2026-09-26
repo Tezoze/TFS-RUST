@@ -515,6 +515,25 @@ pub fn send_outfit_window_772_otclient(
     m
 }
 
+/// Classic 8.0 outfit window — `800src/protocolgame.cpp` `sendOutfitWindow` ~2182.
+///
+/// Current outfit (with addons, no mount) + named list `(lookType, name, addons)`.
+/// No mount list. `send_outfit_window` always writes a mount count and must not
+/// be used for this client.
+pub fn send_outfit_window_800(current: &OutfitWire, outfits: &[(u16, &str, u8)]) -> NetworkMessage {
+    let mut m = NetworkMessage::new();
+    m.write_u8(0xC8);
+    crate::codec::Codec800.write_outfit(&mut m, current);
+    let noc = outfits.len().min(u8::MAX as usize) as u8;
+    m.write_u8(noc);
+    for &(look_type, name, addons) in outfits.iter().take(noc as usize) {
+        m.write_u16(look_type);
+        m.write_string(name);
+        m.write_u8(addons);
+    }
+    m
+}
+
 /// 10.98 `ProtocolGame::sendOutfitWindow` — opcode `0xC8` (`src/protocolgame.cpp` ~3022).
 pub fn send_outfit_window(
     current: &OutfitWire,

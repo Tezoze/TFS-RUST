@@ -698,9 +698,9 @@ pub fn item_look_description(
     s
 }
 
-/// 772 look omits TFS `showattributes` / absorb-% dumps (`ice`/`holy`/`death`).
+/// 772 and 800 look omit TFS `showattributes` / absorb-% dumps (`ice`/`holy`/`death`).
 pub fn classic_item_look(codec: &tfs_rust_net::Codec) -> bool {
-    matches!(codec, tfs_rust_net::Codec::V772(_))
+    !matches!(codec, tfs_rust_net::Codec::V1098(_))
 }
 
 /// Format remaining seconds for showduration look text (`item.cpp` ~1466–1494).

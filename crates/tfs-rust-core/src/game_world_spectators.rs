@@ -849,6 +849,7 @@ impl GameWorld {
         tvp_stack_pos: u8,
         cip_stack_pos: u8,
     ) {
+        let rune_count = matches!(self.codec, tfs_rust_net::Codec::V800(_));
         let (client_id, count, stackable, is_splash_or_fluid, is_animation) =
             match self.items.get(item_id) {
                 Some(item) => {
@@ -857,7 +858,14 @@ impl GameWorld {
                         it.map(|t| t.client_id).unwrap_or(0),
                         it.map(|t| item.wire_count_byte(t))
                             .unwrap_or_else(|| item.client_count()),
-                        it.map(|t| t.stackable()).unwrap_or(false),
+                        it.map(|t| {
+                            crate::game_world_inventory::wire_item_has_count(
+                                rune_count,
+                                t.stackable(),
+                                t.is_rune() || t.name == "spell rune",
+                            )
+                        })
+                        .unwrap_or(false),
                         it.map(|t| t.is_splash() || t.is_fluid_container())
                             .unwrap_or(false),
                         it.map(|t| t.is_animation()).unwrap_or(false),
@@ -891,6 +899,7 @@ impl GameWorld {
         tvp_stack_pos: u8,
         cip_stack_pos: u8,
     ) {
+        let rune_count = matches!(self.codec, tfs_rust_net::Codec::V800(_));
         let (client_id, count, stackable, is_splash_or_fluid, is_animation) =
             match self.items.get(item_id) {
                 Some(item) => {
@@ -899,7 +908,14 @@ impl GameWorld {
                         it.map(|t| t.client_id).unwrap_or(0),
                         it.map(|t| item.wire_count_byte(t))
                             .unwrap_or_else(|| item.client_count()),
-                        it.map(|t| t.stackable()).unwrap_or(false),
+                        it.map(|t| {
+                            crate::game_world_inventory::wire_item_has_count(
+                                rune_count,
+                                t.stackable(),
+                                t.is_rune() || t.name == "spell rune",
+                            )
+                        })
+                        .unwrap_or(false),
                         it.map(|t| t.is_splash() || t.is_fluid_container())
                             .unwrap_or(false),
                         it.map(|t| t.is_animation()).unwrap_or(false),

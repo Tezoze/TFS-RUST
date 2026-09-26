@@ -12,6 +12,8 @@
 //! - Tile item create — `Combat::combatTileEffects` — `combat.cpp:557`.
 //! - Distance FX — `Combat::postCombatEffects` — `combat.cpp:643`.
 
+use std::cell::Cell;
+
 use tfs_rust_common::Position;
 use tfs_rust_common::enums::{CombatType, ConditionType, WorldType, ZoneType};
 use tfs_rust_lua::CombatExecuteRequest;
@@ -26,6 +28,28 @@ use crate::item::Item;
 use crate::item_attributes::ItemAttributes;
 use crate::login_out::creature_wire_id;
 use crate::return_value::ReturnValue;
+
+thread_local! {
+    /// Set around `player_cast_rune`'s Lua callback so `Combat` / `MassCombat` /
+    /// `CreateField` can move `EarliestSpellTime` (`magic.cc:829`, `:882`, `:1079`).
+    static RUNE_EFFECT_EXHAUST: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Arms rune-effect spell exhaust for the duration of a rune `onCastSpell`.
+pub(crate) struct RuneEffectExhaustScope;
+
+impl RuneEffectExhaustScope {
+    pub(crate) fn enter() -> Self {
+        RUNE_EFFECT_EXHAUST.with(|flag| flag.set(true));
+        Self
+    }
+}
+
+impl Drop for RuneEffectExhaustScope {
+    fn drop(&mut self) {
+        RUNE_EFFECT_EXHAUST.with(|flag| flag.set(false));
+    }
+}
 
 /// Tile iteration result from 772 `ExecuteCircleSpell` filtering (`magic.cc:468-500`).
 ///
@@ -638,7 +662,35 @@ impl GameWorld {
             }
         }
 
+        // 772 `CheckMana` inside `Combat` / `MassCombat` / `CreateField` still runs
+        // when the rune's mana argument is 0 (`magic.cc:882`, `:829`, `:1079`).
+        // Delay is 2000 ms (1000 on enforced PvP), which outlasts the 1000 ms
+        // multiuse gate, so the retried use throws `EXHAUSTED`.
+        self.note_rune_effect_spell_exhaust(caster_id, request);
+
         Ok(())
+    }
+
+    /// Spell clock for a rune whose effect is damage or a field.
+    /// Condition-only effects (paralyze, `MagicGoStrength` delay 1000) stay off
+    /// this path: that delay lines up with multiuse and does not print the line.
+    fn note_rune_effect_spell_exhaust(
+        &mut self,
+        caster: Option<CreatureId>,
+        request: &CombatExecuteRequest,
+    ) {
+        let armed = RUNE_EFFECT_EXHAUST.with(|flag| flag.get());
+        if !armed || !request.aggressive {
+            return;
+        }
+        if request.combat_type == 0 && request.create_item == 0 {
+            return;
+        }
+        let Some(cid) = caster else {
+            return;
+        };
+        let delay = self.spell_exhaust_delay_ms(0);
+        self.player_apply_spell_exhaust_ms(cid, delay);
     }
 }
 
@@ -745,6 +797,66 @@ mod tests {
         assert!(
             hp > 60,
             "BLOCKARMOR must mitigate physical spell damage (hp={hp}, expected >60)"
+        );
+    }
+
+    /// Damage rune combat moves `EarliestSpellTime` by the `CheckMana` delay.
+    #[test]
+    fn rune_damage_combat_arms_spell_exhaust() {
+        use crate::test_support::{minimal_world, sim_hero_player};
+        use slotmap::Key;
+        use tfs_rust_lua::CombatExecuteRequest;
+
+        let mut world = minimal_world();
+        world.server_ms = 5_000;
+        world.pvp_config.world_type = WorldType::Pvp;
+        let pos = Position::new(100, 100, 7);
+        let caster = world
+            .creatures
+            .insert(CreatureKind::Player(sim_hero_player("Mage", pos)));
+        let req = CombatExecuteRequest {
+            caster_id: caster.data().as_ffi(),
+            center_x: pos.x,
+            center_y: pos.y,
+            center_z: pos.z,
+            caster_x: pos.x,
+            caster_y: pos.y,
+            caster_z: pos.z,
+            combat_type: 1,
+            effect: 0,
+            aggressive: true,
+            block_armor: false,
+            block_shield: false,
+            area_offsets: vec![(0, 0)],
+            damage_min: 0,
+            damage_max: 0,
+            conditions: vec![],
+            dispel_type: None,
+            create_item: 0,
+            no_damage: true,
+            distance_effect: 0,
+            target_caster_or_topmost: false,
+        };
+
+        world.combat_execute_from_lua(&req).expect("spoken combat");
+        assert_eq!(
+            world.creatures.get(caster).unwrap().base().earliest_spell_server_ms,
+            0,
+            "a spoken combat must not take the rune CheckMana clock"
+        );
+
+        {
+            let _scope = RuneEffectExhaustScope::enter();
+            world.combat_execute_from_lua(&req).expect("rune combat");
+        }
+        assert_eq!(
+            world
+                .creatures
+                .get(caster)
+                .unwrap()
+                .base()
+                .earliest_spell_server_ms,
+            7_000
         );
     }
 }

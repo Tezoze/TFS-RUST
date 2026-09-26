@@ -165,7 +165,7 @@ fn gather_map_point(
             if cid == 0 {
                 continue;
             }
-            let stackable = itype.stackable();
+            let stackable = world.item_wire_has_count(iid);
             let splash_fluid = (itype.is_splash() || itype.is_fluid_container()) && !stackable;
             let stack = ItemStack {
                 client_id: cid,

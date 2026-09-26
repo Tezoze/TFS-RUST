@@ -1175,6 +1175,10 @@ fn handle_game_packet(
             }
         }
         GamePacket::UseItem(payload) => {
+            if crate::lua_scope::is_hotkey_use_position(payload.pos) && !world.hotkey_use_enabled()
+            {
+                return;
+            }
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
                 // F8 S6 — 772 `CUseObject` (`receiving.cc:384`): `ToDoWait(100)` + `ToDoUse(1,…)`
                 // + `ToDoStart`. Route through the unified ToDo engine; the `Wait{100}` entry
@@ -1197,6 +1201,11 @@ fn handle_game_packet(
             }
         }
         GamePacket::UseItemEx(payload) => {
+            if crate::lua_scope::is_hotkey_use_position(payload.from_pos)
+                && !world.hotkey_use_enabled()
+            {
+                return;
+            }
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
                 // F8 S6 — 772 `CUseTwoObjects` (`receiving.cc:430`): `ToDoWait(100)` +
                 // `ToDoUse(2,…)` + `ToDoStart`. Same ToDo routing as `UseItem`; the execute
@@ -1240,6 +1249,9 @@ fn handle_game_packet(
                     world.send_cancel_message(conn_id, ReturnValue::NotPossible);
                     return;
                 };
+                if world.drop_use_on_creature(from_pos, target_cid) {
+                    return;
+                }
                 // TFS `Game::playerUseWithCreature` — silent drop outside `areInRange<7,5,0>`
                 // (`game.cpp:2272-2274`). Far-use runes fire from standing tile within this box.
                 let Some(player_pos) = world.creatures.get(cid).map(|k| k.position()) else {

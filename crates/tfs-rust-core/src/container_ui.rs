@@ -170,12 +170,7 @@ impl GameWorld {
             return;
         }
         let ccnt = self.item_wire_count(ch);
-        let cstack = self
-            .items_db
-            .items
-            .get(&ch_sid)
-            .map(|t| t.stackable())
-            .unwrap_or(false);
+        let cstack = self.item_wire_has_count(ch_sid);
         let csplash = self.items_db.is_splash_or_fluid_for_server(ch_sid);
         let canim = self.items_db.is_animation_for_server(ch_sid);
         let args = ItemTemplateArgs {
@@ -326,7 +321,7 @@ impl GameWorld {
             return None;
         }
         let cnt = self.item_wire_count(container_wrapped);
-        let stackable = self.items_db.stackable_for_server(sid);
+        let stackable = self.item_wire_has_count(sid);
         let splash = self.items_db.is_splash_or_fluid_for_server(sid);
         let anim = self.items_db.is_animation_for_server(sid);
         let with_desc = self
@@ -369,12 +364,7 @@ impl GameWorld {
                 continue;
             }
             let ccnt = self.item_wire_count(ch);
-            let cstack = self
-                .items_db
-                .items
-                .get(&ch_sid)
-                .map(|t| t.stackable())
-                .unwrap_or(false);
+            let cstack = self.item_wire_has_count(ch_sid);
             let csplash = self.items_db.is_splash_or_fluid_for_server(ch_sid);
             let canim = self.items_db.is_animation_for_server(ch_sid);
             children.push(ChildItemWire {
@@ -621,6 +611,9 @@ impl GameWorld {
         sprite_id: u16,
     ) -> Option<ItemId> {
         if pos.x == 0xFFFF {
+            if crate::lua_scope::is_hotkey_use_position(pos) {
+                return self.resolve_hotkey_use_item(cid, sprite_id, stack_pos);
+            }
             return self.resolve_item_at_position(cid, pos, stack_pos);
         }
         let resolved = if self.uses_cip_map_order(cid) {
@@ -1119,6 +1112,7 @@ impl GameWorld {
         } else {
             None
         };
+        let _rune_exhaust = crate::combat::aoe::RuneEffectExhaustScope::enter();
         let ok = crate::lua_scope::fire_on_cast_rune(
             self,
             rune.rune_id,
@@ -1137,20 +1131,69 @@ impl GameWorld {
         if rune.is_aggressive {
             self.player_block_logout_infight(cid, false);
         }
-        // Consume one charge / count — TFS `transformItem` count-1.
-        if let Some(item) = self.items.get_mut(item_id) {
+        // Consume one visible charge. 8.0 `multiCharge` is `item.count`.
+        // TFS `transformItem` count-1, then the parent slot is resent.
+        let spent = if let Some(item) = self.items.get_mut(item_id) {
             if item.count > 1 {
                 item.count -= 1;
+                false
             } else {
-                // Remove empty rune — best-effort via lua item remove path.
-                let _ = self.lua_script_item_remove(item_id.data().as_ffi(), 1);
+                true
             }
+        } else {
+            false
+        };
+        if spent {
+            let _ = self.lua_script_item_remove(item_id.data().as_ffi(), 1);
+        } else {
+            self.refresh_item_count_for_viewers(item_id);
         }
         self.player_apply_rune_exhaust(cid, rune);
         Ok(())
     }
 
-    /// 772 Use multiuse (+1000) always; TFS `cooldownSpellTime` optionally bumps spell clock.
+    /// Resend the rune’s count byte after a charge is spent (`0x78` inventory,
+    /// `0x71` container slot, or `0x6B` on a tile).
+    pub(crate) fn refresh_item_count_for_viewers(&mut self, item_id: ItemId) {
+        let Some(parent) = self.resolve_item_parent_cylinder(item_id) else {
+            return;
+        };
+        match parent {
+            crate::cylinder::Cylinder::Inventory { player_id, slot } => {
+                self.broadcast_player_inventory_slot(player_id, slot, Some(item_id));
+            }
+            crate::cylinder::Cylinder::Container {
+                item_id: container_id,
+                ..
+            } => {
+                if let Some(slot) = self.get_thing_index_in_container(container_id, item_id) {
+                    self.notify_container_content_changed(
+                        container_id,
+                        ContainerContentChange::Update { slot: slot as u16 },
+                    );
+                } else {
+                    self.notify_container_content_changed(
+                        container_id,
+                        ContainerContentChange::FullRefresh,
+                    );
+                }
+            }
+            crate::cylinder::Cylinder::Tile { pos } => {
+                let (tvp_stack_pos, cip_stack_pos) = self.item_stack_pos_pair(pos, item_id);
+                if self
+                    .map
+                    .get_tile(pos)
+                    .and_then(|t| t.get_item_stack_pos(item_id))
+                    .is_some()
+                {
+                    self.broadcast_tile_item_update(pos, item_id, tvp_stack_pos, cip_stack_pos);
+                }
+            }
+        }
+    }
+
+    /// 772 Use multiuse (+1000) always. `cooldownSpellTime` also bumps the spell clock.
+    /// Damage and field effects bump it from `Combat` / `MassCombat` / `CreateField`.
     pub(crate) fn player_apply_rune_exhaust(
         &mut self,
         cid: CreatureId,

@@ -7,6 +7,18 @@
 /// match the Lua script's observable behavior.
 pub(crate) const MAX_FOOD: u32 = 1200;
 
+/// `addItem` count byte. Stackables always. On classic 8.0, every spell rune
+/// too: the client dat `multiCharge` flag (0x08) is spell runes 2261–2316,
+/// including ones without `type="rune"`. Charge jewelry and wands do not
+/// have that flag. 7.72 omits the rune byte.
+pub(crate) fn wire_item_has_count(for_800: bool, stackable: bool, spell_rune: bool) -> bool {
+    stackable || (for_800 && spell_rune)
+}
+
+fn spell_rune_on_wire(it: &tfs_rust_content::otb::ItemType) -> bool {
+    it.is_rune() || it.name == "spell rune"
+}
+
 use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
 use tfs_rust_net::codec::ItemTemplateArgs;
@@ -42,6 +54,19 @@ impl GameWorld {
             .get(&item.item_type)
             .map(|t| item.wire_count_byte(t))
             .unwrap_or_else(|| item.client_count().max(1))
+    }
+
+    /// `addItem` writes a count byte for stackables. Classic 8.0 also writes it
+    /// for every spell rune. 7.72 does not.
+    pub(crate) fn item_wire_has_count(&self, server_id: u16) -> bool {
+        let Some(it) = self.items_db.items.get(&server_id) else {
+            return false;
+        };
+        wire_item_has_count(
+            matches!(self.codec, tfs_rust_net::Codec::V800(_)),
+            it.stackable(),
+            spell_rune_on_wire(it),
+        )
     }
 
     /// Remaining duration for look `showduration` — scheduler when decaying, else raw attr.
@@ -1215,7 +1240,7 @@ impl GameWorld {
                 return;
             }
             let cnt = self.item_wire_count(item);
-            let stackable = self.items_db.stackable_for_server(sid);
+            let stackable = self.item_wire_has_count(sid);
             let splash = self.items_db.is_splash_or_fluid_for_server(sid);
             let anim = self.items_db.is_animation_for_server(sid);
             self.enqueue_encoded(
@@ -1844,6 +1869,20 @@ fn dest_player_creature(dest: &tfs_rust_lua::LuaMoveDestination) -> Option<u64> 
     match dest {
         tfs_rust_lua::LuaMoveDestination::Player { creature_id } => Some(*creature_id),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod wire_count_tests {
+    use super::wire_item_has_count;
+
+    #[test]
+    fn rune_count_byte_is_800_only() {
+        // Third flag is "spell rune" (dat multiCharge), not the charges attribute.
+        assert!(wire_item_has_count(true, false, true));
+        assert!(!wire_item_has_count(false, false, true));
+        assert!(wire_item_has_count(false, true, false));
+        assert!(!wire_item_has_count(true, false, false));
     }
 }
 

@@ -4303,6 +4303,9 @@ impl GameWorld {
         // Prefer a real ItemId; else bare ground type (TFS getUseItem → ground).
         let item_id = self.resolve_use_object(cid, obj1.pos, obj1.stack_pos, obj1.sprite_id);
         if let Some(item_id) = item_id {
+            if crate::lua_scope::is_hotkey_use_position(obj1.pos) {
+                self.notify_hotkey_use(cid, item_id);
+            }
             // 772 `Use` → `ObjectAccessible(CreatureID, Obj1, 1)` (`operate.cc:2495`).
             // Hangables on HOOKSOUTH/HOOKEAST tiles are interior-side only (`info.cc:266-295`).
             if obj1.pos.x != 0xFFFF && !self.object_accessible(cid, obj1.pos, item_id, 1) {

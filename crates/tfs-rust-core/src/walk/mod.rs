@@ -14,8 +14,9 @@
 //! **Timing:** `get_walk_delay` uses `last_step_ground_speed` (**destination** tile of the completed step,
 //! OTCv8 / TFS `getWalkDelay`). When `walk_delay <= 0`, `get_event_step_ticks` uses the **current** tile for
 //! the *next* step. Wall `Instant::now()` samples (C++ `OTSYS_TIME()`).
-//! 772: per-step waypoints include diagonal `×3` **before** Beat ceil (`cract.cc:1454–1462`); TFS 1098
-//! keeps cardinal duration × `last_step_cost` after ceil (`creature.cpp`).
+//! 772/800: the step the server waits is the client walk cycle (ceiled straight step).
+//! Diagonal ×3 lives only on the client's second timer and is not the frame end.
+//! 1098 players keep cardinal duration × `last_step_cost` after ceil (`creature.cpp`).
 //! `next_walk_check` stores the **logical** deadline. Initial arms from a new move use `walk_sched_base`;
 //! reschedules after a step match C++ `addEventWalk` by anchoring to `Instant::now()` at reschedule time
 //! (`tasks/walk-audit.md` Issue 3).
@@ -1578,8 +1579,9 @@ impl GameWorld {
 
     /// TFS `Creature::startAutoWalk` + `addEventWalk` — all creature kinds (`creature.cpp` ~274–297).
     pub(crate) fn creature_start_auto_walk(&mut self, cid: CreatureId) {
-        let is_772 = matches!(self.codec, tfs_rust_net::codec::Codec::V772(_));
-        let first_only = is_772
+        // 772 and 800 share corpus walk scheduling. 1098 is the other path.
+        let classic_schedule = !matches!(self.codec, tfs_rust_net::codec::Codec::V1098(_));
+        let first_only = classic_schedule
             || self
                 .creatures
                 .get(cid)
@@ -2922,9 +2924,9 @@ mod step_speed_tests {
         assert_eq!(get_step_duration(&kind, &base, 150, &mech) % 50, 0);
     }
 
-    /// 772 diagonal: `×3` waypoints before step quantizer ceil — 2750 ms, not TFS-style 950×3.
+    /// Diagonal step wait matches the client walk cycle (straight step), not `cract.cc` ×3.
     #[test]
-    fn linear_go_diagonal_step_duration_quantizes_waypoints_before_beat() {
+    fn linear_go_diagonal_step_duration_matches_walk_cycle() {
         use tfs_rust_common::enums::Direction;
         let p = test_player("Wolf", Position::new(100, 100, 7));
         let mut base = p.base.clone();
@@ -2937,8 +2939,7 @@ mod step_speed_tests {
         let diagonal =
             get_step_duration_ms_with_direction(&kind, &base, Direction::NorthEast, 150, &mech);
         assert_eq!(cardinal, 950);
-        assert_eq!(diagonal, 2750);
-        assert_ne!(diagonal, cardinal * 3, "CipSoft ceils before ×3, not after");
+        assert_eq!(diagonal, cardinal);
     }
 
     /// 1098 — TFS log curve; durations quantize to 50 ms beat.
@@ -2978,11 +2979,8 @@ mod step_speed_tests {
         assert_eq!(get_step_duration(&kind, &p.base, 150, &mech), 1234);
     }
 
-    /// Audit #5: `completed_step_duration_ms` LinearGo arm must NOT apply `last_step_cost
-    /// = 2` (z-change / stair-hop) as a waypoint multiplier — C++ `NotifyGo` only
-    /// multiplies ×3 for diagonal **same-z**; a floor change gets ×1
-    /// (`cract.cc:1526-1528`). The old code passed `last_step_cost.max(1)`, doubling the
-    /// post-stair-hop cooldown (e.g. 600 ms instead of 400 ms for speed 220 / ground 150).
+    /// Completed-step wait matches the client walk cycle for cardinal, diagonal, and floor change.
+    /// Floor change stays ×1 (`last_step_cost` 2 must not double the cooldown).
     #[test]
     fn linear_go_completed_step_zchange_uses_one_waypoint_cost() {
         use super::walk_timing::get_walk_delay_logical;
@@ -2995,34 +2993,22 @@ mod step_speed_tests {
         let mech = Mechanics::for_version(ProtocolVersion::V772);
         let kind = CreatureKind::Player(p);
 
-        // Cardinal same-z (last_step_cost = 1) — the C++ NotifyGo ×1 reference.
         let mut base_cardinal = base.clone();
         base_cardinal.last_step_cost = 1;
         let delay_cardinal = get_walk_delay_logical(&kind, &base_cardinal, 0, &mech);
 
-        // Diagonal same-z (last_step_cost = 3) — C++ NotifyGo ×3.
         let mut base_diagonal = base.clone();
         base_diagonal.last_step_cost = 3;
         let delay_diagonal = get_walk_delay_logical(&kind, &base_diagonal, 0, &mech);
 
-        // Z-change / stair-hop (last_step_cost = 2) — C++ NotifyGo ×1, NOT ×2.
         let mut base_zchange = base.clone();
         base_zchange.last_step_cost = 2;
         let delay_zchange = get_walk_delay_logical(&kind, &base_zchange, 0, &mech);
 
-        // Cardinal: 150×1000/520 = 288 → ceil 50 = 300 ms.
+        // 150×1000/520 = 288 → ceil 50 = 300 ms. Diagonal and floor change use the same cycle.
         assert_eq!(delay_cardinal, 300, "cardinal completed step = 300 ms");
-        // Z-change must equal cardinal (×1), not double (×2 → 600 ms).
-        assert_eq!(
-            delay_zchange, delay_cardinal,
-            "z-change completed step must use ×1 waypoint cost, not ×2 (cract.cc:1526-1528)"
-        );
-        // Diagonal: 150×3×1000/520 = 865 → ceil 50 = 900 ms (×3 before ceil).
-        assert_eq!(delay_diagonal, 900, "diagonal completed step = ×3 = 900 ms");
-        assert_ne!(
-            delay_diagonal, delay_cardinal,
-            "diagonal must differ from cardinal (×3 vs ×1)"
-        );
+        assert_eq!(delay_diagonal, delay_cardinal);
+        assert_eq!(delay_zchange, delay_cardinal);
     }
 
     /// Phase 3 reachability guard (`docs/772_FLOOR_CHANGE_DESYNC.md` §16.3):

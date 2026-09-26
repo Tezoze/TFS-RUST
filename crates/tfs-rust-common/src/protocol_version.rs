@@ -1,16 +1,18 @@
 //! Protocol version and wire capability flags.
 //!
 //! C++ reference: 7.72 `gameserver/src/protocolgame.cpp`, `networkmessage.cpp`;
+//! 8.0 `800src/protocolgame.cpp` (classic layouts; OT mount/wings omitted);
 //! 10.98 repo-root `src/protocolgame.cpp`, `networkmessage.cpp`.
 
 use std::fmt;
 
-/// Supported Tibia client protocol version (e.g. 772 = 7.72, 1098 = 10.98).
+/// Supported Tibia client protocol version (e.g. 772 = 7.72, 800 = 8.0, 1098 = 10.98).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProtocolVersion(u16);
 
 impl ProtocolVersion {
     pub const V772: Self = Self(772);
+    pub const V800: Self = Self(800);
     pub const V1098: Self = Self(1098);
 
     pub fn raw(self) -> u16 {
@@ -34,9 +36,10 @@ impl TryFrom<u16> for ProtocolVersion {
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
             772 => Ok(Self::V772),
+            800 => Ok(Self::V800),
             1098 => Ok(Self::V1098),
             other => Err(format!(
-                "unsupported clientVersion `{other}` (supported: 772, 1098)"
+                "unsupported clientVersion `{other}` (supported: 772, 800, 1098)"
             )),
         }
     }
@@ -71,12 +74,19 @@ pub struct ProtocolCaps {
     pub self_appear_opcode: u8,
     pub initial_buffer_position: u8,
     pub xtea_length_slack: u8,
+    /// Object hotkeys. Off below protocol 780: `CheckSpecialCoordinates` rejects
+    /// `INVENTORY_ANY` on use (`receiving.cc:29-39`), and `CUseOnCreature` drops a
+    /// player target (`receiving.cc:512-514`). From 780 the client may use a carried
+    /// rune or item by sprite id, including on monsters, players, and yourself.
+    pub hotkey_object_use: bool,
 }
 
 impl ProtocolCaps {
     pub fn for_version(version: ProtocolVersion) -> Self {
         match version.raw() {
-            772 => Self {
+            // 800 is the 772 frame with outfit addons and u16 icons (`800src/protocolgame.cpp`
+            // `AddOutfit` ~2386, `sendIcons` ~1331). No mount byte.
+            772 | 800 => Self {
                 adler_checksum: false,
                 prelogin_challenge: false,
                 account_name_login: false,
@@ -84,18 +94,19 @@ impl ProtocolCaps {
                 item_mark_byte: false,
                 item_animation_byte: false,
                 creature_type_byte: false,
-                outfit_addons: false,
+                outfit_addons: version.raw() == 800,
                 outfit_mount: false,
                 speed_halved: false,
                 stats_u64_experience: false,
                 stats_capacity_u32: false,
                 skills_u16: false,
-                icons_u16: false,
+                icons_u16: version.raw() == 800,
                 move_creature_self_packet: false,
                 known_creature_limit: 150,
                 self_appear_opcode: 0x0A,
                 initial_buffer_position: 4,
                 xtea_length_slack: 4,
+                hotkey_object_use: version.raw() >= 780,
             },
             1098 => Self {
                 adler_checksum: true,
@@ -117,6 +128,7 @@ impl ProtocolCaps {
                 self_appear_opcode: 0x17,
                 initial_buffer_position: 8,
                 xtea_length_slack: 6,
+                hotkey_object_use: true,
             },
             other => unreachable!("unsupported protocol version {other}"),
         }
@@ -147,7 +159,11 @@ mod tests {
 
     #[test]
     fn round_trip_supported_versions() {
-        for v in [ProtocolVersion::V772, ProtocolVersion::V1098] {
+        for v in [
+            ProtocolVersion::V772,
+            ProtocolVersion::V800,
+            ProtocolVersion::V1098,
+        ] {
             let round = ProtocolVersion::try_from(v.raw()).expect("supported version");
             assert_eq!(round, v);
         }
@@ -161,6 +177,14 @@ mod tests {
     #[test]
     fn known_creature_limit_is_era_tuned() {
         assert_eq!(ProtocolVersion::V772.caps().known_creature_limit, 150);
+        assert_eq!(ProtocolVersion::V800.caps().known_creature_limit, 150);
         assert_eq!(ProtocolVersion::V1098.caps().known_creature_limit, 1300);
+    }
+
+    #[test]
+    fn hotkey_object_use_starts_at_780() {
+        assert!(!ProtocolVersion::V772.caps().hotkey_object_use);
+        assert!(ProtocolVersion::V800.caps().hotkey_object_use);
+        assert!(ProtocolVersion::V1098.caps().hotkey_object_use);
     }
 }

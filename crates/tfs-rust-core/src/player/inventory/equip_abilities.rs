@@ -50,9 +50,10 @@ impl GameWorld {
             p.client_icons = icons;
         }
         use tfs_rust_net::outgoing_extra::{send_icons, send_icons_classic};
-        let packet = match &self.codec {
-            tfs_rust_net::Codec::V772(_) => send_icons_classic(icons).into_bytes(),
-            tfs_rust_net::Codec::V1098(_) => send_icons(icons).into_bytes(),
+        let packet = if self.codec.caps().icons_u16 {
+            send_icons(icons).into_bytes()
+        } else {
+            send_icons_classic(icons).into_bytes()
         };
         self.enqueue_outgoing(conn_id, packet);
     }

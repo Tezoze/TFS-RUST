@@ -278,7 +278,8 @@ fn parse_auto_walk(msg: &mut NetworkMessage, version: ProtocolVersion) -> Result
     let n = msg.read_u8()? as usize;
     let len_invalid = match version.raw() {
         772 => n == 0 || msg.unread_bytes() != n || n > 128,
-        1098 => n == 0 || msg.unread_bytes() != n,
+        // `800src/protocolgame.cpp` `parseAutoWalk` ~734: empty or truncated, no 128 cap.
+        800 | 1098 => n == 0 || msg.unread_bytes() != n,
         other => unreachable!("unsupported protocol version {other}"),
     };
     if len_invalid {
@@ -352,6 +353,7 @@ fn parse_throw(msg: &mut NetworkMessage) -> Result<GamePacket> {
 /// `ProtocolGame::parseSetOutfit`.
 ///
 /// - **772:** `lookType` + head/body/legs/feet only (`gameserver/src/protocolgame.cpp` ~790).
+/// - **800:** + `lookAddons`, no mount (`800src/protocolgame.cpp` ~769, mount byte omitted).
 /// - **1098:** + `lookAddons` + `lookMount` (`src/protocolgame.cpp`).
 fn parse_set_outfit(msg: &mut NetworkMessage, version: ProtocolVersion) -> Result<GamePacket> {
     let look_type = msg.read_u16()?;
@@ -361,6 +363,7 @@ fn parse_set_outfit(msg: &mut NetworkMessage, version: ProtocolVersion) -> Resul
     let look_feet = msg.read_u8()?;
     let (look_addons, look_mount) = match version.raw() {
         772 => (0u8, 0u16),
+        800 => (msg.read_u8()?, 0u16),
         1098 => (msg.read_u8()?, msg.read_u16()?),
         other => unreachable!("unsupported protocol version {other}"),
     };
@@ -406,6 +409,12 @@ fn say_field(speak_class: u8, version: ProtocolVersion) -> SayField {
             5 | 10 | 14 => SayField::Channel, // CHANNEL_Y, CHANNEL_R1, CHANNEL_R2
             _ => SayField::None,
         },
+        // `800src/const.h:116` `TALKTYPE_CHANNEL_R2 = 13`. Same receiver classes as 772.
+        800 => match speak_class {
+            4 | 11 | 7 => SayField::Receiver,
+            5 | 10 | 13 => SayField::Channel,
+            _ => SayField::None,
+        },
         1098 => match speak_class {
             5 | 16 => SayField::Receiver, // PRIVATE_TO, PRIVATE_RED_TO
             7 | 14 => SayField::Channel,  // CHANNEL_Y, CHANNEL_R1
@@ -416,12 +425,12 @@ fn say_field(speak_class: u8, version: ProtocolVersion) -> SayField {
 }
 
 fn parse_say(msg: &mut NetworkMessage, version: ProtocolVersion) -> Result<GamePacket> {
-    let speak_class = msg.read_u8()?;
+    let wire_class = msg.read_u8()?;
     let mut channel_id = 0u16;
     let mut receiver = String::new();
 
     // The trailing field depends on both the speak class AND the protocol era (see `say_field`).
-    match say_field(speak_class, version) {
+    match say_field(wire_class, version) {
         SayField::Receiver => receiver = msg.read_string()?,
         SayField::Channel => channel_id = msg.read_u16()?,
         SayField::None => {}
@@ -437,10 +446,14 @@ fn parse_say(msg: &mut NetworkMessage, version: ProtocolVersion) -> Result<GameP
             "parseSay: text exceeds 255-byte limit".into(),
         ));
     }
-    // `speak_class` is passed through as the raw wire byte. The active target is 772, whose
-    // `SpeakClasses` values are the canonical set `tfs-rust-core::game_world_chat` switches on,
-    // so 772 is correct end to end. 1098 chat dispatch needs a wire→core speak-class translation
-    // (both directions) — tracked as the CH-8 follow-up in `tasks/chat-system-plan.md`.
+    // 772 speak classes are what `game_world_chat` switches on. Classic 8.0 sends
+    // `TALKTYPE_CHANNEL_R2` as 13 (`800src/const.h:116`); store the corpus value 14.
+    // 1098 still needs a full wire→core translation (CH-8).
+    let speak_class = if version.raw() == 800 && wire_class == 13 {
+        14
+    } else {
+        wire_class
+    };
     Ok(GamePacket::Say(SayPayload {
         speak_class,
         channel_id,

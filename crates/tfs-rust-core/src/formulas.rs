@@ -574,7 +574,9 @@ impl MechanicsProfile {
     /// Built-in defaults per era — fallback when `data/formulas/<v>.lua` is absent.
     pub fn for_version(version: ProtocolVersion) -> Self {
         let mut p = match version.raw() {
-            772 => Self {
+            // 800 shares this profile. `data/formulas/800.lua` is the branch file;
+            // it is currently identical to `772.lua`.
+            772 | 800 => Self {
                 beat_ms: 50,
                 // 772 `.tibia` config sets Beat=50 (config.cc:187 overrides default 200);
                 // `NotifyGo` quantizes step delay to `Beat` (cract.cc:1534).
@@ -1359,6 +1361,14 @@ mod tests {
     fn linear_go_effective_speed_matches_gameserver() {
         assert_eq!(linear_go_effective_speed(42), 164);
         assert_eq!(linear_go_effective_speed(0), 80);
+    }
+
+    #[test]
+    fn defaults_800_match_772_profile() {
+        assert_eq!(
+            MechanicsProfile::for_version(ProtocolVersion::V800),
+            MechanicsProfile::for_version(ProtocolVersion::V772),
+        );
     }
 
     #[test]

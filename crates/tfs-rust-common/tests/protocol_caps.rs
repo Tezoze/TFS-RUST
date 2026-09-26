@@ -21,6 +21,7 @@ fn caps_1098_matches_current_hardcoded_behavior() {
     assert!(caps.stats_capacity_u32);
     assert!(caps.skills_u16);
     assert!(caps.icons_u16);
+    assert!(caps.hotkey_object_use);
     assert_eq!(caps.self_appear_opcode, 0x17);
     assert_eq!(caps.initial_buffer_position, 8);
     assert_eq!(caps.xtea_length_slack, 6);
@@ -44,6 +45,7 @@ fn caps_772_inverse_invariants() {
     assert!(!caps.stats_capacity_u32);
     assert!(!caps.skills_u16);
     assert!(!caps.icons_u16);
+    assert!(!caps.hotkey_object_use);
     assert_eq!(caps.self_appear_opcode, 0x0A);
     assert_eq!(caps.initial_buffer_position, 4);
     assert_eq!(caps.xtea_length_slack, 4);
@@ -51,7 +53,11 @@ fn caps_772_inverse_invariants() {
 
 #[test]
 fn version_caps_round_trip() {
-    for version in [ProtocolVersion::V772, ProtocolVersion::V1098] {
+    for version in [
+        ProtocolVersion::V772,
+        ProtocolVersion::V800,
+        ProtocolVersion::V1098,
+    ] {
         assert_eq!(version.caps(), ProtocolCaps::for_version(version));
         let round = ProtocolVersion::try_from(version.raw()).expect("supported");
         assert_eq!(round, version);
@@ -63,7 +69,36 @@ fn version_caps_round_trip() {
 #[test]
 fn server_self_appear_opcode_is_version_keyed() {
     assert_eq!(server::self_appear(ProtocolVersion::V772), 0x0A);
+    assert_eq!(server::self_appear(ProtocolVersion::V800), 0x0A);
     assert_eq!(server::self_appear(ProtocolVersion::V1098), 0x17);
+}
+
+/// Classic 8.0 keeps the 772 frame and turns on addons + u16 icons. No mount.
+#[test]
+fn caps_800_is_772_frame_with_addons_and_u16_icons() {
+    let caps = ProtocolCaps::for_version(ProtocolVersion::V800);
+    let classic = ProtocolCaps::for_version(ProtocolVersion::V772);
+
+    assert!(!caps.adler_checksum);
+    assert!(!caps.prelogin_challenge);
+    assert!(!caps.account_name_login);
+    assert!(!caps.session_key_login);
+    assert!(!caps.item_mark_byte);
+    assert!(!caps.outfit_mount);
+    assert!(!caps.speed_halved);
+    assert!(!caps.stats_u64_experience);
+    assert!(!caps.skills_u16);
+    assert!(caps.outfit_addons);
+    assert!(caps.icons_u16);
+    assert!(caps.hotkey_object_use);
+    assert!(!classic.hotkey_object_use);
+    assert_eq!(caps.self_appear_opcode, classic.self_appear_opcode);
+    assert_eq!(
+        caps.initial_buffer_position,
+        classic.initial_buffer_position
+    );
+    assert_eq!(caps.known_creature_limit, classic.known_creature_limit);
+    assert!(!caps.move_creature_self_packet);
 }
 
 /// Phase A2 — incoming opcode dispatch is version-keyed (§2.7).
@@ -80,6 +115,10 @@ fn client_opcode_support_matrix() {
         assert!(
             client::is_supported(op, ProtocolVersion::V772),
             "772 {op:#x}"
+        );
+        assert!(
+            client::is_supported(op, ProtocolVersion::V800),
+            "800 {op:#x}"
         );
         assert!(
             client::is_supported(op, ProtocolVersion::V1098),
@@ -104,6 +143,10 @@ fn client_opcode_support_matrix() {
             "772 must reject {op:#x}"
         );
         assert!(
+            !client::is_supported(op, ProtocolVersion::V800),
+            "800 must reject {op:#x}"
+        );
+        assert!(
             client::is_supported(op, ProtocolVersion::V1098),
             "1098 accepts {op:#x}"
         );
@@ -118,6 +161,10 @@ fn client_opcode_support_matrix() {
         assert!(
             client::is_supported(op, ProtocolVersion::V772),
             "772 accepts {op:#x}"
+        );
+        assert!(
+            client::is_supported(op, ProtocolVersion::V800),
+            "800 accepts {op:#x}"
         );
         assert!(
             !client::is_supported(op, ProtocolVersion::V1098),

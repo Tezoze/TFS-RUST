@@ -53,6 +53,7 @@ mod game_world_script;
 mod game_world_spectators;
 mod game_world_tick;
 pub mod guild;
+mod hotkey_use;
 pub mod house;
 mod idle_stimulus;
 pub mod ids;
