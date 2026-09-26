@@ -250,6 +250,14 @@ data/logs/*
 !/crates/tfs-rust-core/log/.gitignore
 
 #############
+## Internal notes — not part of the server tree
+#############
+/tasks/
+/docs/*
+!/docs/COMPILING.md
+!/docs/DOCKER.md
+
+#############
 ## Python
 #############
 __pycache__/

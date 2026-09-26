@@ -59,10 +59,6 @@ See [docs/DOCKER.md](docs/DOCKER.md).
 |-----|----------|
 | [docs/COMPILING.md](docs/COMPILING.md) | Build, test, first-time DB and server setup |
 | [docs/DOCKER.md](docs/DOCKER.md) | Compose, GHCR image, ports, seeded account |
-| [docs/772_OTCLIENT_PARITY.md](docs/772_OTCLIENT_PARITY.md) | 7.72 OTClient protocol parity notes |
-| [docs/WALK_772_PARITY_AUDIT.md](docs/WALK_772_PARITY_AUDIT.md) | 7.72 walk / movement parity |
-| [docs/772_MONSTER_AI_AUDIT.md](docs/772_MONSTER_AI_AUDIT.md) | 7.72 monster AI and chase parity |
-| [docs/OTCLIENT_INFO.md](docs/OTCLIENT_INFO.md) | OTClient protocol quirks (legacy reference) |
 | [reference/README.md](reference/README.md) | Local 772 C++ reference tree layout |
 
 Local C++ reference trees for 7.72 live under **`reference/`** (gitignored). See [reference/README.md](reference/README.md) for `tvp-772/gameserver/src/` (wire authority) and `classic-772/tibia-game-master/src/` (mechanics authority). The repo-root `src/` is the optional TFS 1.4.2 (1098) reference tree, not built by Cargo.
