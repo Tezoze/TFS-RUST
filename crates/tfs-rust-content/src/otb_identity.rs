@@ -163,9 +163,10 @@ fn parse_item_identity(node: &[u8]) -> std::result::Result<(u8, u32, u16), Strin
                 let attr = read_u8(node, &mut i)?;
                 let size = read_u16(node, &mut i)? as usize;
                 let payload = read_bytes(node, &mut i, size)?;
-                if attr == ITEM_ATTR_CLIENTID && payload.len() == 2 {
-                    client_id = u16::from_le_bytes([payload[0], payload[1]]);
-                } else if attr == ITEM_ATTR_SERVERID && client_id == 0 && payload.len() == 2 {
+                let use_payload = payload.len() == 2
+                    && (attr == ITEM_ATTR_CLIENTID
+                        || (attr == ITEM_ATTR_SERVERID && client_id == 0));
+                if use_payload {
                     client_id = u16::from_le_bytes([payload[0], payload[1]]);
                 }
             }

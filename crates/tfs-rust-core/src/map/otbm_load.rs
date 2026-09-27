@@ -10,7 +10,7 @@ use slotmap::SlotMap;
 use tfs_rust_common::Position;
 use tfs_rust_common::error::Result;
 use tfs_rust_content::items::ItemDatabase;
-use tfs_rust_content::otbm::{self, MapData, OtbmFile, TileData, TileThing};
+use tfs_rust_content::otbm::{MapData, OtbmFile, TileData, TileThing};
 
 use super::{SparseGrid, apply_item_tile_flags};
 use crate::ids::ItemId;

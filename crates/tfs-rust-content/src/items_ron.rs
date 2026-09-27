@@ -473,10 +473,10 @@ impl RonItem {
                 item.flags |= bit;
             }
         }
-        if self.block_path_find == Some(true) {
-            if let Some(bit) = ItemType::flag_bit_from_name("BlockPathFind") {
-                item.flags |= bit;
-            }
+        if self.block_path_find == Some(true)
+            && let Some(bit) = ItemType::flag_bit_from_name("BlockPathFind")
+        {
+            item.flags |= bit;
         }
         let id = item.id;
         let mut attrs: Vec<(&str, String)> = Vec::new();

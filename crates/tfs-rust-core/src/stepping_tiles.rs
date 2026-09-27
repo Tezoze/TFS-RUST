@@ -164,10 +164,10 @@ fn tile_has_protection_zone(world: &GameWorld, pos: Position) -> bool {
 }
 
 fn facing_depot_item(world: &GameWorld, cid: CreatureId) -> Option<ItemId> {
-    let (look, dir) = match world.creatures.get(cid) {
-        Some(k) => (k.position(), k.base().direction),
-        None => return None,
-    };
+    let (look, dir) = world
+        .creatures
+        .get(cid)
+        .map(|k| (k.position(), k.base().direction))?;
     let look = look.offset(dir);
     let tile = world.map.get_tile(look)?;
     let body = tile.body();

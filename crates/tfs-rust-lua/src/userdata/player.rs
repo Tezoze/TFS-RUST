@@ -1468,11 +1468,14 @@ impl UserData for CreatureRef {
     }
 }
 
+/// `magicMin, baseMin, magicMax, baseMax` for additive `computeSpell`.
+type SpellCoeffQuad = (f64, f64, f64, f64);
+/// strength, variation, limitMin, limitMax, additive coeffs.
+type ParsedSpellArgs = (i32, i32, bool, bool, Option<SpellCoeffQuad>);
+
 /// Parse `computeDamage(damage, variation[, limitMinimum[, limitMaximum]])` args.
 /// `computeSpell(strength, variation, magicMin, baseMin, magicMax, baseMax[, limitMin[, limitMax]])`.
-fn parse_compute_spell_args(
-    args: &mlua::Variadic<Value>,
-) -> Result<(i32, i32, bool, bool, Option<(f64, f64, f64, f64)>), mlua::Error> {
+fn parse_compute_spell_args(args: &mlua::Variadic<Value>) -> Result<ParsedSpellArgs, mlua::Error> {
     let damage = args
         .first()
         .and_then(value_as_i32)

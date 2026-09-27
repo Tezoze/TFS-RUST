@@ -110,7 +110,7 @@ fn decide_one(pair: &CollisionPair, counts: &HashMap<u16, u32>) -> Survivor {
     }
 }
 
-pub fn blocked<'a>(decisions: &'a [Survivor]) -> Vec<&'a Survivor> {
+pub fn blocked(decisions: &[Survivor]) -> Vec<&Survivor> {
     decisions
         .iter()
         .filter(|d| matches!(d, Survivor::Blocked { .. }))

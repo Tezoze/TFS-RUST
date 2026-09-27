@@ -85,7 +85,7 @@ pub fn rewrite_item_literals(src: &str, map: &ClientIdMap) -> (String, RewriteSt
         if let Some(len) = marker_len(bytes, i) {
             out.push_str(&src[i..i + len]);
             i += len;
-            i = rewrite_following_number(&src, bytes, i, &mut out, map, &mut stats);
+            i = rewrite_following_number(src, bytes, i, &mut out, map, &mut stats);
             continue;
         }
         if call_at(bytes, i, b"isItemInPosition") || call_at(bytes, i, b"transformItemInPosition") {
@@ -144,7 +144,7 @@ pub fn rewrite_named_ids(
         if let Some(len) = named_marker(bytes, i, markers) {
             out.push_str(&src[i..i + len]);
             i += len;
-            i = rewrite_following_number(&src, bytes, i, &mut out, map, &mut stats);
+            i = rewrite_following_number(src, bytes, i, &mut out, map, &mut stats);
             continue;
         }
         out.push(src[i..].chars().next().unwrap_or('\0'));
@@ -164,7 +164,7 @@ pub fn rewrite_shop_type_values(src: &str, map: &ClientIdMap) -> (String, Rewrit
         if bytes[i..].starts_with(needle) {
             out.push_str(&src[i..i + needle.len()]);
             i += needle.len();
-            i = rewrite_next_int_on_line(&src, bytes, i, &mut out, map, &mut stats);
+            i = rewrite_next_int_on_line(src, bytes, i, &mut out, map, &mut stats);
             continue;
         }
         out.push(src[i..].chars().next().unwrap_or('\0'));
