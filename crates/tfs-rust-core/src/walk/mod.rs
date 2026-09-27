@@ -2790,8 +2790,8 @@ mod step_speed_tests {
         }
     }
 
-    /// GM `PlayerFlag_SetMaxSpeed` pins base speed to 1500. With the shipped 772
-    /// `playerSpeed = "772"` profile, wire sends `2*1500+80 = 3080`.
+    /// GM `PlayerFlag_SetMaxSpeed` pins base speed to 1500. With
+    /// `playerSpeed = "classic"`, wire sends `2*1500+80 = 3080`.
     #[test]
     fn wire_step_speed_772_set_max_speed() {
         let p = test_player("Walker", Position::new(100, 100, 7));

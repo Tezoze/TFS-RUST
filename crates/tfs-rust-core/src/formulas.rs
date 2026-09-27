@@ -1049,7 +1049,7 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         _ => p.step_speed,
     };
     p.player_speed_model = match str_or(&formulas, "playerSpeed", "").as_str() {
-        "772" => PlayerSpeedModel::Classic772,
+        "classic" | "772" => PlayerSpeedModel::Classic772,
         "retail" | "1098" => PlayerSpeedModel::Retail1098,
         "balanced" => PlayerSpeedModel::BalancedLog,
         _ => p.player_speed_model,

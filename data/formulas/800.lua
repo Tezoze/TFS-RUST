@@ -32,7 +32,7 @@ formulas = {
   -- levelMult and magicMult apply only when a spell still uses scale mode.
   spell = { mode = "additive", levelDiv = 5, levelMult = 2, magicMult = 3 },
   pvpExpCap = { num = 11, den = 10 }, -- PvP kill experience treats the victim as at most level * num / den
-  playerSpeed = "772", -- "772" linear, "retail" logarithmic, "balanced" diminishing
+  playerSpeed = "classic", -- "classic" linear, "retail" logarithmic, "balanced" diminishing
   -- Percent lost from experience and skills. Promoted characters use promoted. Each blessing subtracts perBlessing.
   deathLossPercent = { base = 10, promoted = 7, perBlessing = 1 },
   -- Probe catch: skill must beat a roll below diff, then a 0..99 roll must fall within prob.

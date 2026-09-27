@@ -32,7 +32,7 @@ formulas = {
   -- levelMult and magicMult apply only when a spell still uses scale mode.
   spell = { mode = "additive", levelDiv = 5, levelMult = 2, magicMult = 3 },
   pvpExpCap = { num = 11, den = 10 }, -- PvP kill experience treats the victim as at most level * num / den
-  playerSpeed = "retail", -- "772" linear, "retail" logarithmic, "balanced" diminishing
+  playerSpeed = "retail", -- "classic" linear, "retail" logarithmic, "balanced" diminishing
   -- Linear catch: chance = minChance + (skill - skillBase) * skillCoeff, clamped to minChance..maxChance.
   fishing = {
     model = "linear",

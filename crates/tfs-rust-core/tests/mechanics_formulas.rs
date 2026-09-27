@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use tfs_rust_common::ProtocolVersion;
 use tfs_rust_core::formulas::{
     ArmorReduction, DestroyableStoneTuning, DistanceKeep, FishingTuning, MechanicsProfile,
-    PathCostModel, PathSearchModel, SpawnNearPlayer, SpellFormulaMode, StepSpeedModel,
-    WeakestTargetMetric, load_mechanics,
+    PathCostModel, PathSearchModel, PlayerSpeedModel, SpawnNearPlayer, SpellFormulaMode,
+    StepSpeedModel, WeakestTargetMetric, load_mechanics,
 };
 
 /// Workspace `data/` dir (two levels up from this crate's manifest).
@@ -106,8 +106,10 @@ fn shipped_800_formulas_match_772_except_stamina() {
         SpellFormulaMode::Additive
     );
     assert_eq!(era_800.spell_coeff.level_div, 5);
+    assert_eq!(era_800.player_speed_model, PlayerSpeedModel::Classic772);
     era_800.stamina_max_minutes = 0;
     era_800.spell_coeff = loaded_772.profile.spell_coeff;
+    era_800.player_speed_model = loaded_772.profile.player_speed_model;
     assert_eq!(era_800, loaded_772.profile);
     assert!(loaded_800.hooks.weapon_damage(10, 50, 1, 8).is_none());
 }
