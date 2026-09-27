@@ -4632,7 +4632,16 @@ impl GameWorld {
                         if self.creature_todo_queue_empty(cid) {
                             TodoExecuteLoopControl::Break
                         } else {
-                            TodoExecuteLoopControl::Continue
+                            // `ToDoStart` clamps Delay < 1 to 1 (`cract.cc:1016`). The Go
+                            // armed by this idle runs on the next beat, not in this Execute.
+                            let deferred = self.creatures.get(cid).is_some_and(|k| {
+                                k.base().next_wakeup.is_some_and(|w| w > self.server_ms)
+                            });
+                            if deferred {
+                                TodoExecuteLoopControl::Break
+                            } else {
+                                TodoExecuteLoopControl::Continue
+                            }
                         }
                     } else {
                         // Consecutive zero-delay entries in the same wakeup (`cract.cc:784`).

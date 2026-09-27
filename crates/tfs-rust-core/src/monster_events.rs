@@ -171,7 +171,11 @@ impl GameWorld {
             self.monster_remove_creature_from_lists(monster_id, creature_id);
         }
 
-        self.monster_update_idle_status(monster_id);
+        // In-view moves do not re-run TFS `updateIdleStatus`. Enter/leave already
+        // update it (`monster_on_creature_found` / `monster_remove_creature_from_lists`).
+        // An unconditional call sleeps a 772 appear target: `SpawnMonsterAppear` sets
+        // `Target` without filling `opponent_ids`, so the next player step cleared
+        // chase (`crnonpl.cc` CreatureMoveStimulus — no opponent-list idle).
 
         let (is_summon, follow, has_path) = match self.creatures.get(monster_id) {
             Some(CreatureKind::Monster(m)) => (
