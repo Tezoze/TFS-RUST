@@ -659,8 +659,7 @@ fn enqueue_initial_login_packets_classic(
     }
 
     // Self-appear (`0x0A` in 772 via the codec) then the full map description (`0x64`).
-    // 772 beat duration comes from `MechanicsProfile::beat_ms` (`data/formulas/772.lua` `beatMs`,
-    // default 200 per `tibia-game-master/src/config.cc:102`) — the same value the game loop ticks at.
+    // Beat advertised to the client is `MechanicsProfile::beat_ms` (50 ms), the same clock the game loop ticks.
     let server_beat = world.mechanics.profile.beat_ms.min(u16::MAX as u32) as u16;
     world.enqueue_encoded(
         conn_id,

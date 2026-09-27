@@ -1,51 +1,39 @@
--- data/formulas/1098.lua — gated later-era extras on the 772 corpus.
---
--- Pathing is native reverse TShortway only (not keys here; no forward A*).
--- Chase replan is 772 idle/`CreatureMoveStimulus` (not a TFS hasFollowPath formula key).
--- Other Tier-1 keys overlay MechanicsProfile::for_version(1098). Edit a gated value to retune
--- without recompiling (docs/PROTOCOL_VERSIONING.md §12.13).
+-- Adjustable 1098 mechanics. Omitted keys keep the built-in profile.
 
 formulas = {
-  beatMs = 50,                   -- scheduler quantization (creature.cpp getStepDuration ceil to 50)
-  defenseGateMs = 2000,
-  armor = "full",                -- subtract full armor value
-  distanceKeep = "perType",
-  damageFormula = "modern",
+  defenseGateMs = 2000, -- minimum time between defense rolls
+  armor = "full", -- "randomized" rolls half the armor, "full" subtracts it
+  distanceKeep = "perType", -- "perType" uses each monster's targetDistance; a number forces one distance
+  damageFormula = "modern", -- "classic" is the probe roll, "modern" is the level-and-skill formula
+  -- Weapon max is attack * (skill * skillMult + skillBase). Each die rolls 0..randomMax.
   damageTuning = {
     skillMult = 5,
     skillBase = 50,
     randomMax = 99,
   },
+  -- Used when armor is "randomized" and armor >= minArmorForRandom: (armor / divisor) plus a roll of that size.
   armorTuning = {
     minArmorForRandom = 2,
     divisor = 2,
   },
+  -- Multipliers for offensive and defensive stance. Balanced stance stays at 1.
   fightModes = {
     offensiveAtk = 1.20, defensiveAtk = 0.80,
     offensiveDef = 0.80, defensiveDef = 1.20,
   },
-  -- skillTuning (shared Delta/minLevel/magicSkillBase) lives in
-  -- MechanicsProfile::for_version. Per-voc multipliers: data/defs/vocations.lua.
-  expAttributionRounds = 60,
-  combatListSlots = 20,
-  corpseDecayOffsetMs = 30000,        -- generic corpse decay +600ms
-  classicEquipmentSlots = false,     -- 10.98 hand slots enforce weapon/shield restrictions
-  conjureFromHandsOnly = true,       -- same pack Lua default: hands only, not backpack search
-  undergroundSeesSurface = false,   -- TFS canSee: underground cannot see surface (tz < 8 rejects)
-  damageTextFormat = "attackerAttribution",  -- "You lose N hitpoints." (no attacker attribution)
-
-
-
-  -- conditions (fire/energy/poisonStart) live in MechanicsProfile::for_version.
-
-  -- Same additive spell range as 800: floor(level / levelDiv) + magicLevel * c + y.
+  expAttributionRounds = 60, -- combat rounds that still count toward kill experience
+  combatListSlots = 20, -- creatures remembered on one combat list
+  corpseDecayOffsetMs = 30000, -- milliseconds added before a generic corpse decays
+  classicEquipmentSlots = false, -- hands require a weapon or a shield
+  conjureFromHandsOnly = true, -- conjure reagents must be in the hands
+  undergroundSeesSurface = false, -- an underground viewer cannot see the surface
+  damageTextFormat = "attackerAttribution", -- name the attacker in the damage line
+  -- Additive: floor(level / levelDiv) + magicLevel * c + y. c and y come from the spell.
+  -- levelMult and magicMult apply only when a spell still uses scale mode.
   spell = { mode = "additive", levelDiv = 5, levelMult = 2, magicMult = 3 },
-  pvpExpCap = { num = 11, den = 10 }, -- MaxLevel = (victimL * num) / den for PvP kill XP scale
-  playerSpeed = "retail",        -- "retail" | "772" | "balanced" (loaded once at startup)
-
-  -- npc dialogue ranges/timing live in MechanicsProfile::npc (NpcTuning::classic_772).
-
-  -- Tools (Gap 6). TFS `fishing_rod.lua` linear clamp; TVP pick.lua 40% / -50.
+  pvpExpCap = { num = 11, den = 10 }, -- PvP kill experience treats the victim as at most level * num / den
+  playerSpeed = "retail", -- "772" linear, "retail" logarithmic, "balanced" diminishing
+  -- Linear catch: chance = minChance + (skill - skillBase) * skillCoeff, clamped to minChance..maxChance.
   fishing = {
     model = "linear",
     minChance = 10,
@@ -53,20 +41,17 @@ formulas = {
     skillBase = 10,
     skillCoeff = 0.597,
   },
-  destroyableStone = { chance = 40, selfDamage = -50 },
-
-  -- TFS `actions/other` extras (not 772).
+  destroyableStone = { chance = 40, selfDamage = -50 }, -- percent chance to break the stone; damage on a miss
   otherActions = {
-    changeGold = true,
-    extraInstruments = true,
-    spellbookMagicLevel = true,
+    changeGold = true, -- coin piles convert on use
+    extraInstruments = true, -- extra instrument items have a use action
+    spellbookMagicLevel = true, -- spellbook groups spells by magic level
   },
-
-  -- Same 56-hour pool as 8.0 (clients from 780). Edit the rates here.
+  -- Pool size in hours. Rest recovers one minute per regenSeconds. Combat spends one minute per drainSeconds. 0 hours turns it off.
   stamina = { hours = 56, regenSeconds = 180, drainSeconds = 60 },
 }
 
---- TFS linear fishing catch: `min(max(min + (skill - base) * coeff, min), max)`.
+-- True when the linear fishing roll succeeds for this skill.
 function formulas.fishingSuccess(skill)
   local f = formulas.fishing
   local chance = math.min(
@@ -75,26 +60,3 @@ function formulas.fishingSuccess(skill)
   )
   return math.random(1, 100) <= chance
 end
-
--- Player speed model selector ------------------------------------------------------------
---
--- 1098 native step timing uses the TfsLog model in Rust (floor(857.36*ln(base/2+261.29)-4795.01))
--- and does NOT call getCreatureSpeed() for the walk timer — it uses GoStrength directly.
--- Setting playerSpeed = "retail" here is the default no-op (native TfsLog path, zero extra cost).
---
--- Set formulas.playerSpeed = "balanced" to apply the same diminishing-returns curve as 772 "balanced",
--- useful if you want to share a speed feel across both eras.
--- Set formulas.playerSpeed = "772" to force classic linear go speed on a 1098 shard (unusual).
-
--- Runtime note: playerSpeed / damageTuning / armorTuning are loaded once at startup into Rust
--- `MechanicsProfile` and then run natively in the game loop (no per-step Lua callback overhead).
-
--- Tier-2 override hooks (optional). Omit to keep the native era-faithful default (zero runtime cost).
--- Example — uncomment to reshape weapon damage from Lua:
---
---[[
-function getWeaponDamage(skill, attack, mode, level)
-  local maxv = attack * (skill * 5 + 50)
-  return math.floor(((math.random(0,99) + math.random(0,99)) / 2) * maxv / 10000)
-end
-]]

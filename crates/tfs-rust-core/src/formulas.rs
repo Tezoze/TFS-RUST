@@ -371,9 +371,9 @@ impl NpcTuning {
 /// Era-tuned mechanics knobs (Tier-1). `Copy` — read freely on the game thread, no per-call cost.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MechanicsProfile {
-    /// Scheduler / combat beat (CipSoft 200, TFS 50) — not always walk quantization on 772.
+    /// Scheduler beat in ms. Fixed at 50; formula files cannot override it.
     pub beat_ms: u32,
-    /// Per-tile walk delay quantization — 50 ms both shipped eras (TVP `gameserver` for 772).
+    /// Walk-delay quantization in ms. Fixed at 50; formula files cannot override it.
     pub step_beat_ms: u32,
     /// Per-tile walk duration curve (TFS log vs 772 linear speed).
     pub step_speed: StepSpeedModel,
@@ -1017,9 +1017,7 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
     };
 
     let mut p = defaults;
-    p.beat_ms = num_or(lua, &formulas, "beatMs", p.beat_ms as i64).max(1) as u32;
-    p.step_beat_ms =
-        num_or(lua, &formulas, "stepBeatMs", p.step_beat_ms.max(1) as i64).max(1) as u32;
+    // Scheduler beat and walk quantization stay at the era default (50 ms). Not formula knobs.
     p.attack_speed_ms =
         num_or(lua, &formulas, "attackSpeedMs", p.attack_speed_ms as i64).max(0) as u32;
     p.defense_gate_ms =
@@ -1503,11 +1501,12 @@ mod tests {
     #[test]
     fn partial_table_overlays_onto_defaults() {
         let lua = Lua::new();
-        lua.load(r#"formulas = { beatMs = 100, armor = "randomized" }"#)
+        lua.load(r#"formulas = { beatMs = 100, stepBeatMs = 100, armor = "randomized" }"#)
             .exec()
             .unwrap();
         let p = parse_profile(&lua, MechanicsProfile::for_version(ProtocolVersion::V1098));
-        assert_eq!(p.beat_ms, 100);
+        assert_eq!(p.beat_ms, 50);
+        assert_eq!(p.step_beat_ms, 50);
         assert_eq!(p.armor, ArmorReduction::Randomized);
         // Untouched fields keep their 1098 default; corpus path/spawn/target stay locked.
         assert_eq!(p.path_cost, PathCostModel::TerrainWeighted);

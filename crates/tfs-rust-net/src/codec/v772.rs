@@ -220,10 +220,8 @@ impl Codec772 {
     /// `protocol_opcodes::server::self_appear`. `canReportBugs` defaults to 0 (non-tutor) — account
     /// type is not threaded into this neutral signature.
     ///
-    /// `server_beat` is the beat duration in ms advertised to the client. TVP `gameserver` hardcodes
-    /// `0x32` (50); the 772 mechanics decompile (`tibia-game-master/src/config.cc:102`) defaults
-    /// `Beat = 200` and exposes it via `data/formulas/772.lua` `beatMs`. We send the profile value so
-    /// the client walk clock matches the server's beat loop (`game_loop.rs` uses the same `beat_ms`).
+    /// `server_beat` is the beat duration in ms advertised to the client. The profile fixes it at
+    /// 50 ms so the client walk clock matches the game-loop beat (`game_loop.rs` uses the same `beat_ms`).
     pub fn encode_self_appear_login(&self, player_id: u32, server_beat: u16) -> NetworkMessage {
         let mut m = NetworkMessage::new();
         m.write_u8(tfs_rust_common::protocol_opcodes::server::self_appear(
