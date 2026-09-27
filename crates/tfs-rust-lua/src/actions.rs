@@ -1009,8 +1009,8 @@ mod tests {
             "cornucopia Fun 3103 Random(95)"
         );
         assert!(
-            music.contains("failItemCount = 9") && music.contains("transformOnFail = 2681"),
-            "cornucopia fail: 9 grapes + Change→2681"
+            music.contains("failItemCount = 9") && music.contains("transformOnFail = 3592"),
+            "cornucopia fail: 9 grapes + Change→3592"
         );
         assert!(
             !music.contains("itemCount = 10, chance = 80"),

@@ -1133,9 +1133,9 @@ mod tests {
             "ex,ura, gran",
             "ex,ura, vita",
             "ut,amo, vita",
-            "rune:2265",
-            "rune:2273",
-            "rune:2266",
+            "rune:3152",
+            "rune:3160",
+            "rune:3153",
         ] {
             let entry = compiled.iter().find(|e| e.key == key).expect(key);
             assert!(

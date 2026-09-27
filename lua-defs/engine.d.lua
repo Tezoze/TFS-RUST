@@ -47,14 +47,18 @@ function Creature:addItem(...) end
 function Creature:addItemEx(...) end
 function Creature:addMana(...) end
 function Creature:addManaSpent(...) end
+function Creature:addOutfit(...) end
+function Creature:addOutfitAddon(...) end
 function Creature:addSkillTries(...) end
 function Creature:addSummon(...) end
 function Creature:canAccessPz(...) end
 function Creature:canCarryMoney(...) end
 function Creature:canSeeCreature(...) end
 function Creature:computeDamage(...) end
+function Creature:computeHealSpell(...) end
 function Creature:computeHealing(...) end
 function Creature:computeSkillDamage(...) end
+function Creature:computeSpell(...) end
 function Creature:conjureItem(...) end
 function Creature:depositMoney(...) end
 function Creature:feed(...) end
@@ -105,6 +109,7 @@ function Creature:getSkull(...) end
 function Creature:getSlotItem(...) end
 function Creature:getSpeed(...) end
 function Creature:getSpellCoeff(...) end
+function Creature:getStamina(...) end
 function Creature:getStorageValue(...) end
 function Creature:getSummons(...) end
 function Creature:getTile(...) end
@@ -113,6 +118,7 @@ function Creature:getType(...) end
 function Creature:getVocation(...) end
 function Creature:hasFlag(...) end
 function Creature:hasLearnedSpell(...) end
+function Creature:hasOutfit(...) end
 function Creature:isCreature(...) end
 function Creature:isInGhostMode(...) end
 function Creature:isItem(...) end
@@ -129,6 +135,8 @@ function Creature:remove(...) end
 function Creature:removeCondition(...) end
 function Creature:removeItem(...) end
 function Creature:removeMoney(...) end
+function Creature:removeOutfit(...) end
+function Creature:removeOutfitAddon(...) end
 function Creature:removeSummon(...) end
 function Creature:removeTotalMoney(...) end
 function Creature:say(...) end
@@ -146,6 +154,7 @@ function Creature:setMonsterOutfit(...) end
 function Creature:setOutfit(...) end
 function Creature:setPremiumEndsAt(...) end
 function Creature:setSex(...) end
+function Creature:setStamina(...) end
 function Creature:setStorageValue(...) end
 function Creature:setTown(...) end
 function Creature:setVocation(...) end
