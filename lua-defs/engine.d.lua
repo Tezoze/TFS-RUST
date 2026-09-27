@@ -178,10 +178,12 @@ function Game.createMonster(...) end
 function Game.createNpc(...) end
 function Game.createTile(...) end
 function Game.getExperienceStage(...) end
-function Game.getHouses(...) end
+---@return House[]
+function Game.getHouses() end
 function Game.getInstantSpells(...) end
 function Game.getItemAttributeByName(...) end
-function Game.getPlayers(...) end
+---@return Player[]
+function Game.getPlayers() end
 function Game.getReturnMessage(...) end
 function Game.getWorldType(...) end
 function Game.reload(...) end
@@ -502,8 +504,10 @@ function db.storeQuery(...) end
 result = {}
 
 function result.free(...) end
-function result.getNumber(...) end
-function result.getString(...) end
+---@return integer
+function result.getNumber(resultId, column) end
+---@return string
+function result.getString(resultId, column) end
 function result.next(...) end
 
 ---@class tfs

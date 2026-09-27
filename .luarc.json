@@ -54,6 +54,10 @@
       "redundant-return-value"
     ],
     "globals": [
+      "actionIds",
+      "corpseIds",
+      "Fields",
+      "ropeSpots",
       "CLIENTOS_OTCLIENT_LINUX",
       "COMBAT_POISONDAMAGE",
       "CONDITION_PARAM_DRUNKENNESS",
