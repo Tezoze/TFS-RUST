@@ -88,6 +88,8 @@ fn build_map(s: &Scenario) -> Map {
         house_tiles: Vec::new(),
         refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
+        live_dirty: rustc_hash::FxHashSet::default(),
+        live_baselines: HashMap::new(),
     };
     let pad = s.visible.max(12) as u16 + 2;
     let min_x = s.start.0.min(s.target.0).saturating_sub(pad);

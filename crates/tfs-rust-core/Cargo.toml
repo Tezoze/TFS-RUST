@@ -21,6 +21,8 @@ bitflags = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 rustc-hash = "2"
 smallvec = { version = "1", features = ["union"] }
+serde = { version = "1", features = ["derive"] }
+ron = { workspace = true }
 
 [dev-dependencies]
 proptest = "1.11"

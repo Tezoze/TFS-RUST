@@ -634,6 +634,12 @@ async fn run_on_game_thread(io_handle: tokio::runtime::Handle) -> anyhow::Result
             }
             Err(e) => tracing::warn!(error = %e, "house lists load failed"),
         }
+        if world.config.persist_map_items().unwrap_or(false)
+            && let Ok(rel) = world.config.live_map_relative()
+        {
+            world.live_map_path = Some(data_path.join(rel));
+            world.load_live_map();
+        }
         match house_store
             .load_tile_store()
             .instrument(tracing::info_span!("tile_store_load"))

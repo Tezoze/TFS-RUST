@@ -33,6 +33,8 @@ fn flat_map(w: u16, h: u16) -> Map {
         house_tiles: Vec::new(),
         refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: std::collections::HashMap::new(),
+        live_dirty: rustc_hash::FxHashSet::default(),
+        live_baselines: std::collections::HashMap::new(),
     };
     for x in 0..w {
         for y in 0..h {

@@ -88,6 +88,8 @@ pub struct GameWorld {
     pub creatures: SlotMap<CreatureId, CreatureKind>,
     pub items: SlotMap<ItemId, Item>,
     pub map: Map,
+    /// `persistMapItems` overlay path. `None` skips load and save.
+    pub live_map_path: Option<std::path::PathBuf>,
     pub events: Box<dyn EventDispatcher>,
     /// Game-thread-only: holds an `mlua::Lua` (`!Send`), so `Rc` not `Arc`.
     pub config: Rc<ConfigManager>,
@@ -255,6 +257,8 @@ pub struct GameWorld {
     /// Corpus recv-bandwidth lag (`communication.cc:141-229`) — not beat-stall.
     pub(crate) net_load: crate::net_load::NetLoad,
     /// Idle-kick / dead-connection disconnects queued from `process_connections`.
+    /// Bed sleep uses the same queue (`BedItem::sleep` → `kickPlayer`): the beat drain
+    /// saves the player and closes TCP.
     /// `(ConnId, stop_fight)` — idle kick uses `stop_fight=true`, command-timeout uses `false`
     /// (`connections.cc:35-38`).
     pub(crate) pending_idle_kick: Vec<(ConnId, bool)>,
@@ -437,6 +441,7 @@ impl GameWorld {
             creatures: SlotMap::with_key(),
             items,
             map,
+            live_map_path: None,
             events,
             config: config.clone(),
             db,

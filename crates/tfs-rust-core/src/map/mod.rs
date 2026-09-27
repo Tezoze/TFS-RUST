@@ -15,6 +15,7 @@ use tfs_rust_content::items::ItemDatabase;
 
 use crate::ids::{CreatureId, ItemId};
 use crate::item::Item;
+use crate::item_attributes::ItemAttributes;
 use crate::tile::{Tile, TileBody, flags};
 
 pub use grid::{CHUNK_AREA, CHUNK_SIZE, SECTOR_SIZE, SparseGrid};
@@ -36,6 +37,28 @@ pub struct Map {
     pub refresh_positions: FxHashSet<Position>,
     /// Item clones for REFRESH restore. Empty at load; filled on first stack mutation.
     pub refresh_snapshots: HashMap<Position, crate::sector_refresh::TileRefreshSnap>,
+    /// Non-house tiles whose stack changed since the OTBM (or the last live-map load).
+    pub live_dirty: FxHashSet<Position>,
+    /// Full item tree at the moment a tile first became dirty — the OTBM original.
+    /// A later save omits the tile when the live tree matches this clone.
+    pub live_baselines: HashMap<Position, LiveTileBaseline>,
+}
+
+/// One item in a live-map baseline, including nested container contents.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LiveItemBaseline {
+    pub item_type: u16,
+    pub count: u16,
+    pub attributes: Option<Box<ItemAttributes>>,
+    pub children: Vec<LiveItemBaseline>,
+}
+
+/// Ground plus both stacks, captured before the first mutation of a tile.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LiveTileBaseline {
+    pub ground: Option<LiveItemBaseline>,
+    pub down: Vec<LiveItemBaseline>,
+    pub top: Vec<LiveItemBaseline>,
 }
 
 impl Map {

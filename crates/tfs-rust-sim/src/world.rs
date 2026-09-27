@@ -448,6 +448,8 @@ pub fn beat_driven_world_with_synthetic_ground_data(
         house_tiles: Vec::new(),
         refresh_positions: Default::default(),
         refresh_snapshots: HashMap::new(),
+        live_dirty: Default::default(),
+        live_baselines: HashMap::new(),
     };
     map.towns.insert(
         1,

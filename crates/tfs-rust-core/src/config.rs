@@ -262,6 +262,16 @@ impl ConfigManager {
         Ok(houses_xml_relative_for_map_name(&self.map_name()?))
     }
 
+    /// Live non-house tile overlay. Default false — boot stays OTBM-only.
+    pub fn persist_map_items(&self) -> Result<bool> {
+        get_bool_or(self, "persistMapItems", false)
+    }
+
+    /// `world/{mapName}-live.bin` under the data dir.
+    pub fn live_map_relative(&self) -> Result<String> {
+        Ok(live_map_relative_for_map_name(&self.map_name()?))
+    }
+
     /// Scale try gains by a config rate — TFS `Player:onGainSkillTries`
     /// (`tries = tries * rateSkill` / `rateMagic`). Uses `floor(base * rate)`.
     #[inline]
@@ -847,6 +857,11 @@ pub fn houses_xml_relative_for_map_name(map_name: &str) -> String {
     format!("world/{}-houses.xml", normalize_map_name(map_name))
 }
 
+/// Live tile overlay: `world/{mapName}-live.bin`.
+pub fn live_map_relative_for_map_name(map_name: &str) -> String {
+    format!("world/{}-live.bin", normalize_map_name(map_name))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1160,5 +1175,18 @@ mod tests {
         );
         let cfg = config_from_lua(r#"mapName = "forgotten.otbm""#);
         assert_eq!(cfg.map_name().expect("strip"), "forgotten");
+    }
+
+    #[test]
+    fn persist_map_items_defaults_off() {
+        let cfg = config_from_lua("");
+        assert!(!cfg.persist_map_items().expect("default"));
+        assert_eq!(
+            cfg.live_map_relative().expect("path"),
+            "world/forgotten-live.bin"
+        );
+        let on = config_from_lua("persistMapItems = true\nmapName = \"map\"");
+        assert!(on.persist_map_items().expect("on"));
+        assert_eq!(on.live_map_relative().expect("path"), "world/map-live.bin");
     }
 }

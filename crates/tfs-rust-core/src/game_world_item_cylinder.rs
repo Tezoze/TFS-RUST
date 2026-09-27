@@ -590,6 +590,7 @@ impl GameWorld {
             flags
         };
         self.map.snapshot_refresh_if_needed(pos, &self.items);
+        self.note_live_tile(pos);
         let is_stackable;
         let item_type;
         let item_count;
@@ -822,6 +823,7 @@ impl GameWorld {
         item_id: ItemId,
     ) -> Result<(), ReturnValue> {
         self.map.snapshot_refresh_if_needed(pos, &self.items);
+        self.note_live_tile(pos);
         let item_type = self
             .items
             .get(item_id)
@@ -858,6 +860,7 @@ impl GameWorld {
         count: u16,
     ) -> Result<(), ReturnValue> {
         self.map.snapshot_refresh_if_needed(pos, &self.items);
+        self.note_live_tile(pos);
         let item = self.items.get(item_id).ok_or(ReturnValue::NotPossible)?;
         let is_stackable = self
             .items_db

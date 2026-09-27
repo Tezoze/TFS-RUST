@@ -77,6 +77,7 @@ mod magic_field;
 mod mail;
 mod mail_delivery;
 pub mod map;
+mod map_live;
 mod map_point;
 pub mod matrix_area;
 mod monster_ai;

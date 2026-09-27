@@ -104,7 +104,8 @@ pub enum ServerSavePoll {
 pub enum ServerSaveTick {
     #[default]
     None,
-    /// Persist online players, keep them in the world (`saveServer()` / `/save`).
+    /// Persist the live map, houses, and online players. Players stay in the world
+    /// (`saveServer()` / `/save`).
     FlushStay,
     /// Daily save with `serverSaveShutdown = false`: `LogoutAllPlayers` + `RefreshMap`.
     FlushReboot,

@@ -34,6 +34,8 @@ fn empty_map() -> Map {
         house_tiles: Vec::new(),
         refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
+        live_dirty: rustc_hash::FxHashSet::default(),
+        live_baselines: HashMap::new(),
     }
 }
 

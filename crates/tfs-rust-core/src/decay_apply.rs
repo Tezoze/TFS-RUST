@@ -224,6 +224,7 @@ impl GameWorld {
         };
         if let Some(pos) = tile_pos {
             self.map.snapshot_refresh_if_needed(pos, &self.items);
+            self.note_live_tile(pos);
         }
 
         // Reset old-type tile flags before the id swap — TFS `updateThing`

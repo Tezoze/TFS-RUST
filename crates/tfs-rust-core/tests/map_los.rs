@@ -25,6 +25,8 @@ fn map_with_wall() -> Map {
         house_tiles: Vec::new(),
         refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: std::collections::HashMap::new(),
+        live_dirty: rustc_hash::FxHashSet::default(),
+        live_baselines: std::collections::HashMap::new(),
     };
     map.insert_tile(Position::new(0, 0, 7), body_at(0, 0, 0));
     map.insert_tile(Position::new(1, 0, 7), body_at(1, 0, 0));
@@ -89,6 +91,8 @@ fn sight_not_blocked_by_missing_tile() {
         house_tiles: Vec::new(),
         refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: std::collections::HashMap::new(),
+        live_dirty: rustc_hash::FxHashSet::default(),
+        live_baselines: std::collections::HashMap::new(),
     };
     map.insert_tile(Position::new(0, 0, 7), body_at(0, 0, 0));
     map.insert_tile(Position::new(1, 0, 7), body_at(1, 0, 0));
@@ -113,6 +117,8 @@ fn los_symmetric_when_clear() {
         house_tiles: Vec::new(),
         refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: std::collections::HashMap::new(),
+        live_dirty: rustc_hash::FxHashSet::default(),
+        live_baselines: std::collections::HashMap::new(),
     };
     for x in 0..4u16 {
         for y in 0..4u16 {
@@ -154,6 +160,8 @@ fn flat_map(w: u16, h: u16) -> Map {
         house_tiles: Vec::new(),
         refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: std::collections::HashMap::new(),
+        live_dirty: rustc_hash::FxHashSet::default(),
+        live_baselines: std::collections::HashMap::new(),
     };
     for x in 0..w {
         for y in 0..h {

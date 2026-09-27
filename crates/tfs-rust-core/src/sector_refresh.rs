@@ -230,6 +230,7 @@ impl GameWorld {
             let iid = self.items.insert(it.to_item());
             let _ = self.internal_add_item_to_tile(pos, iid, CylinderFlags::NO_LIMIT);
         }
+        self.map.live_dirty.remove(&pos);
     }
 }
 

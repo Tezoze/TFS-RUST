@@ -178,6 +178,7 @@ async fn handle_pending_save_tick(world: &mut GameWorld) -> anyhow::Result<bool>
     match world.take_save_tick() {
         crate::server_save::ServerSaveTick::None => Ok(false),
         crate::server_save::ServerSaveTick::FlushStay => {
+            world.save_live_map();
             if let Err(e) = world.process_and_persist_houses().await {
                 tracing::warn!(error = %e, "house process/save on daily save failed");
             }
@@ -188,6 +189,7 @@ async fn handle_pending_save_tick(world: &mut GameWorld) -> anyhow::Result<bool>
         }
         crate::server_save::ServerSaveTick::FlushReboot => {
             crate::shutdown::run(world, true);
+            world.save_live_map();
             if let Err(e) = world.process_and_persist_houses().await {
                 tracing::warn!(error = %e, "house process/save on reboot save failed");
             }
@@ -198,6 +200,7 @@ async fn handle_pending_save_tick(world: &mut GameWorld) -> anyhow::Result<bool>
         crate::server_save::ServerSaveTick::FlushShutdown => {
             crate::lua_scope::fire_on_shutdown(world);
             crate::shutdown::run(world, false);
+            world.save_live_map();
             if let Err(e) = world.process_and_persist_houses().await {
                 tracing::warn!(error = %e, "house process/save on shutdown save failed");
             }
@@ -2118,7 +2121,8 @@ pub async fn run_game_loop(
                 ) {
                     ControlFlow::Break(LoopExit::Shutdown) => {
                         crate::lua_scope::fire_on_shutdown(&mut world);
-                        crate::shutdown::run(&mut world, false);
+                        crate::shutdown::run_interrupt(&mut world);
+                        world.save_live_map();
                         if let Err(e) = world.process_and_persist_houses().await {
                             tracing::warn!(error = %e, "house save on SIGINT failed");
                         }
@@ -2168,7 +2172,8 @@ pub async fn run_game_loop(
                             ) {
                                 ControlFlow::Break(LoopExit::Shutdown) => {
                                     crate::lua_scope::fire_on_shutdown(&mut world);
-                                    crate::shutdown::run(&mut world, false);
+                                    crate::shutdown::run_interrupt(&mut world);
+                                    world.save_live_map();
                                     if let Err(e) = world.process_and_persist_houses().await {
                                         tracing::warn!(error = %e, "house save on SIGINT failed");
                                     }

@@ -60,6 +60,8 @@ impl Map {
             house_tiles,
             refresh_positions,
             refresh_snapshots: HashMap::new(),
+            live_dirty: FxHashSet::default(),
+            live_baselines: HashMap::new(),
         })
     }
 
@@ -96,6 +98,8 @@ impl Map {
             house_tiles,
             refresh_positions,
             refresh_snapshots: HashMap::new(),
+            live_dirty: FxHashSet::default(),
+            live_baselines: HashMap::new(),
         }
     }
 }

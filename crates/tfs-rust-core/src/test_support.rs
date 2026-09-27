@@ -433,6 +433,8 @@ pub fn minimal_world() -> GameWorld {
         house_tiles: Vec::new(),
         refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
+        live_dirty: rustc_hash::FxHashSet::default(),
+        live_baselines: HashMap::new(),
     };
     map.towns.insert(
         1,
@@ -581,6 +583,8 @@ pub fn beat_driven_world_with_synthetic_ground_data(
         house_tiles: Vec::new(),
         refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
+        live_dirty: rustc_hash::FxHashSet::default(),
+        live_baselines: HashMap::new(),
     };
     map.towns.insert(
         1,

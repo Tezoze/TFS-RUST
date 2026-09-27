@@ -103,6 +103,8 @@ fn scan_min_terrain_waypoints_ignores_blocked_tiles() {
         house_tiles: Vec::new(),
         refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
+        live_dirty: rustc_hash::FxHashSet::default(),
+        live_baselines: HashMap::new(),
     };
     let origin = Position::new(2, 2, 7);
     for x in 0..5u16 {
@@ -147,6 +149,8 @@ fn uniform_walkable_map(width: u16, ground: u16) -> Map {
         house_tiles: Vec::new(),
         refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
+        live_dirty: rustc_hash::FxHashSet::default(),
+        live_baselines: HashMap::new(),
     };
     for x in 0..width {
         ensure_walkable_tile(&mut map, Position::new(x, 0, 7), ground);
@@ -224,6 +228,8 @@ fn reverse_with_allow_diagonal_still_uses_reverse_expansion() {
         house_tiles: Vec::new(),
         refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
+        live_dirty: rustc_hash::FxHashSet::default(),
+        live_baselines: HashMap::new(),
     };
     for x in 0..15u16 {
         for y in 0..15u16 {
@@ -283,6 +289,8 @@ fn reverse_falls_back_to_forward_around_obstacle() {
         house_tiles: Vec::new(),
         refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
+        live_dirty: rustc_hash::FxHashSet::default(),
+        live_baselines: HashMap::new(),
     };
     for x in 0..7u16 {
         for y in 9..=11u16 {
@@ -366,6 +374,8 @@ fn reverse_prefers_fast_tile_on_asymmetric_terrain() {
         house_tiles: Vec::new(),
         refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
+        live_dirty: rustc_hash::FxHashSet::default(),
+        live_baselines: HashMap::new(),
     };
     for y in 0..3u16 {
         for x in 0..5u16 {
@@ -417,6 +427,8 @@ fn reverse_obeys_allow_diagonal_false() {
         house_tiles: Vec::new(),
         refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
+        live_dirty: rustc_hash::FxHashSet::default(),
+        live_baselines: HashMap::new(),
     };
     for x in 0..7u16 {
         for y in 0..7u16 {
@@ -497,6 +509,8 @@ fn reverse_noway_without_fallback() {
         house_tiles: Vec::new(),
         refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
+        live_dirty: rustc_hash::FxHashSet::default(),
+        live_baselines: HashMap::new(),
     };
     for x in 0..7u16 {
         for y in 9..=11u16 {
@@ -846,6 +860,8 @@ fn cyclops_quad_uniform_map_excluding(
         house_tiles: Vec::new(),
         refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: HashMap::new(),
+        live_dirty: rustc_hash::FxHashSet::default(),
+        live_baselines: HashMap::new(),
     };
     let pad = REVERSE_PATH_VIEW_RADIUS as u16 + 2;
     let min_x = start.x.min(target.x).saturating_sub(pad);

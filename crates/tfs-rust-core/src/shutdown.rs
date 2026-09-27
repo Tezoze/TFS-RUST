@@ -1,5 +1,6 @@
-//! `LogoutAllPlayers` + optional `RefreshMap` on reboot fire.
+//! `LogoutAllPlayers` + `RefreshMap` on reboot fire and on SIGINT.
 //! C++ reference: `crplayer.cc:1874` `LogoutAllPlayers`; `main.cc:423-429`.
+//! SIGINT in the decompile does not refresh (`main.cc:89-96`); this server does.
 
 use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
@@ -34,6 +35,14 @@ pub fn run(world: &mut GameWorld, reboot: bool) {
     }
 }
 
+/// Ctrl+C: logout, then restore every snapshotted refresh tile before the live-map write.
+///
+/// Decompile `DefaultHandler` ends the process without `RefreshMap` (`main.cc:89-96`).
+pub fn run_interrupt(world: &mut GameWorld) {
+    logout_all_players(world);
+    let _ = world.refresh_map();
+}
+
 #[cfg(test)]
 mod tests {
     use tfs_rust_common::Position;
@@ -57,5 +66,32 @@ mod tests {
             "LogoutAllPlayers must drop in-memory players (players_online delete is spawned)"
         );
         assert!(world.creatures.get(cid).is_none());
+    }
+
+    #[test]
+    fn interrupt_restores_refresh_tile() {
+        use crate::cylinder::CylinderFlags;
+        use crate::item::Item;
+        use crate::sector_refresh::TileRefreshSnap;
+        use crate::tile::flags as tile_flags;
+
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(80, 80, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+        if let Some(t) = world.map.get_tile_mut(pos) {
+            t.body_mut().flags |= tile_flags::REFRESH;
+        }
+        world.map.refresh_snapshots.insert(
+            pos,
+            TileRefreshSnap::from_tile(world.map.get_tile(pos).unwrap().body(), &world.items),
+        );
+        let junk = world.items.insert(Item::new_single(3031));
+        world
+            .internal_add_item_to_tile(pos, junk, CylinderFlags::NO_LIMIT)
+            .expect("drop");
+        super::run_interrupt(&mut world);
+        let body = world.map.get_tile(pos).unwrap().body();
+        assert!(!body.down_items().contains(&junk) && !body.top_items().contains(&junk));
+        assert!(world.items.get(junk).is_none());
     }
 }

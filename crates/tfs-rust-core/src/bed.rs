@@ -151,7 +151,14 @@ impl GameWorld {
         if let Some(pid) = partner {
             self.bed_update_appearance(pid, Some(cid));
         }
-        self.player_logout(conn_id, cid, false, true);
+        // TFS `BedItem::sleep` → `kickPlayer(id, false)` → `ProtocolGame::logout(false, true)`.
+        // Forced so a protection-zone lock cannot keep the body. `logout_allowed` makes
+        // the disconnect remove the creature; the body stays until then so the save sees it.
+        // `pending_idle_kick` is drained after this beat and closes TCP (`handle_player_disconnect`).
+        if let Some(k) = self.creatures.get_mut(cid) {
+            k.base_mut().logout_allowed = true;
+        }
+        self.pending_idle_kick.push((conn_id, true));
         Ok(())
     }
 
@@ -375,5 +382,16 @@ mod tests {
         let ty = world.items.get(bed).map(|i| i.item_type);
         assert_eq!(ty, Some(1762));
         assert_eq!(world.items.get(bed).map(|i| i.sleeper_guid()), Some(1));
+        assert!(
+            world.creatures.get(cid).is_some(),
+            "body stays until disconnect saves it"
+        );
+        assert!(
+            world
+                .creatures
+                .get(cid)
+                .is_some_and(|k| k.base().logout_allowed)
+        );
+        assert_eq!(world.pending_idle_kick, vec![(ConnId(1), true)]);
     }
 }

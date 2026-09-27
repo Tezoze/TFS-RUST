@@ -55,6 +55,8 @@ fn map_find_item_position_finds_down_item() {
         house_tiles: Vec::new(),
         refresh_positions: rustc_hash::FxHashSet::default(),
         refresh_snapshots: std::collections::HashMap::new(),
+        live_dirty: rustc_hash::FxHashSet::default(),
+        live_baselines: std::collections::HashMap::new(),
     };
     m.insert_tile(pos, tfs_rust_core::tile::Tile::Normal(body));
     assert_eq!(m.find_item_position(iid), Some(pos));
