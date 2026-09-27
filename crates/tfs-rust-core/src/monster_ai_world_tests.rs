@@ -180,8 +180,10 @@ fn monster_acquires_target_and_steps_toward_player() {
         "idle drain should select target via Strategy[]"
     );
 
-    // Advance one beat to fire the queued Go — monster steps toward player.
+    // Idle arms `ToDoGo` at `server_ms + 1` (`cract.cc:1016`). The first beat runs
+    // that yield and re-arms the step; the next beat is what actually moves.
     world.advance_beat(200);
+    world.advance_beat(1);
 
     let new_pos = world.creatures.get(monster).unwrap().position();
     assert!(
