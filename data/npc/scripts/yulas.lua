@@ -8,345 +8,230 @@ npc:health(100)
 npc:sex(1)
 npc:race(1)
 
-npc:dialogue(NpcDialogue({
-	policy = "queued_single_focus",
-	rules = {
-		{
-			line = 13,
-			when = {
-				{ situation = "address" },
-				{ words = { "hello$" } },
-				{ select = true },
-			},
-			actions = {
-				{ say = "Welcome to the Plank and Treasurechest Market, %N!" },
-			},
+local rules = {}
+NpcAppendRules(rules, {
+	{
+		line = 13,
+		when = {
+			{ situation = "address" },
+			{ words = { "hello$" } },
+			{ select = true },
 		},
-		{
-			line = 14,
-			when = {
-				{ situation = "address" },
-				{ words = { "hi$" } },
-				{ select = true },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 15,
-			when = {
-				{ situation = "address" },
-				{ select = true },
-			},
-			actions = {
-				{ idle = true },
-			},
-		},
-		{
-			line = 16,
-			when = {
-				{ situation = "busy" },
-				{ words = { "hello$" } },
-				{ select = true },
-			},
-			actions = {
-				{ say = "Just a moment please, %N." },
-				{ queue = true },
-			},
-		},
-		{
-			line = 17,
-			when = {
-				{ situation = "busy" },
-				{ words = { "hi$" } },
-				{ select = true },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 18,
-			when = {
-				{ situation = "busy" },
-				{ select = true },
-			},
-			actions = {
-				{ nop = true },
-			},
-		},
-		{
-			line = 19,
-			when = {
-				{ situation = "vanish" },
-				{ select = true },
-			},
-			actions = {
-				{ say = "Good bye." },
-			},
-		},
-		{
-			line = 21,
-			when = {
-				{ words = { "bye" } },
-			},
-			actions = {
-				{ say = "Good bye." },
-				{ idle = true },
-			},
-		},
-		{
-			line = 22,
-			when = {
-				{ words = { "farewell" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 23,
-			when = {
-				{ words = { "name" } },
-			},
-			actions = {
-				{ say = "I am Yulas. I will be your salesperson today." },
-			},
-		},
-		{
-			line = 24,
-			when = {
-				{ words = { "job" } },
-			},
-			actions = {
-				{ say = "We are into home improvement." },
-			},
-		},
-		{
-			line = 25,
-			when = {
-				{ words = { "time" } },
-				{ property = "male" },
-			},
-			actions = {
-				{ say = "It's %T, sire." },
-			},
-		},
-		{
-			line = 26,
-			when = {
-				{ words = { "time" } },
-				{ property = "female" },
-			},
-			actions = {
-				{ say = "It's %T, my lady." },
-			},
-		},
-		{
-			line = 27,
-			when = {
-				{ words = { "news" } },
-			},
-			actions = {
-				{ say = "Sorry, we are not allowed to chat." },
-			},
-		},
-		{
-			line = 28,
-			when = {
-				{ words = { "allen" } },
-			},
-			actions = {
-				{ say = "To think just because he is around here to watch what we do, he want to be considered one of us..." },
-			},
-		},
-		{
-			line = 29,
-			when = {
-				{ words = { "richardson" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 31,
-			when = {
-				{ words = { "offer" } },
-			},
-			actions = {
-				{ say = "We sell furniture and equipment. At this counter you can buy tables." },
-			},
-		},
-		{
-			line = 32,
-			when = {
-				{ words = { "goods" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 33,
-			when = {
-				{ words = { "do" } },
-				{ words = { "you" } },
-				{ words = { "sell" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 34,
-			when = {
-				{ words = { "do" } },
-				{ words = { "you" } },
-				{ words = { "have" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 35,
-			when = {
-				{ words = { "furniture" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 36,
-			when = {
-				{ words = { "equipment" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		-- from gen-t-furniture-tables-s.ndb:11
-		{
-			line = 11,
-			when = {
-				{ words = { "table" } },
-			},
-			actions = {
-				{ say = "Do you want to buy a small table, a round table, a square table or a big table?" },
-			},
-		},
-		-- from gen-t-furniture-tables-s.ndb:12
-		{
-			line = 12,
-			when = {
-				{ words = { "small" } },
-				{ words = { "table" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2782 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 20 } },
-				{ say = "Do you want to buy a small table for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-tables-s.ndb:13
-		{
-			line = 13,
-			when = {
-				{ words = { "round" } },
-				{ words = { "table" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2783 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "Do you want to buy a round table for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-tables-s.ndb:14
-		{
-			line = 14,
-			when = {
-				{ words = { "square" } },
-				{ words = { "table" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2784 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "Do you want to buy a square table for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-tables-s.ndb:15
-		{
-			line = 15,
-			when = {
-				{ words = { "big" } },
-				{ words = { "table" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2785 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 30 } },
-				{ say = "Do you want to buy a big table for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-tables-s.ndb:17
-		{
-			line = 17,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-				{ words = { "yes" } },
-				{ property = "premium" },
-				{ expr = { countMoney = true }, op = ">=", rhs = { session = "price" } },
-			},
-			actions = {
-				{ say = "Here you are." },
-				{ deleteMoney = true },
-				{ create = { item = { session = "type" } } },
-			},
-		},
-		-- from gen-t-furniture-tables-s.ndb:18
-		{
-			line = 18,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-				{ words = { "yes" } },
-				{ expr = { countMoney = true }, op = ">=", rhs = { session = "price" } },
-			},
-			actions = {
-				{ say = "I'm sorry, but you need a premium account if you want to buy furniture." },
-			},
-		},
-		-- from gen-t-furniture-tables-s.ndb:19
-		{
-			line = 19,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-				{ words = { "yes" } },
-			},
-			actions = {
-				{ say = "Come back, when you have enough money." },
-			},
-		},
-		-- from gen-t-furniture-tables-s.ndb:20
-		{
-			line = 20,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-			},
-			actions = {
-				{ say = "Hmm, but I'm sure, it would fit nicely into your house." },
-			},
+		actions = {
+			{ say = "Welcome to the Plank and Treasurechest Market, %N!" },
 		},
 	},
+	{
+		line = 14,
+		when = {
+			{ situation = "address" },
+			{ words = { "hi$" } },
+			{ select = true },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 15,
+		when = {
+			{ situation = "address" },
+			{ select = true },
+		},
+		actions = {
+			{ idle = true },
+		},
+	},
+	{
+		line = 16,
+		when = {
+			{ situation = "busy" },
+			{ words = { "hello$" } },
+			{ select = true },
+		},
+		actions = {
+			{ say = "Just a moment please, %N." },
+			{ queue = true },
+		},
+	},
+	{
+		line = 17,
+		when = {
+			{ situation = "busy" },
+			{ words = { "hi$" } },
+			{ select = true },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 18,
+		when = {
+			{ situation = "busy" },
+			{ select = true },
+		},
+		actions = {
+			{ nop = true },
+		},
+	},
+	{
+		line = 19,
+		when = {
+			{ situation = "vanish" },
+			{ select = true },
+		},
+		actions = {
+			{ say = "Good bye." },
+		},
+	},
+	{
+		line = 21,
+		when = {
+			{ words = { "bye" } },
+		},
+		actions = {
+			{ say = "Good bye." },
+			{ idle = true },
+		},
+	},
+	{
+		line = 22,
+		when = {
+			{ words = { "farewell" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 23,
+		when = {
+			{ words = { "name" } },
+		},
+		actions = {
+			{ say = "I am Yulas. I will be your salesperson today." },
+		},
+	},
+	{
+		line = 24,
+		when = {
+			{ words = { "job" } },
+		},
+		actions = {
+			{ say = "We are into home improvement." },
+		},
+	},
+	{
+		line = 25,
+		when = {
+			{ words = { "time" } },
+			{ property = "male" },
+		},
+		actions = {
+			{ say = "It's %T, sire." },
+		},
+	},
+	{
+		line = 26,
+		when = {
+			{ words = { "time" } },
+			{ property = "female" },
+		},
+		actions = {
+			{ say = "It's %T, my lady." },
+		},
+	},
+	{
+		line = 27,
+		when = {
+			{ words = { "news" } },
+		},
+		actions = {
+			{ say = "Sorry, we are not allowed to chat." },
+		},
+	},
+	{
+		line = 28,
+		when = {
+			{ words = { "allen" } },
+		},
+		actions = {
+			{ say = "To think just because he is around here to watch what we do, he want to be considered one of us..." },
+		},
+	},
+	{
+		line = 29,
+		when = {
+			{ words = { "richardson" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 31,
+		when = {
+			{ words = { "offer" } },
+		},
+		actions = {
+			{ say = "We sell furniture and equipment. At this counter you can buy tables." },
+		},
+	},
+	{
+		line = 32,
+		when = {
+			{ words = { "goods" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 33,
+		when = {
+			{ words = { "do" } },
+			{ words = { "you" } },
+			{ words = { "sell" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 34,
+		when = {
+			{ words = { "do" } },
+			{ words = { "you" } },
+			{ words = { "have" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 35,
+		when = {
+			{ words = { "furniture" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 36,
+		when = {
+			{ words = { "equipment" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+})
+NpcAppendRules(rules, NpcCatalogs["gen-t-furniture-tables-s"])
+npc:dialogue(NpcDialogue({
+	policy = "queued_single_focus",
+	rules = rules,
 }))
 
 npc:register()

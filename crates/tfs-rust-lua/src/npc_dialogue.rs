@@ -29,6 +29,26 @@ pub fn register_npc_dialogue(lua: &Lua) -> Result<(), mlua::Error> {
         Ok(NpcDialogueProgram(program))
     })?;
     lua.globals().set("NpcDialogue", ctor)?;
+
+    // Append a rules array onto another. Catalogs are spliced this way so a
+    // long include does not go through `table.unpack`.
+    let append = lua.create_function(|_, (dst, src): (Table, Value)| {
+        let src = match src {
+            Value::Table(table) => table,
+            _ => {
+                return Err(runtime(
+                    "NpcAppendRules: rules table is required".to_string(),
+                ));
+            }
+        };
+        for value in src.sequence_values::<Value>() {
+            let value = value?;
+            let index = dst.raw_len() + 1;
+            dst.set(index, value)?;
+        }
+        Ok(dst)
+    })?;
+    lua.globals().set("NpcAppendRules", append)?;
     Ok(())
 }
 

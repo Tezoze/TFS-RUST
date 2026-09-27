@@ -8,502 +8,268 @@ npc:health(100)
 npc:sex(1)
 npc:race(69)
 
-npc:dialogue(NpcDialogue({
-	policy = "queued_single_focus",
-	rules = {
-		{
-			line = 13,
-			when = {
-				{ situation = "address" },
-				{ words = { "hello$" } },
-				{ select = true },
-			},
-			actions = {
-				{ say = "Hiho %N. May I help you?" },
-			},
+local rules = {}
+NpcAppendRules(rules, {
+	{
+		line = 13,
+		when = {
+			{ situation = "address" },
+			{ words = { "hello$" } },
+			{ select = true },
 		},
-		{
-			line = 14,
-			when = {
-				{ situation = "address" },
-				{ words = { "hi$" } },
-				{ select = true },
-			},
-			actions = {
-				{ say = "Hiho %N. May I help you?" },
-			},
-		},
-		{
-			line = 15,
-			when = {
-				{ situation = "address" },
-				{ select = true },
-			},
-			actions = {
-				{ idle = true },
-			},
-		},
-		{
-			line = 16,
-			when = {
-				{ situation = "busy" },
-				{ words = { "hello$" } },
-				{ select = true },
-			},
-			actions = {
-				{ say = "Sorry %N, I am busy right now. One moment please." },
-				{ queue = true },
-			},
-		},
-		{
-			line = 17,
-			when = {
-				{ situation = "busy" },
-				{ words = { "hi$" } },
-				{ select = true },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 18,
-			when = {
-				{ situation = "busy" },
-				{ select = true },
-			},
-			actions = {
-				{ nop = true },
-			},
-		},
-		{
-			line = 19,
-			when = {
-				{ situation = "vanish" },
-				{ select = true },
-			},
-			actions = {
-				{ say = "Come back if you need my services." },
-			},
-		},
-		{
-			line = 21,
-			when = {
-				{ words = { "bye" } },
-			},
-			actions = {
-				{ say = "Come back if you need my services." },
-				{ idle = true },
-			},
-		},
-		{
-			line = 22,
-			when = {
-				{ words = { "farewell" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 23,
-			when = {
-				{ words = { "job" } },
-			},
-			actions = {
-				{ say = "I am the royal postdwarf and damned proud of it." },
-			},
-		},
-		{
-			line = 24,
-			when = {
-				{ words = { "office" } },
-			},
-			actions = {
-				{ say = "It's not big but I like the company." },
-			},
-		},
-		{
-			line = 25,
-			when = {
-				{ words = { "name" } },
-			},
-			actions = {
-				{ say = "My name is Lokur Stampsmasher, son of Earth of the Dragoneaters." },
-			},
-		},
-		{
-			line = 26,
-			when = {
-				{ words = { "time" } },
-			},
-			actions = {
-				{ say = "Too bad, I forgot my watch at home." },
-			},
-		},
-		{
-			line = 27,
-			when = {
-				{ words = { "mail" } },
-			},
-			actions = {
-				{ say = "The mail system was invented by dwarfs! Do you want me to tell you about it?" },
-				{ set = { var = "topic", value = 1 } },
-			},
-		},
-		{
-			line = 29,
-			when = {
-				{ words = { "king" } },
-			},
-			actions = {
-				{ say = "Our king has a treasure room and does not need a depot." },
-			},
-		},
-		{
-			line = 30,
-			when = {
-				{ words = { "carlin" } },
-			},
-			actions = {
-				{ say = "Imagine, they have a postoffice their too, jawoll." },
-			},
-		},
-		{
-			line = 31,
-			when = {
-				{ words = { "thais" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 33,
-			when = {
-				{ words = { "kevin" } },
-			},
-			actions = {
-				{ say = "Ah, this human is persistant as a dwarf. A worthy leader indeed, jawoll." },
-			},
-		},
-		{
-			line = 34,
-			when = {
-				{ words = { "postner" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 35,
-			when = {
-				{ words = { "postmasters" } },
-				{ words = { "guild" } },
-			},
-			actions = {
-				{ say = "The guild keeps things running. Organized and reliable. I appreciate that, jawoll." },
-			},
-		},
-		{
-			line = 36,
-			when = {
-				{ words = { "join" } },
-			},
-			actions = {
-				{ say = "Our members are handpicked by Kevin postner in our headquarter." },
-			},
-		},
-		{
-			line = 37,
-			when = {
-				{ words = { "headquarter" } },
-			},
-			actions = {
-				{ say = "Its south of kazordoon. Just follow that road, can't miss it." },
-			},
-		},
-		{
-			line = 40,
-			when = {
-				{ words = { "measurements" } },
-				{ expr = { questValue = 235 }, op = ">", rhs = 0 },
-			},
-			actions = {
-				{ say = "Ask Kroox about that stuff." },
-			},
-		},
-		{
-			line = 41,
-			when = {
-				{ words = { "measurements" } },
-				{ expr = { questValue = 234 }, op = ">", rhs = 0 },
-			},
-			actions = {
-				{ say = "Come on, I have no clue what they are. Better ask my armorer Kroox for such nonsense. Go and ask him for good ol' Lokurs measurements, he'll know." },
-				{ setQuestValue = { id = 235, value = 1 } },
-			},
-		},
-		-- from gen-post.ndb:4
-		{
-			line = 4,
-			when = {
-				{ words = { "mail" } },
-			},
-			actions = {
-				{ say = "Our mail system is unique! And everyone can use it. Do you want to know more about it?" },
-				{ set = { var = "topic", value = 35 } },
-			},
-		},
-		-- from gen-post.ndb:5
-		{
-			line = 5,
-			when = {
-				{ words = { "depot" } },
-			},
-			actions = {
-				{ say = "The depots are very easy to use. Just step in front of them and you will find your items in them. They are free for all tibian citizens." },
-			},
-		},
-		-- from gen-post.ndb:6
-		{
-			line = 6,
-			when = {
-				{ words = { "offer" } },
-			},
-			actions = {
-				{ say = "I'm selling letters and parcels." },
-			},
-		},
-		-- from gen-post.ndb:8
-		{
-			line = 8,
-			when = {
-				{ words = { "letter" } },
-				{ expr = { questValue = 250 }, op = ">", rhs = 0 },
-			},
-			actions = {
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 5 } },
-				{ say = "Do you want to buy a letter for %P gold?" },
-				{ set = { var = "topic", value = 36 } },
-			},
-		},
-		-- from gen-post.ndb:9
-		{
-			line = 9,
-			when = {
-				{ words = { "parcel" } },
-				{ expr = { questValue = 250 }, op = ">", rhs = 0 },
-			},
-			actions = {
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 10 } },
-				{ say = "Do you want to buy a parcel for %P gold?" },
-				{ set = { var = "topic", value = 37 } },
-			},
-		},
-		-- from gen-post.ndb:11
-		{
-			line = 11,
-			when = {
-				{ words = { "letter" } },
-			},
-			actions = {
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 8 } },
-				{ say = "Do you want to buy a letter for %P gold?" },
-				{ set = { var = "topic", value = 36 } },
-			},
-		},
-		-- from gen-post.ndb:12
-		{
-			line = 12,
-			when = {
-				{ words = { "parcel" } },
-			},
-			actions = {
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 15 } },
-				{ say = "Do you want to buy a parcel for %P gold?" },
-				{ set = { var = "topic", value = 37 } },
-			},
-		},
-		-- from gen-post.ndb:14
-		{
-			line = 14,
-			when = {
-				{ capture = 1 },
-				{ expr = 1, op = "<", rhs = { capture = 1 } },
-				{ words = { "letter" } },
-				{ expr = { questValue = 250 }, op = ">", rhs = 0 },
-			},
-			actions = {
-				{ set = { var = "amount", value = { capture = 1 } } },
-				{ set = { var = "price", value = { binary = { op = "*", lhs = 5, rhs = { capture = 1 } } } } },
-				{ say = "Do you want to buy %A letters for %P gold?" },
-				{ set = { var = "topic", value = 36 } },
-			},
-		},
-		-- from gen-post.ndb:15
-		{
-			line = 15,
-			when = {
-				{ capture = 1 },
-				{ expr = 1, op = "<", rhs = { capture = 1 } },
-				{ words = { "parcel" } },
-				{ expr = { questValue = 250 }, op = ">", rhs = 0 },
-			},
-			actions = {
-				{ set = { var = "amount", value = { capture = 1 } } },
-				{ set = { var = "price", value = { binary = { op = "*", lhs = 10, rhs = { capture = 1 } } } } },
-				{ say = "Do you want to buy %A parcels for %P gold?" },
-				{ set = { var = "topic", value = 37 } },
-			},
-		},
-		-- from gen-post.ndb:17
-		{
-			line = 17,
-			when = {
-				{ capture = 1 },
-				{ expr = 1, op = "<", rhs = { capture = 1 } },
-				{ words = { "letter" } },
-			},
-			actions = {
-				{ set = { var = "amount", value = { capture = 1 } } },
-				{ set = { var = "price", value = { binary = { op = "*", lhs = 8, rhs = { capture = 1 } } } } },
-				{ say = "Do you want to buy %A letters for %P gold?" },
-				{ set = { var = "topic", value = 36 } },
-			},
-		},
-		-- from gen-post.ndb:18
-		{
-			line = 18,
-			when = {
-				{ capture = 1 },
-				{ expr = 1, op = "<", rhs = { capture = 1 } },
-				{ words = { "parcel" } },
-			},
-			actions = {
-				{ set = { var = "amount", value = { capture = 1 } } },
-				{ set = { var = "price", value = { binary = { op = "*", lhs = 15, rhs = { capture = 1 } } } } },
-				{ say = "Do you want to buy %A parcels for %P gold?" },
-				{ set = { var = "topic", value = 37 } },
-			},
-		},
-		-- from gen-post.ndb:21
-		{
-			line = 21,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 35 },
-				{ words = { "yes" } },
-			},
-			actions = {
-				{ say = "The Tibia Mail System enables you to send and receive letters and parcels. You can buy them here if you want." },
-			},
-		},
-		-- from gen-post.ndb:22
-		{
-			line = 22,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 35 },
-			},
-			actions = {
-				{ say = "Is there anything else I can do for you?" },
-			},
-		},
-		-- from gen-post.ndb:24
-		{
-			line = 24,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 36 },
-				{ words = { "yes" } },
-				{ expr = { countMoney = true }, op = ">=", rhs = { session = "price" } },
-			},
-			actions = {
-				{ say = "Here it is. Don't forget to write the name of the receiver in the first line and the address in the second one before you put the letter in a mailbox." },
-				{ deleteMoney = true },
-				{ create = { item = 3505 } },
-			},
-		},
-		-- from gen-post.ndb:25
-		{
-			line = 25,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 36 },
-				{ words = { "yes" } },
-			},
-			actions = {
-				{ say = "Oh, you have not enough gold to buy a letter." },
-			},
-		},
-		-- from gen-post.ndb:26
-		{
-			line = 26,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 36 },
-			},
-			actions = {
-				{ say = "Ok." },
-			},
-		},
-		-- from gen-post.ndb:28
-		{
-			line = 28,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 37 },
-				{ words = { "yes" } },
-				{ expr = { countMoney = true }, op = ">=", rhs = { session = "price" } },
-			},
-			actions = {
-				{ say = "Here you are. Don't forget to write the name and the address of the receiver on the label. The label has to be in the parcel before you put the parcel in a mailbox." },
-				{ deleteMoney = true },
-				{ create = { item = 3503 } },
-				{ create = { item = 3507 } },
-			},
-		},
-		-- from gen-post.ndb:29
-		{
-			line = 29,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 37 },
-				{ words = { "yes" } },
-			},
-			actions = {
-				{ say = "I am sorry, you have not enough gold to buy a parcel." },
-			},
-		},
-		-- from gen-post.ndb:30
-		{
-			line = 30,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 37 },
-			},
-			actions = {
-				{ say = "Ok." },
-			},
-		},
-		{
-			line = 48,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 1 },
-				{ words = { "yes" } },
-			},
-			actions = {
-				{ say = "The mail system enables you to send and receive letters and parcels. You can buy them here if you want." },
-			},
-		},
-		{
-			line = 49,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 1 },
-			},
-			actions = {
-				{ say = "Is there anything else, I can do for you?" },
-			},
+		actions = {
+			{ say = "Hiho %N. May I help you?" },
 		},
 	},
+	{
+		line = 14,
+		when = {
+			{ situation = "address" },
+			{ words = { "hi$" } },
+			{ select = true },
+		},
+		actions = {
+			{ say = "Hiho %N. May I help you?" },
+		},
+	},
+	{
+		line = 15,
+		when = {
+			{ situation = "address" },
+			{ select = true },
+		},
+		actions = {
+			{ idle = true },
+		},
+	},
+	{
+		line = 16,
+		when = {
+			{ situation = "busy" },
+			{ words = { "hello$" } },
+			{ select = true },
+		},
+		actions = {
+			{ say = "Sorry %N, I am busy right now. One moment please." },
+			{ queue = true },
+		},
+	},
+	{
+		line = 17,
+		when = {
+			{ situation = "busy" },
+			{ words = { "hi$" } },
+			{ select = true },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 18,
+		when = {
+			{ situation = "busy" },
+			{ select = true },
+		},
+		actions = {
+			{ nop = true },
+		},
+	},
+	{
+		line = 19,
+		when = {
+			{ situation = "vanish" },
+			{ select = true },
+		},
+		actions = {
+			{ say = "Come back if you need my services." },
+		},
+	},
+	{
+		line = 21,
+		when = {
+			{ words = { "bye" } },
+		},
+		actions = {
+			{ say = "Come back if you need my services." },
+			{ idle = true },
+		},
+	},
+	{
+		line = 22,
+		when = {
+			{ words = { "farewell" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 23,
+		when = {
+			{ words = { "job" } },
+		},
+		actions = {
+			{ say = "I am the royal postdwarf and damned proud of it." },
+		},
+	},
+	{
+		line = 24,
+		when = {
+			{ words = { "office" } },
+		},
+		actions = {
+			{ say = "It's not big but I like the company." },
+		},
+	},
+	{
+		line = 25,
+		when = {
+			{ words = { "name" } },
+		},
+		actions = {
+			{ say = "My name is Lokur Stampsmasher, son of Earth of the Dragoneaters." },
+		},
+	},
+	{
+		line = 26,
+		when = {
+			{ words = { "time" } },
+		},
+		actions = {
+			{ say = "Too bad, I forgot my watch at home." },
+		},
+	},
+	{
+		line = 27,
+		when = {
+			{ words = { "mail" } },
+		},
+		actions = {
+			{ say = "The mail system was invented by dwarfs! Do you want me to tell you about it?" },
+			{ set = { var = "topic", value = 1 } },
+		},
+	},
+	{
+		line = 29,
+		when = {
+			{ words = { "king" } },
+		},
+		actions = {
+			{ say = "Our king has a treasure room and does not need a depot." },
+		},
+	},
+	{
+		line = 30,
+		when = {
+			{ words = { "carlin" } },
+		},
+		actions = {
+			{ say = "Imagine, they have a postoffice their too, jawoll." },
+		},
+	},
+	{
+		line = 31,
+		when = {
+			{ words = { "thais" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 33,
+		when = {
+			{ words = { "kevin" } },
+		},
+		actions = {
+			{ say = "Ah, this human is persistant as a dwarf. A worthy leader indeed, jawoll." },
+		},
+	},
+	{
+		line = 34,
+		when = {
+			{ words = { "postner" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 35,
+		when = {
+			{ words = { "postmasters" } },
+			{ words = { "guild" } },
+		},
+		actions = {
+			{ say = "The guild keeps things running. Organized and reliable. I appreciate that, jawoll." },
+		},
+	},
+	{
+		line = 36,
+		when = {
+			{ words = { "join" } },
+		},
+		actions = {
+			{ say = "Our members are handpicked by Kevin postner in our headquarter." },
+		},
+	},
+	{
+		line = 37,
+		when = {
+			{ words = { "headquarter" } },
+		},
+		actions = {
+			{ say = "Its south of kazordoon. Just follow that road, can't miss it." },
+		},
+	},
+	{
+		line = 40,
+		when = {
+			{ words = { "measurements" } },
+			{ expr = { questValue = 235 }, op = ">", rhs = 0 },
+		},
+		actions = {
+			{ say = "Ask Kroox about that stuff." },
+		},
+	},
+	{
+		line = 41,
+		when = {
+			{ words = { "measurements" } },
+			{ expr = { questValue = 234 }, op = ">", rhs = 0 },
+		},
+		actions = {
+			{ say = "Come on, I have no clue what they are. Better ask my armorer Kroox for such nonsense. Go and ask him for good ol' Lokurs measurements, he'll know." },
+			{ setQuestValue = { id = 235, value = 1 } },
+		},
+	},
+})
+NpcAppendRules(rules, NpcCatalogs["gen-post"])
+NpcAppendRules(rules, {
+	{
+		line = 48,
+		when = {
+			{ expr = { session = "topic" }, op = "=", rhs = 1 },
+			{ words = { "yes" } },
+		},
+		actions = {
+			{ say = "The mail system enables you to send and receive letters and parcels. You can buy them here if you want." },
+		},
+	},
+	{
+		line = 49,
+		when = {
+			{ expr = { session = "topic" }, op = "=", rhs = 1 },
+		},
+		actions = {
+			{ say = "Is there anything else, I can do for you?" },
+		},
+	},
+})
+npc:dialogue(NpcDialogue({
+	policy = "queued_single_focus",
+	rules = rules,
 }))
 
 npc:register()

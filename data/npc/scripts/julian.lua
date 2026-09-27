@@ -8,441 +8,358 @@ npc:health(100)
 npc:sex(1)
 npc:race(1)
 
-npc:dialogue(NpcDialogue({
-	policy = "queued_single_focus",
-	rules = {
-		{
-			line = 13,
-			when = {
-				{ situation = "address" },
-				{ words = { "hello$" } },
-				{ select = true },
-			},
-			actions = {
-				{ say = "Be greeted, %N! May I help you?" },
-			},
+local rules = {}
+NpcAppendRules(rules, {
+	{
+		line = 13,
+		when = {
+			{ situation = "address" },
+			{ words = { "hello$" } },
+			{ select = true },
 		},
-		{
-			line = 14,
-			when = {
-				{ situation = "address" },
-				{ words = { "hi$" } },
-				{ select = true },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 15,
-			when = {
-				{ situation = "address" },
-				{ select = true },
-			},
-			actions = {
-				{ idle = true },
-			},
-		},
-		{
-			line = 16,
-			when = {
-				{ situation = "busy" },
-				{ words = { "hello$" } },
-				{ select = true },
-			},
-			actions = {
-				{ say = "Sorry, I am busy right now, %N." },
-				{ queue = true },
-			},
-		},
-		{
-			line = 17,
-			when = {
-				{ situation = "busy" },
-				{ words = { "hi$" } },
-				{ select = true },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 18,
-			when = {
-				{ situation = "busy" },
-				{ select = true },
-			},
-			actions = {
-				{ nop = true },
-			},
-		},
-		{
-			line = 19,
-			when = {
-				{ situation = "vanish" },
-				{ select = true },
-			},
-			actions = {
-				{ say = "Good bye." },
-			},
-		},
-		{
-			line = 21,
-			when = {
-				{ words = { "bye" } },
-			},
-			actions = {
-				{ say = "Good bye." },
-				{ idle = true },
-			},
-		},
-		{
-			line = 22,
-			when = {
-				{ words = { "farewell" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 23,
-			when = {
-				{ words = { "job" } },
-			},
-			actions = {
-				{ say = "I make instruments and sometimes I'm wandering through the lands of Tibia as a bard." },
-			},
-		},
-		{
-			line = 24,
-			when = {
-				{ words = { "name" } },
-				{ property = "male" },
-			},
-			actions = {
-				{ say = "My name is Julian, sire." },
-			},
-		},
-		{
-			line = 25,
-			when = {
-				{ words = { "name" } },
-				{ property = "female" },
-			},
-			actions = {
-				{ say = "My name is Julian, my lady." },
-			},
-		},
-		{
-			line = 26,
-			when = {
-				{ words = { "time" } },
-			},
-			actions = {
-				{ say = "Sorry, I don't know what time it is." },
-			},
-		},
-		{
-			line = 27,
-			when = {
-				{ words = { "music" } },
-			},
-			actions = {
-				{ say = "Music is the food of love." },
-			},
-		},
-		{
-			line = 28,
-			when = {
-				{ words = { "bard" } },
-			},
-			actions = {
-				{ say = "Bards from all over the world come here to buy their instruments." },
-			},
-		},
-		{
-			line = 30,
-			when = {
-				{ words = { "offer" } },
-			},
-			actions = {
-				{ say = "Here you can buy lyres, lutes, drums, and simple fanfares. I also have a piano and a harp." },
-			},
-		},
-		{
-			line = 31,
-			when = {
-				{ words = { "goods" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 32,
-			when = {
-				{ words = { "do" } },
-				{ words = { "you" } },
-				{ words = { "sell" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 33,
-			when = {
-				{ words = { "do" } },
-				{ words = { "you" } },
-				{ words = { "have" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 34,
-			when = {
-				{ words = { "instrument" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 36,
-			when = {
-				{ words = { "lyre" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2949 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 120 } },
-				{ say = "Do you want to buy a lyre for %P gold?" },
-				{ set = { var = "topic", value = 1 } },
-			},
-		},
-		{
-			line = 37,
-			when = {
-				{ words = { "lute" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2950 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 195 } },
-				{ say = "Do you want to buy a lute for %P gold?" },
-				{ set = { var = "topic", value = 1 } },
-			},
-		},
-		{
-			line = 38,
-			when = {
-				{ words = { "drum" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2952 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 140 } },
-				{ say = "Do you want to buy a drum for %P gold?" },
-				{ set = { var = "topic", value = 1 } },
-			},
-		},
-		{
-			line = 39,
-			when = {
-				{ words = { "simple" } },
-				{ words = { "fanfare" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2954 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 150 } },
-				{ say = "Do you want to buy a simple fanfare for %P gold?" },
-				{ set = { var = "topic", value = 1 } },
-			},
-		},
-		{
-			line = 41,
-			when = {
-				{ capture = 1 },
-				{ expr = 1, op = "<", rhs = { capture = 1 } },
-				{ words = { "lyre" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2949 } },
-				{ set = { var = "amount", value = { capture = 1 } } },
-				{ set = { var = "price", value = { binary = { op = "*", lhs = 120, rhs = { capture = 1 } } } } },
-				{ say = "Do you want to buy %A lyres for %P gold?" },
-				{ set = { var = "topic", value = 1 } },
-			},
-		},
-		{
-			line = 42,
-			when = {
-				{ capture = 1 },
-				{ expr = 1, op = "<", rhs = { capture = 1 } },
-				{ words = { "lute" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2950 } },
-				{ set = { var = "amount", value = { capture = 1 } } },
-				{ set = { var = "price", value = { binary = { op = "*", lhs = 195, rhs = { capture = 1 } } } } },
-				{ say = "Do you want to buy %A lutes for %P gold?" },
-				{ set = { var = "topic", value = 1 } },
-			},
-		},
-		{
-			line = 43,
-			when = {
-				{ capture = 1 },
-				{ expr = 1, op = "<", rhs = { capture = 1 } },
-				{ words = { "drum" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2952 } },
-				{ set = { var = "amount", value = { capture = 1 } } },
-				{ set = { var = "price", value = { binary = { op = "*", lhs = 140, rhs = { capture = 1 } } } } },
-				{ say = "Do you want to buy %A drums for %P gold?" },
-				{ set = { var = "topic", value = 1 } },
-			},
-		},
-		{
-			line = 44,
-			when = {
-				{ capture = 1 },
-				{ expr = 1, op = "<", rhs = { capture = 1 } },
-				{ words = { "simple" } },
-				{ words = { "fanfare" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2954 } },
-				{ set = { var = "amount", value = { capture = 1 } } },
-				{ set = { var = "price", value = { binary = { op = "*", lhs = 150, rhs = { capture = 1 } } } } },
-				{ say = "Do you want to buy %A simple fanfares for %P gold?" },
-				{ set = { var = "topic", value = 1 } },
-			},
-		},
-		{
-			line = 46,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 1 },
-				{ words = { "yes" } },
-				{ expr = { countMoney = true }, op = ">=", rhs = { session = "price" } },
-			},
-			actions = {
-				{ say = "Here you are." },
-				{ deleteMoney = true },
-				{ create = { item = { session = "type" } } },
-			},
-		},
-		{
-			line = 47,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 1 },
-				{ words = { "yes" } },
-			},
-			actions = {
-				{ say = "You need some more money." },
-			},
-		},
-		{
-			line = 48,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 1 },
-			},
-			actions = {
-				{ say = "Oh well, next time perhaps." },
-			},
-		},
-		-- from gen-t-furniture-instruments-s.ndb:11
-		{
-			line = 11,
-			when = {
-				{ words = { "instruments" } },
-			},
-			actions = {
-				{ say = "I can offer you a piano or a harp. What would you like?" },
-			},
-		},
-		-- from gen-t-furniture-instruments-s.ndb:12
-		{
-			line = 12,
-			when = {
-				{ words = { "piano" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2807 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 200 } },
-				{ say = "You want to buy a piano for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-instruments-s.ndb:13
-		{
-			line = 13,
-			when = {
-				{ words = { "harp" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2808 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 50 } },
-				{ say = "You want to buy a harp for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-instruments-s.ndb:15
-		{
-			line = 15,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-				{ words = { "yes" } },
-				{ property = "premium" },
-				{ expr = { countMoney = true }, op = ">=", rhs = { session = "price" } },
-			},
-			actions = {
-				{ say = "Here you are." },
-				{ deleteMoney = true },
-				{ create = { item = { session = "type" } } },
-			},
-		},
-		-- from gen-t-furniture-instruments-s.ndb:16
-		{
-			line = 16,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-				{ words = { "yes" } },
-				{ expr = { countMoney = true }, op = ">=", rhs = { session = "price" } },
-			},
-			actions = {
-				{ say = "I'm sorry, but you need a premium account if you want to buy furniture." },
-			},
-		},
-		-- from gen-t-furniture-instruments-s.ndb:17
-		{
-			line = 17,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-				{ words = { "yes" } },
-			},
-			actions = {
-				{ say = "Come back, when you have enough money." },
-			},
-		},
-		-- from gen-t-furniture-instruments-s.ndb:18
-		{
-			line = 18,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-			},
-			actions = {
-				{ say = "Hmm, but I'm sure, it would fit nicely into your house." },
-			},
+		actions = {
+			{ say = "Be greeted, %N! May I help you?" },
 		},
 	},
+	{
+		line = 14,
+		when = {
+			{ situation = "address" },
+			{ words = { "hi$" } },
+			{ select = true },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 15,
+		when = {
+			{ situation = "address" },
+			{ select = true },
+		},
+		actions = {
+			{ idle = true },
+		},
+	},
+	{
+		line = 16,
+		when = {
+			{ situation = "busy" },
+			{ words = { "hello$" } },
+			{ select = true },
+		},
+		actions = {
+			{ say = "Sorry, I am busy right now, %N." },
+			{ queue = true },
+		},
+	},
+	{
+		line = 17,
+		when = {
+			{ situation = "busy" },
+			{ words = { "hi$" } },
+			{ select = true },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 18,
+		when = {
+			{ situation = "busy" },
+			{ select = true },
+		},
+		actions = {
+			{ nop = true },
+		},
+	},
+	{
+		line = 19,
+		when = {
+			{ situation = "vanish" },
+			{ select = true },
+		},
+		actions = {
+			{ say = "Good bye." },
+		},
+	},
+	{
+		line = 21,
+		when = {
+			{ words = { "bye" } },
+		},
+		actions = {
+			{ say = "Good bye." },
+			{ idle = true },
+		},
+	},
+	{
+		line = 22,
+		when = {
+			{ words = { "farewell" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 23,
+		when = {
+			{ words = { "job" } },
+		},
+		actions = {
+			{ say = "I make instruments and sometimes I'm wandering through the lands of Tibia as a bard." },
+		},
+	},
+	{
+		line = 24,
+		when = {
+			{ words = { "name" } },
+			{ property = "male" },
+		},
+		actions = {
+			{ say = "My name is Julian, sire." },
+		},
+	},
+	{
+		line = 25,
+		when = {
+			{ words = { "name" } },
+			{ property = "female" },
+		},
+		actions = {
+			{ say = "My name is Julian, my lady." },
+		},
+	},
+	{
+		line = 26,
+		when = {
+			{ words = { "time" } },
+		},
+		actions = {
+			{ say = "Sorry, I don't know what time it is." },
+		},
+	},
+	{
+		line = 27,
+		when = {
+			{ words = { "music" } },
+		},
+		actions = {
+			{ say = "Music is the food of love." },
+		},
+	},
+	{
+		line = 28,
+		when = {
+			{ words = { "bard" } },
+		},
+		actions = {
+			{ say = "Bards from all over the world come here to buy their instruments." },
+		},
+	},
+	{
+		line = 30,
+		when = {
+			{ words = { "offer" } },
+		},
+		actions = {
+			{ say = "Here you can buy lyres, lutes, drums, and simple fanfares. I also have a piano and a harp." },
+		},
+	},
+	{
+		line = 31,
+		when = {
+			{ words = { "goods" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 32,
+		when = {
+			{ words = { "do" } },
+			{ words = { "you" } },
+			{ words = { "sell" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 33,
+		when = {
+			{ words = { "do" } },
+			{ words = { "you" } },
+			{ words = { "have" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 34,
+		when = {
+			{ words = { "instrument" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 36,
+		when = {
+			{ words = { "lyre" } },
+		},
+		actions = {
+			{ set = { var = "type", value = 2949 } },
+			{ set = { var = "amount", value = 1 } },
+			{ set = { var = "price", value = 120 } },
+			{ say = "Do you want to buy a lyre for %P gold?" },
+			{ set = { var = "topic", value = 1 } },
+		},
+	},
+	{
+		line = 37,
+		when = {
+			{ words = { "lute" } },
+		},
+		actions = {
+			{ set = { var = "type", value = 2950 } },
+			{ set = { var = "amount", value = 1 } },
+			{ set = { var = "price", value = 195 } },
+			{ say = "Do you want to buy a lute for %P gold?" },
+			{ set = { var = "topic", value = 1 } },
+		},
+	},
+	{
+		line = 38,
+		when = {
+			{ words = { "drum" } },
+		},
+		actions = {
+			{ set = { var = "type", value = 2952 } },
+			{ set = { var = "amount", value = 1 } },
+			{ set = { var = "price", value = 140 } },
+			{ say = "Do you want to buy a drum for %P gold?" },
+			{ set = { var = "topic", value = 1 } },
+		},
+	},
+	{
+		line = 39,
+		when = {
+			{ words = { "simple" } },
+			{ words = { "fanfare" } },
+		},
+		actions = {
+			{ set = { var = "type", value = 2954 } },
+			{ set = { var = "amount", value = 1 } },
+			{ set = { var = "price", value = 150 } },
+			{ say = "Do you want to buy a simple fanfare for %P gold?" },
+			{ set = { var = "topic", value = 1 } },
+		},
+	},
+	{
+		line = 41,
+		when = {
+			{ capture = 1 },
+			{ expr = 1, op = "<", rhs = { capture = 1 } },
+			{ words = { "lyre" } },
+		},
+		actions = {
+			{ set = { var = "type", value = 2949 } },
+			{ set = { var = "amount", value = { capture = 1 } } },
+			{ set = { var = "price", value = { binary = { op = "*", lhs = 120, rhs = { capture = 1 } } } } },
+			{ say = "Do you want to buy %A lyres for %P gold?" },
+			{ set = { var = "topic", value = 1 } },
+		},
+	},
+	{
+		line = 42,
+		when = {
+			{ capture = 1 },
+			{ expr = 1, op = "<", rhs = { capture = 1 } },
+			{ words = { "lute" } },
+		},
+		actions = {
+			{ set = { var = "type", value = 2950 } },
+			{ set = { var = "amount", value = { capture = 1 } } },
+			{ set = { var = "price", value = { binary = { op = "*", lhs = 195, rhs = { capture = 1 } } } } },
+			{ say = "Do you want to buy %A lutes for %P gold?" },
+			{ set = { var = "topic", value = 1 } },
+		},
+	},
+	{
+		line = 43,
+		when = {
+			{ capture = 1 },
+			{ expr = 1, op = "<", rhs = { capture = 1 } },
+			{ words = { "drum" } },
+		},
+		actions = {
+			{ set = { var = "type", value = 2952 } },
+			{ set = { var = "amount", value = { capture = 1 } } },
+			{ set = { var = "price", value = { binary = { op = "*", lhs = 140, rhs = { capture = 1 } } } } },
+			{ say = "Do you want to buy %A drums for %P gold?" },
+			{ set = { var = "topic", value = 1 } },
+		},
+	},
+	{
+		line = 44,
+		when = {
+			{ capture = 1 },
+			{ expr = 1, op = "<", rhs = { capture = 1 } },
+			{ words = { "simple" } },
+			{ words = { "fanfare" } },
+		},
+		actions = {
+			{ set = { var = "type", value = 2954 } },
+			{ set = { var = "amount", value = { capture = 1 } } },
+			{ set = { var = "price", value = { binary = { op = "*", lhs = 150, rhs = { capture = 1 } } } } },
+			{ say = "Do you want to buy %A simple fanfares for %P gold?" },
+			{ set = { var = "topic", value = 1 } },
+		},
+	},
+	{
+		line = 46,
+		when = {
+			{ expr = { session = "topic" }, op = "=", rhs = 1 },
+			{ words = { "yes" } },
+			{ expr = { countMoney = true }, op = ">=", rhs = { session = "price" } },
+		},
+		actions = {
+			{ say = "Here you are." },
+			{ deleteMoney = true },
+			{ create = { item = { session = "type" } } },
+		},
+	},
+	{
+		line = 47,
+		when = {
+			{ expr = { session = "topic" }, op = "=", rhs = 1 },
+			{ words = { "yes" } },
+		},
+		actions = {
+			{ say = "You need some more money." },
+		},
+	},
+	{
+		line = 48,
+		when = {
+			{ expr = { session = "topic" }, op = "=", rhs = 1 },
+		},
+		actions = {
+			{ say = "Oh well, next time perhaps." },
+		},
+	},
+})
+NpcAppendRules(rules, NpcCatalogs["gen-t-furniture-instruments-s"])
+npc:dialogue(NpcDialogue({
+	policy = "queued_single_focus",
+	rules = rules,
 }))
 
 npc:register()

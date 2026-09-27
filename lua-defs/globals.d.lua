@@ -3,6 +3,7 @@
 -- VM hardening pillar 5 — tasks/tools-actions/vm-hardening.md
 
 function EventCallback(...) end
+function NpcAppendRules(...) end
 function NpcDialogue(...) end
 function Outfit(...) end
 function addEvent(...) end

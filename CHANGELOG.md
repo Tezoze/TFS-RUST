@@ -27,6 +27,14 @@ Protocol 800 uses the same 772 mechanics corpus, with its own wire codec and `da
 
 - A monster that already has a chase target keeps it when another creature steps inside its view. The walk armed by idle waits until the next beat.
 
+### Combat
+
+- A close-chase step does not strike while the attack is still exhausted. The strike waits until that delay ends.
+
+### NPCs
+
+- Shared shop and guard lists live in `data/npc/catalogs/`. Scripts splice them with `NpcAppendRules` instead of copying each list into the script. The old `.npc` / `.ndb` archive is no longer in the tree.
+
 ### Release tree and CI
 
 - `tasks/` and the audit notes stay on disk and out of git. The compiling and Docker guides stay tracked. Unused NPC fixture traces and the local helper scripts are not published. Start the server with `cargo run --bin tfs-rust`.

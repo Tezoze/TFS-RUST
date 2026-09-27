@@ -418,12 +418,29 @@ impl GameWorld {
         }
     }
 
+    /// `CalculateDelay(TDAttack)` — `cract.cc:934-943`.
+    ///
+    /// `CanToDoAttack` has already queued any close-chase `Go`. The strike (`Attack()`)
+    /// waits until `max(EarliestAttackTime, EarliestSpellTime)`. A follow step that
+    /// lands during that window re-arms `TDAttack` and does not swing.
+    fn player_defer_strike_while_exhausted(&mut self, cid: CreatureId) -> bool {
+        let delay = self.todo_attack_delay_ms(cid);
+        if delay == 0 {
+            return false;
+        }
+        let _ = self.enqueue_creature_attack(cid);
+        self.todo_start_from_action(cid, delay);
+        trace_creature_todo(self, cid, "player_attack_exhausted");
+        true
+    }
+
     /// Player `TDAttack` execute — `cract.cc:843-845` (`this->Attack()`) + the thrown-`RESULT`
     /// catch (`cract.cc:870-889`) specialized for players (`crplayer.cc:388-405`).
     ///
     /// Routes through [`Self::player_can_to_do_attack_chase`]. When `Following`, `Attack()`
     /// early-returns after chase (`crcombat.cc:532-534`) — never strikes. Otherwise melee /
-    /// ranged / wand strikes run from `strike.rs` / `ranged.rs`.
+    /// ranged / wand strikes run from `strike.rs` / `ranged.rs`, after
+    /// [`Self::player_defer_strike_while_exhausted`].
     pub(crate) fn player_execute_attack(&mut self, cid: CreatureId) -> TodoExecuteKind {
         // `Attack()` early: `AttackDest == 0 || Following` → return (`crcombat.cc:532-534`).
         // Delayed `StopAttack` expire runs only on the non-follow arm (`:551-553`).
@@ -587,6 +604,10 @@ impl GameWorld {
                 TodoExecuteKind::AttackDeferred
             }
             PlayerChaseOutcome::Adjacent => {
+                // `Execute` checks `CalculateDelay(TDAttack)` before `Attack()` (`cract.cc:795-845`).
+                if self.player_defer_strike_while_exhausted(cid) {
+                    return TodoExecuteKind::AttackDeferred;
+                }
                 if let Some(target_id) =
                     self.creatures.get(cid).and_then(|k| k.base().attack_target)
                 {
@@ -600,6 +621,9 @@ impl GameWorld {
                 TodoExecuteKind::AttackDeferred
             }
             PlayerChaseOutcome::RangedStrike => {
+                if self.player_defer_strike_while_exhausted(cid) {
+                    return TodoExecuteKind::AttackDeferred;
+                }
                 let strike = if let Some(target_id) =
                     self.creatures.get(cid).and_then(|k| k.base().attack_target)
                 {
@@ -1198,6 +1222,56 @@ mod set_attack_dest_tests {
         let _ = world.player_execute_attack(player);
         let hp_after = world.creatures.get(mon).unwrap().base().health;
         assert_eq!(hp_before, hp_after, "Following must not deal weapon damage");
+    }
+
+    /// Close chase may step during exhaust; the landing `TDAttack` must not swing
+    /// (`cract.cc:934-943` `CalculateDelay` before `Attack()`).
+    #[test]
+    fn close_chase_step_does_not_strike_during_exhaust() {
+        let mut world = crate::test_support::beat_driven_test_world();
+        let ppos = Position::new(100, 100, 7);
+        let step = Position::new(101, 100, 7);
+        let mpos = Position::new(102, 100, 7);
+        ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, step, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+        let player = insert_player(&mut world, test_player("Hero", ppos));
+        let mon = insert_monster(&mut world, "Rat", mpos, 100);
+        world.map.register_creature_at(ppos, player);
+        world.map.register_creature_at(mpos, mon);
+        world.server_ms = 1_000;
+        if let Some(k) = world.creatures.get_mut(player) {
+            let base = k.base_mut();
+            base.attack_target = Some(mon);
+            base.chase_mode = ChaseMode::Close;
+            base.earliest_attack_ms = 10_000;
+            base.earliest_walk_server_ms = 0;
+            base.todo.queue.push_back(CreatureAction::Attack);
+            base.next_wakeup = Some(world.server_ms);
+        }
+        let hp_before = world.creatures.get(mon).unwrap().base().health;
+
+        world.process_creature_todo(player);
+        let wakeup = world
+            .creatures
+            .get(player)
+            .unwrap()
+            .base()
+            .next_wakeup
+            .expect("chase Go must arm a wakeup");
+        world.server_ms = wakeup;
+        world.process_creature_todo(player);
+
+        let base = world.creatures.get(player).unwrap().base();
+        assert_eq!(base.position, step, "exhaust must not block the chase step");
+        assert_eq!(
+            world.creatures.get(mon).unwrap().base().health,
+            hp_before,
+            "the step that lands in melee must not swing during exhaust"
+        );
+        assert_eq!(base.earliest_attack_ms, 10_000);
+        assert!(base.todo.has_attack());
+        assert_eq!(base.next_wakeup, Some(10_000));
     }
 
     #[test]

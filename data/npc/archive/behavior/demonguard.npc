@@ -1,3 +1,0 @@
-Behavior = {
--> "Die, intruder!", Burning(25,8), EffectOpp(16), EffectMe(14), Idle
-}

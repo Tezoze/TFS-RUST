@@ -1,9 +1,79 @@
 //! Deterministic Lua emitter for imported [`PendingNpcDefinition`]s.
+//!
+//! Rules that came from a `.ndb` include are emitted once as a catalog module.
+//! NPC scripts splice that module in at the include site.
+
+use std::collections::BTreeMap;
 
 use crate::npcs::{
     DialogueAction, DialogueExpr, DialoguePolicy, DialoguePredicate, DialogueProperty,
     DialogueRule, DialogueSituation, ExprOp, PendingNpcDefinition, SessionVar,
 };
+
+/// Table key for an included `.ndb` (`gen-t-runes-prem-s`).
+pub fn catalog_table_key(ndb_file: &str) -> &str {
+    let name = std::path::Path::new(ndb_file)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(ndb_file);
+    name.strip_suffix(".ndb").unwrap_or(name)
+}
+
+/// Filename under `data/npc/catalogs/` (`gen_t_runes_prem_s.lua`).
+///
+/// Hyphens in the `.ndb` stem become underscores. The loader maps them back.
+pub fn catalog_filename(ndb_file: &str) -> String {
+    format!("{}.lua", catalog_table_key(ndb_file).replace('-', "_"))
+}
+
+fn catalog_key_of(rule: &DialogueRule) -> Option<&str> {
+    let file = rule.span.original_file.as_str();
+    if !file.ends_with(".ndb") {
+        return None;
+    }
+    Some(catalog_table_key(file))
+}
+
+/// Shared catalogs referenced by `pending`, keyed by `.ndb` stem.
+///
+/// Each key's rules are the first include run. A later run of the same file
+/// that does not match is an error.
+pub fn collect_catalogs(
+    pending: &[PendingNpcDefinition],
+) -> Result<BTreeMap<String, Vec<DialogueRule>>, String> {
+    let mut catalogs: BTreeMap<String, Vec<DialogueRule>> = BTreeMap::new();
+    for npc in pending {
+        let Some(dialogue) = npc.dialogue.as_ref() else {
+            continue;
+        };
+        let mut i = 0;
+        while i < dialogue.rules.len() {
+            let Some(key) = catalog_key_of(&dialogue.rules[i]) else {
+                i += 1;
+                continue;
+            };
+            let start = i;
+            i += 1;
+            while i < dialogue.rules.len() && catalog_key_of(&dialogue.rules[i]) == Some(key) {
+                i += 1;
+            }
+            let slice = &dialogue.rules[start..i];
+            match catalogs.get(key) {
+                Some(existing) if existing != slice => {
+                    return Err(format!(
+                        "catalog {key} from {} differs from an earlier include",
+                        npc.name
+                    ));
+                }
+                Some(_) => {}
+                None => {
+                    catalogs.insert(key.to_string(), slice.to_vec());
+                }
+            }
+        }
+    }
+    Ok(catalogs)
+}
 
 /// Emit a complete `NpcType` / `NpcDialogue` Lua definition script.
 pub fn emit_npc_lua(pending: &PendingNpcDefinition) -> String {
@@ -37,20 +107,31 @@ pub fn emit_npc_lua(pending: &PendingNpcDefinition) -> String {
     out.push('\n');
 
     if let Some(ref dialogue) = pending.dialogue {
-        out.push_str("npc:dialogue(NpcDialogue({\n");
-        out.push_str(&format!(
-            "\tpolicy = {},\n",
-            lua_string(match dialogue.policy {
-                DialoguePolicy::QueuedSingleFocus => "queued_single_focus",
-                DialoguePolicy::PerPlayer => "per_player",
-            })
-        ));
-        out.push_str("\trules = {\n");
-        for rule in &dialogue.rules {
-            emit_rule(&mut out, rule, 2);
+        let policy = lua_string(match dialogue.policy {
+            DialoguePolicy::QueuedSingleFocus => "queued_single_focus",
+            DialoguePolicy::PerPlayer => "per_player",
+        });
+        if dialogue
+            .rules
+            .iter()
+            .any(|rule| catalog_key_of(rule).is_some())
+        {
+            out.push_str("local rules = {}\n");
+            emit_spliced_rules(&mut out, &dialogue.rules);
+            out.push_str("npc:dialogue(NpcDialogue({\n");
+            out.push_str(&format!("\tpolicy = {policy},\n"));
+            out.push_str("\trules = rules,\n");
+            out.push_str("}))\n\n");
+        } else {
+            out.push_str("npc:dialogue(NpcDialogue({\n");
+            out.push_str(&format!("\tpolicy = {policy},\n"));
+            out.push_str("\trules = {\n");
+            for rule in &dialogue.rules {
+                emit_rule(&mut out, rule, 2, true);
+            }
+            out.push_str("\t},\n");
+            out.push_str("}))\n\n");
         }
-        out.push_str("\t},\n");
-        out.push_str("}))\n\n");
     }
 
     out.push_str("npc:register()\n");
@@ -75,12 +156,63 @@ pub fn definition_filename(name: &str) -> String {
     s.trim_matches('_').to_string() + ".lua"
 }
 
-fn emit_rule(out: &mut String, rule: &DialogueRule, indent: usize) {
+/// Emit a catalog module: `return { ...rules }` for one `.ndb`.
+pub fn emit_catalog_lua(ndb_file: &str, rules: &[DialogueRule]) -> String {
+    let mut out = String::new();
+    let base = std::path::Path::new(ndb_file)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(ndb_file);
+    out.push_str(&format!(
+        "-- Generated by import-npcs from {base}. Do not edit by hand.\n"
+    ));
+    out.push_str("return {\n");
+    for rule in rules {
+        emit_rule(&mut out, rule, 1, false);
+    }
+    out.push_str("}\n");
+    out
+}
+
+fn emit_spliced_rules(out: &mut String, rules: &[DialogueRule]) {
+    let mut i = 0;
+    while i < rules.len() {
+        if let Some(key) = catalog_key_of(&rules[i]) {
+            let start_key = key;
+            i += 1;
+            while i < rules.len() && catalog_key_of(&rules[i]) == Some(start_key) {
+                i += 1;
+            }
+            out.push_str(&format!(
+                "NpcAppendRules(rules, NpcCatalogs[{}])\n",
+                lua_string(start_key)
+            ));
+        } else {
+            let start = i;
+            i += 1;
+            while i < rules.len() && catalog_key_of(&rules[i]).is_none() {
+                i += 1;
+            }
+            emit_inline_append(out, &rules[start..i]);
+        }
+    }
+}
+
+fn emit_inline_append(out: &mut String, rules: &[DialogueRule]) {
+    if rules.is_empty() {
+        return;
+    }
+    out.push_str("NpcAppendRules(rules, {\n");
+    for rule in rules {
+        emit_rule(out, rule, 1, false);
+    }
+    out.push_str("})\n");
+}
+
+fn emit_rule(out: &mut String, rule: &DialogueRule, indent: usize, annotate_ndb: bool) {
     let pad = "\t".repeat(indent);
-    // Emit fragment provenance for rules that were inlined from a .ndb include,
-    // so grep/editors can find all copies of a shared fragment without needing
-    // the now-deleted import pipeline.
-    if rule.span.original_file.ends_with(".ndb") {
+    // Inlined copies cite the `.ndb`. Catalog modules and spliced scripts do not.
+    if annotate_ndb && rule.span.original_file.ends_with(".ndb") {
         let basename = std::path::Path::new(&rule.span.original_file)
             .file_name()
             .and_then(|s| s.to_str())

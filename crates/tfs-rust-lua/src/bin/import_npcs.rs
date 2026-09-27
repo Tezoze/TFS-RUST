@@ -9,8 +9,9 @@
 //!   --keep-extra
 //! ```
 //!
-//! CipSoft `--root` imports remap TypeID item literals to OTB `server_id` via
-//! `items.otb` + `items.xml`. Split/archive mode leaves server ids unchanged.
+//! Decompile `--root` imports keep `Type=` literals as written. Those ids are
+//! the `items.ron` ids. Included `.ndb` files are emitted once under
+//! `--catalog-out` (default: the sibling `catalogs/` of `--out`).
 //!
 //! Writes to a temp directory under `--out`, validates via [`LuaRuntime`], then
 //! atomically replaces generated `*.lua` files (preserves hand-authored files
@@ -24,7 +25,8 @@ use std::process::ExitCode;
 
 use tfs_rust_content::items::ItemDatabase;
 use tfs_rust_content::npc_import::{
-    definition_filename, emit_npc_lua, import_legacy_root, import_split_xml,
+    catalog_filename, collect_catalogs, definition_filename, emit_catalog_lua, emit_npc_lua,
+    import_legacy_root, import_split_xml,
 };
 use tfs_rust_content::npcs::PendingNpcDefinition;
 use tfs_rust_lua::LuaRuntime;
@@ -78,22 +80,39 @@ fn run(args: Vec<String>) -> Result<String, String> {
     let out = opts
         .out
         .ok_or_else(|| "missing --out <definitions-dir>".to_string())?;
+    let catalog_out = opts
+        .catalog_out
+        .clone()
+        .unwrap_or_else(|| out.parent().unwrap_or(Path::new(".")).join("catalogs"));
 
+    let catalogs = collect_catalogs(&pending)?;
     let staging = staging_dir(&out)?;
-    write_definitions(&staging, &pending)?;
+    let staging_scripts = staging.join("scripts");
+    let staging_catalogs = staging.join("catalogs");
+    fs::create_dir_all(&staging_scripts).map_err(|e| e.to_string())?;
+    fs::create_dir_all(&staging_catalogs).map_err(|e| e.to_string())?;
+    write_definitions(&staging_scripts, &pending)?;
+    write_catalogs(&staging_catalogs, &catalogs)?;
 
     if let Some(ref data_dir) = opts.validate_data_dir {
         let items_ref = items
             .as_ref()
             .ok_or_else(|| "internal: items required for validate-data-dir".to_string())?;
-        validate_staging(&staging, data_dir, items_ref, pending.len())?;
+        validate_staging(
+            &staging_scripts,
+            &staging_catalogs,
+            data_dir,
+            items_ref,
+            pending.len(),
+        )?;
     }
 
     if opts.dry_run {
         let _ = fs::remove_dir_all(&staging);
         return Ok(format!(
-            "dry-run ok: {} NPC(s) parsed/emitted{}; not written to {}",
+            "dry-run ok: {} NPC(s) and {} catalog(s) parsed/emitted{}; not written to {}",
             pending.len(),
+            catalogs.len(),
             if opts.validate_data_dir.is_some() {
                 " and Lua-validated"
             } else {
@@ -103,11 +122,15 @@ fn run(args: Vec<String>) -> Result<String, String> {
         ));
     }
 
-    commit_staging(&out, &staging, &pending, opts.keep_extra)?;
+    commit_staging(&out, &staging_scripts, &pending, opts.keep_extra)?;
+    commit_catalogs(&catalog_out, &staging_catalogs, &catalogs)?;
+    let _ = fs::remove_dir_all(&staging);
     Ok(format!(
-        "imported {} NPC definition(s) → {}",
+        "imported {} NPC definition(s) → {} and {} catalog(s) → {}",
         pending.len(),
-        out.display()
+        out.display(),
+        catalogs.len(),
+        catalog_out.display()
     ))
 }
 
@@ -115,6 +138,7 @@ fn run(args: Vec<String>) -> Result<String, String> {
 struct Opts {
     root: Option<PathBuf>,
     out: Option<PathBuf>,
+    catalog_out: Option<PathBuf>,
     validate_data_dir: Option<PathBuf>,
     items_dir: Option<PathBuf>,
     split_xml: Option<PathBuf>,
@@ -135,6 +159,10 @@ fn parse_args(args: &[String]) -> Result<Opts, String> {
             "--out" => {
                 i += 1;
                 opts.out = Some(require_path(args, i, "--out")?);
+            }
+            "--catalog-out" => {
+                i += 1;
+                opts.catalog_out = Some(require_path(args, i, "--catalog-out")?);
             }
             "--validate-data-dir" => {
                 i += 1;
@@ -177,12 +205,13 @@ fn print_help() {
 import-npcs — offline 772 .npc/.ndb → NpcType/NpcDialogue Lua
 
 Options:
-  --root <dir>                 Full legacy NPC directory (CipSoft TypeIDs; remapped)
+  --root <dir>                 Full legacy NPC directory (Type= ids kept as written)
   --split-xml <dir>            Split data/npc XML mode (server ids; no remap)
   --behavior-dir <dir>         Behavior files for --split-xml (default: <xml>/behavior)
-  --out <dir>                  Output definitions directory
+  --out <dir>                  Output NPC definitions directory
+  --catalog-out <dir>          Output catalog directory (default: <out>/../catalogs)
   --validate-data-dir <data>   Load items from <data>/items and Lua-validate staging
-  --items-dir <data>           Items root for TypeID→server_id remap (default: data or validate-data-dir)
+  --items-dir <data>           Items root (default: data or validate-data-dir)
   --dry-run                    Parse/emit/validate only; do not write --out
   --keep-extra                 Keep existing .lua files not produced by this import
   -h, --help                   Show this help
@@ -208,6 +237,19 @@ fn staging_dir(out: &Path) -> Result<PathBuf, String> {
     Ok(staging)
 }
 
+fn write_catalogs(
+    dir: &Path,
+    catalogs: &std::collections::BTreeMap<String, Vec<tfs_rust_content::npcs::DialogueRule>>,
+) -> Result<(), String> {
+    for (key, rules) in catalogs {
+        let ndb = format!("{key}.ndb");
+        let path = dir.join(catalog_filename(&ndb));
+        let lua = emit_catalog_lua(&ndb, rules);
+        fs::write(&path, lua).map_err(|e| format!("write {}: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
 fn write_definitions(dir: &Path, pending: &[PendingNpcDefinition]) -> Result<(), String> {
     let mut seen = HashSet::new();
     for p in pending {
@@ -223,14 +265,15 @@ fn write_definitions(dir: &Path, pending: &[PendingNpcDefinition]) -> Result<(),
 }
 
 fn validate_staging(
-    staging: &Path,
+    staging_scripts: &Path,
+    staging_catalogs: &Path,
     _data_dir: &Path,
     items: &ItemDatabase,
     expected_count: usize,
 ) -> Result<(), String> {
     let mut rt = LuaRuntime::new().map_err(|e| format!("LuaRuntime: {e}"))?;
     let db = rt
-        .load_npc_definitions_dir(staging, items)
+        .load_npc_definitions_dir(staging_scripts, Some(staging_catalogs), items)
         .map_err(|e| format!("Lua validate failed: {e}"))?;
     if db.len() != expected_count {
         return Err(format!(
@@ -293,6 +336,47 @@ fn commit_staging(
             })
             .map_err(|e| format!("commit {}: {e}", to.display()))?;
     }
-    let _ = fs::remove_dir_all(staging);
+    Ok(())
+}
+
+fn commit_catalogs(
+    out: &Path,
+    staging: &Path,
+    catalogs: &std::collections::BTreeMap<String, Vec<tfs_rust_content::npcs::DialogueRule>>,
+) -> Result<(), String> {
+    fs::create_dir_all(out).map_err(|e| format!("create {}: {e}", out.display()))?;
+    let generated: HashSet<String> = catalogs
+        .keys()
+        .map(|key| catalog_filename(&format!("{key}.ndb")))
+        .collect();
+    if out.exists() {
+        for ent in fs::read_dir(out).map_err(|e| e.to_string())? {
+            let ent = ent.map_err(|e| e.to_string())?;
+            let path = ent.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("lua") {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if !generated.contains(name) {
+                fs::remove_file(&path).map_err(|e| format!("remove {}: {e}", path.display()))?;
+            }
+        }
+    }
+    for name in &generated {
+        let from = staging.join(name);
+        let to = out.join(name);
+        if to.exists() {
+            fs::remove_file(&to).map_err(|e| e.to_string())?;
+        }
+        fs::rename(&from, &to)
+            .or_else(|_| {
+                fs::copy(&from, &to)
+                    .map(|_| ())
+                    .and_then(|_| fs::remove_file(&from))
+            })
+            .map_err(|e| format!("commit {}: {e}", to.display()))?;
+    }
     Ok(())
 }

@@ -1,5 +1,0 @@
-Behavior = {
-ADDRESS,"hello$",! -> "Wha... what?? HOW DARE YOU!!?? LEAVE ME ALONE ON MY TOILET AT ONCE!", Idle
-ADDRESS,"hi$",!    -> *
-ADDRESS,!          -> Idle
-}

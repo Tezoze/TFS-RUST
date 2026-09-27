@@ -33,16 +33,20 @@ impl LuaRuntime {
         items: &ItemDatabase,
     ) -> Result<NpcDatabase, String> {
         let defs_dir = data_dir.join("npc/scripts");
-        self.load_npc_definitions_dir(&defs_dir, items)
+        let catalogs_dir = data_dir.join("npc/catalogs");
+        self.load_npc_definitions_dir(&defs_dir, Some(&catalogs_dir), items)
     }
 
     /// Load NPC definition scripts from an explicit scripts directory.
     ///
-    /// Used by the offline `import-npcs` CLI to validate a temp tree before
-    /// atomically replacing `data/npc/scripts`.
+    /// `catalogs_dir` is `data/npc/catalogs` (or a staging copy). Catalog
+    /// modules are stored on `NpcCatalogs` before scripts run. Used by the
+    /// offline `import-npcs` CLI to validate a temp tree before atomically
+    /// replacing `data/npc/scripts`.
     pub fn load_npc_definitions_dir(
         &mut self,
         defs_dir: &Path,
+        catalogs_dir: Option<&Path>,
         items: &ItemDatabase,
     ) -> Result<NpcDatabase, String> {
         if !defs_dir.exists() {
@@ -78,6 +82,18 @@ impl LuaRuntime {
                 self.lua.create_table().map_err(|e| e.to_string())?,
             )
             .map_err(|e| e.to_string())?;
+
+        if let Some(dir) = catalogs_dir {
+            self.load_npc_catalogs(dir)?;
+        } else {
+            self.lua
+                .globals()
+                .set(
+                    "NpcCatalogs",
+                    self.lua.create_table().map_err(|e| e.to_string())?,
+                )
+                .map_err(|e| e.to_string())?;
+        }
 
         let mut lua_files: Vec<PathBuf> = Vec::new();
         collect_lua_files(defs_dir, &mut lua_files);
@@ -415,6 +431,59 @@ impl LuaRuntime {
             Ok(_) => Ok(true),
             Err(e) => Err(e),
         }
+    }
+
+    /// Load `catalogs/*.lua` onto the `NpcCatalogs` global.
+    ///
+    /// Each file returns a rules array. The table key is the filename stem with
+    /// underscores turned back into hyphens (`gen_t_runes_prem_s.lua` →
+    /// `gen-t-runes-prem-s`), matching the `.ndb` stem.
+    fn load_npc_catalogs(&mut self, dir: &Path) -> Result<(), String> {
+        let catalogs = self.lua.create_table().map_err(|e| e.to_string())?;
+        if dir.is_dir() {
+            let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+                .map_err(|e| format!("read catalogs {}: {e}", dir.display()))?
+                .filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("lua"))
+                .filter(|p| {
+                    p.file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| !n.starts_with('#'))
+                })
+                .collect();
+            files.sort();
+            for path in files {
+                let stem = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .ok_or_else(|| format!("catalog filename is not utf-8: {}", path.display()))?;
+                let key = stem.replace('_', "-");
+                let path_str = path.display().to_string();
+                let source = std::fs::read_to_string(&path)
+                    .map_err(|e| format!("failed to read NPC catalog {path_str}: {e}"))?;
+                let value: mlua::Value = self
+                    .lua
+                    .load(&source)
+                    .set_name(&path_str)
+                    .eval()
+                    .map_err(|e| format!("failed to load NPC catalog {path_str}: {e}"))?;
+                let table = match value {
+                    mlua::Value::Table(table) => table,
+                    _ => {
+                        return Err(format!("NPC catalog {path_str} must return a rules table"));
+                    }
+                };
+                catalogs
+                    .set(key, table)
+                    .map_err(|e| format!("store NPC catalog {path_str}: {e}"))?;
+            }
+        }
+        self.lua
+            .globals()
+            .set("NpcCatalogs", catalogs)
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
 }
 
@@ -801,6 +870,70 @@ mod tests {
                 .unwrap_or_else(|e| panic!("drain {stem}: {e}"));
             assert!(!db.is_empty(), "{stem} registered no NPC");
         }
+    }
+
+    #[test]
+    fn catalog_splice_loads_and_missing_catalog_fails() {
+        let root = std::env::temp_dir().join(format!("npc-cat-{}", std::process::id()));
+        let scripts = root.join("scripts");
+        let catalogs = root.join("catalogs");
+        std::fs::create_dir_all(&scripts).unwrap();
+        std::fs::create_dir_all(&catalogs).unwrap();
+        let items = ItemDatabase {
+            items: Default::default(),
+            client_to_server: Default::default(),
+        };
+        std::fs::write(
+            scripts.join("needs.lua"),
+            r#"
+local npc = NpcType("NeedsCat")
+local rules = {}
+NpcAppendRules(rules, NpcCatalogs["missing-cat"])
+npc:dialogue(NpcDialogue({ policy = "queued_single_focus", rules = rules }))
+npc:register()
+"#,
+        )
+        .unwrap();
+        let mut runtime = LuaRuntime::new().expect("runtime");
+        let err = runtime
+            .load_npc_definitions_dir(&scripts, Some(&catalogs), &items)
+            .expect_err("missing catalog");
+        assert!(
+            err.contains("NpcAppendRules"),
+            "missing catalog should fail the load: {err}"
+        );
+
+        std::fs::write(
+            catalogs.join("gen_bank.lua"),
+            r#"
+return {
+  { when = { { words = { "balance" } } }, actions = { { say = "bank" } } },
+}
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            scripts.join("needs.lua"),
+            r#"
+local npc = NpcType("NeedsCat")
+local rules = {}
+NpcAppendRules(rules, {
+  { when = { { words = { "hi" } } }, actions = { { say = "hello" } } },
+})
+NpcAppendRules(rules, NpcCatalogs["gen-bank"])
+npc:dialogue(NpcDialogue({ policy = "queued_single_focus", rules = rules }))
+npc:register()
+"#,
+        )
+        .unwrap();
+        let mut runtime = LuaRuntime::new().expect("runtime");
+        let db = runtime
+            .load_npc_definitions_dir(&scripts, Some(&catalogs), &items)
+            .expect("splice");
+        let def = db.get_by_name("NeedsCat").expect("NeedsCat");
+        let dialogue = def.dialogue.as_ref().expect("dialogue");
+        assert_eq!(dialogue.rules.len(), 2);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

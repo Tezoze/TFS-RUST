@@ -8,368 +8,201 @@ npc:health(100)
 npc:sex(1)
 npc:race(1)
 
-npc:dialogue(NpcDialogue({
-	policy = "queued_single_focus",
-	rules = {
-		{
-			line = 13,
-			when = {
-				{ situation = "address" },
-				{ words = { "hello$" } },
-				{ select = true },
-			},
-			actions = {
-				{ say = "Welcome to the Plank and Treasurechest Market, %N!" },
-			},
+local rules = {}
+NpcAppendRules(rules, {
+	{
+		line = 13,
+		when = {
+			{ situation = "address" },
+			{ words = { "hello$" } },
+			{ select = true },
 		},
-		{
-			line = 14,
-			when = {
-				{ situation = "address" },
-				{ words = { "hi$" } },
-				{ select = true },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 15,
-			when = {
-				{ situation = "address" },
-				{ select = true },
-			},
-			actions = {
-				{ idle = true },
-			},
-		},
-		{
-			line = 16,
-			when = {
-				{ situation = "busy" },
-				{ words = { "hello$" } },
-				{ select = true },
-			},
-			actions = {
-				{ say = "Just a moment please, %N." },
-				{ queue = true },
-			},
-		},
-		{
-			line = 17,
-			when = {
-				{ situation = "busy" },
-				{ words = { "hi$" } },
-				{ select = true },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 18,
-			when = {
-				{ situation = "busy" },
-				{ select = true },
-			},
-			actions = {
-				{ nop = true },
-			},
-		},
-		{
-			line = 19,
-			when = {
-				{ situation = "vanish" },
-				{ select = true },
-			},
-			actions = {
-				{ say = "Good bye." },
-			},
-		},
-		{
-			line = 21,
-			when = {
-				{ words = { "bye" } },
-			},
-			actions = {
-				{ say = "Good bye." },
-				{ idle = true },
-			},
-		},
-		{
-			line = 22,
-			when = {
-				{ words = { "farewell" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 23,
-			when = {
-				{ words = { "name" } },
-			},
-			actions = {
-				{ say = "My name is Allen Richardson. I am the owner of this market." },
-			},
-		},
-		{
-			line = 24,
-			when = {
-				{ words = { "job" } },
-			},
-			actions = {
-				{ say = "I run this market and sell furniture." },
-			},
-		},
-		{
-			line = 25,
-			when = {
-				{ words = { "time" } },
-			},
-			actions = {
-				{ say = "It is %T. Too bad we run out of cuckoo clocks." },
-			},
-		},
-		{
-			line = 26,
-			when = {
-				{ words = { "news" } },
-			},
-			actions = {
-				{ say = "Sorry, no time to chat, let's trade." },
-			},
-		},
-		{
-			line = 28,
-			when = {
-				{ words = { "offer" } },
-			},
-			actions = {
-				{ say = "At this counter you can buy chairs. What do you need?" },
-			},
-		},
-		{
-			line = 29,
-			when = {
-				{ words = { "goods" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 30,
-			when = {
-				{ words = { "do" } },
-				{ words = { "you" } },
-				{ words = { "sell" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 31,
-			when = {
-				{ words = { "do" } },
-				{ words = { "you" } },
-				{ words = { "have" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 32,
-			when = {
-				{ words = { "furniture" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 33,
-			when = {
-				{ words = { "equipment" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		-- from gen-t-furniture-chairs-s.ndb:12
-		{
-			line = 12,
-			when = {
-				{ words = { "red" } },
-				{ words = { "cushioned" } },
-				{ select = true },
-			},
-			actions = {
-				{ set = { var = "type", value = 2775 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 40 } },
-				{ say = "You want to buy a red cushioned chair for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-chairs-s.ndb:13
-		{
-			line = 13,
-			when = {
-				{ words = { "red" } },
-				{ words = { "chair" } },
-				{ select = true },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		-- from gen-t-furniture-chairs-s.ndb:14
-		{
-			line = 14,
-			when = {
-				{ words = { "green" } },
-				{ words = { "cushioned" } },
-				{ select = true },
-			},
-			actions = {
-				{ set = { var = "type", value = 2776 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 40 } },
-				{ say = "You want to buy a green cushioned chair for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-chairs-s.ndb:15
-		{
-			line = 15,
-			when = {
-				{ words = { "green" } },
-				{ words = { "chair" } },
-				{ select = true },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		-- from gen-t-furniture-chairs-s.ndb:16
-		{
-			line = 16,
-			when = {
-				{ words = { "chair" } },
-			},
-			actions = {
-				{ say = "I can offer you wooden chairs, rocking chairs, red cushioned chairs, green cushioned chairs and sofa chairs." },
-			},
-		},
-		-- from gen-t-furniture-chairs-s.ndb:17
-		{
-			line = 17,
-			when = {
-				{ words = { "wooden" } },
-				{ words = { "chair" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2777 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 15 } },
-				{ say = "You want to buy a wooden chair for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-chairs-s.ndb:18
-		{
-			line = 18,
-			when = {
-				{ words = { "rocking" } },
-				{ words = { "chair" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2778 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "You want to buy a rocking chair for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-chairs-s.ndb:19
-		{
-			line = 19,
-			when = {
-				{ words = { "cushioned" } },
-				{ words = { "chair" } },
-			},
-			actions = {
-				{ say = "I can offer you a red cushioned chair or a green cushioned chair." },
-			},
-		},
-		-- from gen-t-furniture-chairs-s.ndb:20
-		{
-			line = 20,
-			when = {
-				{ words = { "sofa" } },
-				{ words = { "chair" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2779 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 55 } },
-				{ say = "You want to buy a sofa chair for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-chairs-s.ndb:22
-		{
-			line = 22,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-				{ words = { "yes" } },
-				{ property = "premium" },
-				{ expr = { countMoney = true }, op = ">=", rhs = { session = "price" } },
-			},
-			actions = {
-				{ say = "Here you are." },
-				{ deleteMoney = true },
-				{ create = { item = { session = "type" } } },
-			},
-		},
-		-- from gen-t-furniture-chairs-s.ndb:23
-		{
-			line = 23,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-				{ words = { "yes" } },
-				{ expr = { countMoney = true }, op = ">=", rhs = { session = "price" } },
-			},
-			actions = {
-				{ say = "I'm sorry, but you need a premium account if you want to buy furniture." },
-			},
-		},
-		-- from gen-t-furniture-chairs-s.ndb:24
-		{
-			line = 24,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-				{ words = { "yes" } },
-			},
-			actions = {
-				{ say = "Come back, when you have enough money." },
-			},
-		},
-		-- from gen-t-furniture-chairs-s.ndb:25
-		{
-			line = 25,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-			},
-			actions = {
-				{ say = "Hmm, but I'm sure, it would fit nicely into your house." },
-			},
+		actions = {
+			{ say = "Welcome to the Plank and Treasurechest Market, %N!" },
 		},
 	},
+	{
+		line = 14,
+		when = {
+			{ situation = "address" },
+			{ words = { "hi$" } },
+			{ select = true },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 15,
+		when = {
+			{ situation = "address" },
+			{ select = true },
+		},
+		actions = {
+			{ idle = true },
+		},
+	},
+	{
+		line = 16,
+		when = {
+			{ situation = "busy" },
+			{ words = { "hello$" } },
+			{ select = true },
+		},
+		actions = {
+			{ say = "Just a moment please, %N." },
+			{ queue = true },
+		},
+	},
+	{
+		line = 17,
+		when = {
+			{ situation = "busy" },
+			{ words = { "hi$" } },
+			{ select = true },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 18,
+		when = {
+			{ situation = "busy" },
+			{ select = true },
+		},
+		actions = {
+			{ nop = true },
+		},
+	},
+	{
+		line = 19,
+		when = {
+			{ situation = "vanish" },
+			{ select = true },
+		},
+		actions = {
+			{ say = "Good bye." },
+		},
+	},
+	{
+		line = 21,
+		when = {
+			{ words = { "bye" } },
+		},
+		actions = {
+			{ say = "Good bye." },
+			{ idle = true },
+		},
+	},
+	{
+		line = 22,
+		when = {
+			{ words = { "farewell" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 23,
+		when = {
+			{ words = { "name" } },
+		},
+		actions = {
+			{ say = "My name is Allen Richardson. I am the owner of this market." },
+		},
+	},
+	{
+		line = 24,
+		when = {
+			{ words = { "job" } },
+		},
+		actions = {
+			{ say = "I run this market and sell furniture." },
+		},
+	},
+	{
+		line = 25,
+		when = {
+			{ words = { "time" } },
+		},
+		actions = {
+			{ say = "It is %T. Too bad we run out of cuckoo clocks." },
+		},
+	},
+	{
+		line = 26,
+		when = {
+			{ words = { "news" } },
+		},
+		actions = {
+			{ say = "Sorry, no time to chat, let's trade." },
+		},
+	},
+	{
+		line = 28,
+		when = {
+			{ words = { "offer" } },
+		},
+		actions = {
+			{ say = "At this counter you can buy chairs. What do you need?" },
+		},
+	},
+	{
+		line = 29,
+		when = {
+			{ words = { "goods" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 30,
+		when = {
+			{ words = { "do" } },
+			{ words = { "you" } },
+			{ words = { "sell" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 31,
+		when = {
+			{ words = { "do" } },
+			{ words = { "you" } },
+			{ words = { "have" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 32,
+		when = {
+			{ words = { "furniture" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 33,
+		when = {
+			{ words = { "equipment" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+})
+NpcAppendRules(rules, NpcCatalogs["gen-t-furniture-chairs-s"])
+npc:dialogue(NpcDialogue({
+	policy = "queued_single_focus",
+	rules = rules,
 }))
 
 npc:register()

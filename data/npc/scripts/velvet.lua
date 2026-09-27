@@ -8,738 +8,204 @@ npc:health(100)
 npc:sex(0)
 npc:race(1)
 
-npc:dialogue(NpcDialogue({
-	policy = "queued_single_focus",
-	rules = {
-		{
-			line = 13,
-			when = {
-				{ situation = "address" },
-				{ words = { "hello$" } },
-				{ select = true },
-			},
-			actions = {
-				{ say = "Welcome to our shop, %N!" },
-			},
+local rules = {}
+NpcAppendRules(rules, {
+	{
+		line = 13,
+		when = {
+			{ situation = "address" },
+			{ words = { "hello$" } },
+			{ select = true },
 		},
-		{
-			line = 14,
-			when = {
-				{ situation = "address" },
-				{ words = { "hi$" } },
-				{ select = true },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 15,
-			when = {
-				{ situation = "address" },
-				{ select = true },
-			},
-			actions = {
-				{ idle = true },
-			},
-		},
-		{
-			line = 16,
-			when = {
-				{ situation = "busy" },
-				{ words = { "hello$" } },
-				{ select = true },
-			},
-			actions = {
-				{ say = "Just a moment please, %N." },
-				{ queue = true },
-			},
-		},
-		{
-			line = 17,
-			when = {
-				{ situation = "busy" },
-				{ words = { "hi$" } },
-				{ select = true },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 18,
-			when = {
-				{ situation = "busy" },
-				{ select = true },
-			},
-			actions = {
-				{ nop = true },
-			},
-		},
-		{
-			line = 19,
-			when = {
-				{ situation = "vanish" },
-				{ select = true },
-			},
-			actions = {
-				{ say = "Good bye." },
-			},
-		},
-		{
-			line = 21,
-			when = {
-				{ words = { "bye" } },
-			},
-			actions = {
-				{ say = "Good bye." },
-				{ idle = true },
-			},
-		},
-		{
-			line = 22,
-			when = {
-				{ words = { "farewell" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 23,
-			when = {
-				{ words = { "name" } },
-			},
-			actions = {
-				{ say = "I am Velvet. How can I help you?" },
-			},
-		},
-		{
-			line = 24,
-			when = {
-				{ words = { "job" } },
-			},
-			actions = {
-				{ say = "I'm working here in this shop. Are you interested in any of our goods?" },
-			},
-		},
-		{
-			line = 25,
-			when = {
-				{ words = { "time" } },
-				{ property = "male" },
-			},
-			actions = {
-				{ say = "It's %T, sire." },
-			},
-		},
-		{
-			line = 26,
-			when = {
-				{ words = { "time" } },
-				{ property = "female" },
-			},
-			actions = {
-				{ say = "It's %T, my lady." },
-			},
-		},
-		{
-			line = 28,
-			when = {
-				{ words = { "offer" } },
-			},
-			actions = {
-				{ say = "I sell pillows and tapestries." },
-			},
-		},
-		{
-			line = 29,
-			when = {
-				{ words = { "goods" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 30,
-			when = {
-				{ words = { "do" } },
-				{ words = { "you" } },
-				{ words = { "sell" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 31,
-			when = {
-				{ words = { "do" } },
-				{ words = { "you" } },
-				{ words = { "have" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 32,
-			when = {
-				{ words = { "furniture" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		{
-			line = 33,
-			when = {
-				{ words = { "equipment" } },
-			},
-			actions = {
-				{ repeatPrevious = true },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:11
-		{
-			line = 11,
-			when = {
-				{ words = { "pillow" } },
-			},
-			actions = {
-				{ say = "I can offer small pillows, round pillows, square pillows and heart pillows. Which one might it be?" },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:12
-		{
-			line = 12,
-			when = {
-				{ words = { "small" } },
-				{ words = { "pillow" } },
-			},
-			actions = {
-				{ say = "What color would you prefer? Purple, green, red, blue, orange, turquoise or white?" },
-				{ set = { var = "topic", value = 82 } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:13
-		{
-			line = 13,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 82 },
-				{ words = { "purple" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2386 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 20 } },
-				{ say = "You want to buy a small, purple pillow for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:14
-		{
-			line = 14,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 82 },
-				{ words = { "green" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2387 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 20 } },
-				{ say = "You want to buy a small, green pillow for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:15
-		{
-			line = 15,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 82 },
-				{ words = { "red" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2388 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 20 } },
-				{ say = "You want to buy a small, red pillow for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:16
-		{
-			line = 16,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 82 },
-				{ words = { "blue" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2389 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 20 } },
-				{ say = "You want to buy a small, blue pillow for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:17
-		{
-			line = 17,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 82 },
-				{ words = { "orange" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2390 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 20 } },
-				{ say = "You want to buy a small, orange pillow for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:18
-		{
-			line = 18,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 82 },
-				{ words = { "turquoise" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2391 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 20 } },
-				{ say = "You want to buy a small, turquoise pillow for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:19
-		{
-			line = 19,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 82 },
-				{ words = { "white" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2392 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 20 } },
-				{ say = "You want to buy a small, white pillow for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:20
-		{
-			line = 20,
-			when = {
-				{ words = { "round" } },
-				{ words = { "pillow" } },
-			},
-			actions = {
-				{ say = "What color would you prefer? Purple, red, blue or turquoise?" },
-				{ set = { var = "topic", value = 83 } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:21
-		{
-			line = 21,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 83 },
-				{ words = { "blue" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2398 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "You want to buy a blue, round pillow for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:22
-		{
-			line = 22,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 83 },
-				{ words = { "purple" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2400 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "You want to buy a purple, round pillow for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:23
-		{
-			line = 23,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 83 },
-				{ words = { "red" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2399 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "You want to buy a red, round pillow for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:24
-		{
-			line = 24,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 83 },
-				{ words = { "turquoise" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2401 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "You want to buy a turquoise, round pillow for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:25
-		{
-			line = 25,
-			when = {
-				{ words = { "square" } },
-				{ words = { "pillow" } },
-			},
-			actions = {
-				{ say = "What color would you prefer? Red, green, blue or yellow?" },
-				{ set = { var = "topic", value = 84 } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:26
-		{
-			line = 26,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 84 },
-				{ words = { "blue" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2394 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "You want to buy a blue, square pillow for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:27
-		{
-			line = 27,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 84 },
-				{ words = { "red" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2395 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "You want to buy a red, square pillow for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:28
-		{
-			line = 28,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 84 },
-				{ words = { "green" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2396 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "You want to buy a green, square pillow for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:29
-		{
-			line = 29,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 84 },
-				{ words = { "yellow" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2397 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "You want to buy a yellow, square pillow for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:30
-		{
-			line = 30,
-			when = {
-				{ words = { "heart" } },
-				{ words = { "pillow" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2393 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 30 } },
-				{ say = "You want to buy a heart pillow for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:32
-		{
-			line = 32,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-				{ words = { "yes" } },
-				{ property = "premium" },
-				{ expr = { countMoney = true }, op = ">=", rhs = { session = "price" } },
-			},
-			actions = {
-				{ say = "Here you are." },
-				{ deleteMoney = true },
-				{ create = { item = { session = "type" } } },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:33
-		{
-			line = 33,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-				{ words = { "yes" } },
-				{ expr = { countMoney = true }, op = ">=", rhs = { session = "price" } },
-			},
-			actions = {
-				{ say = "I'm sorry, but you need a premium account if you want to buy furniture." },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:34
-		{
-			line = 34,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-				{ words = { "yes" } },
-			},
-			actions = {
-				{ say = "Come back, when you have enough money." },
-			},
-		},
-		-- from gen-t-furniture-pillows-s.ndb:35
-		{
-			line = 35,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-			},
-			actions = {
-				{ say = "Hmm, but I'm sure, it would fit nicely into your house." },
-			},
-		},
-		-- from gen-t-furniture-tapestries-s.ndb:11
-		{
-			line = 11,
-			when = {
-				{ words = { "curtain" } },
-			},
-			actions = {
-				{ say = "Well, actually it's better to call them tapestries." },
-			},
-		},
-		-- from gen-t-furniture-tapestries-s.ndb:12
-		{
-			line = 12,
-			when = {
-				{ words = { "tapestr" } },
-			},
-			actions = {
-				{ say = "Please tell me what color you would prefer: purple, green, yellow, orange, red, blue or white?" },
-				{ set = { var = "topic", value = 85 } },
-			},
-		},
-		-- from gen-t-furniture-tapestries-s.ndb:13
-		{
-			line = 13,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 85 },
-				{ words = { "purple" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2644 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "You want to buy a purple tapestry for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-tapestries-s.ndb:14
-		{
-			line = 14,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 85 },
-				{ words = { "green" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2647 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "You want to buy a green tapestry for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-tapestries-s.ndb:15
-		{
-			line = 15,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 85 },
-				{ words = { "yellow" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2650 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "You want to buy a yellow tapestry for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-tapestries-s.ndb:16
-		{
-			line = 16,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 85 },
-				{ words = { "orange" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2653 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "You want to buy a orange tapestry for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-tapestries-s.ndb:17
-		{
-			line = 17,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 85 },
-				{ words = { "red" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2656 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "You want to buy a red tapestry for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-tapestries-s.ndb:18
-		{
-			line = 18,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 85 },
-				{ words = { "orange" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2653 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "You want to buy a orange tapestry for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-tapestries-s.ndb:19
-		{
-			line = 19,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 85 },
-				{ words = { "red" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2656 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "You want to buy a red tapestry for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-tapestries-s.ndb:20
-		{
-			line = 20,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 85 },
-				{ words = { "blue" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2659 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "You want to buy a blue tapestry for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-tapestries-s.ndb:21
-		{
-			line = 21,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 85 },
-				{ words = { "white" } },
-			},
-			actions = {
-				{ set = { var = "type", value = 2667 } },
-				{ set = { var = "amount", value = 1 } },
-				{ set = { var = "price", value = 25 } },
-				{ say = "You want to buy a white tapestry for %P gold?" },
-				{ set = { var = "topic", value = 81 } },
-			},
-		},
-		-- from gen-t-furniture-tapestries-s.ndb:23
-		{
-			line = 23,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-				{ words = { "yes" } },
-				{ property = "premium" },
-				{ expr = { countMoney = true }, op = ">=", rhs = { session = "price" } },
-			},
-			actions = {
-				{ say = "Here you are." },
-				{ deleteMoney = true },
-				{ create = { item = { session = "type" } } },
-			},
-		},
-		-- from gen-t-furniture-tapestries-s.ndb:24
-		{
-			line = 24,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-				{ words = { "yes" } },
-				{ expr = { countMoney = true }, op = ">=", rhs = { session = "price" } },
-			},
-			actions = {
-				{ say = "I'm sorry, but you need a premium account if you want to buy furniture." },
-			},
-		},
-		-- from gen-t-furniture-tapestries-s.ndb:25
-		{
-			line = 25,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-				{ words = { "yes" } },
-			},
-			actions = {
-				{ say = "Come back, when you have enough money." },
-			},
-		},
-		-- from gen-t-furniture-tapestries-s.ndb:26
-		{
-			line = 26,
-			when = {
-				{ expr = { session = "topic" }, op = "=", rhs = 81 },
-			},
-			actions = {
-				{ say = "Hmm, but I'm sure, it would fit nicely into your house." },
-			},
+		actions = {
+			{ say = "Welcome to our shop, %N!" },
 		},
 	},
+	{
+		line = 14,
+		when = {
+			{ situation = "address" },
+			{ words = { "hi$" } },
+			{ select = true },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 15,
+		when = {
+			{ situation = "address" },
+			{ select = true },
+		},
+		actions = {
+			{ idle = true },
+		},
+	},
+	{
+		line = 16,
+		when = {
+			{ situation = "busy" },
+			{ words = { "hello$" } },
+			{ select = true },
+		},
+		actions = {
+			{ say = "Just a moment please, %N." },
+			{ queue = true },
+		},
+	},
+	{
+		line = 17,
+		when = {
+			{ situation = "busy" },
+			{ words = { "hi$" } },
+			{ select = true },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 18,
+		when = {
+			{ situation = "busy" },
+			{ select = true },
+		},
+		actions = {
+			{ nop = true },
+		},
+	},
+	{
+		line = 19,
+		when = {
+			{ situation = "vanish" },
+			{ select = true },
+		},
+		actions = {
+			{ say = "Good bye." },
+		},
+	},
+	{
+		line = 21,
+		when = {
+			{ words = { "bye" } },
+		},
+		actions = {
+			{ say = "Good bye." },
+			{ idle = true },
+		},
+	},
+	{
+		line = 22,
+		when = {
+			{ words = { "farewell" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 23,
+		when = {
+			{ words = { "name" } },
+		},
+		actions = {
+			{ say = "I am Velvet. How can I help you?" },
+		},
+	},
+	{
+		line = 24,
+		when = {
+			{ words = { "job" } },
+		},
+		actions = {
+			{ say = "I'm working here in this shop. Are you interested in any of our goods?" },
+		},
+	},
+	{
+		line = 25,
+		when = {
+			{ words = { "time" } },
+			{ property = "male" },
+		},
+		actions = {
+			{ say = "It's %T, sire." },
+		},
+	},
+	{
+		line = 26,
+		when = {
+			{ words = { "time" } },
+			{ property = "female" },
+		},
+		actions = {
+			{ say = "It's %T, my lady." },
+		},
+	},
+	{
+		line = 28,
+		when = {
+			{ words = { "offer" } },
+		},
+		actions = {
+			{ say = "I sell pillows and tapestries." },
+		},
+	},
+	{
+		line = 29,
+		when = {
+			{ words = { "goods" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 30,
+		when = {
+			{ words = { "do" } },
+			{ words = { "you" } },
+			{ words = { "sell" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 31,
+		when = {
+			{ words = { "do" } },
+			{ words = { "you" } },
+			{ words = { "have" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 32,
+		when = {
+			{ words = { "furniture" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+	{
+		line = 33,
+		when = {
+			{ words = { "equipment" } },
+		},
+		actions = {
+			{ repeatPrevious = true },
+		},
+	},
+})
+NpcAppendRules(rules, NpcCatalogs["gen-t-furniture-pillows-s"])
+NpcAppendRules(rules, NpcCatalogs["gen-t-furniture-tapestries-s"])
+npc:dialogue(NpcDialogue({
+	policy = "queued_single_focus",
+	rules = rules,
 }))
 
 npc:register()
