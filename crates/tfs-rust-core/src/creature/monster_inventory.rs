@@ -966,7 +966,10 @@ mod tests {
     #[test]
     fn test_e6_corpse_contains_spawn_loot() {
         let mut items = HashMap::new();
-        items.insert(DEFAULT_MONSTER_BAG_TYPE, bag_item_type(DEFAULT_MONSTER_BAG_TYPE));
+        items.insert(
+            DEFAULT_MONSTER_BAG_TYPE,
+            bag_item_type(DEFAULT_MONSTER_BAG_TYPE),
+        );
         items.insert(2148u16, stackable_pickup_item_type(2148));
         items.insert(2813u16, {
             let mut c = bag_item_type(2813);
@@ -1045,7 +1048,10 @@ mod tests {
     #[test]
     fn test_e6_summon_spawns_without_loot() {
         let mut items = HashMap::new();
-        items.insert(DEFAULT_MONSTER_BAG_TYPE, bag_item_type(DEFAULT_MONSTER_BAG_TYPE));
+        items.insert(
+            DEFAULT_MONSTER_BAG_TYPE,
+            bag_item_type(DEFAULT_MONSTER_BAG_TYPE),
+        );
         items.insert(2148u16, stackable_pickup_item_type(2148));
         let mut world = beat_world(items);
         world.seed_parity_rng(99);

@@ -101,10 +101,7 @@ fn shipped_800_formulas_match_772_except_stamina() {
     assert_eq!(loaded_800.profile.stamina_drain_seconds, 60);
     assert_eq!(loaded_772.profile.stamina_max_minutes, 0);
     let mut era_800 = loaded_800.profile;
-    assert_eq!(
-        era_800.spell_coeff.mode,
-        SpellFormulaMode::Additive
-    );
+    assert_eq!(era_800.spell_coeff.mode, SpellFormulaMode::Additive);
     assert_eq!(era_800.spell_coeff.level_div, 5);
     assert_eq!(era_800.player_speed_model, PlayerSpeedModel::Classic772);
     era_800.stamina_max_minutes = 0;

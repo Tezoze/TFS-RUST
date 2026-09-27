@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use tfs_rust_content::client_id_census::LOCKED_SURVIVORS;
 use tfs_rust_content::client_id_rewrite::{
-    rewrite_item_literals, rewrite_otbm_bytes, rewrite_sql_itemtype_selects, ClientIdMap,
+    ClientIdMap, rewrite_item_literals, rewrite_otbm_bytes, rewrite_sql_itemtype_selects,
 };
 use tfs_rust_content::otb::OtbLoader;
 use tfs_rust_content::otb_identity::dedup_identity_otb;
@@ -25,10 +25,7 @@ fn main() {
         (1487, "fire pvp"),
         (1492, "fire persistent"),
     ] {
-        println!(
-            "{label} {server} -> {:?}",
-            map.client_of(server)
-        );
+        println!("{label} {server} -> {:?}", map.client_of(server));
     }
 
     let identity_path = root.join("data/items/clientid_output/items.otb");
@@ -40,7 +37,13 @@ fn main() {
     let mut files = 0usize;
     let mut replacements = 0usize;
     let mut puzzle = 0usize;
-    walk_lua(&root.join("data"), &map, &mut files, &mut replacements, &mut puzzle);
+    walk_lua(
+        &root.join("data"),
+        &map,
+        &mut files,
+        &mut replacements,
+        &mut puzzle,
+    );
     let seed = root.join("docker/seed_dev_account.sql");
     if seed.exists() {
         rewrite_sql_file(&seed, &map, &mut files, &mut replacements);

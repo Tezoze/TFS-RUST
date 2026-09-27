@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use tfs_rust_content::client_id_rewrite::{
-    rewrite_mapped_ints_skip_lines, rewrite_named_ids, rewrite_shop_type_values, ClientIdMap,
+    ClientIdMap, rewrite_mapped_ints_skip_lines, rewrite_named_ids, rewrite_shop_type_values,
 };
 use tfs_rust_content::otb::OtbLoader;
 
@@ -35,7 +35,13 @@ fn main() {
         "data/defs/tiles.lua",
         "data/scripts/actions/other/transforms.lua",
     ] {
-        apply_ints(&root.join(rel), &map, |_| false, &mut files, &mut replacements);
+        apply_ints(
+            &root.join(rel),
+            &map,
+            |_| false,
+            &mut files,
+            &mut replacements,
+        );
     }
     apply_ints(
         &root.join("data/defs/tools.lua"),
@@ -125,7 +131,11 @@ fn write_sql_migration(root: &Path, map: &ClientIdMap) {
     // by walking printed ids is not enough — read the file again.
     let live = OtbLoader::load_from_file(&root.join("data/items/items.otb")).expect("otb");
     for (sid, it) in &live {
-        let cid = if it.client_id == 0 { *sid } else { it.client_id };
+        let cid = if it.client_id == 0 {
+            *sid
+        } else {
+            it.client_id
+        };
         if cid != *sid {
             pairs.push((*sid, cid));
         }
@@ -144,7 +154,9 @@ fn write_sql_migration(root: &Path, map: &ClientIdMap) {
         "market_history",
     ];
     for table in tables {
-        sql.push_str(&format!("UPDATE `{table}` SET `itemtype` = CASE `itemtype`\n"));
+        sql.push_str(&format!(
+            "UPDATE `{table}` SET `itemtype` = CASE `itemtype`\n"
+        ));
         for (old, new) in &pairs {
             sql.push_str(&format!("  WHEN {old} THEN {new}\n"));
         }

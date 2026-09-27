@@ -1271,7 +1271,12 @@ impl GameWorld {
 
     /// `Game::playerEquipItem` — `game.cpp` ~1851–1877.
     pub fn player_quick_equip(&mut self, conn_id: ConnId, cid: CreatureId, sprite_id: u16) {
-        let Some(server_id) = self.items_db.items.contains_key(&sprite_id).then_some(sprite_id) else {
+        let Some(server_id) = self
+            .items_db
+            .items
+            .contains_key(&sprite_id)
+            .then_some(sprite_id)
+        else {
             self.send_cancel_message(conn_id, ReturnValue::NotPossible);
             return;
         };

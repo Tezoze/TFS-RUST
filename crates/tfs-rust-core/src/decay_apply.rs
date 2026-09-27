@@ -701,9 +701,11 @@ mod tests {
         let plain_pos = Position::new(11, 10, 7);
         let plain = place_on_tile(&mut world, plain_pos, 2773);
         assert!(!world.can_decay(plain));
-        assert!(!world
-            .game_is_decaying_item_in_position(plain_pos, 2773)
-            .unwrap());
+        assert!(
+            !world
+                .game_is_decaying_item_in_position(plain_pos, 2773)
+                .unwrap()
+        );
 
         let expired = world.decay.tick(world.server_ms + 240_000);
         assert_eq!(expired.len(), 1);

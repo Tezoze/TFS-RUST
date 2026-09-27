@@ -840,7 +840,12 @@ mod tests {
 
         world.combat_execute_from_lua(&req).expect("spoken combat");
         assert_eq!(
-            world.creatures.get(caster).unwrap().base().earliest_spell_server_ms,
+            world
+                .creatures
+                .get(caster)
+                .unwrap()
+                .base()
+                .earliest_spell_server_ms,
             0,
             "a spoken combat must not take the rune CheckMana clock"
         );

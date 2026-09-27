@@ -6,9 +6,8 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-const PAIRS_SQL: &str = include_str!(
-    "../../../tfs-rust-db/migrations/20260926000000_client_item_ids.sql"
-);
+const PAIRS_SQL: &str =
+    include_str!("../../../tfs-rust-db/migrations/20260926000000_client_item_ids.sql");
 
 fn map() -> &'static HashMap<u16, u16> {
     static MAP: OnceLock<HashMap<u16, u16>> = OnceLock::new();
