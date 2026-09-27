@@ -962,9 +962,9 @@ fn handle_player_disconnect(
     trace!(conn_id = conn_id.0, stop_fight, "player disconnected");
 }
 
-/// From protocol 780, `ProtocolGame::logout` closes the socket in the same call
-/// as the poff (`800src/protocolgame.cpp` `logout`). 772 waits for the next
-/// `ProcessConnections`.
+/// Quit closes the socket in the same call as the poff on every client.
+/// 772 `ProcessConnections` waited until the next round (`connections.cc:44-49`).
+/// Leaving the socket up through the animation makes the client drop after the effect.
 struct ImmediateLogout {
     display_effect: bool,
     stop_fight: bool,
@@ -1357,33 +1357,24 @@ fn handle_game_packet(
             }
         }
         GamePacket::Logout => {
-            // 772 `CQuitGame` → `Logout(0, true)` (`receiving.cc:81-91`). `ProcessConnections`
-            // already ran this round (`main.cc:350-359`), so the socket waits for the next one.
-            // From 780, `ProtocolGame::logout(true, false)` poffs and `disconnect()`s in
-            // that same call (`800src/protocolgame.cpp:247-254`).
-            let same_call = world.codec.caps().logout_same_call;
+            // `CQuitGame` → `Logout(0, true)` (`receiving.cc:81-91`). Close in this call
+            // on every version so the client does not drop after the poof.
             if world.dead_connections.contains(&conn_id)
                 || world.logout_at_round.contains_key(&conn_id)
             {
                 world.schedule_connection_logout(conn_id, 0, true, false);
             } else if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
                 if world.player_logout_allowed(conn_id, cid, false) {
-                    if same_call {
-                        *immediate_logout = Some(ImmediateLogout {
-                            display_effect: true,
-                            stop_fight: true,
-                        });
-                    } else {
-                        world.schedule_connection_logout(conn_id, 0, true, true);
-                    }
+                    *immediate_logout = Some(ImmediateLogout {
+                        display_effect: true,
+                        stop_fight: true,
+                    });
                 }
-            } else if same_call {
+            } else {
                 *immediate_logout = Some(ImmediateLogout {
                     display_effect: false,
                     stop_fight: true,
                 });
-            } else {
-                world.schedule_tcp_close_after(conn_id, 0);
             }
         }
         GamePacket::Say(payload) => {

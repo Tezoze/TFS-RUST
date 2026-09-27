@@ -79,10 +79,6 @@ pub struct ProtocolCaps {
     /// player target (`receiving.cc:512-514`). From 780 the client may use a carried
     /// rune or item by sprite id, including on monsters, players, and yourself.
     pub hotkey_object_use: bool,
-    /// Quit closes the socket in the same call as the logout poff.
-    /// From 780 (`800src/protocolgame.cpp` `ProtocolGame::logout`). 772 waits
-    /// for the next `ProcessConnections` (`connections.cc:44-49`).
-    pub logout_same_call: bool,
 }
 
 impl ProtocolCaps {
@@ -111,7 +107,6 @@ impl ProtocolCaps {
                 initial_buffer_position: 4,
                 xtea_length_slack: 4,
                 hotkey_object_use: version.raw() >= 780,
-                logout_same_call: version.raw() >= 780,
             },
             1098 => Self {
                 adler_checksum: true,
@@ -134,7 +129,6 @@ impl ProtocolCaps {
                 initial_buffer_position: 8,
                 xtea_length_slack: 6,
                 hotkey_object_use: true,
-                logout_same_call: true,
             },
             other => unreachable!("unsupported protocol version {other}"),
         }
@@ -192,12 +186,5 @@ mod tests {
         assert!(!ProtocolVersion::V772.caps().hotkey_object_use);
         assert!(ProtocolVersion::V800.caps().hotkey_object_use);
         assert!(ProtocolVersion::V1098.caps().hotkey_object_use);
-    }
-
-    #[test]
-    fn logout_same_call_starts_at_780() {
-        assert!(!ProtocolVersion::V772.caps().logout_same_call);
-        assert!(ProtocolVersion::V800.caps().logout_same_call);
-        assert!(ProtocolVersion::V1098.caps().logout_same_call);
     }
 }

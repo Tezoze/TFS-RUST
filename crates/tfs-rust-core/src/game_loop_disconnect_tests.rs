@@ -89,8 +89,8 @@ async fn logout_packet_clears_attack_now() {
     );
 }
 
-#[test]
-fn logout_packet_enqueues_stop_fight_true() {
+#[tokio::test(flavor = "current_thread")]
+async fn logout_packet_enqueues_stop_fight_true() {
     let mut world = beat_driven_test_world();
     let pos = Position::new(100, 100, 7);
     ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
@@ -111,22 +111,28 @@ fn logout_packet_enqueues_stop_fight_true() {
         &mut immediate_logout,
     );
     assert!(
-        immediate_logout.is_none(),
-        "772 Logout(0) waits for the next Process"
+        world.logout_at_round.get(&conn).is_none(),
+        "quit must not wait a round"
+    );
+    let logout = immediate_logout.expect("same-call logout");
+    assert!(logout.stop_fight);
+    assert!(logout.display_effect);
+    let mut pending_login = LoginIngest::new();
+    let mut sinks = HashMap::new();
+    handle_player_disconnect(
+        &mut world,
+        &mut pending_login,
+        conn,
+        logout.display_effect,
+        logout.stop_fight,
+        &mut sinks,
+        &None,
     );
     assert!(
-        pending.is_empty(),
-        "Logout(0) waits for the next Process — got {pending:?}"
+        !world.creatures.contains_key(pid),
+        "allowed logout removes the body before the client returns to login"
     );
-    let round = world.round_nr;
-    assert_eq!(world.logout_at_round.get(&conn), Some(&round));
-    assert!(
-        world
-            .creatures
-            .get(pid)
-            .is_some_and(|k| k.base().logging_out),
-        "CL_CMD_LOGOUT → StopFight / StartLogout now"
-    );
+    let _ = pending;
 }
 
 /// 8.0 quit closes in this call (`800src/protocolgame.cpp` `logout`), not next round.
