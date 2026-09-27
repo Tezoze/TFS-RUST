@@ -1256,11 +1256,7 @@ mod tests {
 
     fn repo_items() -> ItemDatabase {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-        ItemDatabase::load(
-            &root.join("data/items/items.otb"),
-            &root.join("data/items/items.xml"),
-        )
-        .unwrap_or(ItemDatabase {
+        ItemDatabase::load_ron(&root.join("data/items/772/items.ron")).unwrap_or(ItemDatabase {
             items: HashMap::new(),
             client_to_server: HashMap::new(),
         })

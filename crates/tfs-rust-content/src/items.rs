@@ -1474,9 +1474,8 @@ mod tests {
     fn pack_xml_wires_forceuse_effect_writeonce_and_beds() {
         use std::path::Path;
 
-        let otb = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.otb");
-        let xml = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.xml");
-        let db = ItemDatabase::load(&otb, &xml).expect("items load");
+        let ron = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/772/items.ron");
+        let db = ItemDatabase::load_ron(&ron).expect("772 items.ron");
 
         let ladder = db.items.get(&1948).expect("1948");
         assert!(ladder.force_use());
@@ -1508,9 +1507,8 @@ mod tests {
     fn pack_xml_772_objects_srv_jewelry_absorbs() {
         use std::path::Path;
 
-        let otb = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.otb");
-        let xml = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.xml");
-        let db = ItemDatabase::load(&otb, &xml).expect("items load");
+        let ron = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/772/items.ron");
+        let db = ItemDatabase::load_ron(&ron).expect("772 items.ron");
 
         let absorb = |id: u16, ct: CombatType| -> i16 {
             db.items.get(&id).expect("item").abilities.absorb_percent[combat_absorb_index(ct)]
@@ -2012,9 +2010,8 @@ mod tests {
     fn ground_tile_speeds_come_from_otb_without_objects_srv_overlay() {
         use std::path::Path;
 
-        let otb = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.otb");
-        let xml = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.xml");
-        let db = ItemDatabase::load(&otb, &xml).expect("items load");
+        let ron = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/772/items.ron");
+        let db = ItemDatabase::load_ron(&ron).expect("772 items.ron");
 
         // Canonical ids from `data/items/items.xml` (not name lookup — many grass variants).
         let grass_wp = db.ground_speed_for_item(102);
@@ -2035,9 +2032,8 @@ mod tests {
     fn destroyto_and_fluidsource_match_items_xml_rows() {
         use std::path::Path;
 
-        let otb = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.otb");
-        let xml = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.xml");
-        let db = ItemDatabase::load(&otb, &xml).expect("items load");
+        let ron = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/772/items.ron");
+        let db = ItemDatabase::load_ron(&ron).expect("772 items.ron");
 
         let statue = db.items.get(&2025).expect("statue 2025");
         assert_eq!(statue.destroy_to, 3141);
@@ -2068,9 +2064,8 @@ mod tests {
     fn r1_name_article_plural_weight_container_match_items_xml_rows() {
         use std::path::Path;
 
-        let otb = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.otb");
-        let xml = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/items.xml");
-        let db = ItemDatabase::load(&otb, &xml).expect("items load");
+        let ron = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items/772/items.ron");
+        let db = ItemDatabase::load_ron(&ron).expect("772 items.ron");
 
         let gold = db.items.get(&3031).expect("gold coin 3031");
         assert_eq!(gold.name, "gold coin");
