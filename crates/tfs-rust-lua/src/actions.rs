@@ -1624,8 +1624,16 @@ mod tests {
         let src =
             std::fs::read_to_string(workspace_data_root().join("scripts/actions/other/fluids.lua"))
                 .expect("fluids.lua");
-        assert!(src.contains("math.random(50, 150)"), "772 mana 50..=150");
-        assert!(src.contains("math.random(25, 75)"), "772 life 25..=75");
+        assert!(src.contains("drinkManaFluid"), "mana roll is native");
+        assert!(src.contains("drinkLifeFluid"), "life roll is native");
+        assert!(
+            !src.contains("math.random(50, 150)"),
+            "mana roll is not Lua math.random"
+        );
+        assert!(
+            !src.contains("math.random(25, 75)"),
+            "life roll is not Lua math.random"
+        );
         assert!(src.contains("\"Mmmh.\""), "lemonade");
         assert!(src.contains("\"Gulp.\""), "milk/default");
         assert!(src.contains("\"Aah...\""), "beer/wine");

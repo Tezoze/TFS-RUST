@@ -3,6 +3,7 @@
 
 pub mod aoe;
 pub mod circles;
+pub mod corpus_spells;
 pub mod math;
 pub mod pvp;
 pub mod rng;

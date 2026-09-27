@@ -420,6 +420,19 @@ impl UserData for CreatureRef {
             Ok(true)
         });
 
+        // `DrinkPotion` mana (`magic.cc:4328-4330`). Roll stays on the glibc stream.
+        methods.add_method("drinkManaFluid", |_, this, ()| {
+            crate::lua_mutation::call_lua_drink_fluid(this.0, false)
+                .map_err(mlua::Error::runtime)?;
+            Ok(true)
+        });
+        // Life fluid is hit points only. It does not clear paralyze.
+        methods.add_method("drinkLifeFluid", |_, this, ()| {
+            crate::lua_mutation::call_lua_drink_fluid(this.0, true)
+                .map_err(mlua::Error::runtime)?;
+            Ok(true)
+        });
+
         // `creature:say(text[, type])` — E5. Viewport broadcast; does **not**
         // parse spells. Default `TALKTYPE_SAY` (1). 772 `Talk`; TFS `luaCreatureSay`.
         methods.add_method(

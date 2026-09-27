@@ -1971,6 +1971,8 @@ impl GameWorld {
                     },
                     &CombatParams::default(),
                 );
+                // `THealingImpact` clears paralyze when the target was alive (`magic.cc:202-205`).
+                self.clear_paralyze_after_heal_spell(target_id, hp_before);
                 let hp_after = self
                     .creatures
                     .get(target_id)

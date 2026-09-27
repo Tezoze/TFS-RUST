@@ -30,6 +30,8 @@ Protocol 800 uses the same 772 mechanics corpus, with its own wire codec and `da
 ### Combat
 
 - A close-chase step does not strike while the attack is still exhausted. The strike waits until that delay ends.
+- A healing spell clears paralyze on its own, including the intense and ultimate healing runes. A life fluid does not.
+- Poison storm covers the full disc. Berserk costs four times the caster's level, and its damage is one roll scaled by level and magic level. Mana fluid restores 50–150 mana and life fluid restores 25–75 hit points, both on the server roll.
 
 ### NPCs
 
@@ -54,6 +56,5 @@ Known limitations, shipped as-is:
 
 - Protocol 10.98 and later-era features (market, mounts, stamina gameplay) stay behind version gates.
 - House auctions (`TransferHouses` / `StartAuctions`) stay on the AAC website. In-game house sale is `!sellhouse` and player trade.
-- Some spell formulas still follow the data pack: healing does not clear paralyze on its own, some area spells use the pack matrices, and berserk and mana-fluid rolls differ from the 772 corpus.
 - Channel Lua hooks (`canJoin`, `onJoin`, `onSpeak`) are stubbed. `LookInBattleList`, `JoinAggression`, and `CloseNpcChannel` are parsed and dropped.
 - Default `playerSpeed` is `"balanced"`. Strict linear speed is `playerSpeed = "classic"`.

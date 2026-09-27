@@ -328,6 +328,14 @@ impl GameWorld {
                 ),
                 _ => return false,
             };
+        // Berserk mana is `level * 4` (`magic.cc:3560`), not the pack `manaPercent`.
+        let mana_cost = crate::combat::corpus_spells::spoken_mana_cost(
+            &spell.words,
+            player_level,
+            player_max_mana,
+            spell.mana,
+            spell.mana_percent,
+        );
 
         if !ignore_spell_check {
             // Learn gate before vocation — TFS `isInstant() && isLearnable()` then
@@ -363,11 +371,6 @@ impl GameWorld {
             }
 
             // Mana / soul — 772 `CheckMana` skips when `UNLIMITED_MANA`.
-            let mana_cost = if spell.mana_percent > 0 {
-                (player_max_mana as u32 * spell.mana_percent) / 100
-            } else {
-                spell.mana
-            };
             if !infinite_mana && player_mana < mana_cost as i32 {
                 self.send_spell_fail(cid, ReturnValue::NotEnoughMana);
                 return true;
@@ -423,12 +426,6 @@ impl GameWorld {
                 }
             }
         }
-
-        let mana_cost = if spell.mana_percent > 0 {
-            (player_max_mana as u32 * spell.mana_percent) / 100
-        } else {
-            spell.mana
-        };
 
         // Deduct mana + soul — 772 `CheckMana` `magic.cc:753-763` (skipped under
         // `UNLIMITED_MANA` / TFS `HasInfiniteMana` / `HasInfiniteSoul`).

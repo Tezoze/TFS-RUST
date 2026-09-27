@@ -3,7 +3,7 @@ combat:setParameter(COMBAT_PARAM_TYPE, COMBAT_EARTHDAMAGE)
 combat:setParameter(COMBAT_PARAM_EFFECT, CONST_ME_GREEN_RINGS)
 combat:setParameter(COMBAT_PARAM_AGGRESSIVE, true)
 combat:setParameter(COMBAT_PARAM_FORCEONTARGETEVENT, true)
-combat:setArea(createCombatArea(AREA_CIRCLE5X5))
+combat:setArea(createCombatArea(AREA_CIRCLE6X6))
 
 local condition = Condition(CONDITION_POISON)
 

@@ -606,6 +606,11 @@ impl GameWorld {
                 };
 
                 self.combat_execute_with_stimulus(caster_id, target_id, &damage, &params);
+                // Spell heals clear paralyze on their own (`magic.cc:202-205`).
+                // The pack dispel flag is a separate condition removal.
+                if combat_type == CombatType::Healing {
+                    self.clear_paralyze_after_heal_spell(target_id, hp_before);
+                }
             }
 
             // Apply `combat:addCondition` list — C++ `conditionList` post-effects.

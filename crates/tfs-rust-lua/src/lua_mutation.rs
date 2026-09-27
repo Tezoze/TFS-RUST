@@ -157,6 +157,12 @@ pub enum LuaMutation {
         creature_id: u64,
         amount: u64,
     },
+    /// `player:drinkManaFluid` / `drinkLifeFluid` — `DrinkPotion` (`magic.cc:4327`).
+    /// The amount is rolled on the game-thread glibc stream. Life does not clear paralyze.
+    PlayerDrinkFluid {
+        creature_id: u64,
+        life: bool,
+    },
     /// `item:transform(itemId[, count/subType])` — `luascript.cpp`
     /// `luaItemTransform` → `Game::transformItem`. PC-3a Phase 5: in-place
     /// type/subtype change + cylinder notify (inventory/container).
@@ -1091,6 +1097,11 @@ pub fn call_lua_add_mana_spent(creature_id: u64, amount: u64) -> Result<(), Stri
         creature_id,
         amount,
     })
+}
+
+/// `player:drinkManaFluid` / `drinkLifeFluid` — `DrinkPotion` (`magic.cc:4327`).
+pub fn call_lua_drink_fluid(creature_id: u64, life: bool) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerDrinkFluid { creature_id, life })
 }
 
 /// `item:transform(itemId[, count/subType])` — PC-3a Phase 5.

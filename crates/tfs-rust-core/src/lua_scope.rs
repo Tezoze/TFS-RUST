@@ -211,6 +211,9 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             creature_id,
             amount,
         } => unsafe { &mut *world }.lua_script_player_add_mana_spent(creature_id, amount),
+        LuaMutation::PlayerDrinkFluid { creature_id, life } => {
+            unsafe { &mut *world }.drink_potion(creature_id, life)
+        }
         LuaMutation::ItemTransform {
             item_id,
             new_type,

@@ -1,6 +1,7 @@
 -- 772 UseLiquidContainer (`moveuse.cc:1692-1818`).
 -- Fill LIQUIDSOURCE → pour empty dest container → drink iff dest is self → else spill 2886.
--- Drink: beer/wine stack drunk; slime POISON_PERIODIC 200/3/3; mana 50–150; life 25–75.
+-- Drink: beer/wine stack drunk; slime POISON_PERIODIC 200/3/3.
+-- Mana and life amounts are `DrinkPotion` (`magic.cc:4327`): 100±50 and 50±25 on the glibc stream.
 
 local items = {
 	2524, 2873, 2874, 2875, 2876, 2877,
@@ -59,10 +60,10 @@ function action.onUse(player, item, fromPosition, target, toPosition, isHotkey)
 		elseif fluidType == FLUID_URINE then
 			player:say("Urgh!", TALKTYPE_SAY)
 		elseif fluidType == FLUID_MANAFLUID then
-			player:addMana(math.random(50, 150))
+			player:drinkManaFluid()
 			player:say("Aaaah...", TALKTYPE_SAY)
 		elseif fluidType == FLUID_LIFEFLUID then
-			player:addHealth(math.random(25, 75))
+			player:drinkLifeFluid()
 			player:say("Aaaah...", TALKTYPE_SAY)
 		elseif fluidType == FLUID_LEMONADE then
 			player:say("Mmmh.", TALKTYPE_SAY)

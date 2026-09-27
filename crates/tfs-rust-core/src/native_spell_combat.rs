@@ -225,12 +225,25 @@ fn resolve_damage(
             limit_min,
             limit_max,
         } => {
+            // Berserk: roll variation, then scale, then `level / 25` (`magic.cc:3559`).
+            // A uniform roll between the scaled endpoints is a different distribution.
             let level = world.get_player_level(cid_u64).unwrap_or(0);
-            let (lo, hi) = world
-                .compute_magic_damage_range(cid_u64, *base, *variation, *limit_min, *limit_max);
-            let lo = (lo * level) / 25;
-            let hi = (hi * level) / 25;
-            (-lo, -hi)
+            let magic = world.get_player_magic_level(cid_u64).unwrap_or(0);
+            let rolled = if *variation != 0 {
+                *base + world.parity_random(-*variation, *variation)
+            } else {
+                *base
+            };
+            let hit = crate::combat::corpus_spells::berserk_hit(
+                &world.mechanics.profile,
+                &world.mechanics.hooks,
+                level,
+                magic,
+                rolled,
+                *limit_max,
+                *limit_min,
+            );
+            (-hit, -hit)
         }
     }
 }
