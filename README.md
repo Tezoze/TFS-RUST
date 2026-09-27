@@ -2,9 +2,9 @@
 
 [![Build Status](https://github.com/Tezoze/TFS-RUST/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Tezoze/TFS-RUST/actions/workflows/ci.yml)
 
-Rust rewrite of the **7.72** reference server. **1.0.0** is a playable 7.72 shard: 772 wire, native mechanics, and the TFS `data/` script surface. Tokio handles I/O, the game simulation stays single-threaded, and entities live in `slotmap`.
+Rust rewrite of the **7.72** reference server. **1.0.0** is a playable 7.72 shard: 772 wire, native mechanics, and the TFS `data/` script surface. An 8.0 shard on that same corpus is playable and not tagged yet. Tokio handles I/O, the game simulation stays single-threaded, and entities live in `slotmap`.
 
-Later client wire stays behind version gates. See [CHANGELOG.md](CHANGELOG.md) for what 1.0.0 ships and what it leaves out.
+Later client wire stays behind version gates. See [CHANGELOG.md](CHANGELOG.md) for what 1.0.0 ships and what is still unreleased.
 
 Use a **7.72-compatible client** (or a custom OTClient aligned with this server’s protocol expectations).
 
