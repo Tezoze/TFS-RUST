@@ -32,7 +32,7 @@ const XML_ONLY_EQUIP_AOL: u16 = 3057;
 
 fn load_pack() -> ItemDatabase {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/items");
-    ItemDatabase::load(&root.join("items.otb"), &root.join("items.xml")).expect("load items")
+    ItemDatabase::load_ron(&root.join("772/items.ron")).expect("772 items.ron")
 }
 
 fn derived_field_ids(db: &ItemDatabase) -> BTreeSet<u16> {
