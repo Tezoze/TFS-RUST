@@ -21,7 +21,7 @@ combat:setParameter(COMBAT_PARAM_DISTANCEEFFECT, CONST_ANI_FIRE)
 combat:setParameter(COMBAT_PARAM_AGGRESSIVE, true)
 
 function onGetFormulaValues(player, level, magicLevel)
-	return player:computeDamage(15, 5, true)
+	return player:computeSpell(15, 5, 0.4, 2, 0.81, 4, true)
 end
 
 combat:setCallback(CALLBACK_PARAM_LEVELMAGICVALUE, "onGetFormulaValues")

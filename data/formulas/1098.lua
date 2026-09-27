@@ -38,7 +38,8 @@ formulas = {
 
   -- conditions (fire/energy/poisonStart) live in MechanicsProfile::for_version.
 
-  spell = { levelMult = 2, magicMult = 3 }, -- ComputeDamage / Player:computeDamage
+  -- Same additive spell range as 800: floor(level / levelDiv) + magicLevel * c + y.
+  spell = { mode = "additive", levelDiv = 5, levelMult = 2, magicMult = 3 },
   pvpExpCap = { num = 11, den = 10 }, -- MaxLevel = (victimL * num) / den for PvP kill XP scale
   playerSpeed = "retail",        -- "retail" | "772" | "balanced" (loaded once at startup)
 
@@ -60,6 +61,9 @@ formulas = {
     extraInstruments = true,
     spellbookMagicLevel = true,
   },
+
+  -- Same 56-hour pool as 8.0 (clients from 780). Edit the rates here.
+  stamina = { hours = 56, regenSeconds = 180, drainSeconds = 60 },
 }
 
 --- TFS linear fishing catch: `min(max(min + (skill - base) * coeff, min), max)`.

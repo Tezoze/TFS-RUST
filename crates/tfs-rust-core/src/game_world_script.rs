@@ -929,8 +929,40 @@ impl tfs_rust_common::ScriptContext for GameWorld {
         limit_minimum: bool,
         limit_maximum: bool,
     ) -> (i32, i32) {
+        self.compute_spell_range(
+            creature_id,
+            damage,
+            variation,
+            limit_minimum,
+            limit_maximum,
+            None,
+        )
+    }
+
+    fn compute_spell_range(
+        &self,
+        creature_id: tfs_rust_common::ScriptCreatureId,
+        damage: i32,
+        variation: i32,
+        limit_minimum: bool,
+        limit_maximum: bool,
+        additive: Option<(f64, f64, f64, f64)>,
+    ) -> (i32, i32) {
         let level = self.get_player_level(creature_id).unwrap_or(0);
         let magic = self.get_player_magic_level(creature_id).unwrap_or(0);
+        if self.mechanics.profile.spell_coeff.mode == crate::formulas::SpellFormulaMode::Additive
+            && let Some((magic_min, base_min, magic_max, base_max)) = additive
+        {
+            return crate::combat::math::additive_spell_range(
+                self.mechanics.profile.spell_coeff.level_div,
+                level,
+                magic,
+                magic_min,
+                base_min,
+                magic_max,
+                base_max,
+            );
+        }
         crate::combat::math::spell_damage_range(
             &self.mechanics.profile,
             &self.mechanics.hooks,
@@ -1617,6 +1649,27 @@ impl tfs_rust_common::ScriptContext for GameWorld {
             CreatureKind::Player(p) => Some(p.economy.balance),
             _ => None,
         }
+    }
+
+    fn get_player_stamina(&self, creature_id: ScriptCreatureId) -> Option<u16> {
+        let cid = self.resolve_creature_u64(creature_id)?;
+        match self.creatures.get(cid)? {
+            CreatureKind::Player(p) => Some(p.stamina_minutes),
+            _ => None,
+        }
+    }
+
+    fn player_has_outfit(
+        &self,
+        creature_id: ScriptCreatureId,
+        look_type: u16,
+        addons: u8,
+    ) -> Option<bool> {
+        let cid = self.resolve_creature_u64(creature_id)?;
+        if !matches!(self.creatures.get(cid), Some(CreatureKind::Player(_))) {
+            return None;
+        }
+        Some(self.player_can_wear(cid, look_type, addons))
     }
 
     fn get_config_bool(&self, key: &str) -> Option<bool> {

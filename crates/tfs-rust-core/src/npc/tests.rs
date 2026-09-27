@@ -2630,6 +2630,58 @@ fn player_set_storage_erases_on_minus_one() {
     assert_eq!(world.player_get_storage(p1, 320), -1);
 }
 
+/// `Player::addStorageValue` quest line — client 7.9+, once per round.
+#[test]
+fn quest_storage_toasts_once_per_round_from_790() {
+    use super::actions::NpcActionHost;
+    use crate::test_support::insert_spectator_player;
+    use tfs_rust_common::{ConnId, ProtocolVersion};
+
+    let mut world = minimal_world();
+    world.codec = tfs_rust_net::Codec::from_version(ProtocolVersion::V800).expect("800");
+    world.quests = tfs_rust_content::quests::QuestCatalog::parse(
+        r#"<quests>
+            <quest name="Example" startstorageid="1001" startstoragevalue="1">
+                <mission name="M" storageid="1001" startvalue="1" endvalue="3" />
+            </quest>
+        </quests>"#,
+    )
+    .expect("quests");
+    let conn = ConnId(4);
+    let cid = insert_spectator_player(
+        &mut world,
+        conn,
+        sim_hero_player("Hero", Position::new(100, 100, 7)),
+    );
+    world.pending_outgoing.clear();
+    world.player_set_storage(cid, 50, 1).expect("unrelated");
+    world.player_set_storage(cid, 1001, 1).expect("start");
+    world.player_set_storage(cid, 1001, 2).expect("same round");
+
+    let toast = b"Your questlog has been updated.";
+    let count = |world: &GameWorld| {
+        world
+            .pending_outgoing
+            .get(&conn)
+            .map(|pkts| {
+                pkts.iter()
+                    .filter(|p| p.windows(toast.len()).any(|w| w == toast))
+                    .count()
+            })
+            .unwrap_or(0)
+    };
+    assert_eq!(count(&world), 1);
+
+    world.round_nr += 1;
+    world.player_set_storage(cid, 1001, 3).expect("next round");
+    assert_eq!(count(&world), 2);
+
+    world.codec = tfs_rust_net::Codec::from_version(ProtocolVersion::V772).expect("772");
+    world.pending_outgoing.clear();
+    world.player_set_storage(cid, 1001, 1).expect("772");
+    assert_eq!(count(&world), 0);
+}
+
 // ── Furniture AVOID tests (772 `Avoid` + `AvoidDamageTypes=0` → OTB `blockPathFind`) ──
 //
 // 772 `objects.srv` marks chairs, boxes, crates, stairs, trapdoors, etc. with `Avoid`

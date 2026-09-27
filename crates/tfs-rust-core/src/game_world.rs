@@ -178,6 +178,10 @@ pub struct GameWorld {
     pub groups: Arc<GroupDatabase>,
     /// `data/XML/outfits.xml` — change-outfit window / canWear (`src/outfit.cpp`).
     pub outfits_db: Arc<tfs_rust_content::outfits::OutfitDatabase>,
+    /// `data/XML/quests.xml` — 7.9+ questlog toast (`800src/quests.cpp`).
+    pub quests: tfs_rust_content::quests::QuestCatalog,
+    /// Round on which this player already got the questlog toast (`Player::lastQuestlogUpdate`).
+    pub(crate) questlog_toasted_round: HashMap<CreatureId, u32>,
     pub vocations: Arc<VocationRegistry>,
     /// PC-2b: spell definitions loaded from `data/scripts/spells/**/*.lua` via the
     /// TFS Lua `Spell(SPELL_INSTANT|SPELL_RUNE)` API. Used by `player_say_spell`
@@ -499,6 +503,8 @@ impl GameWorld {
             npcs_db,
             groups,
             outfits_db: Arc::new(tfs_rust_content::outfits::OutfitDatabase::default()),
+            quests: tfs_rust_content::quests::QuestCatalog::default(),
+            questlog_toasted_round: HashMap::new(),
             vocations,
             spells: Arc::new(tfs_rust_content::spells::SpellRegistry::default()),
             weapons: Arc::new(tfs_rust_content::weapons::WeaponRegistry::default()),

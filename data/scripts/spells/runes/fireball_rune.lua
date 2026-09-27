@@ -22,7 +22,7 @@ combat:setParameter(COMBAT_PARAM_AGGRESSIVE, true)
 combat:setArea(createCombatArea(AREA_CIRCLE2X2))
 
 function onGetFormulaValues(player, level, magicLevel)
-	return player:computeDamage(20, 5, true)
+	return player:computeSpell(20, 5, 1.81, 10, 3, 18, true)
 end
 
 combat:setCallback(CALLBACK_PARAM_LEVELMAGICVALUE, "onGetFormulaValues")

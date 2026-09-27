@@ -212,6 +212,56 @@ impl UserData for CreatureRef {
             })
         });
 
+        // `player:getStamina()` / `setStamina(minutes)` — `800src/luascript.cpp`.
+        methods.add_method("getStamina", |_, this, ()| {
+            with_ctx(|ctx| {
+                ctx.get_player_stamina(this.0)
+                    .ok_or_else(|| mlua::Error::runtime("player not found"))
+            })
+        });
+        methods.add_method("setStamina", |_, this, minutes: u32| {
+            let minutes = u16::try_from(minutes.min(u32::from(u16::MAX))).unwrap_or(u16::MAX);
+            crate::lua_mutation::call_lua_set_stamina(this.0, minutes)
+                .map_err(mlua::Error::runtime)?;
+            Ok(())
+        });
+
+        // `player:addOutfit` / `addOutfitAddon` / `removeOutfit` / `removeOutfitAddon` /
+        // `hasOutfit` — `800src/luascript.cpp`.
+        methods.add_method("addOutfit", |_, this, look_type: u16| {
+            crate::lua_mutation::call_lua_add_outfit(this.0, look_type, 0)
+                .map_err(mlua::Error::runtime)?;
+            Ok(true)
+        });
+        methods.add_method(
+            "addOutfitAddon",
+            |_, this, (look_type, addon): (u16, u8)| {
+                crate::lua_mutation::call_lua_add_outfit(this.0, look_type, addon)
+                    .map_err(mlua::Error::runtime)?;
+                Ok(true)
+            },
+        );
+        methods.add_method("removeOutfit", |_, this, look_type: u16| {
+            crate::lua_mutation::call_lua_remove_outfit(this.0, look_type)
+                .map_err(mlua::Error::runtime)
+        });
+        methods.add_method(
+            "removeOutfitAddon",
+            |_, this, (look_type, addon): (u16, u8)| {
+                crate::lua_mutation::call_lua_remove_outfit_addon(this.0, look_type, addon)
+                    .map_err(mlua::Error::runtime)
+            },
+        );
+        methods.add_method(
+            "hasOutfit",
+            |_, this, (look_type, addon): (u16, Option<u8>)| {
+                with_ctx(|ctx| {
+                    ctx.player_has_outfit(this.0, look_type, addon.unwrap_or(0))
+                        .ok_or_else(|| mlua::Error::runtime("player not found"))
+                })
+            },
+        );
+
         methods.add_method("getMoney", |_, this, ()| {
             with_ctx(|ctx| {
                 let g = ctx
@@ -297,6 +347,30 @@ impl UserData for CreatureRef {
                 Ok(ctx.compute_magic_damage_range(this.0, damage, variation, limit_min, limit_max))
             })
         });
+
+        // `player:computeSpell(strength, variation, magicMin, baseMin, magicMax, baseMax[, limitMin[, limitMax]])`
+        // Scale mode uses strength/variation. Additive mode uses the four spell coeffs.
+        methods.add_method("computeSpell", |_, this, args: mlua::Variadic<Value>| {
+            let (damage, variation, limit_min, limit_max, additive) =
+                parse_compute_spell_args(&args)?;
+            with_ctx(|ctx| {
+                let (lo, hi) = ctx
+                    .compute_spell_range(this.0, damage, variation, limit_min, limit_max, additive);
+                Ok((-lo, -hi))
+            })
+        });
+        methods.add_method(
+            "computeHealSpell",
+            |_, this, args: mlua::Variadic<Value>| {
+                let (damage, variation, limit_min, limit_max, additive) =
+                    parse_compute_spell_args(&args)?;
+                with_ctx(|ctx| {
+                    Ok(ctx.compute_spell_range(
+                        this.0, damage, variation, limit_min, limit_max, additive,
+                    ))
+                })
+            },
+        );
 
         // `player:computeSkillDamage(damage, variation, skill[, limitMinimum[, limitMaximum]])`
         // — magic formula then `× level / 25` (`magic.cc` berserk / pack skill formula).
@@ -1395,6 +1469,32 @@ impl UserData for CreatureRef {
 }
 
 /// Parse `computeDamage(damage, variation[, limitMinimum[, limitMaximum]])` args.
+/// `computeSpell(strength, variation, magicMin, baseMin, magicMax, baseMax[, limitMin[, limitMax]])`.
+fn parse_compute_spell_args(
+    args: &mlua::Variadic<Value>,
+) -> Result<(i32, i32, bool, bool, Option<(f64, f64, f64, f64)>), mlua::Error> {
+    let damage = args
+        .first()
+        .and_then(value_as_i32)
+        .ok_or_else(|| mlua::Error::runtime("computeSpell: strength required"))?;
+    let variation = args.get(1).and_then(value_as_i32).unwrap_or(0);
+    let magic_min = args.get(2).and_then(value_as_f64);
+    let base_min = args.get(3).and_then(value_as_f64);
+    let magic_max = args.get(4).and_then(value_as_f64);
+    let base_max = args.get(5).and_then(value_as_f64);
+    let additive = match (magic_min, base_min, magic_max, base_max) {
+        (Some(a), Some(b), Some(c), Some(d)) => Some((a, b, c, d)),
+        _ => {
+            return Err(mlua::Error::runtime(
+                "computeSpell: magicMin, baseMin, magicMax, baseMax required",
+            ));
+        }
+    };
+    let limit_min = args.get(6).and_then(value_as_bool).unwrap_or(false);
+    let limit_max = args.get(7).and_then(value_as_bool).unwrap_or(false);
+    Ok((damage, variation, limit_min, limit_max, additive))
+}
+
 fn parse_compute_damage_args(
     args: &mlua::Variadic<Value>,
 ) -> Result<(i32, i32, bool, bool), mlua::Error> {
@@ -1469,6 +1569,14 @@ fn table_i32(table: &mlua::Table, key: &str) -> Result<Option<i32>, mlua::Error>
         _ => Err(mlua::Error::runtime(format!(
             "outfit.{key}: expected integer"
         ))),
+    }
+}
+
+fn value_as_f64(v: &Value) -> Option<f64> {
+    match v {
+        Value::Integer(n) => Some(*n as f64),
+        Value::Number(n) => Some(*n),
+        _ => None,
     }
 }
 

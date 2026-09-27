@@ -43,7 +43,11 @@ impl ClientIdMap {
     pub fn from_items(items: &HashMap<u16, ItemType>) -> Self {
         let mut to_client = HashMap::with_capacity(items.len());
         for (sid, it) in items {
-            let cid = if it.client_id == 0 { *sid } else { it.client_id };
+            let cid = if it.client_id == 0 {
+                *sid
+            } else {
+                it.client_id
+            };
             to_client.insert(*sid, cid);
         }
         Self { to_client }
@@ -57,7 +61,10 @@ impl ClientIdMap {
     /// Pairs match `Item::CreateItem(PropStream)` (`item.cpp`).
     pub fn otbm_id(&self, id: u16) -> u16 {
         let persistent = persistent_field_id(id);
-        self.to_client.get(&persistent).copied().unwrap_or(persistent)
+        self.to_client
+            .get(&persistent)
+            .copied()
+            .unwrap_or(persistent)
     }
 }
 
@@ -124,7 +131,11 @@ pub fn rewrite_sql_itemtype_selects(src: &str, map: &ClientIdMap) -> (String, Re
 }
 
 /// Second-pass markers the first pass does not own (`id` / `corpse` stay put).
-pub fn rewrite_named_ids(src: &str, map: &ClientIdMap, markers: &[&[u8]]) -> (String, RewriteStats) {
+pub fn rewrite_named_ids(
+    src: &str,
+    map: &ClientIdMap,
+    markers: &[&[u8]],
+) -> (String, RewriteStats) {
     let mut stats = RewriteStats::default();
     let bytes = src.as_bytes();
     let mut out = String::with_capacity(src.len());
@@ -267,7 +278,8 @@ fn rewrite_following_number(
     stats: &mut RewriteStats,
 ) -> usize {
     let start_ws = i;
-    while i < bytes.len() && (bytes[i].is_ascii_whitespace() || bytes[i] == b'=' || bytes[i] == b'(')
+    while i < bytes.len()
+        && (bytes[i].is_ascii_whitespace() || bytes[i] == b'=' || bytes[i] == b'(')
     {
         i += 1;
     }
@@ -385,7 +397,9 @@ fn marker_len(bytes: &[u8], i: usize) -> Option<usize> {
         b"id",
     ];
     for marker in MARKERS {
-        if bytes[i..].starts_with(marker) && boundary_before(bytes, i) && marker_tail(bytes, i + marker.len())
+        if bytes[i..].starts_with(marker)
+            && boundary_before(bytes, i)
+            && marker_tail(bytes, i + marker.len())
         {
             return Some(marker.len());
         }
@@ -407,8 +421,7 @@ fn call_at(bytes: &[u8], i: usize, name: &[u8]) -> bool {
 }
 
 fn boundary_before(bytes: &[u8], i: usize) -> bool {
-    i == 0
-        || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_'
+    i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_'
 }
 
 fn skip_ws_bytes(bytes: &[u8], mut i: usize) -> usize {

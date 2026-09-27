@@ -186,6 +186,8 @@ pip-log.txt
 data1098/
 # Local Canary fork (GPL) — reference only, do not vendor
 canary-bots-with-cast-main/
+# Local 8.0 reference tree — keep on disk, do not publish
+800src/
 # Legacy root paths (pre reference/ reorg)
 gameserver/
 tibia-game-master/

@@ -159,6 +159,8 @@ fn sim_player_base(name: &str, pos: Position) -> Player {
         town_id: 1,
         premium_ends_at: 0,
         stamina_minutes: 2520,
+        stamina_rest_ms: 0,
+        stamina_hunt_ms: 0,
         offline_training_ms: 0,
         spell_cooldown_end: HashMap::new(),
         spell_group_cooldown_end: HashMap::new(),

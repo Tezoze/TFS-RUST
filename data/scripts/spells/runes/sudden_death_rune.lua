@@ -23,7 +23,7 @@ combat:setParameter(COMBAT_PARAM_BLOCKARMOR, true)
 combat:setParameter(COMBAT_PARAM_BLOCKSHIELD, false)
 
 function onGetFormulaValues(player, level, magicLevel)
-	return player:computeDamage(150, 20)
+	return player:computeSpell(150, 20, 4.605, 28, 7.395, 46)
 end
 
 combat:setCallback(CALLBACK_PARAM_LEVELMAGICVALUE, "onGetFormulaValues")

@@ -357,30 +357,70 @@ impl GameWorld {
     }
 
     /// Upsert quest/storage for save export. `value == -1` erases the key
-    /// (`Player::addStorageValue` — `player.cpp`).
+    /// (`Player::addStorageValue` — `800src/player.cpp`).
+    /// Client 7.9+ sends `Your questlog has been updated.` once per round when
+    /// `Quests::isQuestStorage` matches. Login load does not call this path.
     pub fn player_set_storage(
         &mut self,
         cid: CreatureId,
         storage_id: u32,
         value: i32,
     ) -> Result<(), String> {
-        let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
-            return Err("set_storage: player not found".into());
+        // `getStorageValue` reports a missing key as 0 (`800src/player.cpp`).
+        let old_value = {
+            let Some(CreatureKind::Player(p)) = self.creatures.get(cid) else {
+                return Err("set_storage: player not found".into());
+            };
+            p.persist
+                .as_ref()
+                .and_then(|b| {
+                    b.storage
+                        .iter()
+                        .find(|(k, _)| *k == storage_id)
+                        .map(|(_, v)| *v)
+                })
+                .unwrap_or(0)
         };
-        let persist = p
-            .persist
-            .as_mut()
-            .ok_or_else(|| "set_storage: player has no persist baseline".to_string())?;
-        if value == -1 {
-            persist.storage.retain(|(k, _)| *k != storage_id);
-            return Ok(());
+        {
+            let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
+                return Err("set_storage: player not found".into());
+            };
+            let persist = p
+                .persist
+                .as_mut()
+                .ok_or_else(|| "set_storage: player has no persist baseline".to_string())?;
+            if value == -1 {
+                persist.storage.retain(|(k, _)| *k != storage_id);
+                return Ok(());
+            }
+            if let Some(slot) = persist.storage.iter_mut().find(|(k, _)| *k == storage_id) {
+                slot.1 = value;
+            } else {
+                persist.storage.push((storage_id, value));
+            }
         }
-        if let Some(slot) = persist.storage.iter_mut().find(|(k, _)| *k == storage_id) {
-            slot.1 = value;
-        } else {
-            persist.storage.push((storage_id, value));
-        }
+        self.questlog_toast(cid, storage_id, value, old_value);
         Ok(())
+    }
+
+    /// `Player::addStorageValue` quest line — `MESSAGE_EVENT_ADVANCE` (`0x13`).
+    fn questlog_toast(&mut self, cid: CreatureId, key: u32, value: i32, old_value: i32) {
+        if self.codec.version().raw() < 790 {
+            return;
+        }
+        if !self.quests.is_quest_storage(key, value, old_value) {
+            return;
+        }
+        if self.questlog_toasted_round.get(&cid) == Some(&self.round_nr) {
+            return;
+        }
+        self.questlog_toasted_round.insert(cid, self.round_nr);
+        let id = cid.data().as_ffi();
+        let _ = self.lua_script_player_send_text_message(
+            id,
+            0x13,
+            "Your questlog has been updated.".to_string(),
+        );
     }
 
     /// Condition timer rounds for poison/fire (0 when absent).

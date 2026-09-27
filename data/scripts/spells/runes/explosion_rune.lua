@@ -24,7 +24,7 @@ combat:setParameter(COMBAT_PARAM_BLOCKSHIELD, false)
 combat:setArea(createCombatArea(AREA_CROSS1X1))
 
 function onGetFormulaValues(player, level, magicLevel)
-	return player:computeDamage(60, 40)
+	return player:computeSpell(60, 40, 0, 0, 4.8, 0)
 end
 
 combat:setCallback(CALLBACK_PARAM_LEVELMAGICVALUE, "onGetFormulaValues")

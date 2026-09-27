@@ -668,34 +668,66 @@ impl GameWorld {
             tracing::warn!(?pos, "player corpse could not be placed on tile");
         }
 
-        if lose_none {
-            return;
+        // M7 — LOSE_INVENTORY_ALL drops everything; LOSE_INVENTORY_SOME uses 10% chance
+        // + containers always (`crmain.cc:276-281`). KEEP_INVENTORY / AoL skip the drop
+        // but still receive the 7.9+ bag below.
+        if !lose_none {
+            for slot in 1u8..=10u8 {
+                let Some(iid) = self.get_player_inventory_item(victim, slot) else {
+                    continue;
+                };
+                let drop = if lose_all {
+                    true
+                } else {
+                    let is_container = self
+                        .items
+                        .get(iid)
+                        .is_some_and(|i| self.items_db.is_container(i.item_type));
+                    is_container || self.parity_rand_mod(10) == 0
+                };
+                if !drop {
+                    continue;
+                }
+                if self
+                    .internal_remove_item_from_inventory_slot(victim, slot, iid)
+                    .is_ok()
+                {
+                    self.move_body_item_into_corpse(corpse_id, iid);
+                }
+            }
         }
 
-        // M7 — LOSE_INVENTORY_ALL drops everything; LOSE_INVENTORY_SOME uses 10% chance
-        // + containers always (`crmain.cc:276-281`).
-        for slot in 1u8..=10u8 {
-            let Some(iid) = self.get_player_inventory_item(victim, slot) else {
-                continue;
-            };
-            let drop = if lose_all {
-                true
-            } else {
-                let is_container = self
-                    .items
-                    .get(iid)
-                    .is_some_and(|i| self.items_db.is_container(i.item_type));
-                is_container || self.parity_rand_mod(10) == 0
-            };
-            if !drop {
-                continue;
-            }
-            if self
-                .internal_remove_item_from_inventory_slot(victim, slot, iid)
-                .is_ok()
-            {
-                self.move_body_item_into_corpse(corpse_id, iid);
-            }
+        // `Player::dropLoot` — `800src/player.cpp`. Client 7.9+ puts a bag in the
+        // backpack slot when that slot is empty after the drop (including AoL / keep).
+        self.grant_empty_backpack_bag(victim);
+    }
+
+    fn grant_empty_backpack_bag(&mut self, victim: CreatureId) {
+        const ITEM_BAG: u16 = 2853; // `800src/const.h` `ITEM_BAG`
+        const SLOT_BACKPACK: u8 = 3; // `CONST_SLOT_BACKPACK`
+        if self.codec.version().raw() < 790 {
+            return;
+        }
+        if self
+            .get_player_inventory_item(victim, SLOT_BACKPACK)
+            .is_some()
+        {
+            return;
+        }
+        if !self.items_db.items.contains_key(&ITEM_BAG) {
+            return;
+        }
+        let iid = self.items.insert(crate::item::Item::new(ITEM_BAG, 1));
+        if self
+            .equip_item_to_inventory_slot(
+                victim,
+                SLOT_BACKPACK,
+                iid,
+                crate::player_inventory_notifications::NotificationParent::None,
+            )
+            .is_err()
+        {
+            self.items.remove(iid);
         }
     }
 }
@@ -922,5 +954,79 @@ mod tests {
             }),
             "login placeCreature must broadcast CONST_ME_TELEPORT (11); packets={pkts:?}"
         );
+    }
+
+    fn enable_death_bag(world: &mut GameWorld, version: tfs_rust_common::ProtocolVersion) {
+        let mut db = (*world.items_db).clone();
+        db.items
+            .insert(2853, crate::test_support::bag_item_type(2853));
+        world.items_db = std::sync::Arc::new(db);
+        world.codec = tfs_rust_net::Codec::from_version(version).expect("codec");
+    }
+
+    /// Client 7.9+ `Player::dropLoot` fills an empty backpack slot with item 2853.
+    #[test]
+    fn death_from_790_puts_bag_in_empty_backpack_slot() {
+        let mut world = minimal_world();
+        enable_death_bag(&mut world, tfs_rust_common::ProtocolVersion::V800);
+        let cid = insert_player(&mut world, {
+            let mut p = test_player("Bag", Position::new(100, 100, 7));
+            p.exact_lethal_blow = false;
+            p
+        });
+
+        world.player_death_drop_inventory(cid);
+
+        let iid = world
+            .get_player_inventory_item(cid, 3)
+            .expect("backpack bag");
+        assert_eq!(world.items.get(iid).unwrap().item_type, 2853);
+    }
+
+    #[test]
+    fn death_on_772_does_not_grant_bag() {
+        let mut world = minimal_world();
+        enable_death_bag(&mut world, tfs_rust_common::ProtocolVersion::V772);
+        let cid = insert_player(&mut world, {
+            let mut p = test_player("NoBag", Position::new(100, 100, 7));
+            p.exact_lethal_blow = false;
+            p
+        });
+
+        world.player_death_drop_inventory(cid);
+
+        assert!(world.get_player_inventory_item(cid, 3).is_none());
+    }
+
+    #[test]
+    fn death_does_not_replace_a_kept_backpack() {
+        let mut world = minimal_world();
+        enable_death_bag(&mut world, tfs_rust_common::ProtocolVersion::V800);
+        let mut groups = std::collections::HashMap::new();
+        let mut flags = std::collections::HashMap::new();
+        flags.insert("keepinventory".to_string(), true);
+        groups.insert(
+            1u16,
+            tfs_rust_content::groups::Group {
+                id: 1,
+                name: "test".into(),
+                access: true,
+                max_depot_items: 0,
+                max_vip_entries: 0,
+                flags,
+            },
+        );
+        world.groups = std::sync::Arc::new(tfs_rust_content::groups::GroupDatabase { groups });
+        let cid = insert_player(&mut world, {
+            let mut p = test_player("Keep", Position::new(100, 100, 7));
+            p.group_id = 1;
+            p.exact_lethal_blow = false;
+            p
+        });
+        let backpack = place_item(&mut world, cid, 3, 2853);
+
+        world.player_death_drop_inventory(cid);
+
+        assert_eq!(world.get_player_inventory_item(cid, 3), Some(backpack));
     }
 }

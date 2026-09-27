@@ -6,7 +6,7 @@ combat:setParameter(COMBAT_PARAM_AGGRESSIVE, false)
 combat:setParameter(COMBAT_PARAM_TARGETCASTERORTOPMOST, true)
 
 function onGetFormulaValues(player, level, magicLevel)
-	return player:computeHealing(20, 10, true)
+	return player:computeHealSpell(20, 10, 1.4, 8, 1.795, 11, true)
 end
 
 combat:setCallback(CALLBACK_PARAM_LEVELMAGICVALUE, "onGetFormulaValues")

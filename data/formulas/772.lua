@@ -40,7 +40,7 @@ formulas = {
     offensiveDef = 0.60, defensiveDef = 1.80,
   },
 
-  spell = { levelMult = 2, magicMult = 3 },  -- ComputeDamage; Player:computeDamage reads these
+  spell = { mode = "scale", levelMult = 2, magicMult = 3, levelDiv = 5 },  -- ComputeDamage; base * (level*2 + ml*3) / 100
   pvpExpCap = { num = 11, den = 10 },  -- MaxLevel = (victimL * num) / den for PvP kill XP scale
   playerSpeed = "balanced",      -- "772" | "retail" | "balanced" (loaded once at startup)
 
@@ -87,6 +87,9 @@ formulas = {
     extraInstruments = false,
     spellbookMagicLevel = false,
   },
+
+  -- Stamina starts at protocol 780. hours = 0 keeps the system off.
+  stamina = { hours = 0, regenSeconds = 180, drainSeconds = 60 },
 }
 
 --- 772 `TSkillProbe::Probe(diff, prob)` (`crskill.cc:546`).

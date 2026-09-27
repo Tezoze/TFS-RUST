@@ -91,6 +91,8 @@ fn minimal_player(next_action_until: Option<u64>) -> Player {
         town_id: 1,
         premium_ends_at: 0,
         stamina_minutes: 0,
+        stamina_rest_ms: 0,
+        stamina_hunt_ms: 0,
         offline_training_ms: 0,
         spell_cooldown_end: HashMap::new(),
         spell_group_cooldown_end: HashMap::new(),

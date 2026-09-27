@@ -37,12 +37,15 @@ pub enum CompiledSpellDamage {
     LevelMagic {
         base: i32,
         variation: i32,
-        /// 3rd arg — decompile flag & 8 (`ComputeDamage` min clamp).
+        /// 3rd arg of `computeDamage`, or the bool after the additive coeffs.
         limit_min: bool,
-        /// 4th arg — decompile flag & 4 (`ComputeDamage` max clamp).
+        /// 4th arg of `computeDamage`, or the second bool after the additive coeffs.
         limit_max: bool,
-        /// `computeHealing` instead of `computeDamage` — positive magnitudes.
+        /// `computeHealing` / `computeHealSpell` — positive magnitudes.
         healing: bool,
+        /// Post-8.0 `(magicMin, baseMin, magicMax, baseMax)` in thousandths.
+        /// `None` keeps the 772 scale even when the profile mode is additive.
+        additive: Option<AdditiveSpell>,
     },
     Skill {
         base: i32,
@@ -50,6 +53,26 @@ pub enum CompiledSpellDamage {
         limit_min: bool,
         limit_max: bool,
     },
+}
+
+/// Per-spell additive coefficients, stored as thousandths so the compile result stays `Eq`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AdditiveSpell {
+    pub magic_min_milli: i32,
+    pub base_min_milli: i32,
+    pub magic_max_milli: i32,
+    pub base_max_milli: i32,
+}
+
+impl AdditiveSpell {
+    pub fn to_f64(self) -> (f64, f64, f64, f64) {
+        (
+            f64::from(self.magic_min_milli) / 1000.0,
+            f64::from(self.base_min_milli) / 1000.0,
+            f64::from(self.magic_max_milli) / 1000.0,
+            f64::from(self.base_max_milli) / 1000.0,
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -637,6 +660,12 @@ fn extract_function_body(content: &str, name: &str) -> Option<String> {
 }
 
 fn parse_level_magic_damage(body: &str) -> Option<CompiledSpellDamage> {
+    if let Some(parsed) = parse_compute_spell_call(body, "computeHealSpell(", true) {
+        return Some(parsed);
+    }
+    if let Some(parsed) = parse_compute_spell_call(body, "computeSpell(", false) {
+        return Some(parsed);
+    }
     let healing = body.contains("computeHealing(");
     let marker = if healing {
         "computeHealing("
@@ -660,7 +689,46 @@ fn parse_level_magic_damage(body: &str) -> Option<CompiledSpellDamage> {
         limit_min,
         limit_max,
         healing,
+        additive: None,
     })
+}
+
+/// `computeSpell(strength, variation, magicMin, baseMin, magicMax, baseMax[, limitMin[, limitMax]])`.
+fn parse_compute_spell_call(
+    body: &str,
+    marker: &str,
+    healing: bool,
+) -> Option<CompiledSpellDamage> {
+    let idx = body.find(marker)? + marker.len();
+    let tail = &body[idx..];
+    let end = tail.find(')')?;
+    let args: Vec<&str> = tail[..end].split(',').map(str::trim).collect();
+    if args.len() < 6 {
+        return None;
+    }
+    let base: i32 = args[0].parse().ok()?;
+    let variation: i32 = args[1].parse().ok()?;
+    let additive = AdditiveSpell {
+        magic_min_milli: parse_milli(args[2])?,
+        base_min_milli: parse_milli(args[3])?,
+        magic_max_milli: parse_milli(args[4])?,
+        base_max_milli: parse_milli(args[5])?,
+    };
+    let limit_min = args.get(6).is_some_and(|a| *a == "true");
+    let limit_max = args.get(7).is_some_and(|a| *a == "true");
+    Some(CompiledSpellDamage::LevelMagic {
+        base,
+        variation,
+        limit_min,
+        limit_max,
+        healing,
+        additive: Some(additive),
+    })
+}
+
+fn parse_milli(token: &str) -> Option<i32> {
+    let value: f64 = token.parse().ok()?;
+    Some((value * 1000.0).round() as i32)
 }
 
 fn parse_skill_damage(body: &str) -> Option<CompiledSpellDamage> {
@@ -901,6 +969,12 @@ mod tests {
                 limit_min: false,
                 limit_max: false,
                 healing: false,
+                additive: Some(AdditiveSpell {
+                    magic_min_milli: 1403,
+                    base_min_milli: 8000,
+                    magic_max_milli: 2203,
+                    base_max_milli: 13000,
+                }),
             }
         );
     }
@@ -985,7 +1059,7 @@ mod tests {
         let compiled = compile_native_spell_combats(&data_dir());
         let entry = compiled
             .iter()
-            .find(|e| e.key == "rune:2302")
+            .find(|e| e.key == "rune:3189")
             .expect("fireball rune");
         assert!(!entry.need_direction);
         assert_eq!(
@@ -996,6 +1070,12 @@ mod tests {
                 limit_min: true,
                 limit_max: false,
                 healing: false,
+                additive: Some(AdditiveSpell {
+                    magic_min_milli: 1810,
+                    base_min_milli: 10000,
+                    magic_max_milli: 3000,
+                    base_max_milli: 18000,
+                }),
             }
         );
         assert_eq!(entry.distance_effect, 4);
@@ -1015,7 +1095,7 @@ mod tests {
         let compiled = compile_native_spell_combats(&data_dir());
         let entry = compiled
             .iter()
-            .find(|e| e.key == "rune:2273")
+            .find(|e| e.key == "rune:3160")
             .expect("ultimate healing rune");
         assert_eq!(
             entry.damage,
@@ -1025,6 +1105,12 @@ mod tests {
                 limit_min: true,
                 limit_max: false,
                 healing: true,
+                additive: Some(AdditiveSpell {
+                    magic_min_milli: 7220,
+                    base_min_milli: 44000,
+                    magic_max_milli: 12790,
+                    base_max_milli: 79000,
+                }),
             }
         );
     }

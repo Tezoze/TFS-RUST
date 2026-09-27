@@ -278,6 +278,10 @@ pub fn handle_creature_death(
             if share > 0
                 && let Some(CreatureKind::Player(k)) = creatures.get_mut(*killer_id)
             {
+                // `800src/player.cpp` `gainExperience`: a bar at 0 grants nothing.
+                if mechanics.stamina_max_minutes > 0 && k.stamina_minutes == 0 {
+                    continue;
+                }
                 let old_level = k.level;
                 if k.add_experience(share, step_speed_model) {
                     leveled_killers.push(*killer_id);

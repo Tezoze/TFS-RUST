@@ -82,6 +82,7 @@ impl GameWorld {
         let t0 = Instant::now();
         if fired.creatures {
             self.process_creatures();
+            self.tick_stamina();
         }
         let creatures_us = t0.elapsed().as_micros();
 

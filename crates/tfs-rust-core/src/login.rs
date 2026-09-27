@@ -237,6 +237,8 @@ pub fn player_from_loaded(
         town_id: p.town_id,
         premium_ends_at: data.premium_ends_at,
         stamina_minutes: p.stamina,
+        stamina_rest_ms: 0,
+        stamina_hunt_ms: 0,
         // C++ `iologindata.cpp` ~345: `offlineTrainingTime = result->getNumber("offlinetraining_time") * 1000;`
         // DB column is in seconds; TFS internal representation is milliseconds.
         offline_training_ms: u32::from(p.offlinetraining_time) * 1000,
@@ -516,6 +518,17 @@ pub fn apply_loaded_player(
         world.mechanics.profile.step_speed,
         &world.vocations,
         &world.groups,
+    );
+    let lastlogout = player
+        .persist
+        .as_ref()
+        .map(|b| b.player_row.lastlogout)
+        .unwrap_or(0);
+    player.stamina_minutes = crate::stamina::stamina_after_login(
+        player.stamina_minutes,
+        lastlogout,
+        world.mechanics.profile.stamina_max_minutes,
+        world.mechanics.profile.stamina_regen_seconds,
     );
     player.operating_system = operating_system;
     player.otclient_v8 = otclient_v8;

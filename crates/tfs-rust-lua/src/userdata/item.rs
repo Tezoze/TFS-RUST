@@ -9,8 +9,7 @@ use crate::context::{CURRENT_CTX, CreatureRef, ItemData, ItemRef, LuaContext};
 use crate::lua_mutation::{
     LuaMoveDestination, call_lua_item_decay, call_lua_item_move_to, call_lua_item_remove,
     call_lua_item_set_decay, call_lua_item_transform, call_lua_set_action_id,
-    call_lua_set_custom_attribute,
-    call_lua_set_store_item, call_lua_set_unique_id,
+    call_lua_set_custom_attribute, call_lua_set_store_item, call_lua_set_unique_id,
 };
 use crate::userdata::container::ContainerRef;
 use crate::userdata::position::PositionRef;

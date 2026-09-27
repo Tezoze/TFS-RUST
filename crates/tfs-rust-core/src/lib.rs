@@ -117,6 +117,7 @@ mod spawn_placement;
 pub mod spell;
 mod spell_learn;
 pub mod stability;
+mod stamina;
 mod stepping_tiles;
 mod subsystem_counters;
 pub mod talkactions;

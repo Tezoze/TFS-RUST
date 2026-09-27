@@ -523,6 +523,7 @@ async fn run_on_game_thread(io_handle: tokio::runtime::Handle) -> anyhow::Result
     );
     world.net_load = crate::net_load::NetLoad::new(net_recv_bytes.clone(), net_send_bytes.clone());
     world.outfits_db = outfits_db;
+    world.quests = content.quests;
     world.scheduler = Some(scheduler.clone());
     world.stepping_tiles = crate::stepping_tiles::load_from_data_dir(&data_path);
     world.door_ids = crate::doors::load_from_data_dir(&data_path);

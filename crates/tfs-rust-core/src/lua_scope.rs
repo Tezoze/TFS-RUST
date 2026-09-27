@@ -453,6 +453,56 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
                 Err("player not found".into())
             }
         }
+        LuaMutation::PlayerSetStamina {
+            creature_id,
+            minutes,
+        } => {
+            let ok = unsafe { &mut *world }.player_set_stamina_u64(creature_id, minutes);
+            if ok {
+                Ok(())
+            } else {
+                Err("player not found".into())
+            }
+        }
+        LuaMutation::PlayerAddOutfit {
+            creature_id,
+            look_type,
+            addons,
+        } => {
+            let ok = unsafe { &mut *world }.player_add_outfit_u64(creature_id, look_type, addons);
+            if ok {
+                Ok(())
+            } else {
+                Err("player not found".into())
+            }
+        }
+        LuaMutation::PlayerRemoveOutfit {
+            creature_id,
+            look_type,
+        } => match unsafe { &mut *world }.player_remove_outfit_u64(creature_id, look_type) {
+            Some(removed) => {
+                set_mutation_bool_result(removed);
+                Ok(())
+            }
+            None => Err("player not found".into()),
+        },
+        LuaMutation::PlayerRemoveOutfitAddon {
+            creature_id,
+            look_type,
+            addons,
+        } => {
+            match unsafe { &mut *world }.player_remove_outfit_addon_u64(
+                creature_id,
+                look_type,
+                addons,
+            ) {
+                Some(removed) => {
+                    set_mutation_bool_result(removed);
+                    Ok(())
+                }
+                None => Err("player not found".into()),
+            }
+        }
         LuaMutation::PlayerSetPremiumEndsAt {
             creature_id,
             ends_at,

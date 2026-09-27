@@ -666,6 +666,30 @@ pub trait ScriptContext {
         (lo.min(hi), lo.max(hi))
     }
 
+    /// `player:computeSpell` / `computeHealSpell`.
+    ///
+    /// `additive` is `(magicMin, baseMin, magicMax, baseMax)`. Scale mode ignores it
+    /// and uses [`compute_magic_damage_range`]. Additive mode uses
+    /// `floor(level / levelDiv) + magicLevel * c + y` when the four numbers are present.
+    fn compute_spell_range(
+        &self,
+        creature_id: ScriptCreatureId,
+        damage: i32,
+        variation: i32,
+        limit_minimum: bool,
+        limit_maximum: bool,
+        additive: Option<(f64, f64, f64, f64)>,
+    ) -> (i32, i32) {
+        let _ = additive;
+        self.compute_magic_damage_range(
+            creature_id,
+            damage,
+            variation,
+            limit_minimum,
+            limit_maximum,
+        )
+    }
+
     /// Creatures standing on the given area offsets around `(cx,cy,cz)`.
     /// PC-3a Phase 3: `combat:getTargets` for `poison_storm.lua`.
     fn get_creatures_on_area(
@@ -1056,6 +1080,23 @@ pub trait ScriptContext {
     /// NPC-7: `player:getBankBalance()` — `PlayerEconomy.balance`.
     fn get_player_bank_balance(&self, creature_id: ScriptCreatureId) -> Option<u64> {
         let _ = creature_id;
+        None
+    }
+
+    /// `player:getStamina()` — `800src/player.h` `getStaminaMinutes`.
+    fn get_player_stamina(&self, creature_id: ScriptCreatureId) -> Option<u16> {
+        let _ = creature_id;
+        None
+    }
+
+    /// `player:hasOutfit(lookType, addon)` — `Player::canWear` (`800src/player.cpp`).
+    fn player_has_outfit(
+        &self,
+        creature_id: ScriptCreatureId,
+        look_type: u16,
+        addons: u8,
+    ) -> Option<bool> {
+        let _ = (creature_id, look_type, addons);
         None
     }
 

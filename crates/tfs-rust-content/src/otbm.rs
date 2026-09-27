@@ -216,7 +216,11 @@ impl OtbmFile {
             }
         } else if node.node_type == OTBM_TILE || node.node_type == OTBM_HOUSETILE {
             let props = unescaped_props(&self.data, node, &self.path)?;
-            let mut cursor = if node.node_type == OTBM_HOUSETILE { 6 } else { 2 };
+            let mut cursor = if node.node_type == OTBM_HOUSETILE {
+                6
+            } else {
+                2
+            };
             while cursor < props.len() {
                 let attr = props[cursor];
                 cursor += 1;

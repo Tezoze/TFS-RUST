@@ -464,6 +464,27 @@ pub fn spell_damage_range(
     (lo.min(hi), lo.max(hi))
 }
 
+/// Post-8.0 spell range: `floor(level / levelDiv) + magicLevel * c + y`.
+///
+/// The 100% cap from `ComputeDamage` does not apply. `c` and `y` are per spell.
+/// Level is integer-divided first, then the sum is floored to the dealt amount.
+pub fn additive_spell_range(
+    level_div: i32,
+    level: i32,
+    magic_level: i32,
+    magic_min: f64,
+    base_min: f64,
+    magic_max: f64,
+    base_max: f64,
+) -> (i32, i32) {
+    let level_term = level.div_euclid(level_div.max(1));
+    let min = f64::from(level_term) + f64::from(magic_level) * magic_min + base_min;
+    let max = f64::from(level_term) + f64::from(magic_level) * magic_max + base_max;
+    let lo = min.floor() as i32;
+    let hi = max.floor() as i32;
+    (lo.min(hi), lo.max(hi))
+}
+
 // ---------------------------------------------------------------------------
 // B4.5 — experience & skills
 // ---------------------------------------------------------------------------
@@ -781,6 +802,16 @@ mod tests {
     }
 
     #[test]
+    fn additive_spell_range_is_level_over_five_plus_magic() {
+        // level 50 → 10. ml 30, strike coeffs 1.403/8 and 2.203/13.
+        let (lo, hi) = additive_spell_range(5, 50, 30, 1.403, 8.0, 2.203, 13.0);
+        assert_eq!(lo, 60);
+        assert_eq!(hi, 89);
+        // Not a multiple of 5: floor, not level * 0.2 rounded.
+        let (lo, hi) = additive_spell_range(5, 12, 0, 0.0, 0.0, 0.0, 0.0);
+        assert_eq!((lo, hi), (2, 2));
+    }
+
     fn spell_damage_range_matches_compute_damage() {
         let m = p772();
         // level=20, magic=10 → mult=70; damage=45, variation=10 → (24, 38)

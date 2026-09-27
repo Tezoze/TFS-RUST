@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use tfs_rust_common::ProtocolVersion;
 use tfs_rust_core::formulas::{
     ArmorReduction, DestroyableStoneTuning, DistanceKeep, FishingTuning, MechanicsProfile,
-    PathCostModel, PathSearchModel, SpawnNearPlayer, StepSpeedModel, WeakestTargetMetric,
-    load_mechanics,
+    PathCostModel, PathSearchModel, SpawnNearPlayer, SpellFormulaMode, StepSpeedModel,
+    WeakestTargetMetric, load_mechanics,
 };
 
 /// Workspace `data/` dir (two levels up from this crate's manifest).
@@ -88,18 +88,26 @@ fn shipped_772_formulas_match_profile_defaults() {
 }
 
 #[test]
-fn shipped_800_formulas_match_772() {
+fn shipped_800_formulas_match_772_except_stamina() {
     let dir = data_dir();
     if !dir.join("formulas").join("800.lua").is_file() {
         eprintln!("skipping: data/formulas/800.lua not present");
         return;
     }
-    assert_eq!(
-        MechanicsProfile::for_version(ProtocolVersion::V800),
-        MechanicsProfile::for_version(ProtocolVersion::V772),
-    );
     let loaded_800 = load_mechanics(&dir, ProtocolVersion::V800);
     let loaded_772 = load_mechanics(&dir, ProtocolVersion::V772);
-    assert_eq!(loaded_800.profile, loaded_772.profile);
+    assert_eq!(loaded_800.profile.stamina_max_minutes, 56 * 60);
+    assert_eq!(loaded_800.profile.stamina_regen_seconds, 180);
+    assert_eq!(loaded_800.profile.stamina_drain_seconds, 60);
+    assert_eq!(loaded_772.profile.stamina_max_minutes, 0);
+    let mut era_800 = loaded_800.profile;
+    assert_eq!(
+        era_800.spell_coeff.mode,
+        SpellFormulaMode::Additive
+    );
+    assert_eq!(era_800.spell_coeff.level_div, 5);
+    era_800.stamina_max_minutes = 0;
+    era_800.spell_coeff = loaded_772.profile.spell_coeff;
+    assert_eq!(era_800, loaded_772.profile);
     assert!(loaded_800.hooks.weapon_damage(10, 50, 1, 8).is_none());
 }

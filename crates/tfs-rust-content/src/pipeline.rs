@@ -6,6 +6,7 @@ use crate::monsters::MonsterDatabase;
 use crate::mounts::MountDatabase;
 use crate::otbm::{MapData, OtbmFile, OtbmLoader};
 use crate::outfits::OutfitDatabase;
+use crate::quests::QuestCatalog;
 use crate::raids::{RaidCatalog, load_raids};
 use crate::spawns::load_spawn_xml;
 use crate::vocations::VocationRegistry;
@@ -31,6 +32,8 @@ pub struct Content {
     pub house_prices: Option<HousePrices>,
     /// `data/raids/raids.xml` catalog. Empty when the file is missing.
     pub raids: RaidCatalog,
+    /// `data/XML/quests.xml` — quest-storage toast (`800src/quests.cpp`). Empty if missing.
+    pub quests: QuestCatalog,
 }
 
 /// Load server content. `map_otbm_relative` is under `data_dir` (e.g. `world/world.otbm`);
@@ -163,6 +166,19 @@ pub async fn load_all(
         }
     };
 
+    let quests_path = data_dir.join("XML/quests.xml");
+    let quests = if quests_path.is_file() {
+        match QuestCatalog::load(&quests_path) {
+            Ok(catalog) => catalog,
+            Err(e) => {
+                tracing::warn!(error = %e, "quest catalog load failed; continuing with empty catalog");
+                QuestCatalog::default()
+            }
+        }
+    } else {
+        QuestCatalog::default()
+    };
+
     info!("Content pipeline loaded successfully.");
 
     Ok(Content {
@@ -177,6 +193,7 @@ pub async fn load_all(
         houses,
         house_prices,
         raids,
+        quests,
     })
 }
 

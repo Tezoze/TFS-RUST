@@ -290,11 +290,27 @@ pub struct ConditionTicks {
     pub poison_start: i32,
 }
 
-/// Spell damage coefficients — `damage * (level_mult*level + magic_mult*magicLevel) / 100` (`magic.cc:784`).
+/// Which spell expression `player:computeSpell` uses.
+///
+/// `Scale` is 772 `ComputeDamage` (`magic.cc:784`).
+/// `Additive` is the post-8.0 range `floor(level / levelDiv) + magicLevel * c + y`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpellFormulaMode {
+    Scale,
+    Additive,
+}
+
+/// Spell damage coefficients.
+///
+/// Scale: `damage * (level_mult*level + magic_mult*magicLevel) / 100` (`magic.cc:784`).
+/// Additive: per-spell `c` / `y` live on the spell; `level_div` is shared (`800.lua`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SpellCoeff {
+    pub mode: SpellFormulaMode,
     pub level_mult: i32,
     pub magic_mult: i32,
+    /// `floor(level / level_div)` in additive mode. `5` → +1 per 5 levels.
+    pub level_div: i32,
 }
 
 /// Classic NPC dialogue / stimulus knobs (772 `TalkStimulus` / `IdleStimulus` / `react`).
@@ -451,6 +467,14 @@ pub struct MechanicsProfile {
     pub skill_timers: SkillTimers,
     /// `ProcessMonsterRaids` per-wave spawn cap (`crmain.cc:2046-2048` `NARRAY(Spawned)`).
     pub raid_wave_max_count: u32,
+    /// Max stamina minutes. `0` turns the system off (772). From 780 the pool is
+    /// `stamina.hours` in `data/formulas/<era>.lua`. 800 default is 56 hours
+    /// (`800src/player.h` `staminaMinutes = 3360`).
+    pub stamina_max_minutes: u16,
+    /// Real seconds at rest to recover 1 stamina minute. `0` disables regen.
+    pub stamina_regen_seconds: u32,
+    /// Real seconds in combat to spend 1 stamina minute. `0` disables drain.
+    pub stamina_drain_seconds: u32,
 }
 
 /// Fishing catch-success model (`data/scripts/actions/tools/fishing_rod.lua`).
@@ -574,8 +598,7 @@ impl MechanicsProfile {
     /// Built-in defaults per era — fallback when `data/formulas/<v>.lua` is absent.
     pub fn for_version(version: ProtocolVersion) -> Self {
         let mut p = match version.raw() {
-            // 800 shares this profile. `data/formulas/800.lua` is the branch file;
-            // it is currently identical to `772.lua`.
+            // 800 shares this profile except the stamina pool (`data/formulas/800.lua`).
             772 | 800 => Self {
                 beat_ms: 50,
                 // 772 `.tibia` config sets Beat=50 (config.cc:187 overrides default 200);
@@ -620,8 +643,14 @@ impl MechanicsProfile {
                 pvp_exp_cap_num: 11,
                 pvp_exp_cap_den: 10,
                 spell_coeff: SpellCoeff {
+                    mode: if version.raw() == 800 {
+                        SpellFormulaMode::Additive
+                    } else {
+                        SpellFormulaMode::Scale
+                    },
                     level_mult: 2,
                     magic_mult: 3,
+                    level_div: 5,
                 },
                 level_exp: LevelExpModel::DeltaPoly,
                 level_exp_delta: 100,
@@ -649,6 +678,9 @@ impl MechanicsProfile {
                 item_regen_mana: 4,
                 skill_timers: SkillTimers::classic_772(),
                 raid_wave_max_count: 64,
+                stamina_max_minutes: if version.raw() == 800 { 56 * 60 } else { 0 },
+                stamina_regen_seconds: 180,
+                stamina_drain_seconds: 60,
             },
             1098 => Self {
                 beat_ms: 50,
@@ -691,8 +723,10 @@ impl MechanicsProfile {
                 pvp_exp_cap_num: 11,
                 pvp_exp_cap_den: 10,
                 spell_coeff: SpellCoeff {
+                    mode: SpellFormulaMode::Additive,
                     level_mult: 2,
                     magic_mult: 3,
+                    level_div: 5,
                 },
                 level_exp: LevelExpModel::Tfs,
                 level_exp_delta: 100,
@@ -721,6 +755,9 @@ impl MechanicsProfile {
                 item_regen_mana: 4,
                 skill_timers: SkillTimers::classic_772(),
                 raid_wave_max_count: 64,
+                stamina_max_minutes: 56 * 60,
+                stamina_regen_seconds: 180,
+                stamina_drain_seconds: 60,
             },
             other => unreachable!("unsupported protocol version {other}"),
         };
@@ -1098,9 +1135,16 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
     }
 
     if let Ok(Value::Table(sp)) = formulas.get::<Value>("spell") {
+        let mode = match str_or(&sp, "mode", "").as_str() {
+            "additive" => SpellFormulaMode::Additive,
+            "scale" => SpellFormulaMode::Scale,
+            _ => p.spell_coeff.mode,
+        };
         p.spell_coeff = SpellCoeff {
+            mode,
             level_mult: num_or(lua, &sp, "levelMult", p.spell_coeff.level_mult as i64) as i32,
             magic_mult: num_or(lua, &sp, "magicMult", p.spell_coeff.magic_mult as i64) as i32,
+            level_div: num_or(lua, &sp, "levelDiv", p.spell_coeff.level_div as i64).max(1) as i32,
         };
     }
 
@@ -1293,6 +1337,31 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
         ) as i32;
     }
 
+    if let Ok(Value::Table(stamina)) = formulas.get::<Value>("stamina") {
+        let hours = num_or(
+            lua,
+            &stamina,
+            "hours",
+            i64::from(p.stamina_max_minutes) / 60,
+        )
+        .max(0);
+        p.stamina_max_minutes = hours.saturating_mul(60).min(i64::from(u16::MAX)) as u16;
+        p.stamina_regen_seconds = num_or(
+            lua,
+            &stamina,
+            "regenSeconds",
+            i64::from(p.stamina_regen_seconds),
+        )
+        .max(0) as u32;
+        p.stamina_drain_seconds = num_or(
+            lua,
+            &stamina,
+            "drainSeconds",
+            i64::from(p.stamina_drain_seconds),
+        )
+        .max(0) as u32;
+    }
+
     if let Ok(Value::Table(creatures)) = formulas.get::<Value>("creatures") {
         p.item_regen_hp = num_or(lua, &creatures, "itemRegenHp", p.item_regen_hp as i64) as i32;
         p.item_regen_mana =
@@ -1364,11 +1433,19 @@ mod tests {
     }
 
     #[test]
-    fn defaults_800_match_772_profile() {
-        assert_eq!(
-            MechanicsProfile::for_version(ProtocolVersion::V800),
-            MechanicsProfile::for_version(ProtocolVersion::V772),
-        );
+    fn defaults_800_match_772_except_stamina() {
+        let mut era_800 = MechanicsProfile::for_version(ProtocolVersion::V800);
+        let era_772 = MechanicsProfile::for_version(ProtocolVersion::V772);
+        assert_eq!(era_800.stamina_max_minutes, 56 * 60);
+        assert_eq!(era_800.stamina_regen_seconds, 180);
+        assert_eq!(era_800.stamina_drain_seconds, 60);
+        assert_eq!(era_772.stamina_max_minutes, 0);
+        assert_eq!(era_800.spell_coeff.mode, SpellFormulaMode::Additive);
+        assert_eq!(era_800.spell_coeff.level_div, 5);
+        assert_eq!(era_772.spell_coeff.mode, SpellFormulaMode::Scale);
+        era_800.stamina_max_minutes = 0;
+        era_800.spell_coeff = era_772.spell_coeff;
+        assert_eq!(era_800, era_772);
     }
 
     #[test]

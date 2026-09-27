@@ -212,9 +212,11 @@ fn resolve_damage(
             limit_min,
             limit_max,
             healing,
+            additive,
         } => {
+            let additive = additive.map(|coeffs| coeffs.to_f64());
             let (lo, hi) = world
-                .compute_magic_damage_range(cid_u64, *base, *variation, *limit_min, *limit_max);
+                .compute_spell_range(cid_u64, *base, *variation, *limit_min, *limit_max, additive);
             if *healing { (lo, hi) } else { (-lo, -hi) }
         }
         CompiledSpellDamage::Skill {

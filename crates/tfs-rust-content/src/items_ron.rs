@@ -535,11 +535,7 @@ impl RonItem {
             "absorbpercentpoison",
             self.absorb_percent_poison,
         );
-        push_opt(
-            &mut attrs,
-            "absorbpercentdrown",
-            self.absorb_percent_drown,
-        );
+        push_opt(&mut attrs, "absorbpercentdrown", self.absorb_percent_drown);
         push_opt(&mut attrs, "healthgain", self.health_gain);
         push_opt(&mut attrs, "healthticks", self.health_ticks);
         push_opt(&mut attrs, "managain", self.mana_gain);

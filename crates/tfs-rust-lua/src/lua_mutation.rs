@@ -321,6 +321,28 @@ pub enum LuaMutation {
         creature_id: u64,
         balance: u64,
     },
+    /// `player:setStamina(minutes)` — `800src/luascript.cpp` `luaPlayerSetStamina`.
+    PlayerSetStamina {
+        creature_id: u64,
+        minutes: u16,
+    },
+    /// `player:addOutfit` / `addOutfitAddon` — `800src/luascript.cpp`.
+    PlayerAddOutfit {
+        creature_id: u64,
+        look_type: u16,
+        addons: u8,
+    },
+    /// `player:removeOutfit(lookType)`.
+    PlayerRemoveOutfit {
+        creature_id: u64,
+        look_type: u16,
+    },
+    /// `player:removeOutfitAddon(lookType, addon)`.
+    PlayerRemoveOutfitAddon {
+        creature_id: u64,
+        look_type: u16,
+        addons: u8,
+    },
     /// `player:setPremiumEndsAt(timestamp)` — `Player::setPremiumTime` + DB.
     PlayerSetPremiumEndsAt {
         creature_id: u64,
@@ -1341,6 +1363,46 @@ pub fn call_lua_set_bank_balance(creature_id: u64, balance: u64) -> Result<(), S
         creature_id,
         balance,
     })
+}
+
+/// `player:setStamina(minutes)` — clamped to the formula max.
+pub fn call_lua_set_stamina(creature_id: u64, minutes: u16) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerSetStamina {
+        creature_id,
+        minutes,
+    })
+}
+
+/// `player:addOutfit(lookType)` / `addOutfitAddon(lookType, addon)`.
+pub fn call_lua_add_outfit(creature_id: u64, look_type: u16, addons: u8) -> Result<(), String> {
+    apply_mutation(LuaMutation::PlayerAddOutfit {
+        creature_id,
+        look_type,
+        addons,
+    })
+}
+
+/// `player:removeOutfit(lookType)`.
+pub fn call_lua_remove_outfit(creature_id: u64, look_type: u16) -> Result<bool, String> {
+    apply_mutation(LuaMutation::PlayerRemoveOutfit {
+        creature_id,
+        look_type,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// `player:removeOutfitAddon(lookType, addon)`.
+pub fn call_lua_remove_outfit_addon(
+    creature_id: u64,
+    look_type: u16,
+    addons: u8,
+) -> Result<bool, String> {
+    apply_mutation(LuaMutation::PlayerRemoveOutfitAddon {
+        creature_id,
+        look_type,
+        addons,
+    })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
 }
 
 pub fn call_lua_set_premium_ends_at(creature_id: u64, ends_at: u32) -> Result<(), String> {

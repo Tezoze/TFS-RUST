@@ -1,4 +1,4 @@
--- data/formulas/800.lua — 8.0 mechanics file. Currently identical to 772.lua.
+-- data/formulas/800.lua — 8.0 mechanics file. Same corpus as 772.lua, plus stamina.
 -- Later 8.0 branches edit this file only. The game loop and monster AI stay shared.
 --
 -- Tier-1 constants (loaded once into MechanicsProfile). Any key omitted falls back to the built-in
@@ -41,7 +41,10 @@ formulas = {
     offensiveDef = 0.60, defensiveDef = 1.80,
   },
 
-  spell = { levelMult = 2, magicMult = 3 },  -- ComputeDamage; Player:computeDamage reads these
+  -- Additive spell range: floor(level / levelDiv) + magicLevel * c + y.
+  -- c and y are per spell (`player:computeSpell`). levelMult/magicMult stay for
+  -- spells that still call `computeDamage`. PvP half is `(damage + 1) / 2` in Damage.
+  spell = { mode = "additive", levelDiv = 5, levelMult = 2, magicMult = 3 },
   pvpExpCap = { num = 11, den = 10 },  -- MaxLevel = (victimL * num) / den for PvP kill XP scale
   playerSpeed = "balanced",      -- "772" | "retail" | "balanced" (loaded once at startup)
 
@@ -88,6 +91,10 @@ formulas = {
     extraInstruments = false,
     spellbookMagicLevel = false,
   },
+
+  -- Stamina: Rest recovers 1 minute
+  -- per regenSeconds. Combat spends 1 minute per drainSeconds. 0 disables that side.
+  stamina = { hours = 56, regenSeconds = 180, drainSeconds = 60 },
 }
 
 --- 772 `TSkillProbe::Probe(diff, prob)` (`crskill.cc:546`).

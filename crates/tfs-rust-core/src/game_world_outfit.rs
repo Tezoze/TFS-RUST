@@ -15,7 +15,7 @@ use tfs_rust_net::outgoing_extra::{
     send_outfit_window_800,
 };
 
-use crate::creature::{CreatureKind, Outfit};
+use crate::creature::{CreatureKind, Outfit, OutfitEntry};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
 use crate::login_out::creature_wire_id;
@@ -228,14 +228,76 @@ impl GameWorld {
                     return true;
                 }
                 for entry in &p.outfits {
-                    if entry.look_type != look_type {
-                        continue;
+                    if entry.look_type == look_type {
+                        // `Player::canWear` — `800src/player.cpp`.
+                        return (entry.addons & addons) == addons;
                     }
-                    return entry.addons == addons || entry.addons == 3 || addons == 0;
                 }
                 false
             }
         }
+    }
+
+    /// `Player::addOutfit` — `800src/player.cpp`. `addons == 0` unlocks the look with no addon bits.
+    pub fn player_add_outfit(&mut self, cid: CreatureId, look_type: u16, addons: u8) -> bool {
+        let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
+            return false;
+        };
+        if let Some(entry) = p.outfits.iter_mut().find(|e| e.look_type == look_type) {
+            entry.addons |= addons;
+        } else {
+            p.outfits.push(OutfitEntry { look_type, addons });
+        }
+        true
+    }
+
+    pub fn player_add_outfit_u64(&mut self, creature_u64: u64, look_type: u16, addons: u8) -> bool {
+        let Some(cid) = self.resolve_creature_u64(creature_u64) else {
+            return false;
+        };
+        self.player_add_outfit(cid, look_type, addons)
+    }
+
+    /// `Player::removeOutfit` — erases the look. Returns `None` when `cid` is not a player.
+    pub fn player_remove_outfit(&mut self, cid: CreatureId, look_type: u16) -> Option<bool> {
+        let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
+            return None;
+        };
+        let before = p.outfits.len();
+        p.outfits.retain(|e| e.look_type != look_type);
+        Some(p.outfits.len() != before)
+    }
+
+    pub fn player_remove_outfit_u64(&mut self, creature_u64: u64, look_type: u16) -> Option<bool> {
+        let cid = self.resolve_creature_u64(creature_u64)?;
+        self.player_remove_outfit(cid, look_type)
+    }
+
+    /// `Player::removeOutfitAddon` — clears bits and keeps the entry when the mask hits 0.
+    pub fn player_remove_outfit_addon(
+        &mut self,
+        cid: CreatureId,
+        look_type: u16,
+        addons: u8,
+    ) -> Option<bool> {
+        let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) else {
+            return None;
+        };
+        let Some(entry) = p.outfits.iter_mut().find(|e| e.look_type == look_type) else {
+            return Some(false);
+        };
+        entry.addons &= !addons;
+        Some(true)
+    }
+
+    pub fn player_remove_outfit_addon_u64(
+        &mut self,
+        creature_u64: u64,
+        look_type: u16,
+        addons: u8,
+    ) -> Option<bool> {
+        let cid = self.resolve_creature_u64(creature_u64)?;
+        self.player_remove_outfit_addon(cid, look_type, addons)
     }
 
     fn allow_change_outfit(&self) -> bool {
@@ -483,5 +545,45 @@ mod tests {
             panic!("player");
         };
         assert_eq!(p.base.outfit.look_type, 128);
+    }
+
+    #[test]
+    fn add_outfit_ors_addons_and_remove_keeps_zero_mask() {
+        let mut world = beat_driven_test_world();
+        let cid = setup_player(&mut world, "Hero", ConnId(9));
+
+        assert!(world.player_add_outfit(cid, 128, 0));
+        assert!(world.player_add_outfit(cid, 128, 1));
+        assert!(world.player_add_outfit(cid, 128, 2));
+        let CreatureKind::Player(p) = world.creatures.get(cid).unwrap() else {
+            panic!("player");
+        };
+        assert_eq!(p.outfits[0].addons, 3);
+
+        assert_eq!(world.player_remove_outfit_addon(cid, 128, 1), Some(true));
+        let CreatureKind::Player(p) = world.creatures.get(cid).unwrap() else {
+            panic!("player");
+        };
+        assert_eq!(p.outfits.len(), 1);
+        assert_eq!(p.outfits[0].addons, 2);
+
+        assert_eq!(world.player_remove_outfit_addon(cid, 999, 1), Some(false));
+        assert_eq!(world.player_remove_outfit(cid, 128), Some(true));
+        assert_eq!(world.player_remove_outfit(cid, 128), Some(false));
+    }
+
+    #[test]
+    fn has_outfit_follows_can_wear_on_800() {
+        let mut world = beat_driven_test_world();
+        world.outfits_db = std::sync::Arc::new(load_test_outfits());
+        world.codec = Codec::from_version(ProtocolVersion::V800).expect("800");
+        let cid = setup_player(&mut world, "Hero", ConnId(10));
+
+        assert!(world.player_can_wear(cid, 128, 0));
+        assert!(!world.player_can_wear(cid, 128, 1));
+        assert!(world.player_add_outfit(cid, 128, 1));
+        assert!(world.player_can_wear(cid, 128, 1));
+        assert!(!world.player_can_wear(cid, 128, 2));
+        assert!(world.player_can_wear(cid, 128, 0));
     }
 }

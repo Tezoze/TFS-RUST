@@ -226,7 +226,12 @@ pub struct Player {
     /// `accounts.premium_ends_at` (unix seconds).
     pub premium_ends_at: u32,
     /// Stamina minutes for `0xA0` stats (`players.stamina`).
+    /// Empty bar blocks experience from protocol 780 (`800src/player.cpp` `gainExperience`).
     pub stamina_minutes: u16,
+    /// Milliseconds at rest toward the next recovered stamina minute.
+    pub stamina_rest_ms: u64,
+    /// Milliseconds in combat toward the next spent stamina minute.
+    pub stamina_hunt_ms: u64,
     /// Offline training time in ms (`players.offlinetraining_time` / C++ `offlineTrainingTime`).
     pub offline_training_ms: u32,
     /// Spell id → game tick when off cooldown.
