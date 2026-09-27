@@ -490,13 +490,31 @@ fn emit_engine(snapshot: &LuaDefsSnapshot) -> String {
             if class.methods.contains(func) {
                 continue;
             }
-            out.push_str(&format!("function {name}.{func}(...) end\n"));
+            out.push_str(&emit_table_function(name, func));
         }
         if !class.methods.is_empty() || !class.table_functions.is_empty() {
             out.push('\n');
         }
     }
     out
+}
+
+/// Return types LuaLS needs. `function f(...) end` is typed as returning nil,
+/// so `ipairs(Game.getPlayers())` and `string.lower(result.getString(...))` warn.
+fn emit_table_function(class: &str, func: &str) -> String {
+    match (class, func) {
+        ("Game", "getHouses") => "---@return House[]\nfunction Game.getHouses() end\n".to_string(),
+        ("Game", "getPlayers") => {
+            "---@return Player[]\nfunction Game.getPlayers() end\n".to_string()
+        }
+        ("result", "getNumber") => {
+            "---@return integer\nfunction result.getNumber(resultId, column) end\n".to_string()
+        }
+        ("result", "getString") => {
+            "---@return string\nfunction result.getString(resultId, column) end\n".to_string()
+        }
+        _ => format!("function {class}.{func}(...) end\n"),
+    }
 }
 
 fn emit_constants(snapshot: &LuaDefsSnapshot) -> String {
