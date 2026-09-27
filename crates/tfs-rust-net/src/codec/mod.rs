@@ -8,7 +8,7 @@ mod v800;
 pub mod wire;
 
 pub use v772::Codec772;
-pub use v800::Codec800;
+pub use v800::{Codec800, client_color_to_fluid_800, liquid_color_800};
 pub use v1098::Codec1098;
 pub use wire::{
     AddCreatureWire, AnimatedTextWire, ChannelOpenWire, ChannelsDialogWire, CombatDamageNotifyWire,
@@ -956,6 +956,14 @@ impl Codec {
             Self::V1098(c) => c.caps(),
             Self::V772(c) => c.caps(),
             Self::V800(c) => c.caps(),
+        }
+    }
+
+    pub fn version(self) -> ProtocolVersion {
+        match self {
+            Self::V1098(_) => ProtocolVersion::V1098,
+            Self::V772(_) => ProtocolVersion::V772,
+            Self::V800(_) => ProtocolVersion::V800,
         }
     }
 }

@@ -7,6 +7,9 @@
 //! - `sendCreatureSay` / `sendToChannel` / `sendPrivateMessage` / `sendChannelMessage`
 //!   ~1684, ~1714, ~1745, ~1317: `u16` level after a speaker name.
 //! - `sendTextWindow` ~2144: date string when client version >= 790.
+//! - `tools.cpp` `getLiquidColor` ~189 and `const.h` `reverseFluidMap`: the 8.0
+//!   palette. Blood is red (5) and mana/wine are purple (2). The 7.72 table
+//!   paints those as purple and brown on this client.
 //!
 //! Omitted from this codec (OT-only in `800src`, not classic 8.0): mount `u16`,
 //! mount list, wings/aura/shader, duplicate login account, market, quests.
@@ -46,9 +49,184 @@ fn speak_type_on_wire(speak_type: u8) -> u8 {
     }
 }
 
+/// 8.0 `getLiquidColor` (`800src/tools.cpp` ~189). Server fluid ids stay the
+/// sequential `FluidTypes_t` (`800src/const.h` ~138). The byte is `FluidColor_t`.
+pub fn liquid_color_800(fluid_type: u8) -> u8 {
+    match fluid_type {
+        1 => 1,                        // water → blue
+        0 => 0,                        // none
+        6 => 6,                        // slime → green
+        3 | 4 | 7 | 13 | 16 | 17 => 3, // beer, mud, oil, rum, mead, tea → brown
+        9 | 14 => 9,                   // milk, coconut milk → white
+        2 | 10 => 2,                   // wine, mana → purple
+        5 | 11 => 5,                   // blood, life → red
+        8 | 12 | 15 => 8,              // urine, lemonade, fruit juice → yellow
+        _ => 0,
+    }
+}
+
+/// Shop / hotkey color index → server fluid (`800src/const.h` `reverseFluidMap`).
+/// Indexes past the table are not a fluid.
+pub fn client_color_to_fluid_800(color: u8) -> u8 {
+    const REVERSE: [u8; 10] = [
+        0,  // none
+        1,  // water
+        10, // mana
+        3,  // beer
+        0,  // none
+        11, // life
+        6,  // slime
+        0,  // none
+        12, // lemonade
+        9,  // milk
+    ];
+    REVERSE.get(usize::from(color)).copied().unwrap_or(0)
+}
+
 impl Codec800 {
     pub fn caps(&self) -> ProtocolCaps {
         ProtocolVersion::V800.caps()
+    }
+
+    /// 8.0 `NetworkMessage::addItem`: same fields as 7.72, `getLiquidColor` from
+    /// `800src/tools.cpp`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn write_item_template(
+        &self,
+        msg: &mut NetworkMessage,
+        client_id: u16,
+        count: u8,
+        stackable: bool,
+        is_splash_or_fluid: bool,
+        _is_animation: bool,
+        _with_description: bool,
+    ) {
+        msg.write_u16(client_id);
+        if stackable {
+            msg.write_u8(count);
+        } else if is_splash_or_fluid {
+            msg.write_u8(liquid_color_800(count));
+        }
+    }
+
+    fn write_item_template_args(&self, msg: &mut NetworkMessage, args: ItemTemplateArgs) {
+        self.write_item_template(
+            msg,
+            args.client_id,
+            args.count,
+            args.stackable,
+            args.is_splash_or_fluid,
+            args.is_animation,
+            args.with_description,
+        );
+    }
+
+    /// 7.72 framing (`v772.rs`) with this codec's liquid color.
+    pub fn encode_add_tile_item(
+        &self,
+        pos: Position,
+        _stack_pos: u8,
+        args: ItemTemplateArgs,
+        _otclient_stackpos: bool,
+    ) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(0x6A);
+        m.write_position(&pos);
+        self.write_item_template_args(&mut m, args);
+        m
+    }
+
+    pub fn encode_update_tile_item(
+        &self,
+        pos: Position,
+        stack_pos: u8,
+        args: ItemTemplateArgs,
+    ) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(0x6B);
+        m.write_position(&pos);
+        m.write_u8(stack_pos);
+        self.write_item_template_args(&mut m, args);
+        m
+    }
+
+    pub fn encode_inventory_item(&self, slot: u8, args: ItemTemplateArgs) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(0x78);
+        m.write_u8(slot);
+        self.write_item_template_args(&mut m, args);
+        m
+    }
+
+    pub fn encode_add_container_item(
+        &self,
+        cid: u8,
+        _slot: u16,
+        args: ItemTemplateArgs,
+    ) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(0x70);
+        m.write_u8(cid);
+        self.write_item_template_args(&mut m, args);
+        m
+    }
+
+    pub fn encode_update_container_item(
+        &self,
+        cid: u8,
+        slot: u16,
+        args: ItemTemplateArgs,
+    ) -> NetworkMessage {
+        if slot >= 36 {
+            return NetworkMessage::new();
+        }
+        let mut m = NetworkMessage::new();
+        m.write_u8(0x71);
+        m.write_u8(cid);
+        m.write_u8(slot as u8);
+        self.write_item_template_args(&mut m, args);
+        m
+    }
+
+    pub fn encode_container_open(&self, c: &super::wire::ContainerOpenWire) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(0x6E);
+        m.write_u8(c.cid);
+        self.write_item_template_args(&mut m, c.header_item);
+        m.write_string(&c.name);
+        m.write_u8(c.capacity);
+        m.write_u8(u8::from(c.has_parent));
+        let n = c
+            .items
+            .len()
+            .min(c.capacity as usize)
+            .min(36)
+            .min(u8::MAX as usize) as u8;
+        m.write_u8(n);
+        for args in c.items.iter().take(n as usize) {
+            self.write_item_template_args(&mut m, *args);
+        }
+        m
+    }
+
+    pub fn encode_trade_item_request(
+        &self,
+        trader_name: &str,
+        own_offer: bool,
+        items: &[ItemTemplateArgs],
+    ) -> NetworkMessage {
+        let mut m = NetworkMessage::new();
+        m.write_u8(if own_offer {
+            server::TRADE_OFFER_OWN
+        } else {
+            server::TRADE_OFFER_PARTNER
+        });
+        m.write_string(trader_name);
+        m.write_u8(items.len().min(255) as u8);
+        for args in items.iter().take(255) {
+            self.write_item_template_args(&mut m, *args);
+        }
+        m
     }
 
     /// `800src/protocolgame.cpp` `AddOutfit` ~2386. Addons when `lookType != 0`.
@@ -221,7 +399,7 @@ impl Codec800 {
         let mut m = NetworkMessage::new();
         m.write_u8(server::TEXT_WINDOW);
         m.write_u32(w.window_text_id);
-        Codec772.write_item_template(
+        self.write_item_template(
             &mut m,
             w.item.client_id,
             w.item.count,
@@ -273,8 +451,8 @@ impl ProtocolCodec for Codec800 {
         is_animation: bool,
         with_description: bool,
     ) {
-        ProtocolCodec::write_item_template(
-            &Codec772,
+        Codec800::write_item_template(
+            self,
             msg,
             client_id,
             count,
@@ -345,7 +523,7 @@ impl ProtocolCodec for Codec800 {
         args: ItemTemplateArgs,
         otclient_stackpos: bool,
     ) -> NetworkMessage {
-        ProtocolCodec::encode_add_tile_item(&Codec772, pos, stack_pos, args, otclient_stackpos)
+        Codec800::encode_add_tile_item(self, pos, stack_pos, args, otclient_stackpos)
     }
 
     fn encode_update_tile_item(
@@ -354,11 +532,11 @@ impl ProtocolCodec for Codec800 {
         stack_pos: u8,
         args: ItemTemplateArgs,
     ) -> NetworkMessage {
-        ProtocolCodec::encode_update_tile_item(&Codec772, pos, stack_pos, args)
+        Codec800::encode_update_tile_item(self, pos, stack_pos, args)
     }
 
     fn encode_inventory_item(&self, slot: u8, args: ItemTemplateArgs) -> NetworkMessage {
-        ProtocolCodec::encode_inventory_item(&Codec772, slot, args)
+        Codec800::encode_inventory_item(self, slot, args)
     }
 
     fn encode_add_container_item(
@@ -367,7 +545,7 @@ impl ProtocolCodec for Codec800 {
         slot: u16,
         args: ItemTemplateArgs,
     ) -> NetworkMessage {
-        ProtocolCodec::encode_add_container_item(&Codec772, cid, slot, args)
+        Codec800::encode_add_container_item(self, cid, slot, args)
     }
 
     fn encode_update_container_item(
@@ -376,7 +554,7 @@ impl ProtocolCodec for Codec800 {
         slot: u16,
         args: ItemTemplateArgs,
     ) -> NetworkMessage {
-        ProtocolCodec::encode_update_container_item(&Codec772, cid, slot, args)
+        Codec800::encode_update_container_item(self, cid, slot, args)
     }
 
     fn encode_remove_container_item(&self, cid: u8, slot: u16) -> NetworkMessage {
@@ -439,7 +617,7 @@ impl ProtocolCodec for Codec800 {
     }
 
     fn encode_container_open(&self, c: &ContainerOpenWire) -> NetworkMessage {
-        ProtocolCodec::encode_container_open(&Codec772, c)
+        Codec800::encode_container_open(self, c)
     }
 
     fn encode_animated_text(&self, w: &AnimatedTextWire) -> NetworkMessage {
@@ -516,7 +694,7 @@ impl ProtocolCodec for Codec800 {
         own_offer: bool,
         items: &[ItemTemplateArgs],
     ) -> NetworkMessage {
-        ProtocolCodec::encode_trade_item_request(&Codec772, trader_name, own_offer, items)
+        Codec800::encode_trade_item_request(self, trader_name, own_offer, items)
     }
 
     fn encode_close_trade(&self) -> NetworkMessage {

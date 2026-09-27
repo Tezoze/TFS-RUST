@@ -1984,6 +1984,46 @@ mod v800 {
     }
 
     #[test]
+    fn fluid_color_matches_800_palette() {
+        use tfs_rust_net::NetworkMessage;
+        use tfs_rust_net::codec::{client_color_to_fluid_800, liquid_color_800};
+
+        // 772 `getLiquidColor`: blood 5 → 2, mana 10 → 7. On the 8.0 palette
+        // those bytes are purple and brown (`800src/const.h` FluidColor_t).
+        let mut blood = NetworkMessage::new();
+        codec().write_item_template(&mut blood, 0x1234, 5, false, true, false, false);
+        assert_eq!(blood.as_bytes(), &[0x34, 0x12, 5], "blood is red");
+
+        let mut mana = NetworkMessage::new();
+        codec().write_item_template(&mut mana, 0x1234, 10, false, true, false, false);
+        assert_eq!(mana.as_bytes(), &[0x34, 0x12, 2], "mana is purple");
+
+        let mut mud = NetworkMessage::new();
+        codec().write_item_template(&mut mud, 0x1234, 4, false, true, false, false);
+        assert_eq!(mud.as_bytes(), &[0x34, 0x12, 3], "mud is brown");
+
+        let vial = ItemTemplateArgs {
+            client_id: 2006,
+            count: 10,
+            stackable: false,
+            is_splash_or_fluid: true,
+            is_animation: false,
+            with_description: false,
+        };
+        let inv = codec().encode_inventory_item(1, vial).into_bytes();
+        assert_eq!(*inv.last().expect("color byte"), 2);
+
+        assert_eq!(liquid_color_800(2), 2, "wine is purple");
+        assert_eq!(
+            client_color_to_fluid_800(2),
+            10,
+            "shop purple index is mana"
+        );
+        assert_eq!(client_color_to_fluid_800(3), 3, "shop brown index is beer");
+        assert_eq!(client_color_to_fluid_800(5), 11, "shop red index is life");
+    }
+
+    #[test]
     fn outfit_window_has_no_mount_list() {
         let current = OutfitWire {
             look_type: 128,

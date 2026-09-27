@@ -5,7 +5,8 @@
 //! `hasShopItemForSale` — `player.cpp`; `Npc::onPlayerTrade` — `npc.cpp`.
 //! Wire: TVP / TFS `ProtocolGame::sendShop` (0x7A) / `sendSaleItemList` (0x7B) / `sendCloseShop` (0x7C).
 
-use tfs_rust_common::ConnId;
+use tfs_rust_common::{ConnId, ProtocolVersion};
+use tfs_rust_net::codec::client_color_to_fluid_800;
 use tfs_rust_net::item_encode::client_fluid_to_server;
 use tfs_rust_net::outgoing_extra::{
     ShopItemWire, send_close_shop, send_sale_item_list, send_shop, send_text_message_simple,
@@ -452,7 +453,12 @@ impl GameWorld {
         let server_id = client_id;
         let it = self.items_db.items.get(&server_id)?;
         let sub_type = if it.is_splash() || it.is_fluid_container() {
-            client_fluid_to_server(count)
+            // 8.0 echoes a color index (`reverseFluidMap`). 7.72 / 10.98 echo `fluidMap`.
+            if self.codec.version() == ProtocolVersion::V800 {
+                client_color_to_fluid_800(count)
+            } else {
+                client_fluid_to_server(count)
+            }
         } else {
             count
         };
@@ -478,7 +484,7 @@ impl GameWorld {
             .map(|k| k.base().name.clone())
             .unwrap_or_default();
         let items = self.build_shop_wire_items(player);
-        let pkt = send_shop(&npc_name, &items);
+        let pkt = send_shop(&npc_name, &items, self.codec.version());
         self.enqueue_outgoing(conn, pkt.into_bytes());
     }
 

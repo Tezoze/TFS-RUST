@@ -12,7 +12,8 @@ use crate::creature::CreatureKind;
 use crate::game_world::GameWorld;
 use crate::ids::{CreatureId, ItemId};
 use crate::lua_scope::is_hotkey_use_position;
-use tfs_rust_common::{ConnId, Position};
+use tfs_rust_common::{ConnId, Position, ProtocolVersion};
+use tfs_rust_net::codec::client_color_to_fluid_800;
 use tfs_rust_net::item_encode::client_fluid_to_server;
 use tfs_rust_net::outgoing_extra::send_text_message_simple;
 
@@ -81,7 +82,14 @@ impl GameWorld {
             .items
             .get(&server_id)
             .filter(|it| it.is_fluid_container())
-            .map(|_| i32::from(client_fluid_to_server(stack_pos)))
+            .map(|_| {
+                let fluid = if self.codec.version() == ProtocolVersion::V800 {
+                    client_color_to_fluid_800(stack_pos)
+                } else {
+                    client_fluid_to_server(stack_pos)
+                };
+                i32::from(fluid)
+            })
             .unwrap_or(-1);
         self.find_item_of_type(cid, server_id, true, sub_type)
     }

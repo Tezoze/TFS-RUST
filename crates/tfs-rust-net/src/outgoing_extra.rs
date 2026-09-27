@@ -1,7 +1,7 @@
 //! Additional `ProtocolGame::send*` builders (this repo `src/protocolgame.cpp`).
 // Pair with `outgoing.rs` — together cover the full server → client game opcode set.
 
-use tfs_rust_common::Position;
+use tfs_rust_common::{Position, ProtocolVersion};
 
 use crate::NetworkMessage;
 use crate::codec::{Codec1098, ItemTemplateArgs, PlayerSkillsWire, PlayerStatsWire};
@@ -416,7 +416,14 @@ pub struct ShopItemWire {
 }
 
 /// `ProtocolGame::sendShop` — opcode `0x7A`.
-pub fn send_shop(npc_name: &str, items: &[ShopItemWire]) -> NetworkMessage {
+///
+/// 8.0 writes `getLiquidColor` (`800src/tools.cpp`). 7.72 and 10.98 keep
+/// `serverFluidToClient`.
+pub fn send_shop(
+    npc_name: &str,
+    items: &[ShopItemWire],
+    version: ProtocolVersion,
+) -> NetworkMessage {
     let mut m = NetworkMessage::new();
     m.write_u8(0x7A);
     m.write_string(npc_name);
@@ -425,7 +432,12 @@ pub fn send_shop(npc_name: &str, items: &[ShopItemWire]) -> NetworkMessage {
     for it in items.iter().take(n as usize) {
         m.write_u16(it.client_id);
         if it.is_fluid {
-            m.write_u8(crate::item_encode::server_fluid_to_client(it.fluid_subtype));
+            let color = if version == ProtocolVersion::V800 {
+                crate::codec::liquid_color_800(it.fluid_subtype)
+            } else {
+                crate::item_encode::server_fluid_to_client(it.fluid_subtype)
+            };
+            m.write_u8(color);
         } else {
             m.write_u8(0x00);
         }

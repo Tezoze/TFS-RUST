@@ -945,6 +945,12 @@ mod tests {
         assert!(hole.is_ground_tile());
         assert!(hole.block_path_find(), "Avoid is BlockPathFind");
         assert!(!hole.block_solid());
+        let chest = db.items.get(&2472).expect("chest");
+        assert!(!chest.block_solid(), "srv chest has no Unpass");
+        assert!(chest.block_path_find());
+        let mountain = db.items.get(&1128).expect("mountain");
+        assert!(mountain.block_solid(), "srv mountain is Unpass");
+        assert!(mountain.is_ground_tile());
         assert!(db.items.contains_key(&17161));
         assert!(db.items.len() > 7000);
     }
