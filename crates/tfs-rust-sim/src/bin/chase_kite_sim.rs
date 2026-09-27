@@ -730,13 +730,19 @@ fn run_main() -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// Scenario files live with local helper scripts and are not in the published tree.
+    fn read_local_scenario(name: &str) -> Option<String> {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../scripts/scenarios")
+            .join(name);
+        fs::read_to_string(path).ok()
+    }
+
     #[test]
     fn parses_kite_rat_melee_scenario() {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../scripts/scenarios/kite_rat_melee.scenario"
-        );
-        let input = fs::read_to_string(path).expect("read scenario");
+        let Some(input) = read_local_scenario("kite_rat_melee.scenario") else {
+            return;
+        };
         let s = parse_scenario(&input).expect("parse");
         assert_eq!(s.name, "kite_rat_melee");
         assert_eq!(s.arena_center, (32360, 32290));
@@ -759,11 +765,9 @@ mod tests {
 
     #[test]
     fn parses_kite_cyclops_quad_scenario() {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../scripts/scenarios/kite_cyclops_quad_chase.scenario"
-        );
-        let input = fs::read_to_string(path).expect("read scenario");
+        let Some(input) = read_local_scenario("kite_cyclops_quad_chase.scenario") else {
+            return;
+        };
         let s = parse_scenario(&input).expect("parse");
         assert_eq!(s.name, "kite_cyclops_quad_chase");
         assert_eq!(s.monsters.len(), 4);
@@ -817,11 +821,9 @@ sim_tick
 
     #[test]
     fn parses_hunter_dist_chase_scenario() {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../scripts/scenarios/kite_hunter_dist_chase.scenario"
-        );
-        let input = fs::read_to_string(path).expect("read scenario");
+        let Some(input) = read_local_scenario("kite_hunter_dist_chase.scenario") else {
+            return;
+        };
         let s = parse_scenario(&input).expect("parse");
         assert_eq!(s.name, "kite_hunter_dist_chase");
         assert_eq!(s.monsters[0].label, "hunter");
@@ -831,11 +833,9 @@ sim_tick
 
     #[test]
     fn parses_kite_cyclops_one_real_scenario() {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../scripts/scenarios/kite_cyclops_one_real.scenario"
-        );
-        let input = fs::read_to_string(path).expect("read scenario");
+        let Some(input) = read_local_scenario("kite_cyclops_one_real.scenario") else {
+            return;
+        };
         let s = parse_scenario(&input).expect("parse");
         assert_eq!(s.name, "kite_cyclops_one_real");
         assert_eq!(s.monsters.len(), 1);
@@ -853,11 +853,9 @@ sim_tick
 
     #[test]
     fn parses_dragon_lowhp_flee_scenario() {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../scripts/scenarios/kite_dragon_lowhp_flee.scenario"
-        );
-        let input = fs::read_to_string(path).expect("read scenario");
+        let Some(input) = read_local_scenario("kite_dragon_lowhp_flee.scenario") else {
+            return;
+        };
         let s = parse_scenario(&input).expect("parse");
         assert_eq!(s.name, "kite_dragon_lowhp_flee");
         assert_eq!(s.monsters[0].label, "dragon");
@@ -873,11 +871,9 @@ sim_tick
     fn audit_route_kite_cyclops_one_real() {
         use tfs_rust_sim::{audit_otbm_route_tiles, default_sim_map_config};
 
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../scripts/scenarios/kite_cyclops_one_real.scenario"
-        );
-        let input = fs::read_to_string(path).expect("read scenario");
+        let Some(input) = read_local_scenario("kite_cyclops_one_real.scenario") else {
+            return;
+        };
         let s = parse_scenario(&input).expect("parse");
         let cfg = default_sim_map_config();
         if !cfg.data_dir.is_dir() {
