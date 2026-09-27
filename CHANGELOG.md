@@ -19,7 +19,7 @@ Protocol 800 uses the same 772 mechanics corpus, with its own wire codec and `da
 
 ### World
 
-- Changed non-house tiles persist in a live overlay and are restored on boot. Ctrl+C refreshes those tiles before the write.
+- Changed non-house tiles persist in `data/world/forgotten-live.bin` and are restored on boot. Ctrl+C refreshes those tiles before the write. The checked-in overlay is two tiles: mummy remains holding two worms at 33005, 32397, 11, and a dead spider with a pool at 32648, 32082, 12. The earlier persist test (empty vials, a rope, and a letter) is no longer in that file.
 - Sleeping in a bed saves the player and closes the client.
 - Logout closes the socket in the same call on every client version.
 
