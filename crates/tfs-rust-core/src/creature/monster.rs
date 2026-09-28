@@ -221,6 +221,9 @@ pub struct Monster {
     /// True while `IdleStimulus` is on the stack. Blocks a yield from re-entering
     /// the same pass (`monster_set_follow_creature` → `request_idle_stimulus`).
     pub(crate) in_idle_stimulus: bool,
+    /// 8.0 / 10.98: this body was removed from other clients' tiles for invisibility.
+    /// A second cast must not send another `0x6C` (that deletes the next object).
+    pub(crate) invis_removed_from_clients: bool,
     pub walking_to_spawn: bool,
     pub change_target_speed: u32,
     pub change_target_chance: i32,
@@ -325,6 +328,7 @@ impl Monster {
             state: MonsterState::Sleeping,
             last_combat_trace: None,
             in_idle_stimulus: false,
+            invis_removed_from_clients: false,
             walking_to_spawn: false,
             change_target_speed: config.change_target_speed,
             change_target_chance: config.change_target_chance,

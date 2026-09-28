@@ -250,6 +250,14 @@ mod tests {
             !src.contains("AREA_CIRCLE5X5"),
             "radius 6 is ultimate explosion, not poison storm"
         );
+        assert!(
+            src.contains("combat:execute"),
+            "the disc must show EFFECT_POISON"
+        );
+        assert!(
+            src.contains("target:getId() ~= casterId"),
+            "the caster is not poisoned"
+        );
         assert_eq!(super::super::disc_tile_count(7), 101);
     }
 }

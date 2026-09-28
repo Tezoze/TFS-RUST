@@ -235,8 +235,11 @@ impl GameWorld {
         Ok(true)
     }
 
-    /// `player:setGhostMode(enabled)` — TFS `luaPlayerSetGhostMode`.
-    /// Flip `ghost_mode` then appear/disappear to spectators (`can_see_creature`).
+    /// `player:setGhostMode(enabled)` — TVP `luaPlayerSetGhostMode` (`luascript.cpp`).
+    ///
+    /// Non-access spectators get `0x6C` on enter and `0x6A` on leave. Self and
+    /// access players keep the body and get `0x8E` (empty outfit, then the real
+    /// one). An outfit packet after `0x6C` is what crashes the 772 client.
     pub fn lua_script_set_ghost_mode(
         &mut self,
         creature_u64: u64,
@@ -252,6 +255,7 @@ impl GameWorld {
             return Ok(());
         }
         let pos = p.base.position;
+        let invisible = p.base.is_invisible();
         let spectators: Vec<(tfs_rust_common::ConnId, crate::ids::CreatureId)> = self
             .spectator_conns_via_grid(pos)
             .into_iter()
@@ -265,9 +269,8 @@ impl GameWorld {
             p.ghost_mode = enabled;
         }
 
-        // TFS `Player::sendCreatureChangeVisible`: lookType 0 is the 772 sparkle.
-        // Send to self and any spectator who can still see (other ghosts); others get
-        // tile remove / appear.
+        // `Player::sendCreatureChangeVisible`: lookType 0 is the 772 sparkle.
+        // Skipped while an Invisible condition is up (`luascript.cpp` `isInvisible`).
         let outfit_bytes = {
             let Some(kind) = self.creatures.get(cid) else {
                 return Ok(());
@@ -292,10 +295,13 @@ impl GameWorld {
                 .encode_creature_outfit(wire_id, &outfit)
                 .into_bytes()
         };
-        if let Some(own) = self.creature_to_conn.get(&cid).copied() {
+        if !invisible && let Some(own) = self.creature_to_conn.get(&cid).copied() {
             self.enqueue_outgoing(own, outfit_bytes.clone());
         }
 
+        // Index after the flag flip. `getClientIndexOfCreature` still returns the
+        // target (the body the client currently has) and skips other creatures
+        // that client never drew.
         let remove_indexes = if enabled {
             let snap = crate::walk::capture_creature_stack_snapshot(self, pos);
             Some(crate::walk::stack_indexes_for_snapshot(self, &snap, cid))
@@ -304,14 +310,30 @@ impl GameWorld {
         };
 
         for (conn, viewer) in spectators {
-            if self.can_see_creature(viewer, cid) {
-                self.enqueue_outgoing(conn, outfit_bytes.clone());
-            } else if let Some((ref stack_772, ref stack_otc)) = remove_indexes {
+            let access = self.player_is_access_player(viewer);
+            if access {
+                if !invisible {
+                    self.enqueue_outgoing(conn, outfit_bytes.clone());
+                }
+                continue;
+            }
+            // Invisible players are already absent from other clients' tiles.
+            // TVP still removes them because those clients keep invisible players.
+            if invisible {
+                continue;
+            }
+            if let Some((ref stack_772, ref stack_otc)) = remove_indexes {
                 let stack_raw = crate::walk::stack_for_viewer(self, stack_772, stack_otc, viewer);
                 self.send_creature_remove_to_conn(conn, cid, pos, stack_raw);
             } else {
                 self.send_creature_appear_to_conn(conn, viewer, cid, pos);
             }
+        }
+
+        // VIP list reads ghost as offline for non-access watchers.
+        self.broadcast_vip_status(cid, true);
+        if !enabled {
+            self.monsters_notice_revealed_player(cid, pos);
         }
         Ok(())
     }
@@ -968,6 +990,116 @@ mod tests {
         assert!(world.is_creature_in_ghost_mode(id));
         world.lua_script_set_ghost_mode(id, false).unwrap();
         assert!(!world.is_creature_in_ghost_mode(id));
+    }
+
+    #[test]
+    fn set_ghost_mode_removes_then_readds_for_normal_viewers() {
+        use tfs_rust_common::ConnId;
+
+        let mut world = minimal_world();
+        let pos = Position::new(50, 50, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+        let mut ghost = test_player("Sparkle", pos);
+        ghost.guid = 11;
+        let mut viewer = test_player("Witness", pos);
+        viewer.guid = 22;
+        let ghost_id = crate::test_support::insert_spectator_player(&mut world, ConnId(1), ghost);
+        let _viewer =
+            crate::test_support::insert_spectator_player(&mut world, ConnId(2), viewer);
+
+        world
+            .lua_script_set_ghost_mode(ghost_id.data().as_ffi(), true)
+            .unwrap();
+        let on = world.pending_outgoing.get(&ConnId(2)).cloned().unwrap_or_default();
+        assert!(
+            on.iter().any(|p| p.first() == Some(&0x6C) && p.last() == Some(&2)),
+            "ghost on should 0x6C the ghost's stack, not the witness above them: {on:?}"
+        );
+        assert!(
+            on.iter().all(|p| p.first() != Some(&0x8E)),
+            "ghost on must not 0x8E a client that is losing the body: {on:?}"
+        );
+
+        world.pending_outgoing.clear();
+        world
+            .lua_script_set_ghost_mode(ghost_id.data().as_ffi(), false)
+            .unwrap();
+        let off = world.pending_outgoing.get(&ConnId(2)).cloned().unwrap_or_default();
+        assert!(
+            off.iter().any(|p| p.first() == Some(&0x6A)),
+            "ghost off should 0x6A-add the body back: {off:?}"
+        );
+        assert!(
+            off.iter().all(|p| p.first() != Some(&0x8E)),
+            "ghost off must not 0x8E a client that no longer has the body: {off:?}"
+        );
+    }
+
+    #[test]
+    fn set_ghost_mode_keeps_body_for_access_viewers() {
+        use std::collections::HashMap;
+
+        use tfs_rust_common::ConnId;
+        use tfs_rust_common::protocol_opcodes::server;
+        use tfs_rust_content::groups::Group;
+
+        let mut world = minimal_world();
+        let groups = std::sync::Arc::make_mut(&mut world.groups);
+        groups.groups.insert(
+            6,
+            Group {
+                id: 6,
+                name: "god".into(),
+                access: true,
+                max_depot_items: 0,
+                max_vip_entries: 0,
+                flags: HashMap::new(),
+            },
+        );
+        let pos = Position::new(50, 50, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+        let mut ghost = test_player("Sparkle", pos);
+        ghost.guid = 11;
+        ghost.group_id = 6;
+        let mut gm = test_player("God", pos);
+        gm.guid = 33;
+        gm.group_id = 6;
+        let ghost_id = crate::test_support::insert_spectator_player(&mut world, ConnId(1), ghost);
+        crate::test_support::insert_spectator_player(&mut world, ConnId(3), gm);
+
+        world
+            .lua_script_set_ghost_mode(ghost_id.data().as_ffi(), true)
+            .unwrap();
+        let on = world.pending_outgoing.get(&ConnId(3)).expect("access outfit");
+        assert!(
+            on.iter().any(|p| {
+                p.first() == Some(&server::CREATURE_OUTFIT)
+                    && p.get(1..5) == Some(&11u32.to_le_bytes())
+                    && p.get(5..7) == Some(&[0, 0])
+            }),
+            "access viewer keeps the ghost via empty outfit: {on:?}"
+        );
+        assert!(
+            on.iter().all(|p| p.first() != Some(&0x6C)),
+            "access viewer must not lose the tile creature: {on:?}"
+        );
+
+        world.pending_outgoing.clear();
+        world
+            .lua_script_set_ghost_mode(ghost_id.data().as_ffi(), false)
+            .unwrap();
+        let off = world.pending_outgoing.get(&ConnId(3)).expect("access restore");
+        assert!(
+            off.iter().any(|p| {
+                p.first() == Some(&server::CREATURE_OUTFIT)
+                    && p.get(1..5) == Some(&11u32.to_le_bytes())
+            }),
+            "access viewer restores the outfit in place: {off:?}"
+        );
+        assert!(
+            off.iter().all(|p| p.first() != Some(&0x6A)),
+            "access viewer must not be re-added: {off:?}"
+        );
     }
 
     #[test]

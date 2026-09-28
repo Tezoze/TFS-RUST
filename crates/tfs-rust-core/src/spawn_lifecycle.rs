@@ -21,9 +21,7 @@ use crate::creature::CreatureKind;
 use crate::creature::{Monster, MonsterAiConfig, Npc, NpcRuntimeState, Outfit};
 use crate::game_world::GameWorld;
 use crate::ids::CreatureId;
-use crate::login_out::{
-    build_add_creature_wire, creature_omitted_from_other_clients, creature_wire_id,
-};
+use crate::login_out::{build_add_creature_wire, creature_wire_id};
 use crate::player_flags::{PLAYER_FLAG_IGNORED_BY_MONSTERS, flags_for_group, has_player_flag};
 use crate::return_value::ReturnValue;
 use crate::spawn::{SpawnEntryKind, SpawnRequest};
@@ -1534,6 +1532,9 @@ impl GameWorld {
             .collect();
 
         for (conn, viewer) in spectators {
+            if !self.viewer_has_creature_on_client(viewer, cid) {
+                continue;
+            }
             self.send_creature_appear_to_conn(conn, viewer, cid, pos);
         }
     }
@@ -1551,23 +1552,15 @@ impl GameWorld {
     pub(crate) fn broadcast_creature_disappear(&mut self, cid: CreatureId, pos: Position) {
         let snap = crate::walk::capture_creature_stack_snapshot(self, pos);
         let (stack_772, stack_otc) = crate::walk::stack_indexes_for_snapshot(self, &snap, cid);
-        let omitted = self
-            .creatures
-            .get(cid)
-            .is_some_and(creature_omitted_from_other_clients);
         let spectators: Vec<(ConnId, CreatureId)> = self
             .spectator_conns_via_grid(pos)
             .into_iter()
             .filter_map(|conn| {
                 let viewer = *self.conn_to_creature.get(&conn)?;
-                if omitted && viewer != cid {
-                    return None;
-                }
-                if self.can_see_creature(viewer, cid) {
-                    Some((conn, viewer))
-                } else {
-                    None
-                }
+                // Includes the removed body (`viewer == target`). Skips clients that
+                // never drew an invisible or non-access ghost.
+                self.viewer_has_creature_on_client(viewer, cid)
+                    .then_some((conn, viewer))
             })
             .collect();
 

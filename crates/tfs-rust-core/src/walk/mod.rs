@@ -171,7 +171,28 @@ pub(crate) fn stack_for_viewer(
     } else {
         stack_otc
     };
-    idx.for_viewer(viewer)
+    if idx.shared < 0 {
+        return -1;
+    }
+    // Hidden bodies above the target are off normal clients. The hidden
+    // creature's own client still has that one body. Access clients also keep
+    // every ghost (`creature_hidden_from_map`).
+    let access = world.player_is_access_player(viewer);
+    let mut extra = 0i32;
+    for &hidden in &idx.own_client_only {
+        if hidden == viewer {
+            extra += 1;
+            continue;
+        }
+        if access
+            && world.creatures.get(hidden).is_some_and(|k| {
+                matches!(k, crate::creature::CreatureKind::Player(p) if p.ghost_mode)
+            })
+        {
+            extra += 1;
+        }
+    }
+    idx.shared + extra
 }
 
 fn stack_u8_for_turn(stack: i32) -> u8 {
@@ -525,10 +546,6 @@ fn internal_creature_turn_broadcast_only(world: &mut GameWorld, cid: CreatureId,
         Some(k) => (creature_wire_id(cid, k), k.position()),
         None => return,
     };
-    let omitted = world
-        .creatures
-        .get(cid)
-        .is_some_and(creature_omitted_from_other_clients);
     let snap = capture_creature_stack_snapshot(world, pos);
     let (stack_772, stack_otc) = stack_indexes_for_snapshot(world, &snap, cid);
 
@@ -541,7 +558,7 @@ fn internal_creature_turn_broadcast_only(world: &mut GameWorld, cid: CreatureId,
         let Some(&viewer) = world.conn_to_creature.get(&conn) else {
             continue;
         };
-        if omitted && viewer != cid {
+        if !world.viewer_has_creature_on_client(viewer, cid) {
             continue;
         }
         if !world.is_creature_fully_sent_to_conn(conn, wire_id) {
@@ -784,10 +801,6 @@ impl GameWorld {
             shared: stack_otc,
             own_client_only,
         };
-        let omitted = self
-            .creatures
-            .get(cid)
-            .is_some_and(creature_omitted_from_other_clients);
         // Grid-based fan-out (audit #4) — `spectator_conns_via_grid` already applies
         // `can_see_position`, so every conn here can see `pos`.
         let spectators: Vec<ConnId> = self.spectator_conns_via_grid(pos);
@@ -795,7 +808,7 @@ impl GameWorld {
             let Some(&viewer) = self.conn_to_creature.get(&conn) else {
                 continue;
             };
-            if omitted && viewer != cid {
+            if !self.viewer_has_creature_on_client(viewer, cid) {
                 continue;
             }
             let stack_u8 =
@@ -1405,15 +1418,6 @@ impl GameWorld {
             // broadcasts origin → live after flush.
             return;
         }
-        // Omitted movers were never written into other clients' tiles
-        // (`creature_hidden_from_map`). A `0x6D` would hit the next object.
-        if self
-            .creatures
-            .get(mover)
-            .is_some_and(creature_omitted_from_other_clients)
-        {
-            return;
-        }
         let wire_id = match self.creatures.get(mover) {
             Some(k) => creature_wire_id(mover, k),
             None => return,
@@ -1454,12 +1458,16 @@ impl GameWorld {
         // above the mover occupy a slot only on that hidden creature's own client.
         let (stack_772, stack_otc) = stack_indexes_for_snapshot(self, old_stack, mover);
 
-        // First pass: per-viewer visibility only (`&self`). Invisible/ghost movers
-        // still get no packet (`map.cpp` `canSeeCreature` on the mover, not the stack).
+        // First pass: per-viewer visibility only (`&self`). Non-access clients
+        // never have a ghost (`map.cpp` `canSeeCreature` → stackpos -1). Access
+        // clients do, and must get `0x6D`.
         let viewer_data: Vec<(ConnId, CreatureId, i32, bool, bool)> = spectators
             .into_iter()
             .filter_map(|(conn, viewer)| {
-                if !self.can_see_creature(viewer, mover) {
+                // Ghosts stay on access clients; invisible bodies stay off every
+                // other client. `can_see_creature` alone would `0x6D` an invisible
+                // player onto the next object.
+                if !self.viewer_has_creature_on_client(viewer, mover) {
                     return None;
                 }
                 let viewer_stack = stack_for_viewer(self, &stack_772, &stack_otc, viewer);

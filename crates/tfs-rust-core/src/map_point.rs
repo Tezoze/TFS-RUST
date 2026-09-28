@@ -143,7 +143,9 @@ fn gather_map_point(
         }
         for &ocid in body.creatures() {
             let skip = match world.creatures.get(ocid) {
-                Some(kind) => creature_hidden_from_map(kind, ocid, ctx.self_cid),
+                Some(kind) => {
+                    creature_hidden_from_map(kind, ocid, ctx.self_cid, ctx.viewer_access)
+                }
                 None => true,
             };
             if !skip {

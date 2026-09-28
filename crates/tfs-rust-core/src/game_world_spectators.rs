@@ -787,24 +787,17 @@ impl GameWorld {
         if viewer == target {
             return true;
         }
+        let ghost = matches!(
+            self.creatures.get(target),
+            Some(CreatureKind::Player(p)) if p.ghost_mode
+        );
+        if ghost && !self.player_is_access_player(viewer) {
+            // TVP `Player::canSeeGhostMode` is `group->access`, not "also ghosted".
+            return false;
+        }
         let Some(target_kind) = self.creatures.get(target) else {
             return false;
         };
-        if let CreatureKind::Player(tp) = target_kind
-            && tp.ghost_mode
-        {
-            let viewer_has_access = self
-                .creatures
-                .get(viewer)
-                .and_then(|k| match k {
-                    CreatureKind::Player(p) => Some(p.ghost_mode),
-                    _ => None,
-                })
-                .unwrap_or(false);
-            if !viewer_has_access {
-                return false;
-            }
-        }
         if !Self::has_invisible(&target_kind.base().active_conditions) {
             return true;
         }
@@ -817,6 +810,30 @@ impl GameWorld {
             // Npc / missing viewer: base `Creature::canSeeCreature` — no SeeInvisible.
             _ => false,
         }
+    }
+
+    /// Whether `viewer`'s client still has `target` drawn on a tile.
+    ///
+    /// Map encode omits invisible bodies, and omits ghosts from non-access clients
+    /// ([`crate::login_out::creature_hidden_from_map`]). `can_see_creature` is wider
+    /// for invisible players (`Player::canSeeCreature`), so a `0x6D`/`0x6C` from that
+    /// check deletes the next object. Access clients keep ghosts (empty outfit).
+    pub(crate) fn viewer_has_creature_on_client(
+        &self,
+        viewer: CreatureId,
+        target: CreatureId,
+    ) -> bool {
+        if viewer == target {
+            return true;
+        }
+        let Some(kind) = self.creatures.get(target) else {
+            return false;
+        };
+        if !crate::login_out::creature_omitted_from_other_clients(kind) {
+            return self.can_see_creature(viewer, target);
+        }
+        self.player_is_access_player(viewer)
+            && matches!(kind, CreatureKind::Player(p) if p.ghost_mode)
     }
 
     fn has_invisible(conditions: &[ActiveCondition]) -> bool {

@@ -29,9 +29,7 @@ impl UserData for GroupRef {
                     return Err(mlua::Error::runtime("LuaContext not set"));
                 }
                 let ctx = unsafe { &*ptr };
-                let access = ctx.get_group_access(this.0);
-                tracing::info!(group_id = this.0, access, "Lua group:getAccess()");
-                Ok(access)
+                Ok(ctx.get_group_access(this.0))
             })
         });
 

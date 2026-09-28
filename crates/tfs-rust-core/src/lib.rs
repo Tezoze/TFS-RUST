@@ -87,6 +87,7 @@ mod monster_events;
 mod monster_push;
 mod monster_spawn_hook;
 mod monster_targets;
+mod monster_visibility;
 mod movement_event;
 mod native_spell_combat;
 mod net_load;

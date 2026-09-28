@@ -859,7 +859,6 @@ impl LuaRuntime {
         words: &str,
         param: &str,
     ) -> Result<bool, LuaError> {
-        tracing::info!(player, words, param, "call_talkaction_on_say: invoking Lua");
         let function: mlua::Function = self.lua.registry_value(callback).map_err(LuaError::Init)?;
         let player_ud = self
             .lua
@@ -868,14 +867,7 @@ impl LuaRuntime {
         // C++ `executeSay` pushes (player, words, param, type). The /i script
         // only uses (player, words, param) — `type` is ignored by all active
         // scripts. Pass 0 (TALKTYPE_SAY) as the type.
-        let result = self.call_lua(&function, (player_ud, words, param, 0i32));
-        tracing::info!(
-            player,
-            words,
-            ?result,
-            "call_talkaction_on_say: Lua returned"
-        );
-        result
+        self.call_lua(&function, (player_ud, words, param, 0i32))
     }
 
     /// Execute a Lua chunk (bootstrap globals, compat stubs, data-pack files).

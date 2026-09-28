@@ -5595,6 +5595,30 @@ fn place_sleeping_monster(world: &mut GameWorld, pos: Position, name: &str) -> C
     mid
 }
 
+fn mark_ignored_by_monsters(world: &mut GameWorld, player: CreatureId) {
+    use std::collections::HashMap;
+
+    use tfs_rust_content::groups::Group;
+
+    let mut flags = HashMap::new();
+    flags.insert("ignoredbymonsters".to_string(), true);
+    let groups = std::sync::Arc::make_mut(&mut world.groups);
+    groups.groups.insert(
+        6,
+        Group {
+            id: 6,
+            name: "god".to_string(),
+            access: true,
+            max_depot_items: 0,
+            max_vip_entries: 0,
+            flags,
+        },
+    );
+    if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+        p.group_id = 6;
+    }
+}
+
 /// B3: a Player mover wakes a sleeping monster (`crnonpl.cc:2969-2975`).
 #[test]
 fn sleep_wake_wakes_for_player() {
@@ -5618,6 +5642,67 @@ fn sleep_wake_wakes_for_player() {
         "player mover must wake sleeper"
     );
     assert!(!m.is_idle, "wake must clear idle posture");
+}
+
+/// A gamemaster / god walk does not wake a sleeper.
+#[test]
+fn sleep_wake_does_not_wake_for_ignored_player() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(101, 100, 7);
+    let sleeper = place_sleeping_monster(&mut world, mpos, "Sleeper");
+    ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+    let player = insert_player(&mut world, test_player("God", ppos));
+    world.map.register_creature_at(ppos, player);
+    mark_ignored_by_monsters(&mut world, player);
+
+    world.monster_sleep_wake_on_creature_move(sleeper, player);
+
+    let m = match world.creatures.get(sleeper) {
+        Some(CreatureKind::Monster(m)) => m,
+        _ => panic!("expected monster"),
+    };
+    assert_eq!(m.state, MonsterState::Sleeping);
+    assert!(m.is_idle);
+}
+
+/// An `ignoredbymonsters` player does not hold a monster awake or become a target.
+#[test]
+fn idle_acquire_ignored_player_does_not_prevent_sleep() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(101, 100, 7);
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+    let monster = insert_monster(&mut world, "Rat", mpos, 200);
+    world.map.register_creature_at(mpos, monster);
+    let player = insert_player(&mut world, test_player("God", ppos));
+    world.map.register_creature_at(ppos, player);
+    mark_ignored_by_monsters(&mut world, player);
+
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.is_idle = false;
+        m.state = MonsterState::Idle;
+    }
+    if let Some(k) = world.creatures.get_mut(monster) {
+        k.base_mut().next_wakeup = None;
+    }
+
+    world.monster_idle_stimulus(monster);
+
+    assert!(
+        world.creatures.get(monster).is_some_and(|k| {
+            matches!(k, CreatureKind::Monster(m) if m.state == MonsterState::Sleeping && m.is_idle)
+        }),
+        "ignored player must not keep the monster awake"
+    );
+    assert!(
+        world
+            .creatures
+            .get(monster)
+            .is_some_and(|k| k.base().follow_target.is_none()),
+        "ignored player must not be acquired"
+    );
 }
 
 /// B3: a wild monster (no master) does NOT wake a sleeping monster

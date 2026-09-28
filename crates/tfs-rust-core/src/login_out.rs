@@ -383,8 +383,13 @@ pub(crate) fn creature_hidden_from_map(
     kind: &CreatureKind,
     ocid: CreatureId,
     self_cid: CreatureId,
+    viewer_access: bool,
 ) -> bool {
     if ocid == self_cid {
+        return false;
+    }
+    // TVP `GetTileDescription` keeps ghosts for `group->access` (empty outfit).
+    if viewer_access && matches!(kind, CreatureKind::Player(p) if p.ghost_mode) {
         return false;
     }
     creature_omitted_from_other_clients(kind)
@@ -482,7 +487,9 @@ pub(crate) fn map_tile_content_into(
         }
         for &ocid in body.creatures() {
             let skip = match world.creatures.get(ocid) {
-                Some(kind) => creature_hidden_from_map(kind, ocid, ctx.self_cid),
+                Some(kind) => {
+                    creature_hidden_from_map(kind, ocid, ctx.self_cid, ctx.viewer_access)
+                }
                 None => true,
             };
             if skip {

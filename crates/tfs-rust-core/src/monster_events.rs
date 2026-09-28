@@ -106,6 +106,22 @@ impl GameWorld {
         });
         std::mem::take(&mut self.scratch_spectators)
     }
+
+    /// TVP `luaPlayerSetGhostMode`: leaving ghost calls `Monster::onCreatureAppear`
+    /// so idle monsters notice the player again.
+    pub(crate) fn monsters_notice_revealed_player(&mut self, player: CreatureId, pos: Position) {
+        let nearby = self.collect_creature_spectators(pos, true);
+        for mid in nearby {
+            if !matches!(self.creatures.get(mid), Some(CreatureKind::Monster(_))) {
+                continue;
+            }
+            if self.monster_is_opponent(mid, player) {
+                self.monster_ensure_opponent_listed(mid, player);
+                self.request_idle_stimulus(mid);
+            }
+        }
+    }
+
     /// Monsters that should receive `Monster::onCreatureMove` for a move (`map.cpp` ~264–323).
     fn monsters_witnessing_move(
         &mut self,

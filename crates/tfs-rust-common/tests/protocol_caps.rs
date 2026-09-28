@@ -22,6 +22,7 @@ fn caps_1098_matches_current_hardcoded_behavior() {
     assert!(caps.skills_u16);
     assert!(caps.icons_u16);
     assert!(caps.hotkey_object_use);
+    assert!(caps.monster_invis_removes_from_tile);
     assert_eq!(caps.self_appear_opcode, 0x17);
     assert_eq!(caps.initial_buffer_position, 8);
     assert_eq!(caps.xtea_length_slack, 6);
@@ -46,6 +47,7 @@ fn caps_772_inverse_invariants() {
     assert!(!caps.skills_u16);
     assert!(!caps.icons_u16);
     assert!(!caps.hotkey_object_use);
+    assert!(!caps.monster_invis_removes_from_tile);
     assert_eq!(caps.self_appear_opcode, 0x0A);
     assert_eq!(caps.initial_buffer_position, 4);
     assert_eq!(caps.xtea_length_slack, 4);
@@ -91,7 +93,9 @@ fn caps_800_is_772_frame_with_addons_and_u16_icons() {
     assert!(caps.outfit_addons);
     assert!(caps.icons_u16);
     assert!(caps.hotkey_object_use);
+    assert!(caps.monster_invis_removes_from_tile);
     assert!(!classic.hotkey_object_use);
+    assert!(!classic.monster_invis_removes_from_tile);
     assert_eq!(caps.self_appear_opcode, classic.self_appear_opcode);
     assert_eq!(
         caps.initial_buffer_position,

@@ -534,18 +534,17 @@ impl GameWorld {
             {
                 if reduced_damage.primary.0 == CombatType::Physical {
                     self.apply_physical_hit_blood(target, pos);
-
-                    // M4 — Invisibility removal on hit: C++ `Damage` clears non-player
-                    // invisibility (`SKILL_ILLUSION` timer → restore original outfit +
-                    // announce) when damage lands (`crmain.cc:636-641`). Players keep
-                    // invisibility through damage (C++ gates on `this->Type != PLAYER`).
-                    if !matches!(self.creatures.get(target), Some(CreatureKind::Player(_))) {
-                        self.clear_nonplayer_invisibility(target);
-                    }
                 } else if let Some(effect) =
                     crate::combat::combat_type_hit_effect(reduced_damage.primary.0)
                 {
                     self.broadcast_magic_effect(pos, effect);
+                }
+
+                // Non-player invisibility ends on any hit that reaches this point.
+                // Periodic arms return earlier (`crmain.cc:582-613`). Players keep it
+                // (`crmain.cc:636` `Type != PLAYER`). 8.0 then adds the body back.
+                if !matches!(self.creatures.get(target), Some(CreatureKind::Player(_))) {
+                    self.clear_nonplayer_invisibility(target);
                 }
 
                 if reduced_damage.secondary.1 < 0
@@ -865,12 +864,11 @@ impl GameWorld {
         absorbed
     }
 
-    /// M4 — Clear `ConditionType::Invisible` from a non-player creature and announce the outfit
-    /// change. C++ `Damage` sets `SKILL_ILLUSION` timer to 0 (clearing invisibility), restores
-    /// `OrgOutfit`, and calls `AnnounceChangedCreature(CREATURE_OUTFIT_CHANGED)` +
-    /// `NotifyAllCreatures(OBJECT_CHANGED)` (`crmain.cc:636-641`). No-op if the creature has no
-    /// invisible condition. Player targets are excluded by the caller (C++ gates on
-    /// `this->Type != PLAYER`).
+    /// Clear `ConditionType::Invisible` on a non-player and tell clients.
+    ///
+    /// 772 restores `OrgOutfit` and sends the outfit (`crmain.cc:636-641`).
+    /// 8.0 / 10.98 add the creature back onto the tile (`800src/player.h`
+    /// `sendCreatureChangeVisible`). Player targets are excluded by the caller.
     fn clear_nonplayer_invisibility(&mut self, cid: CreatureId) {
         let had_invisible = self.creatures.get(cid).is_some_and(|k| {
             k.base()
@@ -879,6 +877,15 @@ impl GameWorld {
                 .any(|c| c.ctype == ConditionType::Invisible)
         });
         if !had_invisible {
+            return;
+        }
+        if self.monster_invisibility_hides_from_tile(cid) {
+            if let Some(kind) = self.creatures.get_mut(cid) {
+                kind.base_mut()
+                    .active_conditions
+                    .retain(|c| c.ctype != ConditionType::Invisible);
+            }
+            self.announce_player_change_visible(cid, true);
             return;
         }
         // Snapshot the outfit + position + wire id before mutation (avoid holding borrows).
@@ -999,6 +1006,20 @@ impl GameWorld {
         }
     }
 
+    /// Gamemaster, community manager, and god (`ignoredbymonsters`).
+    ///
+    /// Corpus `CreatureMoveStimulus` (`crnonpl.cc:2966-2982`) wakes for every player.
+    /// These players are excluded so a staff walk does not pull a sleeper into idle.
+    fn player_ignored_by_monsters(&self, id: CreatureId) -> bool {
+        match self.creatures.get(id) {
+            Some(CreatureKind::Player(p)) => {
+                let flags = flags_for_group(&self.groups, p.group_id);
+                has_player_flag(flags, PLAYER_FLAG_IGNORED_BY_MONSTERS)
+            }
+            _ => false,
+        }
+    }
+
     /// C++ `TMonster::CreatureMoveStimulus` sleep wake — `crnonpl.cc:2943-2982`.
     /// Phase 3: runs for both eras (772 monster AI is the single system).
     pub(crate) fn monster_sleep_wake_on_creature_move(
@@ -1035,7 +1056,7 @@ impl GameWorld {
                 matches!(self.creatures.get(mid), Some(CreatureKind::Player(_)))
             }),
         };
-        if !should_wake {
+        if !should_wake || self.player_ignored_by_monsters(moved_id) {
             return;
         }
         if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(monster_id) {
@@ -1402,6 +1423,15 @@ impl GameWorld {
             if matches!(target, CreatureKind::Npc(_)) {
                 continue;
             }
+            // Staff with `ignoredbymonsters` are absent here. Corpus still clears
+            // `ShouldSleep` via `CanSeeFloor` (`crnonpl.cc:2504`) before the target
+            // skip (`crnonpl.cc:2513`), which wakes a sleeper into idle roam.
+            if matches!(target, CreatureKind::Player(p) if {
+                let flags = flags_for_group(&self.groups, p.group_id);
+                has_player_flag(flags, PLAYER_FLAG_IGNORED_BY_MONSTERS)
+            }) {
+                continue;
+            }
 
             let tp = target.position();
             // C++ `Target->CanSeeFloor(this->posz)` — `crnonpl.cc:2504`.
@@ -1426,12 +1456,6 @@ impl GameWorld {
                 if matches!(tile, crate::tile::Tile::House(_)) {
                     continue;
                 }
-            }
-            if matches!(target, CreatureKind::Player(p) if {
-                let flags = flags_for_group(&self.groups, p.group_id);
-                has_player_flag(flags, PLAYER_FLAG_IGNORED_BY_MONSTERS)
-            }) {
-                continue;
             }
             // C++ `crnonpl.cc:2514` `(Target->IsInvisible() && !RaceData[Race].SeeInvisible)`.
             if target.base().is_invisible() && !see_invisible {

@@ -382,6 +382,10 @@ impl GameWorld {
     ///
     /// C++: `player.h` ~789–800 (`Outfit_t{}` vs `getCurrentOutfit`).
     pub(crate) fn announce_player_change_visible(&mut self, cid: CreatureId, visible: bool) {
+        if self.monster_invisibility_hides_from_tile(cid) {
+            self.sync_monster_invisibility_on_tile(cid, visible);
+            return;
+        }
         let Some(kind) = self.creatures.get(cid) else {
             return;
         };

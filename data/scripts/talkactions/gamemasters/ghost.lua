@@ -15,7 +15,6 @@ function talkaction.onSay(player, words, param)
 	player:setGhostMode(isGhost)
 	if isGhost then
 		player:sendTextMessage(MESSAGE_INFO_DESCR, "You are now invisible.")
-		player:sendTextMessage(MESSAGE_STATUS_WARNING, "[WARNING] During ghost mode try to avoid walking near stacked creatures as that would result in desynchronization from your client to the server.\nIf you were to desync relogin or teleport away.")
 		position:sendMagicEffect(CONST_ME_POFF)
 	else
 		player:sendTextMessage(MESSAGE_INFO_DESCR, "You are visible again.")

@@ -79,6 +79,13 @@ pub struct ProtocolCaps {
     /// player target (`receiving.cc:512-514`). From 780 the client may use a carried
     /// rune or item by sprite id, including on monsters, players, and yourself.
     pub hotkey_object_use: bool,
+    /// Monster invisibility removes the body from the tile (`0x6C`) and puts it
+    /// back with `0x6A`. Off below protocol 780: 772 restores `OrgOutfit` and
+    /// sends an outfit packet (`crmain.cc:636-641`). From 780 the client no
+    /// longer receives the sprite (`800src/player.h` `sendCreatureChangeVisible`;
+    /// `map.cpp` `moveCreature` skips the step when `canSeeCreature` is false).
+    /// Players stay on the empty-outfit `0x8E` path in every version.
+    pub monster_invis_removes_from_tile: bool,
 }
 
 impl ProtocolCaps {
@@ -107,6 +114,7 @@ impl ProtocolCaps {
                 initial_buffer_position: 4,
                 xtea_length_slack: 4,
                 hotkey_object_use: version.raw() >= 780,
+                monster_invis_removes_from_tile: version.raw() >= 780,
             },
             1098 => Self {
                 adler_checksum: true,
@@ -129,6 +137,7 @@ impl ProtocolCaps {
                 initial_buffer_position: 8,
                 xtea_length_slack: 6,
                 hotkey_object_use: true,
+                monster_invis_removes_from_tile: version.raw() >= 780,
             },
             other => unreachable!("unsupported protocol version {other}"),
         }
@@ -186,5 +195,12 @@ mod tests {
         assert!(!ProtocolVersion::V772.caps().hotkey_object_use);
         assert!(ProtocolVersion::V800.caps().hotkey_object_use);
         assert!(ProtocolVersion::V1098.caps().hotkey_object_use);
+    }
+
+    #[test]
+    fn monster_invis_tile_remove_starts_at_780() {
+        assert!(!ProtocolVersion::V772.caps().monster_invis_removes_from_tile);
+        assert!(ProtocolVersion::V800.caps().monster_invis_removes_from_tile);
+        assert!(ProtocolVersion::V1098.caps().monster_invis_removes_from_tile);
     }
 }
