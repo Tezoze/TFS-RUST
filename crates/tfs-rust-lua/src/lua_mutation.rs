@@ -195,6 +195,15 @@ pub enum LuaMutation {
         extended: bool,
         force: bool,
     },
+    /// `Game.summonCreature(master, name)` — `SearchSummonField` placement.
+    SummonCreature {
+        master_id: u64,
+        name: String,
+    },
+    /// `Game.tryBreakIllusionItem(creature)` — `CancelInvisibility` item roll.
+    TryBreakIllusionItem {
+        creature_id: u64,
+    },
     /// `Game.startRaid(name)` — TFS `luaGameStartRaid`.
     StartRaid {
         name: String,
@@ -1131,6 +1140,18 @@ pub fn call_do_challenge_creature(challenger_id: u64, target_id: u64) -> Result<
         challenger_id,
         target_id,
     })?;
+    Ok(take_mutation_bool_result().unwrap_or(false))
+}
+
+/// `Game.summonCreature(master, name)` — search-summon-field placement.
+pub fn call_summon_creature(master_id: u64, name: String) -> Result<Option<u64>, String> {
+    apply_mutation(LuaMutation::SummonCreature { master_id, name })?;
+    Ok(take_mutation_item_result())
+}
+
+/// `Game.tryBreakIllusionItem(creature)` — PVP-enforced illusion item break.
+pub fn call_try_break_illusion_item(creature_id: u64) -> Result<bool, String> {
+    apply_mutation(LuaMutation::TryBreakIllusionItem { creature_id })?;
     Ok(take_mutation_bool_result().unwrap_or(false))
 }
 

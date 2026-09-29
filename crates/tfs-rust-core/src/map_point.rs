@@ -9,9 +9,10 @@ use tfs_rust_common::enums::SkullType;
 use tfs_rust_net::NetworkMessage;
 use tfs_rust_net::creature_encode::AddCreatureWire;
 use tfs_rust_net::creature_known::{KnownCreatureTable, check_creature_known};
+use tfs_rust_common::ConnId;
 use tfs_rust_net::map_description::{
     ItemStack, MapTilePass, TileContent, send_map_description_packet_direct,
-    send_map_description_packet_fill,
+    send_map_description_packet_fill, send_update_tile,
 };
 
 use crate::creature::CreatureKind;
@@ -351,6 +352,93 @@ fn emit_wire(
     let (already, remove) = check_creature_known(id, known, can_see, limit);
     buf.wire.apply_known_check(already, remove);
     world.codec.write_add_creature(msg, &buf.wire);
+}
+
+impl GameWorld {
+    /// `CRefreshField` → `SendFieldData` (`receiving.cc:1349`, `sending.cc:580`, opcode `0x69`).
+    ///
+    /// Off-map and out-of-view requests are ignored. A visible tile is resent even when empty.
+    pub(crate) fn player_refresh_field(
+        &mut self,
+        conn_id: ConnId,
+        cid: CreatureId,
+        pos: Position,
+    ) {
+        if pos.z > 15 || !self.can_see_position(cid, pos) {
+            return;
+        }
+        let player_pos = self
+            .creatures
+            .get(cid)
+            .map(|k| k.position())
+            .unwrap_or(pos);
+        let Some(ctx) = MapDescribeCtx::from_world(self, cid, player_pos) else {
+            return;
+        };
+        let with_description = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| matches!(k, CreatureKind::Player(p) if p.item_with_description()));
+        let mut content = TileContent::default();
+        map_tile_content_into(
+            self,
+            &ctx,
+            pos.x as i32,
+            pos.y as i32,
+            pos.z as i32,
+            &mut content,
+        );
+        let mut known = self.take_known_creatures_for_send(conn_id);
+        self.reconcile_known_creatures_for_send(conn_id, &mut known);
+        let mut can_see = |id: u32| self.can_see_creature_for_known_set(cid, id);
+        let msg = send_update_tile(
+            &self.codec,
+            pos,
+            Some(&content),
+            &mut known,
+            &mut can_see,
+            with_description,
+        );
+        self.commit_known_creatures_after_send(conn_id, &known);
+        self.enqueue_encoded(conn_id, msg);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tfs_rust_common::ConnId;
+    use tfs_rust_common::Position;
+
+    use crate::test_support::{beat_driven_test_world, ensure_walkable_tile, insert_player, test_player};
+
+    #[test]
+    fn refresh_visible_tile_sends_field_data() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+        let cid = insert_player(&mut world, test_player("Looker", pos));
+        world.map.register_creature_at(pos, cid);
+        let conn = ConnId(1);
+        world.register_conn_mapping(conn, cid);
+        world.player_refresh_field(conn, cid, pos);
+        let packets = world.flush_output_buffers();
+        let blob = packets.get(&conn).expect("packet");
+        let bytes = blob.first().expect("one");
+        assert_eq!(bytes.first().copied(), Some(0x69), "SendFieldData opcode");
+    }
+
+    #[test]
+    fn refresh_out_of_view_sends_nothing() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+        let cid = insert_player(&mut world, test_player("Looker", pos));
+        world.map.register_creature_at(pos, cid);
+        let conn = ConnId(1);
+        world.register_conn_mapping(conn, cid);
+        world.player_refresh_field(conn, cid, Position::new(200, 200, 7));
+        assert!(world.flush_output_buffers().is_empty());
+    }
 }
 
 fn write_stack(codec: &tfs_rust_net::Codec, msg: &mut NetworkMessage, it: &ItemStack) {

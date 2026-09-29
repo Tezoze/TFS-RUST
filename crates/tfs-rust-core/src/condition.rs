@@ -152,6 +152,18 @@ pub fn add_condition_merge(list: &mut Vec<ActiveCondition>, incoming: ActiveCond
 fn merge_into(existing: &mut ActiveCondition, incoming: &ActiveCondition) {
     use ConditionData::*;
 
+    // `CreatureIllusion` (`magic.cc:2473`) changes outfit only when the illusion skill is 0.
+    // A running outfit timer ignores the new look.
+    if existing.ctype == ConditionType::Outfit
+        && matches!(
+            (&existing.data, &incoming.data),
+            (Outfit { .. }, Outfit { .. })
+        )
+        && existing.timer_rounds_left.is_some_and(|n| n > 0)
+    {
+        return;
+    }
+
     // 772 poison: re-arm only when `Damage > TimerValue()` (`crmain.cc:586-590`).
     // Weaker poison must not refresh Count/MaxCount / Cycle.
     let poison_strength_gated = existing.ctype == ConditionType::Poison
@@ -324,6 +336,38 @@ pub fn dot_tick_for_condition(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn outfit_recast_does_not_refresh_running_timer() {
+        let mut v = vec![ActiveCondition::new(
+            1,
+            0,
+            ConditionType::Outfit,
+            ConditionData::Outfit {
+                look_type: 10,
+                look_type_ex: 0,
+            },
+            Some(5),
+        )];
+        add_condition_merge(
+            &mut v,
+            ActiveCondition::new(
+                2,
+                0,
+                ConditionType::Outfit,
+                ConditionData::Outfit {
+                    look_type: 99,
+                    look_type_ex: 0,
+                },
+                Some(20),
+            ),
+        );
+        assert_eq!(v[0].timer_rounds_left, Some(5));
+        assert!(matches!(
+            v[0].data,
+            ConditionData::Outfit { look_type: 10, .. }
+        ));
+    }
 
     #[test]
     fn generic_merge_idempotent() {

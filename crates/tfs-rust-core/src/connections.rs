@@ -227,7 +227,7 @@ pub(crate) fn packet_counts_as_action(packet: &GamePacket) -> bool {
         GamePacket::Ping
             | GamePacket::StopAutoWalk
             | GamePacket::CancelAttackAndFollow
-            | GamePacket::UpdateTile
+            | GamePacket::UpdateTile { .. }
             | GamePacket::UpdateContainer { .. }
     )
 }
@@ -498,7 +498,9 @@ mod tests {
             GamePacket::Ping,
             GamePacket::StopAutoWalk,
             GamePacket::CancelAttackAndFollow,
-            GamePacket::UpdateTile,
+            GamePacket::UpdateTile {
+                pos: tfs_rust_common::Position::new(0, 0, 7),
+            },
             GamePacket::UpdateContainer { cid: 0 },
         ];
         for p in exempt {

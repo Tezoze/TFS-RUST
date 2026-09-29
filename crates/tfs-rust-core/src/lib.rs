@@ -105,6 +105,7 @@ mod player_move_policy;
 mod process_skills;
 pub mod protocol_hooks;
 mod raid_waves;
+mod rule_violation;
 pub mod return_value;
 mod run_server;
 pub mod scheduler;

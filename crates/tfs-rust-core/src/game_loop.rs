@@ -468,6 +468,7 @@ fn game_packet_requires_timed_action(packet: &GamePacket) -> bool {
             | GamePacket::LookAt { .. }
             | GamePacket::LookInBattleList { .. }
             | GamePacket::BrowseField { .. }
+            | GamePacket::UpdateTile { .. }
             | GamePacket::GetObjectInfo
             | GamePacket::Say(_)
             | GamePacket::RequestChannels
@@ -1584,6 +1585,57 @@ fn handle_game_packet(
         GamePacket::PartyLeave => {
             if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
                 world.player_party_leave(cid, false);
+            }
+        }
+        GamePacket::ClassicRuleViolation {
+            name,
+            reason,
+            action,
+            comment,
+            statement_id,
+            ip_banishment,
+        } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_classic_rule_violation(
+                    cid,
+                    &name,
+                    reason,
+                    action,
+                    &comment,
+                    statement_id,
+                    ip_banishment,
+                );
+            }
+        }
+        GamePacket::ProcessRuleViolation { name } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_process_rule_request(cid, &name);
+            }
+        }
+        GamePacket::RemoveRuleViolation { name } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_remove_rule_request(cid, &name);
+            }
+        }
+        GamePacket::CancelRuleViolation => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_cancel_rule_request(cid);
+            }
+        }
+        GamePacket::DebugAssert {
+            assert_line,
+            date,
+            description,
+            comment,
+        } => {
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.log_client_error_file(cid, &assert_line, &date, &description, &comment);
+            }
+        }
+        GamePacket::UpdateTile { pos } => {
+            // `CRefreshField` → `SendFieldData` (`receiving.cc:1349`, `sending.cc:580`).
+            if let Some(cid) = world.conn_to_creature.get(&conn_id).copied() {
+                world.player_refresh_field(conn_id, cid, pos);
             }
         }
         GamePacket::PartyShareExperience { active } => {

@@ -107,6 +107,8 @@ pub mod client {
         pub const PROCESS_RULE_VIOLATION_REPORT: u8 = 0x9B;
         pub const CLOSE_RULE_VIOLATION_REPORT: u8 = 0x9C;
         pub const CANCEL_RULE_VIOLATION_REPORT: u8 = 0x9D;
+        /// `CL_CMD_RULE_VIOLATION` — same byte as 1098 `THANK_YOU`.
+        pub const RULE_VIOLATION: u8 = 0xE7;
     }
 
     /// Every incoming opcode the 10.98 client protocol dispatches (repo-root `src/protocolgame.cpp`
@@ -232,6 +234,7 @@ pub mod client {
         v772::PROCESS_RULE_VIOLATION_REPORT,
         v772::CLOSE_RULE_VIOLATION_REPORT,
         v772::CANCEL_RULE_VIOLATION_REPORT,
+        v772::RULE_VIOLATION,
     ];
 
     /// Does the 10.98 client protocol dispatch `op`?

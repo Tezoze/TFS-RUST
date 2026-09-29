@@ -95,6 +95,89 @@ impl AccessList {
     }
 }
 
+/// `CheckAccessRight` (`houses.cc:99`).
+///
+/// `1` allow, `-1` deny, `0` the line does not apply. `guild` is `(rank, guild name)`.
+pub fn check_access_right(rule: &str, player_name: &str, guild: Option<(&str, &str)>) -> i8 {
+    let (negate, rule) = match rule.strip_prefix('!') {
+        Some(rest) => (true, rest),
+        None => (false, rule),
+    };
+    if rule.is_empty() {
+        return 0;
+    }
+    let matched = if rule.contains('@') {
+        let Some((rank, guild_name)) = guild.filter(|(_, name)| !name.is_empty()) else {
+            return 0;
+        };
+        let help = if rank.is_empty() {
+            format!("@{guild_name}")
+        } else {
+            format!("{rank}@{guild_name}")
+        };
+        match_house_string(rule, &help)
+    } else {
+        match_house_string(rule, player_name)
+    };
+    if !matched {
+        0
+    } else if negate {
+        -1
+    } else {
+        1
+    }
+}
+
+/// `MatchString` (`strings.cc:409`) — case-insensitive, `*` any run, `?` one character.
+fn match_house_string(pattern: &str, text: &str) -> bool {
+    fn rec(pattern: &[u8], text: &[u8]) -> bool {
+        match (pattern.first().copied(), text.first().copied()) {
+            (None, None) => true,
+            (Some(b'*'), _) => {
+                rec(&pattern[1..], text) || (!text.is_empty() && rec(pattern, &text[1..]))
+            }
+            (Some(b'?'), Some(_)) => rec(&pattern[1..], &text[1..]),
+            (Some(p), Some(t)) if p.to_ascii_lowercase() == t.to_ascii_lowercase() => {
+                rec(&pattern[1..], &text[1..])
+            }
+            _ => false,
+        }
+    }
+    rec(pattern.as_bytes(), text.as_bytes())
+}
+
+/// `MayOpenDoor` line scan (`houses.cc:586`). First deny wins, else the first allow.
+pub fn door_text_allows(text: &str, player_name: &str, guild: Option<(&str, &str)>) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+    for line in text.split('\n') {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let rule = truncate_guest_line(line);
+        match check_access_right(rule, player_name, guild) {
+            -1 => return false,
+            1 => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+fn truncate_guest_line(line: &str) -> &str {
+    const MAX_HOUSE_GUEST_NAME: usize = 100;
+    if line.len() >= MAX_HOUSE_GUEST_NAME {
+        let mut end = MAX_HOUSE_GUEST_NAME - 1;
+        while !line.is_char_boundary(end) {
+            end -= 1;
+        }
+        &line[..end]
+    } else {
+        line
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct HouseAccess {
     pub owner_guid: Option<u32>,
@@ -143,5 +226,13 @@ mod tests {
             SUBOWNER_LIST
         ));
         assert!(!can_edit_access_list(AccessHouseLevel::Guest, GUEST_LIST));
+    }
+
+    #[test]
+    fn door_text_matches_name_and_deny() {
+        assert!(door_text_allows("alice\n", "Alice", None));
+        assert!(!door_text_allows("!alice\nalice\n", "Alice", None));
+        assert!(door_text_allows("# note\n!bob\n*a*\n", "Alice", None));
+        assert!(!door_text_allows("", "Alice", None));
     }
 }

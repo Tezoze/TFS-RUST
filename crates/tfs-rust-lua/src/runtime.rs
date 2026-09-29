@@ -2195,6 +2195,7 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
     use crate::context::{CreatureRef, ItemRef};
     use crate::lua_mutation::{
         call_clear_field, call_create_monster, call_lua_game_create_item, call_start_raid,
+        call_summon_creature, call_try_break_illusion_item,
     };
     use crate::userdata::item::{parse_lua_item_type_id, push_item_userdata};
     use crate::userdata::position::PositionRef;
@@ -2290,6 +2291,38 @@ fn register_game_api(lua: &Lua) -> Result<(), mlua::Error> {
                 }
             },
         )?,
+    )?;
+    game.set(
+        "summonCreature",
+        lua.create_function(|lua, (master, name): (Value, String)| {
+            let master_id = match master {
+                Value::UserData(ud) => ud.borrow::<CreatureRef>()?.0,
+                _ => {
+                    return Err(mlua::Error::runtime(
+                        "Game.summonCreature: expected Creature",
+                    ));
+                }
+            };
+            match call_summon_creature(master_id, name) {
+                Ok(Some(id)) => Ok(Value::UserData(lua.create_userdata(CreatureRef(id))?)),
+                Ok(None) => Ok(Value::Nil),
+                Err(e) => Err(mlua::Error::runtime(e)),
+            }
+        })?,
+    )?;
+    game.set(
+        "tryBreakIllusionItem",
+        lua.create_function(|_, creature: Value| {
+            let creature_id = match creature {
+                Value::UserData(ud) => ud.borrow::<CreatureRef>()?.0,
+                _ => {
+                    return Err(mlua::Error::runtime(
+                        "Game.tryBreakIllusionItem: expected Creature",
+                    ));
+                }
+            };
+            call_try_break_illusion_item(creature_id).map_err(mlua::Error::runtime)
+        })?,
     )?;
     game.set(
         "startRaid",

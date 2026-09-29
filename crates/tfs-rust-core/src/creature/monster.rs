@@ -221,6 +221,8 @@ pub struct Monster {
     /// True while `IdleStimulus` is on the stack. Blocks a yield from re-entering
     /// the same pass (`monster_set_follow_creature` → `request_idle_stimulus`).
     pub(crate) in_idle_stimulus: bool,
+    /// Distance-dance step does not look at the target. Face after that `Go` executes.
+    pub(crate) face_after_step: bool,
     /// 8.0 / 10.98: this body was removed from other clients' tiles for invisibility.
     /// A second cast must not send another `0x6C` (that deletes the next object).
     pub(crate) invis_removed_from_clients: bool,
@@ -328,6 +330,7 @@ impl Monster {
             state: MonsterState::Sleeping,
             last_combat_trace: None,
             in_idle_stimulus: false,
+            face_after_step: false,
             invis_removed_from_clients: false,
             walking_to_spawn: false,
             change_target_speed: config.change_target_speed,

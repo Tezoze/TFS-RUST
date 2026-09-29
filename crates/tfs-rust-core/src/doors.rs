@@ -161,15 +161,75 @@ fn use_door(
         return true;
     }
     if world.door_ids.is_open_toggle(item_type) {
+        if is_house_door(world, item_type) && !name_door_allowed(world, cid, item_id) {
+            send_text(world, cid, MESSAGE_STATUS_SMALL, "Sorry, not possible.");
+            return true;
+        }
         world.clear_field(item_id, None);
         transform(world, item_id, item_type.saturating_sub(1));
         return true;
     }
     if world.door_ids.is_closed_toggle(item_type) {
+        if is_house_door(world, item_type) && !name_door_allowed(world, cid, item_id) {
+            send_text(world, cid, MESSAGE_STATUS_SMALL, "Sorry, not possible.");
+            return true;
+        }
         transform(world, item_id, item_type.saturating_add(1));
         return true;
     }
     false
+}
+
+fn is_house_door(world: &GameWorld, item_type: u16) -> bool {
+    world.door_ids.closed_house.contains(&item_type)
+        || world.door_ids.open_house.contains(&item_type)
+}
+
+/// `UseNameDoor` (`moveuse.cc:2034`): owner, `OPEN_NAMEDOORS`, or `MayOpenDoor`.
+///
+/// `OPEN_NAMEDOORS` is the pack `canedithouses` flag.
+pub(crate) fn name_door_allowed(world: &GameWorld, cid: CreatureId, item_id: ItemId) -> bool {
+    let Some(pos) = item_tile(world, item_id) else {
+        return false;
+    };
+    let Some(house_id) = house_id_at(world, pos) else {
+        return false;
+    };
+    let Some(CreatureKind::Player(player)) = world.creatures.get(cid) else {
+        return false;
+    };
+    if world
+        .houses
+        .houses
+        .get(&house_id)
+        .and_then(|a| a.owner_guid)
+        == Some(player.guid)
+    {
+        return true;
+    }
+    if world.player_has_flag(cid, crate::player_flags::PLAYER_FLAG_CAN_EDIT_HOUSES) {
+        return true;
+    }
+    let guild = (!player.social.guild_name.is_empty()).then_some((
+        player.social.guild_rank.as_str(),
+        player.social.guild_name.as_str(),
+    ));
+    let text = world.items.get(item_id).map(|i| i.text()).unwrap_or("");
+    crate::house::door_text_allows(text, &player.base.name, guild)
+}
+
+fn item_tile(world: &GameWorld, item_id: ItemId) -> Option<Position> {
+    match world.items.get(item_id)?.parent {
+        Some(crate::cylinder::Cylinder::Tile { pos }) => Some(pos),
+        _ => None,
+    }
+}
+
+fn house_id_at(world: &GameWorld, pos: Position) -> Option<u32> {
+    match world.map.get_tile(pos)? {
+        crate::tile::Tile::House(h) if h.house_id != 0 => Some(h.house_id),
+        _ => None,
+    }
 }
 
 fn use_quest_door(
@@ -439,5 +499,79 @@ mod tests {
             Position::new(50, 51, 7)
         ));
         assert_eq!(world.items.get(door_id).unwrap().item_type, 1214);
+    }
+
+    fn house_door(world: &mut GameWorld, owner: Option<u32>, text: &str) -> (ItemId, CreatureId) {
+        use crate::cylinder::Cylinder;
+        use crate::tile::{HouseTile, Tile, TileBody};
+        use tfs_rust_common::enums::ZoneType;
+        let pos = Position::new(10, 10, 7);
+        world.door_ids.closed_house.insert(1210);
+        world.door_ids.open_house.insert(1211);
+        register_types(world, &[1210, 1211]);
+        world.map.insert_tile(
+            pos,
+            Tile::House(HouseTile {
+                inner: TileBody {
+                    ground: Some(1),
+                    ground_item: None,
+                    stacks: None,
+                    flags: 0,
+                    zone: ZoneType::Normal,
+                },
+                house_id: 7,
+            }),
+        );
+        if let Some(guid) = owner {
+            world.houses.set_owner(7, guid);
+        }
+        let mut door = Item::new_single(1210);
+        door.parent = Some(Cylinder::Tile { pos });
+        if !text.is_empty() {
+            door.set_text(text);
+        }
+        let door_id = world.items.insert(door);
+        world.map.get_tile_mut(pos).unwrap().add_item(door_id);
+        let cid = insert_player(world, test_player("Alice", pos));
+        (door_id, cid)
+    }
+
+    #[test]
+    fn house_door_stranger_cannot_toggle() {
+        let mut world = minimal_world();
+        let (door_id, cid) = house_door(&mut world, Some(99), "");
+        assert!(try_use(
+            &mut world,
+            cid,
+            door_id,
+            None,
+            Position::new(10, 10, 7)
+        ));
+        assert_eq!(world.items.get(door_id).unwrap().item_type, 1210);
+    }
+
+    #[test]
+    fn house_door_owner_and_named_guest_can_toggle() {
+        let mut world = minimal_world();
+        let (door_id, cid) = house_door(&mut world, Some(1), "");
+        assert!(try_use(
+            &mut world,
+            cid,
+            door_id,
+            None,
+            Position::new(10, 10, 7)
+        ));
+        assert_eq!(world.items.get(door_id).unwrap().item_type, 1211);
+
+        let mut world = minimal_world();
+        let (door_id, cid) = house_door(&mut world, Some(99), "alice");
+        assert!(try_use(
+            &mut world,
+            cid,
+            door_id,
+            None,
+            Position::new(10, 10, 7)
+        ));
+        assert_eq!(world.items.get(door_id).unwrap().item_type, 1211);
     }
 }

@@ -194,7 +194,9 @@ pub fn parse_game_opcode(
             name: msg.read_string()?,
         }),
         C::CANCEL_ATTACK_AND_FOLLOW => Ok(GamePacket::CancelAttackAndFollow),
-        C::UPDATE_TILE => Ok(GamePacket::UpdateTile),
+        C::UPDATE_TILE => Ok(GamePacket::UpdateTile {
+            pos: msg.read_position()?,
+        }),
         C::UPDATE_CONTAINER => Ok(GamePacket::UpdateContainer {
             cid: msg.read_u8()?,
         }),
@@ -223,7 +225,27 @@ pub fn parse_game_opcode(
             notify: msg.read_u8()? != 0,
         }),
         C::BUG_REPORT => parse_bug_report(msg),
-        C::THANK_YOU => Ok(GamePacket::ThankYou),
+        C::THANK_YOU => {
+            if version.raw() >= 1098 {
+                Ok(GamePacket::ThankYou)
+            } else {
+                Ok(GamePacket::ClassicRuleViolation {
+                    name: msg.read_string()?,
+                    reason: msg.read_u8()?,
+                    action: msg.read_u8()?,
+                    comment: msg.read_string()?,
+                    statement_id: msg.read_u32()?,
+                    ip_banishment: msg.read_u8()? != 0,
+                })
+            }
+        }
+        C::v772::PROCESS_RULE_VIOLATION_REPORT => Ok(GamePacket::ProcessRuleViolation {
+            name: msg.read_string()?,
+        }),
+        C::v772::CLOSE_RULE_VIOLATION_REPORT => Ok(GamePacket::RemoveRuleViolation {
+            name: msg.read_string()?,
+        }),
+        C::v772::CANCEL_RULE_VIOLATION_REPORT => Ok(GamePacket::CancelRuleViolation),
         C::DEBUG_ASSERT => Ok(GamePacket::DebugAssert {
             assert_line: msg.read_string()?,
             date: msg.read_string()?,

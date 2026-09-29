@@ -94,6 +94,11 @@ impl GameWorld {
         if !matches!(self.creatures.get(cid), Some(CreatureKind::Player(_))) {
             return;
         }
+        // 772 `TALK_GAMEMASTER_REQUEST` (`enums.hh:657`, `receiving.cc:888`).
+        if self.codec.version().raw() < 1098 && speak_class == 6 {
+            self.open_gamemaster_request(cid, text);
+            return;
+        }
         let _ = self.creature_todo_add(
             cid,
             crate::creature_todo::CreatureAction::Talk {

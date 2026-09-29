@@ -255,6 +255,17 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
             }
             Ok(())
         }
+        LuaMutation::SummonCreature { master_id, name } => {
+            if let Some(id) = unsafe { &mut *world }.lua_script_summon_creature(master_id, &name) {
+                set_mutation_item_result(id);
+            }
+            Ok(())
+        }
+        LuaMutation::TryBreakIllusionItem { creature_id } => {
+            let broken = unsafe { &mut *world }.lua_script_try_break_illusion_item(creature_id);
+            set_mutation_bool_result(broken);
+            Ok(())
+        }
         LuaMutation::StartRaid { name } => {
             let rv = unsafe { &mut *world }.schedule_raid_now(&name);
             set_mutation_i32_result(crate::raid_waves::raid_return_to_lua_i32(rv));

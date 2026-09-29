@@ -8,12 +8,7 @@ local spell = Spell(SPELL_INSTANT)
 function onTargetCreature(creature, target)
 	if target ~= creature then
 		if target:isPlayer() then
-			if Game.getWorldType() == WORLD_TYPE_PVP_ENFORCED then
-				local item = target:getSlotItem(CONST_SLOT_RING)
-				if item and item:getId() == 3086 and math.random(1, 5) == 1 then
-					item:remove()
-				end
-			end
+			Game.tryBreakIllusionItem(target)
 		end
 		target:removeCondition(CONDITION_INVISIBLE)
 	end

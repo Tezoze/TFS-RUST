@@ -580,6 +580,16 @@ pub fn send_house_window(window_text_id: u32, text: &str) -> NetworkMessage {
     m
 }
 
+/// 772 `SendEditList` (`sending.cc:1136`) — type `1` guest, `2` subowner, `3` door.
+pub fn send_edit_list(list_type: u8, id: u32, text: &str) -> NetworkMessage {
+    let mut m = NetworkMessage::new();
+    m.write_u8(0x97);
+    m.write_u8(list_type);
+    m.write_u32(id);
+    m.write_string(text);
+    m
+}
+
 pub fn send_supply_used(client_id: u16) -> NetworkMessage {
     let mut m = NetworkMessage::new();
     m.write_u8(0xCE);

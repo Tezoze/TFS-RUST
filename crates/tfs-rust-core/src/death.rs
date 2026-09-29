@@ -152,6 +152,8 @@ pub fn handle_creature_death(
     mechanics: &MechanicsProfile,
     round_nr: u32,
     victim_active_promotion: bool,
+    grant_experience: bool,
+    fire_ondeath: bool,
 ) -> (Vec<CreatureId>, Vec<XpShareGrant>) {
     if matches!(creatures.get(victim), Some(CreatureKind::Npc(_)) | None) {
         return (Vec::new(), Vec::new());
@@ -180,155 +182,161 @@ pub fn handle_creature_death(
     };
     let is_pvp_kill = pvp_pool.is_some();
 
-    // Player victim: experience loss with bless reduction (PC-5 M7, M6 era-gated).
-    // 772 uses flat `(promoted ? 7 : 10) - blessings` percent; 1098 uses TFS curve.
-    // Skill try loss is applied earlier via `GameWorld::apply_player_death_penalties`.
-    if let Some(CreatureKind::Player(v)) = creatures.get_mut(victim) {
-        let promoted = victim_active_promotion;
-        if matches!(
-            mechanics.damage_formula,
-            crate::formulas::DamageFormula::ClassicProbe
-        ) {
-            let storage = v.persist.as_ref().map(|b| b.storage.clone());
-            if let Some(storage) = storage {
-                v.blessings = crate::blessing::fold_quest_blessings(v.blessings, &storage);
+    if grant_experience {
+        // Player victim: experience loss with bless reduction (PC-5 M7, M6 era-gated).
+        // 772 uses flat `(promoted ? 7 : 10) - blessings` percent; 1098 uses TFS curve.
+        // Skill try loss is applied earlier via `GameWorld::apply_player_death_penalties`.
+        if let Some(CreatureKind::Player(v)) = creatures.get_mut(victim) {
+            let promoted = victim_active_promotion;
+            if matches!(
+                mechanics.damage_formula,
+                crate::formulas::DamageFormula::ClassicProbe
+            ) {
+                let storage = v.persist.as_ref().map(|b| b.storage.clone());
+                if let Some(storage) = storage {
+                    v.blessings = crate::blessing::fold_quest_blessings(v.blessings, &storage);
+                }
+            }
+            let frac = death_loss_fraction_for_profile(
+                mechanics,
+                config,
+                v.level,
+                v.experience,
+                v.blessings,
+                promoted,
+            )
+            .clamp(0.0, 1.0);
+            let lose = ((v.experience as f64) * frac).floor() as u64;
+            let old_level = v.level;
+            if lose > 0 && v.remove_experience(lose, step_speed_model) {
+                leveled_killers.push(victim);
+            }
+            // Always refresh victim stats after death — TFS `Player::death` calls `sendStats()`
+            // after blessing clear even when `deathLosePercent` yields zero exp loss
+            // (`player.cpp:2153`). Skipping this when `lose == 0` left blessings cleared
+            // server-side with no client `0xA0` until next login.
+            xp_grants.push(XpShareGrant {
+                cid: victim,
+                amount: 0, // loss path — no floating “+exp” popup
+                old_level,
+                new_level: v.level,
+            });
+            if matches!(
+                mechanics.damage_formula,
+                crate::formulas::DamageFormula::ClassicProbe
+            ) {
+                crate::blessing::consume_counted_blessings(v);
+            } else {
+                v.blessings = clear_blessings_on_death(v.blessings, last_hit_by_player);
+                crate::blessing::clear_quests_for_missing_bits(v);
             }
         }
-        let frac = death_loss_fraction_for_profile(
-            mechanics,
-            config,
-            v.level,
-            v.experience,
-            v.blessings,
-            promoted,
-        )
-        .clamp(0.0, 1.0);
-        let lose = ((v.experience as f64) * frac).floor() as u64;
-        let old_level = v.level;
-        if lose > 0 && v.remove_experience(lose, step_speed_model) {
-            leveled_killers.push(victim);
-        }
-        // Always refresh victim stats after death — TFS `Player::death` calls `sendStats()`
-        // after blessing clear even when `deathLosePercent` yields zero exp loss
-        // (`player.cpp:2153`). Skipping this when `lose == 0` left blessings cleared
-        // server-side with no client `0xA0` until next login.
-        xp_grants.push(XpShareGrant {
-            cid: victim,
-            amount: 0, // loss path — no floating “+exp” popup
-            old_level,
-            new_level: v.level,
-        });
-        if matches!(
-            mechanics.damage_formula,
-            crate::formulas::DamageFormula::ClassicProbe
-        ) {
-            crate::blessing::consume_counted_blessings(v);
-        } else {
-            v.blessings = clear_blessings_on_death(v.blessings, last_hit_by_player);
-            crate::blessing::clear_quests_for_missing_bits(v);
-        }
-    }
 
-    let exp_reward: u64 = match creatures.get(victim) {
-        Some(CreatureKind::Monster(m)) => m.experience as u64,
-        Some(CreatureKind::Player(_)) => pvp_pool.unwrap_or(0),
-        _ => 0,
-    };
+        let exp_reward: u64 = match creatures.get(victim) {
+            Some(CreatureKind::Monster(m)) => m.experience as u64,
+            Some(CreatureKind::Player(_)) => pvp_pool.unwrap_or(0),
+            _ => 0,
+        };
 
-    let mut killer_entries: Vec<(CreatureId, u64)> = damage_map
-        .iter_active()
-        .map(|(id, dmg, _)| (id, dmg))
-        .collect();
-    killer_entries.sort_by_key(|(id, _)| *id);
+        let mut killer_entries: Vec<(CreatureId, u64)> = damage_map
+            .iter_active()
+            .map(|(id, dmg, _)| (id, dmg))
+            .collect();
+        killer_entries.sort_by_key(|(id, _)| *id);
 
-    let shares: Vec<u64> = killer_entries.iter().map(|(_, dmg)| *dmg).collect();
-    // M8 — Use the monotonic `CombatDamage` accumulator as the denominator (C++
-    // `DistributeExperiencePoints` `crcombat.cc:906-921`), not the re-sumed surviving ring.
-    // This includes damage from evicted/dead attackers, so payout can be < 100% of Exp.
-    let combat_damage = damage_map.combat_damage;
-    let grants = distribute_experience(exp_reward, &shares, Some(combat_damage));
+        let shares: Vec<u64> = killer_entries.iter().map(|(_, dmg)| *dmg).collect();
+        // M8 — Use the monotonic `CombatDamage` accumulator as the denominator (C++
+        // `DistributeExperiencePoints` `crcombat.cc:906-921`), not the re-sumed surviving ring.
+        // This includes damage from evicted/dead attackers, so payout can be < 100% of Exp.
+        let combat_damage = damage_map.combat_damage;
+        let grants = distribute_experience(exp_reward, &shares, Some(combat_damage));
 
-    for ((killer_id, _), share) in killer_entries.iter().zip(grants) {
-        // C++ `GetCreature == NULL || IsDead` → skip (`crcombat.cc:916-918`).
-        if creatures.get(*killer_id).is_none_or(|k| k.base().is_dead) {
-            continue;
-        }
+        for ((killer_id, _), share) in killer_entries.iter().zip(grants) {
+            // C++ `GetCreature == NULL || IsDead` → skip (`crcombat.cc:916-918`).
+            if creatures.get(*killer_id).is_none_or(|k| k.base().is_dead) {
+                continue;
+            }
 
-        if matches!(creatures.get(*killer_id), Some(CreatureKind::Player(_))) {
-            let share = if is_pvp_kill {
-                share
-            } else if let Some(n) = party_size_for_xp.filter(|&n| n > 1) {
-                split_shared_experience(share, n)
-            } else {
-                share
-            };
-            let share = if is_pvp_kill {
-                // 772 `InPartyWith(..., true)` — live or former party within +5 rounds.
-                let same_party = match creatures.get(victim) {
-                    Some(CreatureKind::Player(v)) => match creatures.get(*killer_id) {
-                        Some(CreatureKind::Player(k)) => v.in_party_with(k, true, round_nr),
-                        _ => false,
-                    },
-                    _ => false,
-                };
-                if same_party {
-                    0
-                } else if let (Some(vic_lvl), Some(CreatureKind::Player(k))) =
-                    (pvp_victim_level, creatures.get(*killer_id))
-                {
-                    pvp_kill_experience_amount(mechanics, vic_lvl, k.level, share)
+            if matches!(creatures.get(*killer_id), Some(CreatureKind::Player(_))) {
+                let share = if is_pvp_kill {
+                    share
+                } else if let Some(n) = party_size_for_xp.filter(|&n| n > 1) {
+                    split_shared_experience(share, n)
                 } else {
-                    0
-                }
-            } else {
-                share
-            };
+                    share
+                };
+                let share = if is_pvp_kill {
+                    // 772 `InPartyWith(..., true)` — live or former party within +5 rounds.
+                    let same_party = match creatures.get(victim) {
+                        Some(CreatureKind::Player(v)) => match creatures.get(*killer_id) {
+                            Some(CreatureKind::Player(k)) => v.in_party_with(k, true, round_nr),
+                            _ => false,
+                        },
+                        _ => false,
+                    };
+                    if same_party {
+                        0
+                    } else if let (Some(vic_lvl), Some(CreatureKind::Player(k))) =
+                        (pvp_victim_level, creatures.get(*killer_id))
+                    {
+                        pvp_kill_experience_amount(mechanics, vic_lvl, k.level, share)
+                    } else {
+                        0
+                    }
+                } else {
+                    share
+                };
 
-            let rate_exp = match creatures.get(*killer_id) {
-                Some(CreatureKind::Player(k)) => config
-                    .experience_rate_for_level(k.level)
-                    .unwrap_or(1.0)
-                    .max(0.0),
-                _ => 1.0,
-            };
-            let share = ((share as f64) * rate_exp).floor() as u64;
-            if share > 0
-                && let Some(CreatureKind::Player(k)) = creatures.get_mut(*killer_id)
-            {
-                // `800src/player.cpp` `gainExperience`: a bar at 0 grants nothing.
-                if mechanics.stamina_max_minutes > 0 && k.stamina_minutes == 0 {
-                    continue;
+                let rate_exp = match creatures.get(*killer_id) {
+                    Some(CreatureKind::Player(k)) => config
+                        .experience_rate_for_level(k.level)
+                        .unwrap_or(1.0)
+                        .max(0.0),
+                    _ => 1.0,
+                };
+                let share = ((share as f64) * rate_exp).floor() as u64;
+                if share > 0
+                    && let Some(CreatureKind::Player(k)) = creatures.get_mut(*killer_id)
+                {
+                    // `800src/player.cpp` `gainExperience`: a bar at 0 grants nothing.
+                    if mechanics.stamina_max_minutes > 0 && k.stamina_minutes == 0 {
+                        continue;
+                    }
+                    let old_level = k.level;
+                    if k.add_experience(share, step_speed_model) {
+                        leveled_killers.push(*killer_id);
+                    }
+                    // 772 soul regen on exp (`crcombat.cc:938-955`): Amount >= AttackerLevel.
+                    if share >= old_level as u64 {
+                        k.arm_soul_regen_timer();
+                    }
+                    xp_grants.push(XpShareGrant {
+                        cid: *killer_id,
+                        amount: share,
+                        old_level,
+                        new_level: k.level,
+                    });
                 }
-                let old_level = k.level;
-                if k.add_experience(share, step_speed_model) {
-                    leveled_killers.push(*killer_id);
-                }
-                // 772 soul regen on exp (`crcombat.cc:938-955`): Amount >= AttackerLevel.
-                if share >= old_level as u64 {
-                    k.arm_soul_regen_timer();
+            } else if share > 0 {
+                // `Skills[SKILL_LEVEL]->Increase` + white `TextualEffect` — not player-gated
+                // (`crcombat.cc:957-958`). PvP 11/10 cap is player-vs-player only (`:922`).
+                if let Some(CreatureKind::Monster(m)) = creatures.get_mut(*killer_id) {
+                    m.skill_level_exp = m.skill_level_exp.saturating_add(share);
                 }
                 xp_grants.push(XpShareGrant {
                     cid: *killer_id,
                     amount: share,
-                    old_level,
-                    new_level: k.level,
+                    old_level: 0,
+                    new_level: 0,
                 });
             }
-        } else if share > 0 {
-            // `Skills[SKILL_LEVEL]->Increase` + white `TextualEffect` — not player-gated
-            // (`crcombat.cc:957-958`). PvP 11/10 cap is player-vs-player only (`:922`).
-            if let Some(CreatureKind::Monster(m)) = creatures.get_mut(*killer_id) {
-                m.skill_level_exp = m.skill_level_exp.saturating_add(share);
-            }
-            xp_grants.push(XpShareGrant {
-                cid: *killer_id,
-                amount: share,
-                old_level: 0,
-                new_level: 0,
-            });
+            let names = player_script_event_names(creatures, *killer_id);
+            events.on_kill(*killer_id, victim, &names);
         }
-        let names = player_script_event_names(creatures, *killer_id);
-        events.on_kill(*killer_id, victim, &names);
+    }
+
+    if !fire_ondeath {
+        return (leveled_killers, xp_grants);
     }
 
     let death_names = player_script_event_names(creatures, victim);
@@ -413,6 +421,8 @@ mod tests {
             &world.mechanics.profile,
             world.round_nr,
             victim_active_promotion,
+            true,
+            true,
         )
     }
 
@@ -708,6 +718,22 @@ mod tests {
             }
             _ => panic!("victim missing"),
         }
+    }
+
+    #[test]
+    fn monster_xp_grant_does_not_insert_generic_corpse() {
+        let mut world = minimal_world();
+        let pos = Position::new(100, 100, 7);
+        let kicker = insert_player(&mut world, test_player("Hero", pos));
+        let victim = insert_monster(&mut world, "Rat", pos, 200);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(victim) {
+            m.experience = 5;
+            m.base.damage_map.insert(kicker, 100);
+        }
+        let before = world.items.len();
+        death_call(&mut world, victim, WorldType::Pvp);
+        assert_eq!(world.items.len(), before, "item 3058 must not be inserted");
+        assert!(world.items.iter().all(|(_, item)| item.item_type != 3058));
     }
 
     #[test]

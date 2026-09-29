@@ -162,6 +162,79 @@ impl GameWorld {
         Ok(())
     }
 
+    /// 772 `TPlayer::Regenerate` — `crplayer.cc:1373`.
+    ///
+    /// Runs after the player is on the map. Only a bed on that tile whose text is
+    /// the player name (case-insensitive) applies food HP/mana/soul and is cleared.
+    /// `bed_sleepers` wake stays a separate path for a logged-out sleeper whose
+    /// bed text is not the raw name.
+    pub(crate) fn apply_named_bed_login_regen(&mut self, cid: CreatureId) {
+        let (name, pos, food, lastlogout, health, max_health, mana, max_mana, soul, soul_max) =
+            match self.creatures.get(cid) {
+                Some(CreatureKind::Player(p)) => {
+                    let lastlogout = p
+                        .persist
+                        .as_ref()
+                        .map(|b| b.player_row.lastlogout)
+                        .unwrap_or(0);
+                    (
+                        p.base.name.clone(),
+                        p.base.position,
+                        p.food_remaining,
+                        lastlogout,
+                        p.base.health,
+                        p.effective_max_health(),
+                        p.mana,
+                        p.effective_max_mana(),
+                        p.economy.soul,
+                        p.vocation_profile.soul_max,
+                    )
+                }
+                _ => return,
+            };
+        let Some(bed_id) = self.bed_with_owner_name(pos, &name) else {
+            return;
+        };
+        let now = unix_secs() as u64;
+        let offline = if lastlogout == 0 {
+            0
+        } else {
+            now.saturating_sub(lastlogout)
+        };
+        let (food, health, mana, soul) = crate::login::named_bed_offline_regen(
+            food,
+            offline,
+            health,
+            max_health,
+            mana,
+            max_mana,
+            soul,
+            soul_max,
+        );
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.food_remaining = food;
+            p.base.health = health;
+            p.mana = mana;
+            p.economy.soul = soul;
+        }
+        if let Some(item) = self.items.get_mut(bed_id) {
+            item.reset_text();
+        }
+        // Clear the bed without the TFS sleep-duration bump (`bed_regenerate_player`).
+        self.bed_wake_up(bed_id, None);
+    }
+
+    /// Bed on `pos` whose text equals `name` — `crplayer.cc:1394` `stricmp`.
+    fn bed_with_owner_name(&self, pos: Position, name: &str) -> Option<ItemId> {
+        let bed_id = self.bed_item_on_tile(pos)?;
+        let text = self.items.get(bed_id)?.text();
+        if text.eq_ignore_ascii_case(name) {
+            Some(bed_id)
+        } else {
+            None
+        }
+    }
+
     /// C++ `BedItem::wakeUp` — `bed.cpp:163-200`.
     pub(crate) fn bed_wake_up(&mut self, item_id: ItemId, player: Option<CreatureId>) {
         if self.bed_house_id(item_id).is_none() {
@@ -393,5 +466,65 @@ mod tests {
                 .is_some_and(|k| k.base().logout_allowed)
         );
         assert_eq!(world.pending_idle_kick, vec![(ConnId(1), true)]);
+    }
+
+    #[test]
+    fn named_bed_login_applies_food_regen_and_clears_text() {
+        let mut world = beat_driven_test_world();
+        register_bed_pair(&mut world);
+        let pos = Position::new(50, 50, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+        let mut player = test_player("Alice", pos);
+        player.base.health = 40;
+        player.mana = 10;
+        player.food_remaining = 300;
+        player.economy.soul = 0;
+        let ago = unix_secs().saturating_sub(1500) as u64;
+        if let Some(persist) = player.persist.as_mut() {
+            persist.player_row.lastlogout = ago;
+        }
+        let cid = insert_player(&mut world, player);
+        world.map.register_creature_at(pos, cid);
+        let bed = world.items.insert(Item::new_single(1754));
+        world.items.get_mut(bed).unwrap().set_text("alice");
+        world
+            .internal_add_item_to_tile(pos, bed, crate::cylinder::CylinderFlags::NO_LIMIT)
+            .expect("place bed");
+
+        world.apply_named_bed_login_regen(cid);
+
+        let p = match world.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p,
+            _ => panic!("player"),
+        };
+        // Regen = min(300/3, 1500/15) = 100. HP +25, mana capped, food 0, soul +1.
+        assert_eq!(p.base.health, 65);
+        assert_eq!(p.mana, 50);
+        assert_eq!(p.food_remaining, 0);
+        assert_eq!(p.economy.soul, 1);
+        assert_eq!(world.items.get(bed).map(|i| i.text()), Some(""));
+    }
+
+    #[test]
+    fn login_off_bed_leaves_food_untouched() {
+        let mut world = beat_driven_test_world();
+        let pos = Position::new(50, 50, 7);
+        ensure_walkable_tile(&mut world.map, pos, 100);
+        let mut player = test_player("Alice", pos);
+        player.base.health = 40;
+        player.food_remaining = 300;
+        let ago = unix_secs().saturating_sub(1500) as u64;
+        if let Some(persist) = player.persist.as_mut() {
+            persist.player_row.lastlogout = ago;
+        }
+        let cid = insert_player(&mut world, player);
+        world.map.register_creature_at(pos, cid);
+        world.apply_named_bed_login_regen(cid);
+        let p = match world.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p,
+            _ => panic!("player"),
+        };
+        assert_eq!(p.food_remaining, 300);
+        assert_eq!(p.base.health, 40);
     }
 }

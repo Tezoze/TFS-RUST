@@ -48,7 +48,7 @@ impl GameWorld {
                 self.apply_player_death_skill_loss(cid);
             }
             // Player exp loss + PvP-enforced XP (`crplayer.cc:339-340`) — not monster XP.
-            self.run_handle_creature_death(cid, false);
+            self.run_handle_creature_death(cid, false, true, true);
             self.send_player_skills(cid);
             // 772 `TPlayer::Death` — `crplayer.cc:331-334`. Trailing newline is required.
             self.send_player_advance_message(cid, "You are dead.\n");
@@ -133,6 +133,13 @@ impl GameWorld {
             self.player_death_drop_inventory(victim);
         }
 
+        // `~TMonster` grants experience before `~TCreature` places the corpse
+        // (`crnonpl.cc:2113`). Pack `onDeath` runs after the race corpse is on the tile.
+        let grant_monster_xp = !is_player && !is_summon;
+        if grant_monster_xp {
+            self.run_handle_creature_death(victim, false, true, false);
+        }
+
         let corpse_snapshot = self.creatures.get(victim).and_then(|k| {
             let CreatureKind::Monster(m) = k else {
                 return None;
@@ -146,6 +153,7 @@ impl GameWorld {
             };
             Some((m.base.position, m.corpse_id, m.blood, inventory))
         });
+        let race_corpse = corpse_snapshot.is_some();
         if let Some((pos, corpse_id, blood, inventory)) = corpse_snapshot {
             self.drop_monster_corpse(pos, corpse_id, blood, &inventory);
         }
@@ -169,9 +177,8 @@ impl GameWorld {
             );
         }
 
-        // Monster XP in `~TMonster` when Master==0 (`crnonpl.cc:2113-2126`).
-        if !is_player && !is_summon {
-            self.run_handle_creature_death(victim, true);
+        if grant_monster_xp {
+            self.run_handle_creature_death(victim, !race_corpse, false, true);
         }
 
         if is_player {
@@ -222,7 +229,13 @@ impl GameWorld {
         }
     }
 
-    fn run_handle_creature_death(&mut self, victim: CreatureId, schedule_generic_corpse: bool) {
+    fn run_handle_creature_death(
+        &mut self,
+        victim: CreatureId,
+        schedule_generic_corpse: bool,
+        grant_experience: bool,
+        fire_ondeath: bool,
+    ) {
         let decay_now = self.now_ms();
         let victim_active_promotion = self.player_active_promotion(victim);
         let (leveled, xp_grants) = crate::lua_scope::with_lua_script_scope(self, |world| {
@@ -242,6 +255,8 @@ impl GameWorld {
                 &world.mechanics.profile,
                 world.round_nr,
                 victim_active_promotion,
+                grant_experience,
+                fire_ondeath,
             )
         });
         for cid in leveled {

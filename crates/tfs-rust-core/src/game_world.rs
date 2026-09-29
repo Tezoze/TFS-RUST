@@ -116,6 +116,8 @@ pub struct GameWorld {
     /// CH-1: skeleton only (SAY does not touch channels); CH-4 seeds static channels
     /// from `data/scripts/chatchannels/*.lua` and adds membership/lookup methods.
     pub chat: ChatRegistry,
+    /// 772 gamemaster-request queue (`TPlayer::Request` / `RequestProcessingGamemaster`).
+    pub(crate) rule_requests: crate::rule_violation::RuleRequests,
     /// C++ `Player::muteCountMap` — flood protection escalation (player guid → mute count).
     /// Game-thread only; static in C++ (`player.cpp:112`), per-world here for test isolation.
     pub mute_count_map: HashMap<u32, u32>,
@@ -483,6 +485,7 @@ impl GameWorld {
             kill_stats: crate::kill_statistics::KillStatistics::default(),
             decay: DecayManager::default(),
             chat: ChatRegistry::new(),
+            rule_requests: crate::rule_violation::RuleRequests::default(),
             mute_count_map: HashMap::new(),
             spawns,
             houses: HouseManager::default(),

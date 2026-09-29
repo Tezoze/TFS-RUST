@@ -4,6 +4,7 @@
 //! C++ reference: `creature.cpp` `getPathTo`; `creature.h` `setDropLoot` / `setSkillLoss`;
 //! `luascript.cpp` `luaCreatureGetPathTo`, `luaCreatureAddSummon`.
 
+use slotmap::Key;
 use tfs_rust_common::Position;
 use tfs_rust_common::enums::{ConditionType, Direction};
 
@@ -199,6 +200,46 @@ impl GameWorld {
             usize::MAX
         };
         self.get_creature_path_to(cid, target, min_target_dist, max_target_dist, max_steps)
+    }
+
+    /// `CancelInvisibility` item break (`magic.cc:2421`).
+    ///
+    /// Pack items use `abilities.invisible` for the illusion skillboost. On a
+    /// PVP-enforced world, `random(1, 5) == 1` deletes the first equipped one.
+    pub fn lua_script_try_break_illusion_item(&mut self, creature_u64: u64) -> bool {
+        if self.pvp_config.world_type != tfs_rust_common::enums::WorldType::PvpEnforced {
+            return false;
+        }
+        let Some(cid) = self.resolve_creature_u64(creature_u64) else {
+            return false;
+        };
+        let slots = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.equipment_slots,
+            _ => return false,
+        };
+        let mut equipped = None;
+        for iid in slots.into_iter().flatten() {
+            let Some(item_type) = self.items.get(iid).map(|i| i.item_type) else {
+                continue;
+            };
+            let invisible = self
+                .items_db
+                .items
+                .get(&item_type)
+                .is_some_and(|t| t.abilities.invisible);
+            if invisible {
+                equipped = Some(iid);
+                break;
+            }
+        }
+        let Some(item_id) = equipped else {
+            return false;
+        };
+        if self.parity_random(1, 5) != 1 {
+            return false;
+        }
+        self.lua_script_item_remove(item_id.data().as_ffi(), -1)
+            .unwrap_or(false)
     }
 
     fn player_may_illusion_monster(&self, cid: CreatureId, monster_name: &str) -> bool {

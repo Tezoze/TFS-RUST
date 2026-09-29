@@ -30,7 +30,7 @@ use crate::creature_todo::{
 };
 use crate::cylinder::CylinderFlags;
 use crate::game_world::GameWorld;
-use crate::ids::CreatureId;
+use crate::ids::{CreatureId, ItemId};
 use crate::item::Item;
 use crate::item_attributes::ItemAttributes;
 use crate::login_out::creature_wire_id;
@@ -1717,7 +1717,7 @@ impl GameWorld {
             // self-cast `continue` path.
             let tid = target_id.unwrap();
             let caster_dir = if matches!(spell.shape, SpellShape::Angle) {
-                self.monster_face_toward(cid, tid, false);
+                self.monster_face_toward(cid, tid, true);
                 self.creatures
                     .get(cid)
                     .map(|k| k.base().direction)
@@ -1732,10 +1732,8 @@ impl GameWorld {
                     if !self.monster_sight_clear(pos, target_pos) {
                         continue;
                     }
-                    // Face target for the cast. Wire 0x6B is deferred to the idle combat
-                    // rotate tail (or suppressed when a Go is pending) so Victim spells do
-                    // not spam stand-still turns between chase batches.
-                    self.monster_face_toward(cid, tid, false);
+                    // `Rotate` before the missile (`cract.cc:452`). Unchanged facing sends nothing.
+                    self.monster_face_toward(cid, tid, true);
                     if let Some(shoot) = spell.shoot_effect {
                         self.broadcast_distance_shoot(pos, target_pos, shoot);
                     }
@@ -1751,7 +1749,7 @@ impl GameWorld {
                     if !self.monster_sight_clear(pos, target_pos) {
                         continue;
                     }
-                    self.monster_face_toward(cid, tid, false);
+                    self.monster_face_toward(cid, tid, true);
                     if let Some(shoot) = spell.shoot_effect {
                         self.broadcast_distance_shoot(pos, target_pos, shoot);
                     }
@@ -2980,9 +2978,8 @@ impl GameWorld {
 
     /// C++ `Rotate(Target)` at idle combat tail — `crnonpl.cc:2871`.
     ///
-    /// Direction always updates. The `0x6B` broadcast is skipped when a `Go` is already
-    /// queued (`todo.has_go` or non-empty `walk_queue`): the move packet carries facing, and
-    /// broadcasting here (with deferred Execute) caused visible stand-still turn spam.
+    /// A queued step that already looks at the target carries facing in the move packet.
+    /// A sidestep arms a corrective `0x6B` for after that step executes.
     pub(crate) fn monster_idle_rotate_toward_attack_target(&mut self, cid: CreatureId) {
         let target_id = self.creatures.get(cid).and_then(|k| {
             let CreatureKind::Monster(m) = k else {
@@ -2996,11 +2993,47 @@ impl GameWorld {
         let Some(target_id) = target_id else {
             return;
         };
-        let go_pending = self.creatures.get(cid).is_some_and(|k| {
+        let Some(target_pos) = self.creatures.get(target_id).map(|k| k.position()) else {
+            return;
+        };
+        let (go_pending, step_faces_target) = self.creatures.get(cid).map_or((false, false), |k| {
             let b = k.base();
-            b.todo.has_go() || !b.walk_queue.is_empty()
+            let pending = b.todo.has_go() || !b.walk_queue.is_empty();
+            let look = compute_look_toward_target(b.position, target_pos, b.direction);
+            let faces = b.walk_queue.front().is_some_and(|step| *step == look);
+            (pending, faces)
         });
+        if go_pending && !step_faces_target {
+            if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+                m.face_after_step = true;
+            }
+            return;
+        }
         self.monster_face_toward(cid, target_id, !go_pending);
+    }
+
+    fn monster_face_after_queued_step(&mut self, cid: CreatureId) {
+        let armed = self
+            .creatures
+            .get(cid)
+            .and_then(|k| match k {
+                CreatureKind::Monster(m) if m.face_after_step => Some(m.base.attack_target),
+                _ => None,
+            })
+            .flatten();
+        let more_steps = self
+            .creatures
+            .get(cid)
+            .is_some_and(|k| !k.base().walk_queue.is_empty());
+        if more_steps {
+            return;
+        }
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+            m.face_after_step = false;
+        }
+        if let Some(target_id) = armed {
+            self.monster_face_toward(cid, target_id, true);
+        }
     }
 
     /// Face `target_id` — optional spectator `0x6B`. C++ `Rotate(TCreature*)` — `cract.cc:452-473`.
@@ -3711,6 +3744,7 @@ impl GameWorld {
                 trace_creature_todo(self, cid, "execute_go");
                 let now = Instant::now();
                 self.on_walk(cid, false, now, None);
+                self.monster_face_after_queued_step(cid);
                 trace_creature_todo(self, cid, "execute_go_done");
                 TodoExecuteKind::Go
             }
@@ -3945,10 +3979,8 @@ impl GameWorld {
                         //   `DistUse = Obj1.getFlag(DISTUSE)` (`cract.cc:737`)
                         //   `!DistUse && !ObjectInRange(Obj2, 1)` → walk to Obj2 + re-enqueue
                         //   `DistUse && !ObjectInRange(Obj2, 7)` → throw OUTOFRANGE
-                        // For non-DistUse with Obj1 on map + Obj2 far: C++ picks up Obj1
-                        // (`ToDoMove`) then walks to Obj2. Pickup is not yet ported, so this
-                        // returns `TooFarAway` for that edge case (both map tiles, far apart).
-                        // Common cases (Obj1 in inventory: key/rope/fishing rod) work fully.
+                        // For non-DistUse with Obj1 on map + Obj2 far: pick Obj1 up
+                        // (`ToDoMove` to `INVENTORY_ANY`) then walk to Obj2 and re-enqueue.
                         if let Some(o2) = obj2 {
                             let obj2_far = o2.pos.x != 0xFFFF
                                 && self.creatures.get(cid).is_some_and(|k| {
@@ -4048,20 +4080,25 @@ impl GameWorld {
                                     // Far-use within range → proceed (no walk to Obj2).
                                 } else {
                                     // Non-DistUse + Obj2 > 1 tile → walk to Obj2 + re-enqueue
-                                    // (C++ `cract.cc:738-758`). If Obj1 is in inventory, the
-                                    // player carries it to Obj2. If Obj1 is on the map, C++
-                                    // picks it up first (`ToDoMove`) — not yet ported, so fail
-                                    // with `TooFarAway` for the both-map-tiles-far-apart case.
-                                    if obj1.pos.x != 0xFFFF {
-                                        self.apply_todo_result_catch(cid, ReturnValue::TooFarAway);
-                                        trace_creature_todo(
-                                            self,
-                                            cid,
-                                            "execute_use_obj2_far_obj1_on_map",
-                                        );
-                                        return Some(TodoExecuteKind::Wait);
-                                    }
-                                    // Obj1 in inventory — walk to Obj2 and re-enqueue.
+                                    // (`cract.cc:738-758`). Map Obj1 is picked up first
+                                    // (`ToDoMove` to `INVENTORY_ANY`) so the follow-up `Use`
+                                    // carries the same object.
+                                    let obj1 = if obj1.pos.x != 0xFFFF {
+                                        match self.pickup_map_object_for_use(cid, obj1) {
+                                            Ok(held) => held,
+                                            Err(rv) => {
+                                                self.apply_todo_result_catch(cid, rv);
+                                                trace_creature_todo(
+                                                    self,
+                                                    cid,
+                                                    "execute_use_pickup_failed",
+                                                );
+                                                return Some(TodoExecuteKind::Wait);
+                                            }
+                                        }
+                                    } else {
+                                        obj1
+                                    };
                                     let now = Instant::now();
                                     match self.setup_player_walk_to_target(cid, o2.pos, now) {
                                         Ok(()) => {
@@ -4359,6 +4396,56 @@ impl GameWorld {
     /// through the ToDo engine. Removed — `player_move_thing` re-resolves via
     /// `internal_get_thing_move` and handles both items and creatures (the sprite
     /// match is already done inside `internal_get_thing_move`).
+    /// `Use` pickup — `cract.cc:746` `ToDoMove(Obj1, 0xFFFF, 0, 0, 1)`.
+    ///
+    /// Moves the map object into the first inventory cylinder that accepts it and
+    /// returns a wire ref the follow-up `Use` can resolve.
+    fn pickup_map_object_for_use(
+        &mut self,
+        cid: CreatureId,
+        obj1: ActionObjectRef,
+    ) -> Result<ActionObjectRef, ReturnValue> {
+        let item_id = self
+            .resolve_use_object(cid, obj1.pos, obj1.stack_pos, obj1.sprite_id)
+            .ok_or(ReturnValue::NotPossible)?;
+        self.execute_player_move(cid, obj1, Position::new(0xFFFF, 0, 0), 1)?;
+        self.wire_action_ref_for_item(cid, item_id, obj1.sprite_id)
+            .ok_or(ReturnValue::NotEnoughRoom)
+    }
+
+    /// Inventory or open-container wire position for an item just picked up.
+    fn wire_action_ref_for_item(
+        &self,
+        cid: CreatureId,
+        item_id: ItemId,
+        sprite_id: u16,
+    ) -> Option<ActionObjectRef> {
+        let parent = self.items.get(item_id)?.parent?;
+        let pos = match parent {
+            crate::cylinder::Cylinder::Inventory { player_id, slot } if player_id == cid => {
+                Position::new(0xFFFF, u16::from(slot), 0)
+            }
+            crate::cylinder::Cylinder::Container {
+                item_id: container_id,
+                index,
+            } => {
+                let (client_cid, _) = self
+                    .container_registry
+                    .open_container_entries(cid)
+                    .into_iter()
+                    .find(|(_, id)| *id == container_id)?;
+                Position::new(0xFFFF, 0x40 | u16::from(client_cid), index as u8)
+            }
+            _ => return None,
+        };
+        Some(ActionObjectRef {
+            pos,
+            stack_pos: 0,
+            sprite_id,
+            creature_id: None,
+        })
+    }
+
     pub(crate) fn execute_player_move(
         &mut self,
         cid: CreatureId,

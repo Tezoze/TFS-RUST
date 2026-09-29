@@ -19,6 +19,7 @@ mod window;
 
 pub use access::{
     AccessHouseLevel, AccessList, GUEST_LIST, HouseAccess, SUBOWNER_LIST, can_edit_access_list,
+    door_text_allows,
 };
 pub use auction::{AuctionOutcome, auction_paid_until, decide_auction};
 pub(crate) use ownership::add_to_container_front;

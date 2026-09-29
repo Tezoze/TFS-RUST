@@ -7224,6 +7224,100 @@ fn action_far_use_clear_los_does_not_reject() {
     );
 }
 
+/// Map tool + far non-DistUse target → pickup into inventory, then walk, then Use.
+/// `cract.cc:746` `ToDoMove` to `INVENTORY_ANY`, `ToDoGo`, `ToDoUse`.
+#[test]
+fn two_object_use_picks_up_map_item_then_walks() {
+    let mut world = beat_driven_test_world();
+    let player_pos = Position::new(100, 100, 7);
+    let target_pos = Position::new(104, 100, 7);
+    for x in 100..=104u16 {
+        ensure_walkable_tile(
+            &mut world.map,
+            Position::new(x, 100, 7),
+            TEST_SYNTHETIC_GROUND_WP,
+        );
+    }
+    const TOOL: u16 = 2148;
+    {
+        let db = std::sync::Arc::get_mut(&mut world.items_db).expect("unique items_db");
+        let it = db.items.get_mut(&TOOL).expect("2148");
+        it.slot_position = crate::inventory::SLOTP_RIGHT;
+    }
+    let mut item = crate::item::Item::new_single(TOOL);
+    item.parent = Some(crate::cylinder::Cylinder::Tile { pos: player_pos });
+    let item_id = world.items.insert(item);
+    world
+        .map
+        .get_tile_mut(player_pos)
+        .expect("player tile")
+        .add_item(item_id);
+    let stack_pos = world
+        .map
+        .get_tile(player_pos)
+        .and_then(|t| t.get_item_stack_pos(item_id))
+        .expect("stackpos");
+
+    let conn = ConnId(1);
+    let player = insert_spectator_player(&mut world, conn, test_player("Picker", player_pos));
+    let obj1 = ActionObjectRef {
+        pos: player_pos,
+        stack_pos,
+        sprite_id: TOOL,
+        creature_id: None,
+    };
+    let obj2 = ActionObjectRef {
+        pos: target_pos,
+        stack_pos: 0,
+        sprite_id: 0,
+        creature_id: None,
+    };
+    if let Some(k) = world.creatures.get_mut(player) {
+        k.base_mut().todo.queue.push_back(CreatureAction::Use {
+            obj1,
+            obj2: Some(obj2),
+            open_index: 0,
+        });
+    }
+    let kind = world.execute_creature_todo_action(player);
+    assert!(
+        matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Deferred)),
+        "pickup + walk defers the follow-up use"
+    );
+    let parent = world.items.get(item_id).and_then(|i| i.parent);
+    assert!(
+        matches!(
+            parent,
+            Some(crate::cylinder::Cylinder::Inventory { slot: 5, .. })
+        ),
+        "map item lands in the right hand, got {parent:?}"
+    );
+    let queue: Vec<_> = world
+        .creatures
+        .get(player)
+        .unwrap()
+        .base()
+        .todo
+        .queue
+        .iter()
+        .cloned()
+        .collect();
+    assert!(
+        matches!(queue.first(), Some(CreatureAction::Go)),
+        "walk is queued before the follow-up use"
+    );
+    assert!(
+        matches!(
+            queue.get(1),
+            Some(CreatureAction::Use {
+                obj1: held,
+                ..
+            }) if held.pos.x == 0xFFFF && held.pos.y == 5
+        ),
+        "follow-up use addresses the inventory slot, got {queue:?}"
+    );
+}
+
 // ===== OTClient-on-772 floor-change dispatch tests =====
 //
 // OTClient tracks the local player as a tile creature and cannot reconcile the

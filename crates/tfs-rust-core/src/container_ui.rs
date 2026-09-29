@@ -721,11 +721,21 @@ impl GameWorld {
             Some(crate::tile::Tile::House(h)) => h.house_id,
             _ => return Ok(()), // Door without house → canUse true
         };
+        let item_type = item.item_type;
         let door_id = item
             .attributes
             .as_ref()
             .map(|a| a.get_door_id())
             .unwrap_or(0);
+        let house_sprite = self.door_ids.closed_house.contains(&item_type)
+            || self.door_ids.open_house.contains(&item_type);
+        if house_sprite {
+            return if crate::doors::name_door_allowed(self, cid, item_id) {
+                Ok(())
+            } else {
+                Err(ReturnValue::NotPossible)
+            };
+        }
         let guid = match self.creatures.get(cid) {
             Some(CreatureKind::Player(p)) => p.guid,
             _ => return Err(ReturnValue::NotPossible),

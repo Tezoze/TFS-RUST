@@ -1061,6 +1061,32 @@ impl GameWorld {
         Some(cid)
     }
 
+    /// Player summon spell — `SearchSummonField` plus `GetRaceSummonCost` and the
+    /// `CheckMana` 1000 ms spell delay (`magic.cc:770`).
+    pub fn lua_script_summon_creature(&mut self, master_u64: u64, name: &str) -> Option<u64> {
+        let master = self.resolve_creature_u64(master_u64)?;
+        let origin = self.creatures.get(master)?.position();
+        let cost = self
+            .monsters_db
+            .get_by_name(name)
+            .map(|m| m.mana_cost)
+            .unwrap_or(0);
+        let summon = self.monster_create_summon(master, name, true, origin)?;
+        if matches!(self.creatures.get(master), Some(CreatureKind::Player(_))) {
+            let infinite =
+                self.player_has_flag(master, crate::player_flags::PLAYER_FLAG_HAS_INFINITE_MANA);
+            if !infinite && cost > 0 {
+                let _ = self.lua_script_player_add_mana(master_u64, -(cost as i32));
+                let _ = self.lua_script_player_add_mana_spent(master_u64, u64::from(cost));
+            }
+            let now = self.server_ms;
+            if let Some(k) = self.creatures.get_mut(master) {
+                k.base_mut().delay_spell_ms(now, 1000);
+            }
+        }
+        Some(summon.data().as_ffi())
+    }
+
     /// 772 `TMonster` master-chain walk (`crnonpl.cc:2012–2028`).
     ///
     /// Rebases summon-of-summon up to the first non-monster-summon ancestor (wild monster or

@@ -270,7 +270,9 @@ pub fn player_from_loaded(
         last_activity: std::time::Instant::now(),
         last_command_round: 0,
         last_action_round: 0,
-        food_remaining: apply_offline_food_drain(p.food_remaining.max(0) as u32, p.lastlogout),
+        // Food stays intact until `apply_named_bed_login_regen` — only a named bed
+        // consumes it (`crplayer.cc:1404` `TPlayer::Regenerate`).
+        food_remaining: p.food_remaining.max(0) as u32,
         item_regen_interval: 0,
         soul_cycle: p.soul_cycle,
         soul_count: p.soul_count,
@@ -324,31 +326,35 @@ fn playerkiller_end_from_skulltime(skulltime: i64) -> i64 {
     if skulltime < now { 0 } else { skulltime }
 }
 
-/// 772 offline food drain — `crplayer.cc:1395-1400`.
+/// 772 `TPlayer::Regenerate` numbers — `crplayer.cc:1404-1414`.
 ///
-/// On login, `Regen = min(FoodTime / 3, OfflineTime / 15)` rounds of regen are
-/// applied (HP += Regen/4, Mana += Regen), and `food_remaining` is reduced by
-/// `Regen * 3`. The HP/mana gains are applied here as a simple additive bump
-/// capped at max — the decompile does this in `TPlayer::Login` before the
-/// player enters the world.
-///
-/// `lastlogout` is unix seconds; offline time is `now - lastlogout`.
-fn apply_offline_food_drain(food_remaining: u32, lastlogout: u64) -> u32 {
-    if food_remaining == 0 || lastlogout == 0 {
-        return food_remaining;
+/// `Regen = min(FoodTime / 3, OfflineTime / 15)`. HP `+= Regen/4`, mana `+= Regen`,
+/// food `-= Regen * 3`. Soul `+= OfflineTime / 900` when offline longer than 900s.
+/// Caps are the caller's max HP, max mana, and max soul.
+pub(crate) fn named_bed_offline_regen(
+    food_remaining: u32,
+    offline_secs: u64,
+    health: i32,
+    max_health: i32,
+    mana: i32,
+    max_mana: i32,
+    soul: i32,
+    soul_max: i32,
+) -> (u32, i32, i32, i32) {
+    let regen = (food_remaining / 3).min((offline_secs / 15) as u32);
+    let mut food = food_remaining;
+    let mut health = health;
+    let mut mana = mana;
+    let mut soul = soul;
+    if regen > 0 {
+        health = (health + (regen / 4) as i32).min(max_health);
+        mana = (mana + regen as i32).min(max_mana);
+        food = food.saturating_sub(regen.saturating_mul(3));
     }
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let offline_secs = now.saturating_sub(lastlogout);
-    // C++ uses seconds-per-round = 1 (RoundNr is seconds since startup).
-    let offline_rounds = offline_secs;
-    let regen = (food_remaining / 3).min((offline_rounds / 15) as u32);
-    if regen == 0 {
-        return food_remaining;
+    if offline_secs > 900 {
+        soul = (soul + (offline_secs / 900) as i32).min(soul_max.max(0));
     }
-    food_remaining.saturating_sub(regen * 3)
+    (food, health, mana, soul)
 }
 
 /// Max concurrent `load_player_full` tasks (Tokio spawn + game-thread apply).
@@ -583,6 +589,7 @@ pub fn apply_loaded_player(
         .insert(name.to_ascii_lowercase(), guid);
     world.houses.set_owner_name_for_guid(guid, &name);
     world.house_relocate_if_uninvited(cid);
+    world.apply_named_bed_login_regen(cid);
 
     if let Some(bed) = world.houses.bed_sleepers.get(&guid).copied() {
         world.bed_wake_up(bed, Some(cid));

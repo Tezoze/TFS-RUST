@@ -55,13 +55,13 @@ impl GameWorld {
             },
         );
         if let Some(conn) = self.conn_for_creature(cid) {
-            let msg = self.codec.encode_house_window(window_text_id, &text);
-            self.enqueue_encoded(conn, msg);
+            self.enqueue_house_list_window(conn, house_id, list_id, window_text_id, &text);
         }
         true
     }
 
     /// `Game::playerUpdateHouseWindow` (`game.cpp` ~2598).
+    /// 772 `CEditList` (`receiving.cc:679`) uses list type `1`/`2`/`3` plus the house or door id.
     pub fn player_update_house_window(
         &mut self,
         cid: CreatureId,
@@ -69,6 +69,9 @@ impl GameWorld {
         window_text_id: u32,
         text: String,
     ) -> bool {
+        if self.codec.version().raw() < 1098 {
+            return self.player_update_classic_house_list(cid, door_id, window_text_id, text);
+        }
         if !house_window_door_id_ok(door_id) {
             return false;
         }
@@ -196,14 +199,93 @@ impl GameWorld {
                 .get_access_list_text(house_id, list_id)
                 .unwrap_or_default();
             if let Some(conn) = self.conn_for_creature(cid) {
-                let msg = self
-                    .codec
-                    .encode_house_window(session.window_text_id, &text);
-                self.enqueue_encoded(conn, msg);
+                self.enqueue_house_list_window(
+                    conn,
+                    house_id,
+                    list_id,
+                    session.window_text_id,
+                    &text,
+                );
             }
             return true;
         }
         self.player_open_house_window(cid, house_id, list_id)
+    }
+
+    /// 772 `SendEditList` / `CEditList`. Types: guest `1`, subowner `2`, door `3`.
+    fn enqueue_house_list_window(
+        &mut self,
+        conn: tfs_rust_common::ConnId,
+        house_id: u32,
+        list_id: u32,
+        window_text_id: u32,
+        list_text: &str,
+    ) {
+        if self.codec.version().raw() >= 1098 {
+            let msg = self.codec.encode_house_window(window_text_id, list_text);
+            self.enqueue_encoded(conn, msg);
+            return;
+        }
+        let (list_type, id, text) = classic_edit_list(self, house_id, list_id, window_text_id);
+        let text = text.unwrap_or_else(|| list_text.to_string());
+        let msg = tfs_rust_net::outgoing_extra::send_edit_list(list_type, id, &text);
+        self.enqueue_encoded(conn, msg);
+    }
+
+    /// 772 `CEditList` (`receiving.cc:694`). `id` is the house id for types 1 and 2.
+    fn player_update_classic_house_list(
+        &mut self,
+        cid: CreatureId,
+        list_type: u8,
+        id: u32,
+        text: String,
+    ) -> bool {
+        let Some(crate::creature::CreatureKind::Player(p)) = self.creatures.get(cid) else {
+            return false;
+        };
+        let guid = p.guid;
+        let edit = has_player_flag(self.player_group_flags(cid), PLAYER_FLAG_CAN_EDIT_HOUSES);
+        let (house_id, list_id) = match list_type {
+            1 => (id, crate::house::GUEST_LIST),
+            2 => (id, crate::house::SUBOWNER_LIST),
+            3 => {
+                let Some(session) = self.houses.edit_sessions.get(&guid).copied() else {
+                    return false;
+                };
+                if session.window_text_id != id {
+                    return false;
+                }
+                (session.house_id, session.list_id)
+            }
+            _ => return false,
+        };
+        if !self.houses.can_edit_list(house_id, list_id, guid, edit) {
+            return false;
+        }
+        if list_type == 3
+            && let Ok(door_id) = u8::try_from(list_id)
+            && let Some(item_id) = house_door_item(self, house_id, door_id)
+            && let Some(item) = self.items.get_mut(item_id)
+        {
+            item.set_text(text.clone());
+        }
+        let cache = self.houses.name_to_guid.clone();
+        let mut online: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        for (name, &oid) in &self.player_by_name {
+            if let Some(crate::creature::CreatureKind::Player(p)) = self.creatures.get(oid) {
+                online.insert(name.to_ascii_lowercase(), p.guid);
+            }
+        }
+        self.houses
+            .apply_list_row(house_id, list_id, &text, |name| {
+                cache
+                    .get(name)
+                    .copied()
+                    .or_else(|| online.get(name).copied())
+            });
+        self.houses.edit_sessions.remove(&guid);
+        self.queue_unresolved_house_names(house_id, list_id, &text);
+        true
     }
 
     pub fn apply_house_names_resolved(
@@ -222,6 +304,54 @@ impl GameWorld {
     }
 }
 
+/// 772 list type + id. Door lists echo `window_text_id` and prefer the door item text.
+fn classic_edit_list(
+    world: &GameWorld,
+    house_id: u32,
+    list_id: u32,
+    window_text_id: u32,
+) -> (u8, u32, Option<String>) {
+    match list_id {
+        crate::house::GUEST_LIST => (1, house_id, None),
+        crate::house::SUBOWNER_LIST => (2, house_id, None),
+        door => {
+            let text = u8::try_from(door).ok().and_then(|door_id| {
+                let item_id = house_door_item(world, house_id, door_id)?;
+                let text = world.items.get(item_id)?.text();
+                if text.is_empty() {
+                    None
+                } else {
+                    Some(text.to_string())
+                }
+            });
+            (3, window_text_id, text)
+        }
+    }
+}
+
+fn house_door_item(world: &GameWorld, house_id: u32, door_id: u8) -> Option<crate::ids::ItemId> {
+    if door_id == 0 {
+        return None;
+    }
+    world.items.iter().find_map(|(id, item)| {
+        let got = item
+            .attributes
+            .as_ref()
+            .map(|a| a.get_door_id())
+            .unwrap_or(0);
+        if got != door_id {
+            return None;
+        }
+        let crate::cylinder::Cylinder::Tile { pos } = item.parent? else {
+            return None;
+        };
+        match world.map.get_tile(pos) {
+            Some(crate::tile::Tile::House(h)) if h.house_id == house_id => Some(id),
+            _ => None,
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -237,5 +367,21 @@ mod tests {
         };
         assert!(house_window_id_ok(&session, 7));
         assert!(!house_window_id_ok(&session, 8));
+    }
+
+    #[test]
+    fn classic_guest_list_type_updates_guests() {
+        use crate::test_support::{beat_driven_test_world, insert_player, test_player};
+        use tfs_rust_common::Position;
+        let mut world = beat_driven_test_world();
+        let cid = insert_player(&mut world, test_player("Owner", Position::new(100, 100, 7)));
+        world.houses.set_owner(4, 1);
+        world.houses.name_to_guid.insert("alice".into(), 42);
+        assert!(world.player_update_house_window(cid, 1, 4, "alice".into()));
+        let guests = &world.houses.houses.get(&4).unwrap().guests;
+        assert!(
+            guests.contains(&42),
+            "type 1 writes the guest list, got {guests:?}"
+        );
     }
 }

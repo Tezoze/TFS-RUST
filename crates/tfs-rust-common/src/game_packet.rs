@@ -211,7 +211,10 @@ pub enum GamePacket {
         name: String,
     },
     CancelAttackAndFollow,
-    UpdateTile,
+    /// `CRefreshField` / `parseUpdateTile` — resend one map field (`0xC9`).
+    UpdateTile {
+        pos: Position,
+    },
     BrowseField {
         pos: Position,
     },
@@ -238,6 +241,25 @@ pub enum GamePacket {
     },
     BugReport(BugReportPayload),
     ThankYou,
+    /// 772 `CRuleViolation` (`receiving.cc:1532`).
+    ClassicRuleViolation {
+        name: String,
+        reason: u8,
+        action: u8,
+        comment: String,
+        statement_id: u32,
+        ip_banishment: bool,
+    },
+    /// 772 `CProcessRequest` (`receiving.cc:998`).
+    ProcessRuleViolation {
+        name: String,
+    },
+    /// 772 `CRemoveRequest` (`receiving.cc:1034`).
+    RemoveRuleViolation {
+        name: String,
+    },
+    /// 772 `CCancelRequest` (`receiving.cc:1069`).
+    CancelRuleViolation,
     DebugAssert {
         assert_line: String,
         date: String,
