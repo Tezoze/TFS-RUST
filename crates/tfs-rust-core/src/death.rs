@@ -185,6 +185,15 @@ pub fn handle_creature_death(
     // Skill try loss is applied earlier via `GameWorld::apply_player_death_penalties`.
     if let Some(CreatureKind::Player(v)) = creatures.get_mut(victim) {
         let promoted = victim_active_promotion;
+        if matches!(
+            mechanics.damage_formula,
+            crate::formulas::DamageFormula::ClassicProbe
+        ) {
+            let storage = v.persist.as_ref().map(|b| b.storage.clone());
+            if let Some(storage) = storage {
+                v.blessings = crate::blessing::fold_quest_blessings(v.blessings, &storage);
+            }
+        }
         let frac = death_loss_fraction_for_profile(
             mechanics,
             config,
@@ -209,7 +218,15 @@ pub fn handle_creature_death(
             old_level,
             new_level: v.level,
         });
-        v.blessings = clear_blessings_on_death(v.blessings, last_hit_by_player);
+        if matches!(
+            mechanics.damage_formula,
+            crate::formulas::DamageFormula::ClassicProbe
+        ) {
+            crate::blessing::consume_counted_blessings(v);
+        } else {
+            v.blessings = clear_blessings_on_death(v.blessings, last_hit_by_player);
+            crate::blessing::clear_quests_for_missing_bits(v);
+        }
     }
 
     let exp_reward: u64 = match creatures.get(victim) {
@@ -624,6 +641,73 @@ mod tests {
         };
         // 7% - 5 = 2% → lose 200.
         assert_eq!(exp, 9_800, "promoted + 5 blessings → 2% loss");
+    }
+
+    #[test]
+    fn blessing_quests_set_named_bits() {
+        use tfs_rust_content::npcs::Blessing;
+        let mut world = world_772();
+        let cid = insert_player(
+            &mut world,
+            test_player("Pilgrim", Position::new(100, 100, 7)),
+        );
+        world.player_set_storage(cid, 199, 1).expect("kawill gate");
+        world.player_set_storage(cid, 104, 1).expect("norf");
+        world.player_set_storage(cid, 105, 1).expect("humphrey");
+        world.player_set_storage(cid, 103, 3).expect("edala");
+        world.player_set_storage(cid, 102, 1).expect("pydar");
+        world.player_set_storage(cid, 101, 1).expect("eremo");
+        let bits = match world.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.blessings,
+            _ => panic!("player"),
+        };
+        let expected = Blessing::Shielding.mask()
+            | Blessing::Embrace.mask()
+            | Blessing::Suns.mask()
+            | Blessing::Spark.mask()
+            | Blessing::Solitude.mask();
+        assert_eq!(bits, expected);
+        world.player_set_storage(cid, 102, 0).expect("clear spark");
+        let bits = match world.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p.blessings,
+            _ => panic!("player"),
+        };
+        assert_eq!(bits & Blessing::Spark.mask(), 0);
+        assert_ne!(bits & Blessing::Shielding.mask(), 0);
+    }
+
+    #[test]
+    fn m6_spark_quest_counts_and_is_consumed() {
+        let mut world = world_772();
+        let cid = insert_player(&mut world, {
+            let mut p = test_player("Vic", Position::new(100, 100, 7));
+            p.experience = 10_000;
+            p.level = 20;
+            p.blessings = 0;
+            p.persist.as_mut().expect("persist").storage.push((102, 1));
+            p.persist.as_mut().expect("persist").storage.push((199, 1));
+            p
+        });
+        let _ = death_call(&mut world, cid, WorldType::Pvp);
+        match world.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => {
+                assert_eq!(p.experience, 9_100, "spark alone leaves a 9% loss");
+                assert_eq!(p.blessings, 0);
+                let spark = p
+                    .persist
+                    .as_ref()
+                    .and_then(|b| b.storage.iter().find(|(id, _)| *id == 102))
+                    .map(|(_, value)| *value);
+                let gate = p
+                    .persist
+                    .as_ref()
+                    .and_then(|b| b.storage.iter().find(|(id, _)| *id == 199))
+                    .map(|(_, value)| *value);
+                assert_eq!(spark, Some(0));
+                assert_eq!(gate, Some(1));
+            }
+            _ => panic!("victim missing"),
+        }
     }
 
     #[test]

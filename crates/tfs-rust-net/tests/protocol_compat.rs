@@ -1833,9 +1833,10 @@ mod v772_floor_change {
 
 mod v800 {
     use tfs_rust_common::{Position, ProtocolVersion};
+    use tfs_rust_net::NetworkMessage;
     use tfs_rust_net::codec::wire::{ChannelMessageWire, CreatureSayWire, ToChannelWire};
     use tfs_rust_net::codec::{
-        Codec, ItemTemplateArgs, OutfitWire, PlayerStatsWire, TextWindowWire,
+        AddCreatureWire, Codec, ItemTemplateArgs, OutfitWire, PlayerStatsWire, TextWindowWire,
     };
     use tfs_rust_net::outgoing_extra::send_outfit_window_800;
 
@@ -1863,6 +1864,30 @@ mod v800 {
             regeneration_ticks_sec: 0,
             offline_training_time: 0,
         }
+    }
+
+    /// `800src` `AddCreature` never writes `0x63`. A known body is the full `0x62` block.
+    #[test]
+    fn add_creature_known_800_is_0x62_not_0x63() {
+        let c = AddCreatureWire {
+            id: 0x1122_3344,
+            known: true,
+            uptodate: true,
+            direction: 3,
+            outfit: OutfitWire {
+                look_type: 21,
+                ..Default::default()
+            },
+            health_percent: 40,
+            name: "Dog".into(),
+            ..Default::default()
+        };
+        let mut m = NetworkMessage::new();
+        codec().write_add_creature(&mut m, &c);
+        assert_eq!(m.as_bytes()[0], 0x62);
+        assert_ne!(m.as_bytes()[0], 0x63);
+        assert!(m.as_bytes().len() > 7, "full block, not id+direction");
+        assert_eq!(m.as_bytes().len(), codec().add_creature_wire_len(&c));
     }
 
     #[test]

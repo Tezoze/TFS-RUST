@@ -61,6 +61,8 @@ pub struct NpcRuntimeState {
     pub queue: VecDeque<QueuedNpcAddress>,
     /// Opt-in per-player sessions ([`DialoguePolicy::PerPlayer`]).
     pub player_sessions: HashMap<CreatureId, NpcPlayerSession>,
+    /// Next `server_ms` when each `npc:voice` line may be considered.
+    pub next_voice_at: Vec<u64>,
 }
 
 impl NpcRuntimeState {
@@ -82,6 +84,7 @@ impl NpcRuntimeState {
             focus: None,
             queue: VecDeque::new(),
             player_sessions: HashMap::new(),
+            next_voice_at: Vec::new(),
         }
     }
 

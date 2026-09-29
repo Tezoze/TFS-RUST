@@ -6,6 +6,7 @@
 use std::collections::{HashMap, HashSet};
 
 use thiserror::Error;
+use tracing::warn;
 
 use crate::items::ItemDatabase;
 use crate::npcs::dialogue::{
@@ -78,6 +79,29 @@ pub fn validate_pending_definitions(
                         format!("shop item[{i}]: unknown item id {}", line.item_id),
                     ));
                 }
+                if let Some(container) = line.container_id
+                    && !items_db.items.contains_key(&container)
+                {
+                    return Err(NpcValidateError::content(
+                        &file,
+                        format!("shop item[{i}]: unknown container id {container}"),
+                    ));
+                }
+                if line.buy_price > 0 && line.sell_price > 0 && line.buy_price < line.sell_price {
+                    warn!(
+                        npc = %p.name,
+                        item = line.item_id,
+                        buy = line.buy_price,
+                        sell = line.sell_price,
+                        "shop buy price is below sell price"
+                    );
+                }
+            }
+            if shop.bag_item_id != 0 && !items_db.items.contains_key(&shop.bag_item_id) {
+                return Err(NpcValidateError::content(
+                    &file,
+                    format!("shop bag item id {} is unknown", shop.bag_item_id),
+                ));
             }
         }
 
@@ -95,6 +119,7 @@ pub fn validate_pending_definitions(
             voices: p.voices,
             dialogue: p.dialogue,
             shop: p.shop,
+            destinations: p.destinations,
             custom_predicates: p.custom_predicates,
             custom_actions: p.custom_actions,
             on_appear: p.on_appear,
@@ -270,7 +295,10 @@ fn validate_action(
         | DialogueAction::Teleport { .. }
         | DialogueAction::RepeatPrevious { .. }
         | DialogueAction::Promote { .. }
-        | DialogueAction::SetString { .. } => {}
+        | DialogueAction::SetString { .. }
+        | DialogueAction::OpenShop { .. }
+        | DialogueAction::ListDestinations { .. }
+        | DialogueAction::Service { .. } => {}
     }
     Ok(())
 }

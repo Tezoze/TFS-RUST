@@ -532,6 +532,16 @@ impl GameWorld {
     pub(crate) fn apply_player_death_skill_loss(&mut self, victim: CreatureId) {
         let profile = self.mechanics.profile;
         let hooks = &self.mechanics.hooks;
+        if matches!(
+            profile.damage_formula,
+            crate::formulas::DamageFormula::ClassicProbe
+        ) && let Some(CreatureKind::Player(v)) = self.creatures.get_mut(victim)
+        {
+            let storage = v.persist.as_ref().map(|b| b.storage.clone());
+            if let Some(storage) = storage {
+                v.blessings = crate::blessing::fold_quest_blessings(v.blessings, &storage);
+            }
+        }
         let frac = {
             let Some(CreatureKind::Player(v)) = self.creatures.get(victim) else {
                 return;

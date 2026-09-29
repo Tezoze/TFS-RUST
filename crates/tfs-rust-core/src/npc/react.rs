@@ -417,6 +417,40 @@ pub fn apply_dialogue_plan(
                         Err(e) => log_action_failure(&fail_ctx, &e),
                     }
                 }
+                DialogueAction::OpenShop { .. } => {
+                    if let Err(e) = host.open_defined_shop(meta.npc_id, player) {
+                        log_action_failure(&fail_ctx, &e);
+                    }
+                }
+                DialogueAction::ListDestinations { .. } => {
+                    if let Err(e) = host.list_destinations(meta.npc_id, player) {
+                        log_action_failure(&fail_ctx, &e);
+                    }
+                }
+                DialogueAction::Service { offer } => {
+                    match host.offer_service(meta.npc_id, player, offer) {
+                        Ok(()) => {
+                            let op = match &offer.kind {
+                                tfs_rust_content::npcs::ServiceKind::Bless { index } => {
+                                    MutateOp::Bless { index: *index }
+                                }
+                                tfs_rust_content::npcs::ServiceKind::Promote => MutateOp::Promote,
+                                tfs_rust_content::npcs::ServiceKind::Spell { spell } => {
+                                    MutateOp::TeachSpell { spell: *spell }
+                                }
+                                tfs_rust_content::npcs::ServiceKind::Travel { x, y, z, .. } => {
+                                    MutateOp::Teleport {
+                                        x: *x,
+                                        y: *y,
+                                        z: *z,
+                                    }
+                                }
+                            };
+                            trace.push(DialogueEvent::Mutate { player, op });
+                        }
+                        Err(e) => log_action_failure(&fail_ctx, &e),
+                    }
+                }
                 DialogueAction::Custom { callback_id, .. } => {
                     match host.invoke_custom_action(meta.npc_id, player, *callback_id) {
                         Ok(()) => {

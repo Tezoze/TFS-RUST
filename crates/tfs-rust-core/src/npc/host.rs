@@ -139,14 +139,17 @@ impl NpcActionHost for GameWorld {
     }
 
     fn add_blessing(&mut self, player: CreatureId, index: i32) -> Result<(), String> {
-        let bit = index.saturating_sub(1);
-        if !(0..=5).contains(&bit) {
+        let Some(blessing) = tfs_rust_content::npcs::Blessing::from_index(index) else {
+            return Ok(());
+        };
+        if let Some(quest) = blessing.quest_id() {
+            self.player_set_storage(player, quest, 1)?;
             return Ok(());
         }
         let Some(CreatureKind::Player(p)) = self.creatures.get_mut(player) else {
             return Err("add_blessing: player not found".into());
         };
-        p.blessings |= 1i8.wrapping_shl(bit as u32);
+        p.blessings |= blessing.mask();
         if let Some(ref mut persist) = p.persist {
             persist.player_row.blessings = p.blessings;
         }
@@ -231,6 +234,24 @@ impl NpcActionHost for GameWorld {
         persist.player_row.posy = y;
         persist.player_row.posz = z;
         Ok((x, y, z))
+    }
+
+    fn open_defined_shop(&mut self, npc: CreatureId, player: CreatureId) -> Result<(), String> {
+        self.player_open_npc_shop(player, npc);
+        Ok(())
+    }
+
+    fn list_destinations(&mut self, npc: CreatureId, _player: CreatureId) -> Result<(), String> {
+        self.npc_say_destinations(npc)
+    }
+
+    fn offer_service(
+        &mut self,
+        npc: CreatureId,
+        player: CreatureId,
+        offer: &tfs_rust_content::npcs::ServiceOffer,
+    ) -> Result<(), String> {
+        self.apply_npc_service(npc, player, offer)
     }
 
     fn invoke_custom_action(
@@ -391,13 +412,20 @@ impl GameWorld {
                 .ok_or_else(|| "set_storage: player has no persist baseline".to_string())?;
             if value == -1 {
                 persist.storage.retain(|(k, _)| *k != storage_id);
-                return Ok(());
-            }
-            if let Some(slot) = persist.storage.iter_mut().find(|(k, _)| *k == storage_id) {
+            } else if let Some(slot) = persist.storage.iter_mut().find(|(k, _)| *k == storage_id) {
                 slot.1 = value;
             } else {
                 persist.storage.push((storage_id, value));
             }
+        }
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
+            p.blessings = crate::blessing::apply_quest_to_bits(p.blessings, storage_id, value);
+            if let Some(persist) = p.persist.as_mut() {
+                persist.player_row.blessings = p.blessings;
+            }
+        }
+        if value == -1 {
+            return Ok(());
         }
         self.questlog_toast(cid, storage_id, value, old_value);
         Ok(())

@@ -6,16 +6,19 @@
 //! C++ reference (metadata shape): `tibia-game-master` `.npc` Name/Sex/Race/Outfit/Home/Radius/
 //! GoStrength + `Behaviour`; TFS domain: `NpcType` appearance/movement/shop/parameters.
 
+mod blessing;
 mod dialogue;
 mod shop;
 mod span;
 mod validate;
 
+pub use blessing::Blessing;
 pub use dialogue::{
     DialogueAction, DialogueExpr, DialoguePolicy, DialoguePredicate, DialogueProgram,
-    DialogueProperty, DialogueRule, DialogueSituation, ExprOp, NpcCallbackId, SessionVar,
+    DialogueProperty, DialogueRule, DialogueSituation, ExprOp, NpcCallbackId, ServiceKind,
+    ServiceOffer, ServicePurse, SessionVar,
 };
-pub use shop::{NpcShopDefinition, NpcShopItem};
+pub use shop::{NpcDestination, NpcShopDefinition, NpcShopItem, NpcShopMessages};
 pub use span::SourceSpan;
 pub use validate::{NpcValidateError, validate_pending_definitions};
 
@@ -110,6 +113,7 @@ pub struct NpcDefinition {
     pub voices: Vec<NpcVoice>,
     pub dialogue: Option<DialogueProgram>,
     pub shop: Option<NpcShopDefinition>,
+    pub destinations: Vec<NpcDestination>,
     /// Custom predicate callbacks by name.
     pub custom_predicates: Vec<NpcCallbackSlot>,
     /// Custom action callbacks by name.
@@ -189,6 +193,7 @@ pub struct PendingNpcDefinition {
     pub voices: Vec<NpcVoice>,
     pub dialogue: Option<DialogueProgram>,
     pub shop: Option<NpcShopDefinition>,
+    pub destinations: Vec<NpcDestination>,
     pub custom_predicates: Vec<NpcCallbackSlot>,
     pub custom_actions: Vec<NpcCallbackSlot>,
     pub on_appear: Option<NpcCallbackId>,

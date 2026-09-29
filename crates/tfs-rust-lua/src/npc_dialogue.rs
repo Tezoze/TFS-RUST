@@ -10,7 +10,8 @@ use mlua::{Lua, Table, UserData, Value};
 
 use tfs_rust_content::npcs::{
     DialogueAction, DialogueExpr, DialoguePolicy, DialoguePredicate, DialogueProgram,
-    DialogueProperty, DialogueRule, DialogueSituation, ExprOp, SessionVar, SourceSpan,
+    DialogueProperty, DialogueRule, DialogueSituation, ExprOp, ServiceKind, ServiceOffer,
+    ServicePurse, SessionVar, SourceSpan,
 };
 
 /// Parsed dialogue program held as Lua userdata until attached via `npc:dialogue(...)`.
@@ -390,6 +391,20 @@ fn parse_action(table: &Table, span: &SourceSpan) -> Result<DialogueAction, mlua
             span: span.clone(),
         });
     }
+    if let Ok(Value::String(word)) = table.get::<Value>("bless") {
+        let word = word.to_str().map_err(mlua::Error::external)?;
+        let index = tfs_rust_content::npcs::Blessing::from_word(&word)
+            .map(|blessing| blessing.index())
+            .ok_or_else(|| {
+                runtime(format!(
+                    "bless must be shielding, embrace, suns, spark, solitude, or twist (got {word:?})"
+                ))
+            })?;
+        return Ok(DialogueAction::Bless {
+            index: DialogueExpr::Lit(index),
+            span: span.clone(),
+        });
+    }
     if let Some(v) = get_non_nil(table, "bless")? {
         return Ok(DialogueAction::Bless {
             index: parse_expr(&v)?,
@@ -428,6 +443,17 @@ fn parse_action(table: &Table, span: &SourceSpan) -> Result<DialogueAction, mlua
             span: span.clone(),
         });
     }
+    if let Ok(Value::Boolean(true)) = table.get::<Value>("openShop") {
+        return Ok(DialogueAction::OpenShop { span: span.clone() });
+    }
+    if let Ok(Value::Boolean(true)) = table.get::<Value>("listDestinations") {
+        return Ok(DialogueAction::ListDestinations { span: span.clone() });
+    }
+    if let Ok(Value::Table(t)) = table.get::<Value>("service") {
+        return Ok(DialogueAction::Service {
+            offer: parse_service(&t, span)?,
+        });
+    }
     if let Ok(Value::String(s)) = table.get::<Value>("custom") {
         return Ok(DialogueAction::Custom {
             callback_id: tfs_rust_content::npcs::NpcCallbackId(0),
@@ -439,6 +465,59 @@ fn parse_action(table: &Table, span: &SourceSpan) -> Result<DialogueAction, mlua
     Err(runtime(
         "action entry: unrecognized keys (expected say, set, idle, create, …)".into(),
     ))
+}
+
+fn parse_service(table: &Table, span: &SourceSpan) -> Result<ServiceOffer, mlua::Error> {
+    let kind_name: String = table.get("kind")?;
+    let destination: Option<String> = table.get("destination").ok();
+    let kind = match kind_name.as_str() {
+        "bless" => {
+            let index = match table.get::<String>("blessing") {
+                Ok(word) => tfs_rust_content::npcs::Blessing::from_word(&word)
+                    .map(|blessing| blessing.index())
+                    .ok_or_else(|| {
+                        runtime(format!(
+                            "blessing must be shielding, embrace, suns, spark, solitude, or twist (got {word:?})"
+                        ))
+                    })?,
+                Err(_) => table.get("index").unwrap_or(1),
+            };
+            ServiceKind::Bless { index }
+        }
+        "promote" => ServiceKind::Promote,
+        "spell" => ServiceKind::Spell {
+            spell: table.get("spell").unwrap_or(0),
+        },
+        "travel" => ServiceKind::Travel {
+            x: table.get("x").unwrap_or(0),
+            y: table.get("y").unwrap_or(0),
+            z: table.get("z").unwrap_or(0),
+            destination: destination.filter(|s| !s.is_empty()),
+        },
+        other => {
+            return Err(runtime(format!(
+                "service.kind must be bless, promote, spell, or travel (got {other:?})"
+            )));
+        }
+    };
+    let purse = match table.get::<String>("purse").ok().as_deref() {
+        Some("total") => ServicePurse::Total,
+        _ => ServicePurse::Inventory,
+    };
+    let pz_clear = table
+        .get("pzClear")
+        .unwrap_or(matches!(kind, ServiceKind::Travel { .. }));
+    let text: String = table.get("text").unwrap_or_default();
+    Ok(ServiceOffer {
+        kind,
+        price: table.get("price").unwrap_or(0u32),
+        premium: table.get("premium").unwrap_or(false),
+        level: table.get("level").unwrap_or(0u32),
+        pz_clear,
+        purse,
+        text,
+        span: span.clone(),
+    })
 }
 
 fn parse_expr(value: &Value) -> Result<DialogueExpr, mlua::Error> {

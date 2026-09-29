@@ -20,8 +20,6 @@ use crate::item::Item;
 use crate::item_look::{classic_item_look, item_look_description, look_distance_tfs};
 use crate::login_out::creature_wire_id;
 use crate::player::inventory::money::{ITEM_CRYSTAL_COIN, ITEM_GOLD_COIN, ITEM_PLATINUM_COIN};
-use crate::player_money_lib::player_remove_total_money;
-
 const MESSAGE_INFO_DESCR: u8 = 0x16;
 const SHOP_MAX_AMOUNT: u8 = 100;
 
@@ -33,6 +31,8 @@ pub struct ActiveShopItem {
     pub buy_price: u32,
     pub sell_price: u32,
     pub name: String,
+    /// Packed offer: each purchased unit is one of these containers.
+    pub container_id: Option<u16>,
 }
 
 impl GameWorld {
@@ -57,9 +57,51 @@ impl GameWorld {
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(player) {
             p.shop_owner = Some(wire_id);
             p.shop_items = items;
+            p.shop_messages = tfs_rust_content::npcs::NpcShopMessages::default();
+            p.shop_bag_item_id = crate::shop_purchase::DEFAULT_SHOPPING_BAG;
+            p.shop_bag_price = 0;
         }
         self.send_shop_to_player(player, npc);
         self.player_update_sale_shop_list(player);
+    }
+
+    /// Open the catalog stored on the NPC definition for the focused player.
+    pub fn player_open_npc_shop(&mut self, player: CreatureId, npc: CreatureId) {
+        let def_id = match self.creatures.get(npc) {
+            Some(CreatureKind::Npc(n)) => n.definition,
+            _ => return,
+        };
+        let shop = self.npcs_db.get(def_id).and_then(|def| def.shop.clone());
+        let Some(shop) = shop else {
+            let text = tfs_rust_content::npcs::NpcShopMessages::default().no_shop;
+            self.shop_text(player, &text, self.codec.failure_message_type());
+            return;
+        };
+        let items = shop
+            .items
+            .iter()
+            .map(|line| ActiveShopItem {
+                item_id: line.item_id,
+                sub_type: line.subtype,
+                buy_price: line.buy_price,
+                sell_price: line.sell_price,
+                name: line.name.clone(),
+                container_id: line.container_id,
+            })
+            .collect();
+        let messages = shop.messages.clone();
+        let bag_item = if shop.bag_item_id == 0 {
+            crate::shop_purchase::DEFAULT_SHOPPING_BAG
+        } else {
+            shop.bag_item_id
+        };
+        let bag_price = shop.bag_price;
+        self.player_open_shop(player, npc, items);
+        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(player) {
+            p.shop_messages = messages;
+            p.shop_bag_item_id = bag_item;
+            p.shop_bag_price = bag_price;
+        }
     }
 
     /// `Player::closeShopWindow` — clear state, optional 0x7C, drop Lua callback refs.
@@ -175,7 +217,14 @@ impl GameWorld {
             in_backpacks,
         );
         if !invoked {
-            let _ = self.native_shop_buy(player, server_id, sub_type, amount, ignore_cap);
+            let _ = self.native_shop_buy(
+                player,
+                server_id,
+                sub_type,
+                amount,
+                ignore_cap,
+                in_backpacks,
+            );
         }
         self.player_update_sale_shop_list(player);
     }
@@ -353,38 +402,120 @@ impl GameWorld {
         sub_type: u8,
         amount: u8,
         ignore_cap: bool,
+        in_backpacks: bool,
     ) -> bool {
-        let buy_price = self
-            .shop_line(player, item_id, sub_type)
-            .map(|l| l.buy_price)
-            .unwrap_or(0);
-        if buy_price == 0 {
-            return false;
-        }
-        let total = u64::from(buy_price) * u64::from(amount);
-        if self.player_shop_money_total(player) < total {
-            return false;
-        }
-        if !ignore_cap && !self.player_can_carry_shop_purchase(player, item_id, amount) {
-            return false;
-        }
-        if self
-            .npc_give_to(player, item_id, u32::from(amount), i32::from(sub_type))
-            .is_err()
-        {
-            return false;
-        }
-        player_remove_total_money(self, player, total)
-    }
-
-    fn player_can_carry_shop_purchase(&self, player: CreatureId, item_id: u16, amount: u8) -> bool {
-        let Some(it) = self.items_db.items.get(&item_id) else {
+        let Some(line) = self.shop_line(player, item_id, sub_type).cloned() else {
             return false;
         };
-        let units = u32::from(amount.max(1));
-        let need = it.weight.saturating_mul(units);
-        self.player_free_capacity_u32(player)
-            .is_some_and(|free| free >= need)
+        if line.buy_price == 0 {
+            return false;
+        }
+        let query = self.shop_purchase_query(player, &line, amount, ignore_cap, in_backpacks);
+        let plan = crate::shop_purchase::plan_purchase(&query);
+        if plan.units == 0 {
+            let reason = crate::shop_purchase::empty_plan_reason(&query);
+            self.shop_fail_message(player, reason, &line.name);
+            return false;
+        }
+        let item_name = if line.name.is_empty() {
+            self.items_db
+                .items
+                .get(&item_id)
+                .map(|it| it.name.clone())
+                .unwrap_or_default()
+        } else {
+            line.name.clone()
+        };
+        let Some((units, cost)) =
+            self.deliver_shop_purchase(player, item_id, sub_type, &query, &plan)
+        else {
+            self.shop_fail_message(player, crate::shop_purchase::ShopFail::Space, &item_name);
+            return false;
+        };
+        self.shop_result_message(player, true, units, cost, &item_name);
+        true
+    }
+
+    fn shop_purchase_query(
+        &self,
+        player: CreatureId,
+        line: &ActiveShopItem,
+        amount: u8,
+        ignore_cap: bool,
+        in_backpacks: bool,
+    ) -> crate::shop_purchase::PurchaseQuery {
+        use crate::shop_purchase::{BagSpec, DEFAULT_SHOPPING_BAG, PurchaseQuery};
+        let it = self.items_db.items.get(&line.item_id);
+        let unit_weight = it.map(|t| t.weight).unwrap_or(0);
+        let stackable = it.is_some_and(|t| t.stackable());
+        let packed = line.container_id.is_some();
+        let bag_id = if let Some(container) = line.container_id {
+            container
+        } else {
+            self.player_shop_bag_id(player)
+                .unwrap_or(DEFAULT_SHOPPING_BAG)
+        };
+        let capacity = self.container_capacity(bag_id);
+        let bag_weight = self
+            .items_db
+            .items
+            .get(&bag_id)
+            .map(|t| t.weight)
+            .unwrap_or(0);
+        let bag_price = if packed {
+            0
+        } else {
+            self.player_bag_price(player, bag_id)
+        };
+        let pack_size = line.container_id.map(|_| {
+            if stackable {
+                capacity.saturating_mul(100).max(1)
+            } else {
+                capacity.max(1)
+            }
+        });
+        PurchaseQuery {
+            amount: u32::from(amount),
+            unit_price: line.buy_price,
+            unit_weight,
+            stackable,
+            ignore_cap,
+            in_backpacks: in_backpacks && !packed,
+            pack_size,
+            money: self.player_shop_money_total(player),
+            free_capacity: self.player_free_capacity_u32(player).unwrap_or(0),
+            bag: BagSpec {
+                item_id: bag_id,
+                capacity,
+                weight: bag_weight,
+                price: bag_price,
+            },
+        }
+    }
+
+    fn player_shop_bag_id(&self, player: CreatureId) -> Option<u16> {
+        match self.creatures.get(player) {
+            Some(CreatureKind::Player(p)) if p.shop_bag_item_id != 0 => Some(p.shop_bag_item_id),
+            _ => None,
+        }
+    }
+
+    fn player_bag_price(&self, player: CreatureId, bag_id: u16) -> u32 {
+        let catalog = match self.creatures.get(player) {
+            Some(CreatureKind::Player(p)) => p
+                .shop_items
+                .iter()
+                .find(|line| line.item_id == bag_id && line.buy_price > 0)
+                .map(|line| line.buy_price),
+            _ => None,
+        };
+        if let Some(price) = catalog {
+            return price;
+        }
+        match self.creatures.get(player) {
+            Some(CreatureKind::Player(p)) => p.shop_bag_price,
+            _ => 0,
+        }
     }
 
     fn native_shop_sell(
@@ -412,6 +543,12 @@ impl GameWorld {
         } else {
             -1
         };
+        let item_name = self
+            .shop_line(player, item_id, sub_type)
+            .map(|l| l.name.clone())
+            .filter(|n| !n.is_empty())
+            .or_else(|| self.items_db.items.get(&item_id).map(|it| it.name.clone()))
+            .unwrap_or_default();
         if !self.player_remove_item_of_type(
             player,
             item_id,
@@ -419,10 +556,79 @@ impl GameWorld {
             data,
             ignore_equipped,
         ) {
+            self.shop_result_message(player, false, 0, 0, &item_name);
             return false;
         }
         let payout = i32::try_from(sell_price * u32::from(amount)).unwrap_or(i32::MAX);
-        self.player_create_money(player, payout).is_ok()
+        if self.player_create_money(player, payout).is_err() {
+            return false;
+        }
+        let total = u64::from(sell_price) * u64::from(amount);
+        self.shop_result_message(player, false, u32::from(amount), total, &item_name);
+        true
+    }
+
+    fn shop_fail_message(
+        &mut self,
+        player: CreatureId,
+        reason: crate::shop_purchase::ShopFail,
+        item_name: &str,
+    ) {
+        let template = self.player_shop_template(player, reason);
+        let text = tfs_rust_content::npcs::NpcShopMessages::default()
+            .format(&template, "", 0, 0, item_name);
+        self.shop_text(player, &text, self.codec.failure_message_type());
+    }
+
+    fn player_shop_template(
+        &self,
+        player: CreatureId,
+        reason: crate::shop_purchase::ShopFail,
+    ) -> String {
+        use crate::shop_purchase::ShopFail;
+        let messages = match self.creatures.get(player) {
+            Some(CreatureKind::Player(p)) => p.shop_messages.clone(),
+            _ => tfs_rust_content::npcs::NpcShopMessages::default(),
+        };
+        match reason {
+            ShopFail::Money => messages.need_money,
+            ShopFail::Space => messages.need_space,
+            ShopFail::NotForSale => messages.no_shop,
+        }
+    }
+
+    fn shop_result_message(
+        &mut self,
+        player: CreatureId,
+        bought: bool,
+        count: u32,
+        total: u64,
+        item_name: &str,
+    ) {
+        let messages = match self.creatures.get(player) {
+            Some(CreatureKind::Player(p)) => p.shop_messages.clone(),
+            _ => return,
+        };
+        if !bought && count == 0 {
+            let template = messages.need_item.clone();
+            let text = messages.format(&template, "", 0, 0, item_name);
+            self.shop_text(player, &text, self.codec.failure_message_type());
+            return;
+        }
+        let template = if bought {
+            messages.bought.clone()
+        } else {
+            messages.sold.clone()
+        };
+        let text = messages.format(&template, "", count, total, item_name);
+        self.shop_text(player, &text, MESSAGE_INFO_DESCR);
+    }
+
+    fn shop_text(&mut self, player: CreatureId, text: &str, kind: u8) {
+        let Some(conn) = self.conn_for_creature(player) else {
+            return;
+        };
+        self.enqueue_outgoing(conn, send_text_message_simple(kind, text).into_bytes());
     }
 
     fn shop_line(&self, player: CreatureId, item_id: u16, sub_type: u8) -> Option<&ActiveShopItem> {
@@ -558,8 +764,8 @@ mod tests {
 
     use super::*;
     use crate::test_support::{
-        ensure_walkable_tile, insert_npc, insert_player, minimal_world, pickup_item_type,
-        test_player,
+        bag_item_type, ensure_walkable_tile, insert_npc, insert_player, minimal_world,
+        pickup_item_type, test_player,
     };
     use tfs_rust_common::ConnId;
     use tfs_rust_common::Position;
@@ -615,6 +821,7 @@ mod tests {
             buy_price: 1,
             sell_price: 1,
             name: "gold coin".into(),
+            container_id: None,
         }
     }
 
@@ -674,6 +881,7 @@ mod tests {
             buy_price: 5,
             sell_price: 0,
             name: "backpack".into(),
+            container_id: None,
         }
     }
 
@@ -714,6 +922,7 @@ mod tests {
             buy_price: 0,
             sell_price: 2,
             name: "backpack".into(),
+            container_id: None,
         }
     }
 
@@ -772,6 +981,45 @@ mod tests {
             Some(2)
         );
         world.player_update_sale_shop_list(player);
+    }
+
+    #[test]
+    fn partial_buy_charges_only_what_was_delivered() {
+        let (mut world, player, npc) = shop_fixture();
+        world.player_create_money(player, 25).expect("seed");
+        let mut line = bag_shop_item();
+        line.buy_price = 10;
+        world.player_open_shop(player, npc, vec![line]);
+        let before = world.player_get_item_type_count(player, 1987, -1);
+        world.player_purchase_item(player, 1987, 0, 5, false, false);
+        assert_eq!(
+            world.player_get_item_type_count(player, 1987, -1),
+            before + 2
+        );
+        assert_eq!(world.player_count_money(player), 5);
+    }
+
+    #[test]
+    fn backpack_buy_wraps_the_order() {
+        let (mut world, player, npc) = shop_fixture();
+        {
+            let db = std::sync::Arc::make_mut(&mut world.items_db);
+            db.items.insert(1988, bag_item_type(1988));
+            db.client_to_server.insert(1988, 1988);
+        }
+        world.player_create_money(player, 20).expect("seed");
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.shop_bag_item_id = 1988;
+            p.shop_bag_price = 5;
+        }
+        world.player_open_shop(player, npc, vec![bag_shop_item()]);
+        if let Some(CreatureKind::Player(p)) = world.creatures.get_mut(player) {
+            p.shop_bag_item_id = 1988;
+            p.shop_bag_price = 5;
+        }
+        world.player_purchase_item(player, 1987, 0, 1, false, true);
+        assert!(world.player_get_item_type_count(player, 1988, -1) >= 1);
+        assert_eq!(world.player_count_money(player), 10);
     }
 
     #[test]

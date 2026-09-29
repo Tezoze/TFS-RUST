@@ -634,12 +634,26 @@ impl GameWorld {
     ///
     /// Called from idle `MeleeChase` / `DistChase` / `MasterFollow` arms only — not from flee or roam.
     /// On path failure (non-flee) returns [`MonsterIdleChaseRepathOutcome::Noway`].
+    ///
+    /// `goal_band`: `None` uses the type keep-distance. `CanToDoAttack` close chase passes `Some(1)`
+    /// so a failed throw walks to the creature, not the distance-4 band (`crcombat.cc:496-498`).
     pub(crate) fn monster_idle_chase_repath(
+        &mut self,
+        cid: CreatureId,
+        repath_reason: Option<&str>,
+        max_steps: usize,
+        must_reach: bool,
+    ) -> MonsterIdleChaseRepathOutcome {
+        self.monster_idle_chase_repath_band(cid, repath_reason, max_steps, must_reach, None)
+    }
+
+    pub(crate) fn monster_idle_chase_repath_band(
         &mut self,
         cid: CreatureId,
         _repath_reason: Option<&str>,
         max_steps: usize,
         must_reach: bool,
+        goal_band: Option<i32>,
     ) -> MonsterIdleChaseRepathOutcome {
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().force_update_follow_path = false;
@@ -654,7 +668,9 @@ impl GameWorld {
         };
         let (target_distance, fleeing, is_summon, has_follow_path) = match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => (
-                self.monster_effective_target_distance(m.target_distance),
+                goal_band.unwrap_or_else(|| {
+                    self.monster_effective_target_distance(m.target_distance)
+                }),
                 m.is_fleeing(),
                 m.base.is_summon(),
                 m.base.has_follow_path,
@@ -944,9 +960,16 @@ impl GameWorld {
         if let Some(k) = self.creatures.get_mut(cid) {
             k.base_mut().has_follow_path = false;
         }
-        let (max_steps, must_reach) = monster_idle_chase_step_budget(true, false, cheb, 1);
-        let outcome =
-            self.monster_idle_chase_repath(cid, Some("attack_close_chase"), max_steps, must_reach);
+        // `ToDoGo(target, false, 3)` — melee goal, not the type's keep-distance
+        // (`crcombat.cc:496-498`). Band 4 is only the distance arm, and only while
+        // `ThrowPossible` is true (`crnonpl.cc:2797-2838`).
+        let outcome = self.monster_idle_chase_repath_band(
+            cid,
+            Some("attack_close_chase"),
+            CHASE_PATH_MAX_STEPS,
+            false,
+            Some(1),
+        );
         if outcome == MonsterIdleChaseRepathOutcome::Noway {
             // C++ `CanToDoAttack` close-chase `ToDoGo` throws NOWAY when `TShortway::Calculate`
             // finds no path (`cract.cc:1104`). This propagates up to the `IdleStimulus`

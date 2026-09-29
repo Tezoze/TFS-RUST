@@ -249,14 +249,13 @@ impl Codec800 {
         2 + if o.look_type != 0 { 5 } else { 2 }
     }
 
-    /// 772 creature block (`v772.rs`) with this codec's outfit bytes.
+    /// `800src/protocolgame.cpp` `AddCreature` ~2311. Known is always `0x62`
+    /// plus the full block. `0x63` is turn-only (`sendCreatureTurn`).
+    ///
+    /// The 8.0 client (`Tibia.exe` `0x40d3b0`) does not create a creature from
+    /// `0x63`. A missed lookup consumes the direction byte and leaves the tile
+    /// empty; the next `0x6D` asserts `bug0000017`.
     pub fn write_add_creature(&self, msg: &mut NetworkMessage, c: &AddCreatureWire) {
-        if c.known && c.uptodate {
-            msg.write_u16(0x63);
-            msg.write_u32(c.id);
-            msg.write_u8(c.direction);
-            return;
-        }
         if c.known {
             msg.write_u16(0x62);
             msg.write_u32(c.id);
@@ -278,9 +277,6 @@ impl Codec800 {
     }
 
     pub fn add_creature_wire_len(&self, c: &AddCreatureWire) -> usize {
-        if c.known && c.uptodate {
-            return 2 + 4 + 1;
-        }
         let head = if c.known {
             2 + 4
         } else {

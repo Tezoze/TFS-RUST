@@ -128,12 +128,14 @@ fn parse_shop_table(table: &Table) -> Result<Vec<ShopItemSpec>, mlua::Error> {
         let buy_price = if buy <= 0 { 0 } else { buy as u32 };
         let sell_price = if sell <= 0 { 0 } else { sell as u32 };
         let name: String = row.get("name").unwrap_or_default();
+        let container: Option<u16> = row.get("container").ok();
         items.push(ShopItemSpec {
             item_id,
             sub_type,
             buy_price,
             sell_price,
             name,
+            container_id: container.filter(|id| *id != 0),
         });
     }
     Ok(items)

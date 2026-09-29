@@ -774,6 +774,7 @@ fn apply_lua_mutation(world_ptr: *mut (), mutation: LuaMutation) -> Result<(), S
                     buy_price: item.buy_price,
                     sell_price: item.sell_price,
                     name: item.name,
+                    container_id: item.container_id,
                 })
                 .collect();
             unsafe { &mut *world }.player_open_shop(player, npc, active);

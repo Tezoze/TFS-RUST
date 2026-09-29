@@ -168,6 +168,11 @@ pub struct GameWorld {
     /// Wire ids this conn received with a full `AddCreature` block (map `known=false` or `0x6A`).
     /// Prevents `known=true` short encoding before the client has outfit/name data.
     pub creature_fully_sent_by_conn: HashMap<ConnId, HashSet<u32>>,
+    /// Wire ids whose sprite is on this client's map right now.
+    ///
+    /// The known table keeps a creature after the map shift drops the column.
+    /// A later `0x6D` then names an empty tile (`Communication.cpp` `bug0000017`).
+    pub(crate) creatures_on_client: HashMap<ConnId, HashSet<u32>>,
     /// Reverse of [`Self::known_creatures_by_conn`] — `AnnounceChangedCreature` knowers.
     pub(crate) conns_by_known_wire: HashMap<u32, HashSet<ConnId>>,
     /// OTB + `items.xml` — server item id → client id for map / `addItem` (`src/items.cpp`).
@@ -502,6 +507,7 @@ impl GameWorld {
             flushing_step_creature: None,
             known_creatures_by_conn: HashMap::new(),
             creature_fully_sent_by_conn: HashMap::new(),
+            creatures_on_client: HashMap::new(),
             conns_by_known_wire: HashMap::new(),
             items_db,
             monsters_db,

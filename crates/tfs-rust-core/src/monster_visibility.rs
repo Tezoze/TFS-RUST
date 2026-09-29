@@ -6,7 +6,8 @@
 //! ends. `800src/map.cpp` `moveCreature` sends no step when `canSeeCreature` is
 //! false, and `GetTileDescription` skips the body.
 //!
-//! 772 keeps the outfit path (`crmain.cc:636-641` restore `OrgOutfit`).
+//! 772 keeps the body on the tile with an empty outfit and still sends `0x6D`
+//! (`crmain.cc:636-641` restores `OrgOutfit` in place on a real hit).
 
 use tfs_rust_common::enums::ConditionType;
 
@@ -275,5 +276,120 @@ mod tests {
             "a hit adds the monster back, got {show:?}"
         );
         assert!(!has_invisible(&world, monster));
+    }
+
+    /// 772 keeps the invisible monster on the tile (empty outfit) and keeps
+    /// sending `0x6D`. A hit only restores the outfit. Removing the body, then
+    /// stepping it, is `Communication.cpp` bug0000017.
+    #[test]
+    fn protocol_772_keeps_invisible_monster_on_the_tile() {
+        let mut world = beat_driven_test_world();
+        let player_pos = Position::new(100, 100, 7);
+        let monster_pos = Position::new(101, 100, 7);
+        let step_pos = Position::new(102, 100, 7);
+        ensure_walkable_tile(&mut world.map, player_pos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, monster_pos, TEST_SYNTHETIC_GROUND_WP);
+        ensure_walkable_tile(&mut world.map, step_pos, TEST_SYNTHETIC_GROUND_WP);
+        let conn = ConnId(7);
+        let viewer = insert_spectator_player(&mut world, conn, test_player("Knight", player_pos));
+        let monster = insert_monster(&mut world, "Warlock", monster_pos, 75);
+        if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+            m.base.outfit.look_type = 130;
+        }
+
+        arm_invisible(&mut world, monster);
+        world.pending_outgoing.clear();
+        world.on_condition_started(monster, ConditionType::Invisible);
+        let hide = opcodes(&world, conn);
+        assert!(
+            hide.contains(&0x8E),
+            "772 hide sends an empty outfit, got {hide:?}"
+        );
+        assert!(
+            !hide.contains(&0x6C),
+            "772 hide must not delete the tile object, got {hide:?}"
+        );
+        assert!(
+            world.viewer_has_creature_on_client(viewer, monster),
+            "the client still has the invisible body"
+        );
+        assert_eq!(
+            tile_look_types(&world, viewer, player_pos, monster_pos),
+            vec![0],
+            "map refresh sends the invisible outfit, not a missing creature"
+        );
+
+        world.pending_outgoing.clear();
+        let wire_before = crate::login_out::creature_wire_id(
+            monster,
+            world.creatures.get(monster).expect("monster"),
+        );
+        world.note_creature_on_client(conn, wire_before);
+        let snap = crate::walk::capture_creature_stack_snapshot(&world, monster_pos);
+        world.broadcast_spectator_move(monster, monster_pos, step_pos, &snap);
+        let step = opcodes(&world, conn);
+        assert!(
+            step.contains(&0x6D),
+            "a step while invisible still moves the body the client has, got {step:?}"
+        );
+
+        let wire_id = crate::login_out::creature_wire_id(
+            monster,
+            world.creatures.get(monster).expect("monster"),
+        );
+        let mut known = tfs_rust_net::creature_known::KnownCreatureTable::default();
+        known.insert(wire_id);
+        world.commit_known_creatures_after_send(conn, &known);
+
+        world.pending_outgoing.clear();
+        world.combat_execute_with_stimulus(
+            None,
+            monster,
+            &CombatDamage {
+                primary: (CombatType::Energy, -20),
+                secondary: (CombatType::Physical, 0),
+            },
+            &CombatParams {
+                primary_type: CombatType::Energy,
+                ..CombatParams::default()
+            },
+        );
+        let show = opcodes(&world, conn);
+        assert!(
+            show.contains(&0x8E),
+            "a hit restores the outfit in place, got {show:?}"
+        );
+        assert!(
+            !show.contains(&0x6A),
+            "the body was already on the tile, got {show:?}"
+        );
+        assert!(!has_invisible(&world, monster));
+        assert_eq!(
+            tile_look_types(&world, viewer, player_pos, monster_pos),
+            vec![130]
+        );
+    }
+
+    fn tile_look_types(
+        world: &crate::game_world::GameWorld,
+        viewer: crate::ids::CreatureId,
+        viewer_pos: Position,
+        tile: Position,
+    ) -> Vec<u16> {
+        let ctx = crate::login_out::MapDescribeCtx::from_world(world, viewer, viewer_pos)
+            .expect("viewer");
+        let mut out = tfs_rust_net::map_description::TileContent::default();
+        crate::login_out::map_tile_content_into(
+            world,
+            &ctx,
+            i32::from(tile.x),
+            i32::from(tile.y),
+            i32::from(tile.z),
+            &mut out,
+        );
+        out.creatures
+            .iter()
+            .map(|c| c.outfit.look_type)
+            .collect()
     }
 }

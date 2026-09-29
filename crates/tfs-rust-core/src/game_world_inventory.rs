@@ -528,7 +528,7 @@ impl GameWorld {
     /// Place a detached item onto a player (slot / backpack / optional map drop).
     /// TFS `Game::internalPlayerAddItem` / `internalAddItem(player)` (`game.cpp`).
     /// Does **not** destroy the item on failure — `addItem` removes, `addItemEx` keeps it.
-    fn lua_place_detached_item_on_player(
+    pub(crate) fn lua_place_detached_item_on_player(
         &mut self,
         cid: CreatureId,
         iid: ItemId,

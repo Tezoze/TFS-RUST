@@ -366,17 +366,34 @@ pub(crate) fn item_stack_from_server_id(
     })
 }
 
-/// Invisible and ghost creatures are left off other clients' tiles
-/// (`map_tile_content_into` / [`creature_hidden_from_map`]). The spectator stack
-/// byte must skip them the same way, or `0x6D`/`0x6C`/`0x6B` hits the next object.
-pub(crate) fn creature_omitted_from_other_clients(kind: &CreatureKind) -> bool {
+/// Ghosts, invisible players, and (from 8.0) invisible monsters are left off
+/// other clients' tiles (`map_tile_content_into` / [`creature_hidden_from_map`]).
+/// The spectator stack byte must skip them the same way, or `0x6D`/`0x6C`/`0x6B`
+/// hits the next object.
+///
+/// 772 monsters stay on the tile with an empty outfit (`TOutfit::Invisible`,
+/// `crmain.cc` `IsInvisible`). `omit_invisible_monsters` is the protocol cap
+/// `monster_invis_removes_from_tile`.
+pub(crate) fn creature_omitted_from_other_clients(
+    kind: &CreatureKind,
+    omit_invisible_monsters: bool,
+) -> bool {
     let invisible = kind
         .base()
         .active_conditions
         .iter()
         .any(|c| c.ctype == ConditionType::Invisible);
     let ghost = matches!(kind, CreatureKind::Player(p) if p.ghost_mode);
-    ghost || invisible
+    if ghost {
+        return true;
+    }
+    if !invisible {
+        return false;
+    }
+    match kind {
+        CreatureKind::Monster(_) => omit_invisible_monsters,
+        _ => true,
+    }
 }
 
 pub(crate) fn creature_hidden_from_map(
@@ -384,6 +401,7 @@ pub(crate) fn creature_hidden_from_map(
     ocid: CreatureId,
     self_cid: CreatureId,
     viewer_access: bool,
+    omit_invisible_monsters: bool,
 ) -> bool {
     if ocid == self_cid {
         return false;
@@ -392,7 +410,7 @@ pub(crate) fn creature_hidden_from_map(
     if viewer_access && matches!(kind, CreatureKind::Player(p) if p.ghost_mode) {
         return false;
     }
-    creature_omitted_from_other_clients(kind)
+    creature_omitted_from_other_clients(kind, omit_invisible_monsters)
 }
 
 /// Viewer-side map encode context. Built once per `SendFullScreen` / NotifyGo strip
@@ -403,6 +421,8 @@ pub(crate) struct MapDescribeCtx {
     pub(crate) player_pos: Position,
     pub(crate) viewer_access: bool,
     pub(crate) cip_map_order: bool,
+    /// 8.0+ drops an invisible monster from the tile. 772 keeps the body.
+    pub(crate) omit_invisible_monsters: bool,
     pub(crate) self_wire: AddCreatureWire,
 }
 
@@ -423,12 +443,14 @@ impl MapDescribeCtx {
             return None;
         };
         let is_772 = !world.codec.caps().move_creature_self_packet;
+        let omit_invisible_monsters = world.codec.caps().monster_invis_removes_from_tile;
         Some(Self {
             self_cid,
             self_guid: self_player.guid,
             player_pos,
             viewer_access,
             cip_map_order: is_772 && !self_player.is_otclient(),
+            omit_invisible_monsters,
             self_wire: player_to_add_creature_wire(
                 self_player,
                 true,
@@ -488,7 +510,13 @@ pub(crate) fn map_tile_content_into(
         for &ocid in body.creatures() {
             let skip = match world.creatures.get(ocid) {
                 Some(kind) => {
-                    creature_hidden_from_map(kind, ocid, ctx.self_cid, ctx.viewer_access)
+                    creature_hidden_from_map(
+                        kind,
+                        ocid,
+                        ctx.self_cid,
+                        ctx.viewer_access,
+                        ctx.omit_invisible_monsters,
+                    )
                 }
                 None => true,
             };
@@ -678,6 +706,7 @@ fn enqueue_initial_login_packets_classic(
     let map_bytes = build_initial_map_packet(world, creature_id, pos, &mut known);
     let map_0x64_len = map_bytes.len();
     world.commit_known_creatures_after_send(conn_id, &known);
+    world.replace_client_bodies_with_viewport(conn_id, creature_id);
     world.enqueue_outgoing(conn_id, map_bytes);
 
     // Inventory slots 1..=10 (`sendInventoryItem`: `0x78` item / `0x79` empty). 772 has no slot 11 store.
@@ -819,6 +848,7 @@ fn enqueue_initial_login_packets_1098(
     let map_bytes = build_initial_map_packet(world, creature_id, pos, &mut known);
     let map_0x64_len = map_bytes.len();
     world.commit_known_creatures_after_send(conn_id, &known);
+    world.replace_client_bodies_with_viewport(conn_id, creature_id);
 
     // `ProtocolGame::login` — OTCv8 (`src/protocolgame.cpp` ~168–178): `sendFeatures` + extended opcode init.
     world.enqueue_outgoing(

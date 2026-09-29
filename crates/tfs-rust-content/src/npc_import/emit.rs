@@ -423,6 +423,15 @@ fn emit_action(out: &mut String, act: &DialogueAction, indent: usize) {
                 "{pad}{{ teleport = {{ x = {x}, y = {y}, z = {z} }} }},\n"
             ));
         }
+        DialogueAction::OpenShop { .. } => {
+            out.push_str(&format!("{pad}{{ openShop = true }},\n"));
+        }
+        DialogueAction::ListDestinations { .. } => {
+            out.push_str(&format!("{pad}{{ listDestinations = true }},\n"));
+        }
+        DialogueAction::Service { .. } => {
+            out.push_str(&format!("{pad}{{ service = {{}} }},\n"));
+        }
         DialogueAction::Custom { name, .. } => {
             out.push_str(&format!("{pad}{{ custom = {} }},\n", lua_string(name)));
         }

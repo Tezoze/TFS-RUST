@@ -60,6 +60,29 @@ pub trait NpcActionHost {
         pos: Option<(i32, i32, i32)>,
     ) -> Result<(i32, i32, i32), String>;
 
+    /// Open the catalog stored on this NPC.
+    fn open_defined_shop(&mut self, npc: CreatureId, player: CreatureId) -> Result<(), String> {
+        let _ = (npc, player);
+        Err("shop is not available".into())
+    }
+
+    /// Say the NPC destination list.
+    fn list_destinations(&mut self, npc: CreatureId, player: CreatureId) -> Result<(), String> {
+        let _ = (npc, player);
+        Err("destinations are not available".into())
+    }
+
+    /// Bless, promote, teach, or travel after one requirement check.
+    fn offer_service(
+        &mut self,
+        npc: CreatureId,
+        player: CreatureId,
+        offer: &tfs_rust_content::npcs::ServiceOffer,
+    ) -> Result<(), String> {
+        let _ = (npc, player, offer);
+        Err("service is not available".into())
+    }
+
     /// NPC-7: invoke a custom Lua action callback.
     fn invoke_custom_action(
         &mut self,

@@ -207,6 +207,13 @@ impl GameWorld {
             Some(CreatureKind::Npc(n)) if n.runtime.activity == NpcActivity::Idle
         );
         if idle && !locked {
+            let engaged = matches!(
+                self.creatures.get(npc_id),
+                Some(CreatureKind::Npc(n)) if n.runtime.is_engaged()
+            );
+            if !engaged {
+                self.npc_voice_tick(npc_id);
+            }
             self.npc_idle_roam_or_sleep(npc_id, trace);
         }
     }
@@ -658,6 +665,13 @@ impl GameWorld {
                 player: None,
                 temporary: false,
             });
+        }
+        let engaged = matches!(
+            self.creatures.get(npc_id),
+            Some(CreatureKind::Npc(n)) if n.runtime.is_engaged()
+        );
+        if !engaged {
+            self.npc_voice_tick(npc_id);
         }
     }
 

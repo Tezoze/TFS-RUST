@@ -119,7 +119,12 @@ fn occupies_shared_map_slot(world: &GameWorld, cid: CreatureId) -> bool {
     world
         .creatures
         .get(cid)
-        .is_some_and(|k| !creature_omitted_from_other_clients(k))
+        .is_some_and(|k| {
+            !creature_omitted_from_other_clients(
+                k,
+                world.codec.caps().monster_invis_removes_from_tile,
+            )
+        })
 }
 
 /// One 772 index and one OTC index. Hidden bodies above the target are
@@ -1150,6 +1155,10 @@ impl GameWorld {
         };
         self.commit_known_creatures_after_send(conn_id, &known);
         self.enqueue_outgoing(conn_id, packet);
+        let replaced = (i32::from(new_pos.x) - i32::from(old_pos.x)).abs() > 1
+            || (i32::from(new_pos.y) - i32::from(old_pos.y)).abs() > 1
+            || (i32::from(new_pos.z) - i32::from(old_pos.z)).abs() > 1;
+        self.sync_client_bodies_after_viewer_step(conn_id, cid, old_pos, new_pos, replaced);
     }
 
     /// 772 self-move — decompile `TCreature::NotifyGo` (`cract.cc:1400-1465`).
@@ -1199,6 +1208,10 @@ impl GameWorld {
         };
         self.commit_known_creatures_after_send(conn_id, &known);
         self.enqueue_outgoing(conn_id, packet);
+        let replaced = (i32::from(new_pos.x) - i32::from(old_pos.x)).abs() > 1
+            || (i32::from(new_pos.y) - i32::from(old_pos.y)).abs() > 1
+            || (i32::from(new_pos.z) - i32::from(old_pos.z)).abs() > 1;
+        self.sync_client_bodies_after_viewer_step(conn_id, cid, old_pos, new_pos, replaced);
     }
 
     /// C++ `sendCreatureMove` teleport path: `sendRemoveTileCreature` + `sendMapDescription`.
@@ -1249,6 +1262,7 @@ impl GameWorld {
         let map_pkt = crate::map_point::encode_fullscreen(self, &ctx, &mut known, with_description);
         self.commit_known_creatures_after_send(conn_id, &known);
         self.enqueue_outgoing(conn_id, map_pkt);
+        self.replace_client_bodies_with_viewport(conn_id, cid);
     }
 
     /// C++ `::Move` → `NotifyTurn` + `NotifyGo` (`operate.cc:1407–1431`, `cract.cc:1400–1564`).
@@ -1464,8 +1478,9 @@ impl GameWorld {
         let viewer_data: Vec<(ConnId, CreatureId, i32, bool, bool)> = spectators
             .into_iter()
             .filter_map(|(conn, viewer)| {
-                // Ghosts stay on access clients; invisible bodies stay off every
-                // other client. `can_see_creature` alone would `0x6D` an invisible
+                // Ghosts stay on access clients. Invisible players stay off every
+                // other client. 772 invisible monsters stay on the tile (empty
+                // outfit). `can_see_creature` alone would `0x6D` an invisible
                 // player onto the next object.
                 if !self.viewer_has_creature_on_client(viewer, mover) {
                     return None;
@@ -1483,6 +1498,14 @@ impl GameWorld {
         let mut shared_move: Vec<(i32, Arc<[u8]>)> = Vec::new();
         for (conn, viewer, viewer_stack, can_see_old, can_see_new) in viewer_data {
             if can_see_old && can_see_new {
+                // The client map-shift drops a column without `0x6C`. Viewport
+                // math still says the body is visible, but the tile is empty.
+                // `0x6D` then asserts `bug0000017`. Place it with `0x6A` instead.
+                if !self.creature_is_on_client(conn, wire_id)
+                    && self.send_creature_appear_to_conn(conn, viewer, mover, new_pos)
+                {
+                    continue;
+                }
                 // Surface→underground still needs remove+appear (TVP `protocolgame.cpp:1831`).
                 // For same-viewport adjacent moves — including KickCreature — ALWAYS send
                 // `0x6D`. TVP's `oldStackPos >= 10` branch used remove+`sendAddCreature`,
@@ -3213,6 +3236,7 @@ mod monster_walk_tests {
             .entry(conn)
             .or_default()
             .insert(wire_id);
+        world.note_creature_on_client(conn, wire_id);
 
         world.creature_queue_walk_step(monster, Direction::East);
 
@@ -3269,6 +3293,10 @@ mod monster_walk_tests {
             support::test_player("ViewerB", viewer_pos),
         );
         let monster = support::insert_monster(&mut world, "Rat", origin, 200);
+        let wire_id = creature_wire_id(monster, world.creatures.get(monster).unwrap());
+        for conn in [conn_a, conn_b, conn_ghost] {
+            world.note_creature_on_client(conn, wire_id);
+        }
         let mut ghost = support::test_player("Ghost", origin);
         ghost.ghost_mode = true;
         support::insert_spectator_player(&mut world, conn_ghost, ghost);
@@ -3329,8 +3357,10 @@ mod monster_walk_tests {
             support::test_player("Spectator2", spectator_pos),
         );
         let monster = support::insert_monster(&mut world, "Rat", monster_start, 200);
-        // Deliberately do NOT mark fully_sent — 0x6D must still be sent (C++ has no
-        // fully_sent gate; the client always knows about visible creatures).
+        // The client already has the sprite. A both-visible step is `0x6D`.
+        // `fully_sent` is not the gate — that blinked the name bar. The drawn set is.
+        let wire_id = creature_wire_id(monster, world.creatures.get(monster).unwrap());
+        world.note_creature_on_client(conn, wire_id);
 
         world.creature_queue_walk_step(monster, Direction::East);
         for _ in 0..32 {
@@ -3356,6 +3386,43 @@ mod monster_walk_tests {
         assert!(
             !opcodes.iter().any(|&o| o == 0x6A),
             "0x6A appear must not be sent for both-visible move (causes blink), got {opcodes:?}"
+        );
+    }
+
+    /// Map shift can drop a sprite without `0x6C`. The next step must be `0x6A`,
+    /// not `0x6D` onto the empty tile (`Communication.cpp` bug0000017).
+    #[test]
+    fn spectator_move_without_client_body_is_appear() {
+        let mut world = support::minimal_world();
+        let spectator_pos = Position::new(100, 100, 7);
+        let monster_start = Position::new(100, 101, 7);
+        let monster_end = Position::new(101, 101, 7);
+        for pos in [spectator_pos, monster_start, monster_end] {
+            support::ensure_walkable_tile(&mut world.map, pos, 2148);
+        }
+        let conn = ConnId(45);
+        support::insert_spectator_player(
+            &mut world,
+            conn,
+            support::test_player("Spectator3", spectator_pos),
+        );
+        let monster = support::insert_monster(&mut world, "Rat", monster_start, 200);
+        let snap = super::capture_creature_stack_snapshot(&world, monster_start);
+        // Production moves the body before the spectator packet (`move_creature_on_map`).
+        world.move_creature_on_map(monster, monster_start, monster_end);
+        world.broadcast_spectator_move(monster, monster_start, monster_end, &snap);
+        let opcodes: Vec<u8> = world
+            .pending_outgoing
+            .get(&conn)
+            .map(|pkts| pkts.iter().filter_map(|p| p.first().copied()).collect())
+            .unwrap_or_default();
+        assert!(
+            opcodes.contains(&0x6A),
+            "missing body must be placed, got {opcodes:?}"
+        );
+        assert!(
+            !opcodes.contains(&0x6D),
+            "0x6D onto an empty tile asserts bug0000017, got {opcodes:?}"
         );
     }
 
@@ -3394,6 +3461,7 @@ mod monster_walk_tests {
             .entry(spec_conn)
             .or_default()
             .insert(wire_id);
+        world.note_creature_on_client(spec_conn, wire_id);
 
         let old_snap = super::capture_creature_stack_snapshot(&world, walk_from);
         world.pending_outgoing.clear();

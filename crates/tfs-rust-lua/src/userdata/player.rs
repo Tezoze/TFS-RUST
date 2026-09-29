@@ -262,6 +262,22 @@ impl UserData for CreatureRef {
             },
         );
 
+        methods.add_method("getTotalMoney", |_, this, ()| {
+            with_ctx(|ctx| {
+                let bank = ctx.get_player_bank_balance(this.0).unwrap_or(0);
+                let g = ctx
+                    .get_player_item_type_count(this.0, 2148, -1)
+                    .unwrap_or(0) as u64;
+                let p = ctx
+                    .get_player_item_type_count(this.0, 2152, -1)
+                    .unwrap_or(0) as u64;
+                let c = ctx
+                    .get_player_item_type_count(this.0, 2160, -1)
+                    .unwrap_or(0) as u64;
+                Ok(g + p * 100 + c * 10_000 + bank)
+            })
+        });
+
         methods.add_method("getMoney", |_, this, ()| {
             with_ctx(|ctx| {
                 let g = ctx

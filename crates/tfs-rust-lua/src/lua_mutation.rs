@@ -620,6 +620,7 @@ pub struct ShopItemSpec {
     pub buy_price: u32,
     pub sell_price: u32,
     pub name: String,
+    pub container_id: Option<u16>,
 }
 
 /// One native tool-use helper. Inner op keeps a single `LuaMutation` variant.

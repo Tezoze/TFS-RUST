@@ -60,6 +60,7 @@ pub fn player_from_loaded(
 ) -> Player {
     let mut storage = std::mem::take(&mut data.storage);
     let outfits = take_outfits_from_storage(&mut storage);
+    let blessing_bits = crate::blessing::fold_quest_blessings(data.player.blessings, &storage);
     let persist = PlayerPersistBaseline {
         player_row: data.player.clone(),
         spells: std::mem::take(&mut data.spells),
@@ -260,6 +261,9 @@ pub fn player_from_loaded(
         condition_suppressions: 0,
         shop_owner: None,
         shop_items: Vec::new(),
+        shop_messages: tfs_rust_content::npcs::NpcShopMessages::default(),
+        shop_bag_item_id: 1988,
+        shop_bag_price: 0,
         vip_list: data.vip_list.clone(),
         outfits,
         health_hidden: false,
@@ -300,7 +304,7 @@ pub fn player_from_loaded(
         talk_guard: Default::default(),
         message_buffer_count: 0,
         message_buffer_ticks: 0,
-        blessings: p.blessings,
+        blessings: blessing_bits,
         exact_lethal_blow: false,
         amulet_of_loss_saved: false,
         registered_creature_events: HashSet::new(),

@@ -11,7 +11,9 @@ use std::rc::Rc;
 
 use mlua::{Lua, RegistryKey, UserData, UserDataMethods, Value};
 
-use tfs_rust_content::npcs::{NpcVoice, PendingNpcDefinition};
+use tfs_rust_content::npcs::{
+    NpcDestination, NpcShopDefinition, NpcShopItem, NpcShopMessages, NpcVoice, PendingNpcDefinition,
+};
 
 use crate::npc_dialogue::NpcDialogueProgram;
 
@@ -169,6 +171,29 @@ impl UserData for NpcTypeBuilder {
             Ok(true)
         });
 
+        methods.add_method_mut("shop", |_, this, table: mlua::Table| {
+            this.pending.borrow_mut().def.shop = Some(parse_npc_shop(&table)?);
+            Ok(true)
+        });
+
+        methods.add_method_mut("destinations", |_, this, table: mlua::Table| {
+            let mut out = Vec::new();
+            for pair in table.sequence_values::<mlua::Table>() {
+                let row = pair?;
+                out.push(NpcDestination {
+                    name: row.get("name").unwrap_or_default(),
+                    x: row.get("x").unwrap_or(0),
+                    y: row.get("y").unwrap_or(0),
+                    z: row.get("z").unwrap_or(0),
+                    price: row.get("price").unwrap_or(0u32),
+                    premium: row.get("premium").unwrap_or(false),
+                    level: row.get("level").unwrap_or(0u32),
+                });
+            }
+            this.pending.borrow_mut().def.destinations = out;
+            Ok(true)
+        });
+
         methods.add_method_mut("dialogue", |_, this, prog: mlua::AnyUserData| {
             let program = prog.borrow::<NpcDialogueProgram>()?.0.clone();
             this.pending.borrow_mut().def.dialogue = Some(program);
@@ -278,6 +303,38 @@ impl UserData for NpcTypeBuilder {
             Ok(true)
         });
     }
+}
+
+fn parse_npc_shop(table: &mlua::Table) -> Result<NpcShopDefinition, mlua::Error> {
+    let mut shop = NpcShopDefinition::default();
+    if let Ok(items) = table.get::<mlua::Table>("items") {
+        for pair in items.sequence_values::<mlua::Table>() {
+            let row = pair?;
+            let container: Option<u16> = row.get("container").ok();
+            shop.items.push(NpcShopItem {
+                item_id: row.get("id")?,
+                subtype: row.get("subType").unwrap_or(0),
+                buy_price: row.get("buy").unwrap_or(0u32),
+                sell_price: row.get("sell").unwrap_or(0u32),
+                name: row.get("name").unwrap_or_default(),
+                container_id: container.filter(|id| *id != 0),
+            });
+        }
+    }
+    if let Ok(messages) = table.get::<mlua::Table>("messages") {
+        let defaults = NpcShopMessages::default();
+        shop.messages = NpcShopMessages {
+            no_shop: messages.get("noShop").unwrap_or(defaults.no_shop),
+            need_money: messages.get("needMoney").unwrap_or(defaults.need_money),
+            need_space: messages.get("needSpace").unwrap_or(defaults.need_space),
+            bought: messages.get("bought").unwrap_or(defaults.bought),
+            sold: messages.get("sold").unwrap_or(defaults.sold),
+            need_item: messages.get("needItem").unwrap_or(defaults.need_item),
+        };
+    }
+    shop.bag_item_id = table.get("bag").unwrap_or(0u16);
+    shop.bag_price = table.get("bagPrice").unwrap_or(0u32);
+    Ok(shop)
 }
 
 #[cfg(test)]

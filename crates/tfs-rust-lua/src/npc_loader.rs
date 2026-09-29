@@ -940,9 +940,89 @@ npc:register()
     fn npc_lib_does_not_require_npcsystem() {
         let lib = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data/npc/lib/npc.lua");
         let src = std::fs::read_to_string(&lib).expect("npc.lua");
-        assert!(
-            !src.contains("npcsystem"),
-            "npc.lua must not load KeywordHandler library"
-        );
+        assert!(!src.contains("npcsystem"));
+        assert!(!src.contains("doNpcSellItem"));
+        assert!(!src.contains("msgcontains"));
+        let system = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data/npc/lib/npcsystem");
+        assert!(!system.exists(), "KeywordHandler library should be removed");
+    }
+
+    #[test]
+    fn loads_shop_catalog_and_open_shop_action() {
+        let mut runtime = LuaRuntime::new().expect("rt");
+        runtime
+            .lua
+            .globals()
+            .set("_pending_npcs", runtime.lua.create_table().unwrap())
+            .unwrap();
+        runtime
+            .lua
+            .globals()
+            .set(
+                "_pending_npc_action_callbacks",
+                runtime.lua.create_table().unwrap(),
+            )
+            .unwrap();
+        runtime
+            .lua
+            .globals()
+            .set(
+                "_pending_npc_predicate_callbacks",
+                runtime.lua.create_table().unwrap(),
+            )
+            .unwrap();
+        runtime
+            .lua
+            .globals()
+            .set(
+                "_pending_npc_lifecycle_callbacks",
+                runtime.lua.create_table().unwrap(),
+            )
+            .unwrap();
+        runtime
+            .lua
+            .load(
+                r#"
+                local npc = NpcType("Trader")
+                npc:shop({
+                  items = { { id = 2148, buy = 1, sell = 1, name = "gold coin" } },
+                  bag = 1988,
+                  bagPrice = 5,
+                })
+                npc:dialogue(NpcDialogue({
+                  policy = "queued_single_focus",
+                  rules = {
+                    { when = { { words = { "trade" } } }, actions = { { openShop = true } } },
+                  },
+                }))
+                npc:register()
+                "#,
+            )
+            .exec()
+            .expect("shop npc");
+        let mut items = ItemDatabase {
+            items: HashMap::new(),
+            client_to_server: HashMap::new(),
+        };
+        let mut gold = tfs_rust_content::otb::ItemType::default();
+        gold.id = 2148;
+        gold.server_id = 2148;
+        items.items.insert(2148, gold);
+        let mut bag = tfs_rust_content::otb::ItemType::default();
+        bag.id = 1988;
+        bag.server_id = 1988;
+        items.items.insert(1988, bag);
+        let db = runtime.drain_pending_npcs(Some(&items)).expect("drain");
+        let def = db.get_by_name("Trader").expect("Trader");
+        let shop = def.shop.as_ref().expect("shop");
+        assert_eq!(shop.items.len(), 1);
+        assert_eq!(shop.items[0].buy_price, 1);
+        assert_eq!(shop.bag_item_id, 1988);
+        assert_eq!(shop.bag_price, 5);
+        let dialogue = def.dialogue.as_ref().expect("dialogue");
+        assert!(matches!(
+            dialogue.rules[0].actions[0],
+            DialogueAction::OpenShop { .. }
+        ));
     }
 }

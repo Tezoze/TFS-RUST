@@ -273,6 +273,12 @@ pub struct Player {
     pub shop_owner: Option<u32>,
     /// Active shop catalog — `Player::shopItemList` (`player.h`).
     pub shop_items: Vec<crate::shop::ActiveShopItem>,
+    /// Replies for the open shop (`bought`, `needMoney`, …).
+    pub shop_messages: tfs_rust_content::npcs::NpcShopMessages,
+    /// Container used when the client asks for backpacks. `1988` when unset.
+    pub shop_bag_item_id: u16,
+    /// Gold per backpack when the bag is not a priced catalog line.
+    pub shop_bag_price: u32,
     /// `sendVIPEntries` payload from `account_viplist`.
     pub vip_list: Vec<VipEntry>,
     /// Owned/unlocked outfit entries — TFS `Player::outfits` (`player.h`).
@@ -374,8 +380,8 @@ pub struct Player {
     /// 772 `TPlayer::OldState` — last icons byte sent via `CheckState` / `0xA2` (`crplayer.cc:1249`).
     /// Compared before `send_player_icons` so we only emit on change.
     pub client_icons: u16,
-    /// `players.blessings` bitfield — TFS domain `Player::blessings` (`player.cpp`).
-    /// Bits 0–4 = five blessings; bit 5 = twist of fate. Drives death-loss reduction (PC-5).
+    /// Blessing bits. Order: shielding, embrace, suns, spark, solitude, twist.
+    /// 772 grants them through quests 104, 105, 103, 102, 101 (`crplayer.cc:343-348`).
     pub blessings: i8,
     /// 772 `Damage == HitPoints` exact-lethal arm (`crmain.cc:792`) — gates amulet-of-loss scan.
     /// Overkill deaths leave this false so AoL does not fire.

@@ -6,10 +6,12 @@ use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
 use tfs_rust_common::enums::Direction;
 
-use crate::creature::{CreatureKind, MonsterAiConfig, MonsterState};
+use crate::creature::{ChaseMode, CreatureKind, MonsterAiConfig, MonsterState};
+use crate::creature_todo::CreatureAction;
+use crate::idle_stimulus::TodoExecuteKind;
 use crate::formulas::MechanicsProfile;
 use crate::login_out::creature_wire_id;
-use crate::monster_ai::MonsterIdleChaseRepathOutcome;
+use crate::monster_ai::{MonsterCombatCloseChaseEnqueue, MonsterIdleChaseRepathOutcome};
 use crate::pathfinding::{
     CHASE_PATH_MAX_STEPS, truncate_tshortway_go_queue, uses_reverse_terrain_path,
 };
@@ -44,6 +46,96 @@ fn seed_idle_chase_queue_for_test(world: &mut GameWorld, monster: CreatureId) {
         MonsterIdleChaseRepathOutcome::PathQueued,
         "hysteresis fixture needs a non-empty chase queue"
     );
+}
+
+/// Failed `ThrowPossible` sets `CHASE_MODE_CLOSE` and `ToDoGo`s to the creature
+/// (`crcombat.cc:496-498`). Keep-distance 4 must not count as that goal.
+#[test]
+fn close_chase_walks_in_from_keep_distance_band() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(104, 100, 7);
+    for x in 100..=104u16 {
+        ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 150);
+    }
+    let monster = insert_monster_with_config(
+        &mut world,
+        "Hunter",
+        mpos,
+        200,
+        dist_idle_monster_config(4),
+    );
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.is_idle = false;
+        m.state = MonsterState::Attacking;
+        m.base.follow_target = Some(player);
+        m.base.attack_target = Some(player);
+        m.base.chase_mode = ChaseMode::Close;
+        m.base.has_follow_path = false;
+        m.base.walk_queue.clear();
+        m.target_distance = 4;
+    }
+
+    assert_eq!(
+        world.monster_combat_enqueue_close_chase_go(monster),
+        MonsterCombatCloseChaseEnqueue::Queued
+    );
+    let queued = world
+        .creatures
+        .get(monster)
+        .map(|k| (k.base().walk_queue.len(), k.base().todo.has_go()))
+        .unwrap_or((0, false));
+    assert!(
+        queued.0 >= 1 && queued.1,
+        "close chase at cheb 4 must step toward the target, got {queued:?}"
+    );
+}
+
+/// Fist `TDAttack` past distance 1 yields. The close-chase `ToDoGo` already ran
+/// at enqueue (`crcombat.cc:496-498`, `cract.cc:870-877`).
+#[test]
+fn attack_execute_out_of_range_yields_without_another_step() {
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(102, 100, 7);
+    for x in 100..=102u16 {
+        ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 150);
+    }
+    let monster = insert_monster_with_config(
+        &mut world,
+        "Hunter",
+        mpos,
+        200,
+        dist_idle_monster_config(4),
+    );
+    let player = insert_player(&mut world, test_player("Hero", ppos));
+    world.map.register_creature_at(ppos, player);
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.is_idle = false;
+        m.state = MonsterState::Attacking;
+        m.base.follow_target = Some(player);
+        m.base.attack_target = Some(player);
+        m.base.chase_mode = ChaseMode::Close;
+        m.base.walk_queue.clear();
+        m.base.todo.queue.clear();
+        m.base.todo.queue.push_back(CreatureAction::Attack);
+    }
+
+    assert!(matches!(
+        world.execute_creature_todo_action(monster),
+        Some(TodoExecuteKind::AttackDeferred)
+    ));
+    let after = world.creatures.get(monster).expect("monster");
+    assert_eq!(after.position(), mpos);
+    assert!(after.base().walk_queue.is_empty());
+    assert!(!after.base().todo.has_go());
+    assert!(matches!(
+        after.base().todo.queue.front(),
+        Some(CreatureAction::Wait { .. })
+    ));
+    assert_eq!(after.base().earliest_attack_ms, 200);
 }
 
 #[test]

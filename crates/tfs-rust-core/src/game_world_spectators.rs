@@ -814,10 +814,12 @@ impl GameWorld {
 
     /// Whether `viewer`'s client still has `target` drawn on a tile.
     ///
-    /// Map encode omits invisible bodies, and omits ghosts from non-access clients
+    /// Map encode omits invisible players, omits invisible monsters from 8.0, and
+    /// omits ghosts from non-access clients
     /// ([`crate::login_out::creature_hidden_from_map`]). `can_see_creature` is wider
     /// for invisible players (`Player::canSeeCreature`), so a `0x6D`/`0x6C` from that
     /// check deletes the next object. Access clients keep ghosts (empty outfit).
+    /// 772 invisible monsters stay on the tile, so this returns true for them.
     pub(crate) fn viewer_has_creature_on_client(
         &self,
         viewer: CreatureId,
@@ -829,7 +831,21 @@ impl GameWorld {
         let Some(kind) = self.creatures.get(target) else {
             return false;
         };
-        if !crate::login_out::creature_omitted_from_other_clients(kind) {
+        // 772 invisible monsters stay on the tile (empty outfit). `can_see_creature`
+        // is false for a player, but the body is still there, so a later `0x6D`
+        // must use that stack index. Skipping the step leaves the client without
+        // the creature; the hit that clears invisibility then moves stackpos 3
+        // onto an item-only tile (`Communication.cpp` bug0000017).
+        if matches!(kind, CreatureKind::Monster(_))
+            && Self::has_invisible(&kind.base().active_conditions)
+            && !self.codec.caps().monster_invis_removes_from_tile
+        {
+            return true;
+        }
+        if !crate::login_out::creature_omitted_from_other_clients(
+            kind,
+            self.codec.caps().monster_invis_removes_from_tile,
+        ) {
             return self.can_see_creature(viewer, target);
         }
         self.player_is_access_player(viewer)

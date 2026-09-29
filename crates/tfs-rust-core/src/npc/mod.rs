@@ -13,7 +13,9 @@ mod focus;
 mod host;
 mod match_rule;
 mod react;
+mod service;
 mod stimulus;
+mod voice;
 mod words;
 
 #[cfg(test)]

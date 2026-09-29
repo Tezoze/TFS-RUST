@@ -26,6 +26,7 @@ mod creature_todo;
 pub mod cylinder;
 #[cfg(test)]
 mod data_pack_lua_tests;
+mod blessing;
 mod death;
 mod death_record;
 mod decay;
@@ -110,6 +111,7 @@ pub mod scheduler;
 mod sector_refresh;
 mod server_save;
 mod shop;
+mod shop_purchase;
 mod shutdown;
 mod sim_glibc_rand;
 mod skill_timer;

@@ -1482,6 +1482,7 @@ impl GameWorld {
             .into_bytes();
         // Commit keeps `remove_known` eviction in both sets (table slot reuse).
         self.commit_known_creatures_after_send(conn, &known);
+        self.note_creature_on_client(conn, wire_id);
         self.enqueue_outgoing(conn, packet);
         true
     }
@@ -1508,6 +1509,8 @@ impl GameWorld {
                 .into_bytes()
         };
         self.enqueue_outgoing(conn, packet);
+        // The known slot stays. The sprite does not: the next step must be `0x6A`.
+        self.forget_creature_on_client(conn, wire_id);
         // Decompile `SendDeleteField` (`sending.cc` ~637) does **not** FREE/unchain the
         // 150-slot table. Erasing here made the next `SendAddField` a 0x61 while the
         // 772 client still had the id → blank name/HP, cannot target (until 0x64).

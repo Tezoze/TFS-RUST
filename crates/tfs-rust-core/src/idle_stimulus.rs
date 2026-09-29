@@ -3693,13 +3693,6 @@ impl GameWorld {
         &mut self,
         cid: CreatureId,
     ) -> Option<TodoExecuteKind> {
-        /// Post-unlock idle work — `idle_stimulus` must not run while `todo.locked`.
-        enum CombatExecuteFollowUp {
-            None,
-            IdleStimulus,
-            CloseChaseBlocked,
-        }
-
         // Batch `LockToDo` stays true for the whole ToDo list (`cract.cc:1012`); do not
         // refuse Execute when locked — that gate is for IdleStimulus / ToDoYield only.
         let action = {
@@ -3713,7 +3706,6 @@ impl GameWorld {
             k.base_mut().todo.locked = true;
         }
 
-        let mut follow_up = CombatExecuteFollowUp::None;
         let kind = match action {
             CreatureAction::Go => {
                 trace_creature_todo(self, cid, "execute_go");
@@ -3813,7 +3805,13 @@ impl GameWorld {
                         trace_creature_todo(self, cid, "execute_attack_deferred_done");
                         TodoExecuteKind::AttackDeferred
                     } else {
-                        let needs_close_step = self
+                        // Fist `TDAttack` at chebyshev > 1 throws `TARGETOUTOFRANGE`
+                        // after `DelayAttack(200)` (`crcombat.cc:608-614`). Close chase
+                        // already ran in `CanToDoAttack` when this Attack was enqueued
+                        // (`crcombat.cc:496-498`). Execute must not path again: `ToDoClear`
+                        // + `ToDoYield` (`cract.cc:870-877`) so the next idle reclassifies
+                        // (`ThrowPossible` → DistFlee / DistDance, else another close Go).
+                        let fist_out_of_range = self
                             .creatures
                             .get(cid)
                             .and_then(|k| {
@@ -3830,61 +3828,15 @@ impl GameWorld {
                                 Some(weapon_dist == 1 && cheb > 1)
                             })
                             .unwrap_or(false);
-                        if needs_close_step {
+                        if fist_out_of_range {
+                            let server_ms = self.server_ms;
                             if let Some(k) = self.creatures.get_mut(cid) {
-                                k.base_mut().todo.queue.push_front(CreatureAction::Attack);
+                                k.base_mut().delay_attack_ms(server_ms, 200);
                             }
-                            if self
-                                .creatures
-                                .get(cid)
-                                .is_some_and(|k| k.base().todo.has_go())
-                            {
-                                trace_creature_todo(self, cid, "execute_attack_wait_for_go");
-                                TodoExecuteKind::AttackDeferred
-                            } else {
-                                match self.monster_combat_enqueue_close_chase_go(cid) {
-                                    MonsterCombatCloseChaseEnqueue::Queued => {
-                                        if self
-                                            .creatures
-                                            .get(cid)
-                                            .is_some_and(|k| k.base().todo.has_go())
-                                        {
-                                            if self.todo_start_go_delay(cid, false) {
-                                                self.schedule_immediate_todo_wakeup(cid);
-                                            } else if self
-                                                .creatures
-                                                .get(cid)
-                                                .is_some_and(|k| k.base().next_wakeup.is_none())
-                                            {
-                                                let _ = self.todo_start_go_delay(cid, false);
-                                            }
-                                        }
-                                    }
-                                    MonsterCombatCloseChaseEnqueue::Retry => {
-                                        if let Some(k) = self.creatures.get_mut(cid) {
-                                            k.base_mut().todo.queue.pop_front();
-                                        }
-                                        self.idle_enqueue_wait_and_start(
-                                            cid,
-                                            MONSTER_CLOSE_CHASE_RETRY_MS,
-                                        );
-                                    }
-                                    MonsterCombatCloseChaseEnqueue::Noway => {
-                                        if let Some(k) = self.creatures.get_mut(cid) {
-                                            k.base_mut().todo.queue.pop_front();
-                                        }
-                                        follow_up = CombatExecuteFollowUp::IdleStimulus;
-                                    }
-                                    MonsterCombatCloseChaseEnqueue::Skipped => {
-                                        if let Some(k) = self.creatures.get_mut(cid) {
-                                            k.base_mut().todo.queue.pop_front();
-                                        }
-                                        follow_up = CombatExecuteFollowUp::CloseChaseBlocked;
-                                    }
-                                }
-                                trace_creature_todo(self, cid, "execute_attack_out_of_range");
-                                TodoExecuteKind::AttackDeferred
-                            }
+                            trace_creature_todo(self, cid, "execute_attack_out_of_range");
+                            self.creature_todo_clear(cid);
+                            self.creature_todo_yield(cid);
+                            TodoExecuteKind::AttackDeferred
                         } else {
                             let distance_fighter = self.creatures.get(cid).is_some_and(|k| {
                             matches!(
@@ -4293,14 +4245,6 @@ impl GameWorld {
         // Batch LockToDo stays set while todos/walk_queue remain; release before idle follow-up
         // so IdleStimulus can run (`cract.cc` ToDoClear then IdleStimulus when list drained).
         self.creature_todo_release_lock_if_drained(cid);
-
-        match follow_up {
-            CombatExecuteFollowUp::IdleStimulus => self.monster_idle_stimulus(cid),
-            CombatExecuteFollowUp::CloseChaseBlocked => {
-                self.monster_combat_handle_close_chase_blocked(cid);
-            }
-            CombatExecuteFollowUp::None => {}
-        }
 
         Some(kind)
     }

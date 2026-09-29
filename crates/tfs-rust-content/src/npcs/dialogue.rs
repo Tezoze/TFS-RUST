@@ -266,11 +266,67 @@ pub enum DialogueAction {
     RepeatPrevious {
         span: SourceSpan,
     },
+    /// Open this NPC's shop catalog for the focused player.
+    OpenShop {
+        span: SourceSpan,
+    },
+    /// Say the NPC's destination list.
+    ListDestinations {
+        span: SourceSpan,
+    },
+    /// Bless, promote, spell, or travel after one shared requirement check.
+    Service {
+        offer: ServiceOffer,
+    },
     Custom {
         callback_id: NpcCallbackId,
         name: String,
         span: SourceSpan,
     },
+}
+
+/// Where a service price is taken from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ServicePurse {
+    /// Inventory coins only. 772 `DeleteMoney`.
+    #[default]
+    Inventory,
+    /// Inventory coins plus bank balance. Later-codec shop and services.
+    Total,
+}
+
+/// What a [`DialogueAction::Service`] grants after the check passes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServiceKind {
+    Bless {
+        index: i32,
+    },
+    Promote,
+    Spell {
+        spell: i32,
+    },
+    Travel {
+        x: i32,
+        y: i32,
+        z: i32,
+        /// When set, coordinates and price come from the NPC destination of this name.
+        destination: Option<String>,
+    },
+}
+
+/// One priced NPC service.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServiceOffer {
+    pub kind: ServiceKind,
+    pub price: u32,
+    pub premium: bool,
+    pub level: u32,
+    /// Refuse while the player is pz-locked. Travel defaults this on.
+    pub pz_clear: bool,
+    pub purse: ServicePurse,
+    /// Spoken when the service succeeds. Failures use a fixed reason.
+    pub text: String,
+    pub span: SourceSpan,
 }
 
 /// One dialogue rule: ordered predicates + ordered actions.
