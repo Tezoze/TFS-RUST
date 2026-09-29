@@ -116,15 +116,9 @@ pub(crate) fn capture_creature_stack_snapshot(
 }
 
 fn occupies_shared_map_slot(world: &GameWorld, cid: CreatureId) -> bool {
-    world
-        .creatures
-        .get(cid)
-        .is_some_and(|k| {
-            !creature_omitted_from_other_clients(
-                k,
-                world.codec.caps().monster_invis_removes_from_tile,
-            )
-        })
+    world.creatures.get(cid).is_some_and(|k| {
+        !creature_omitted_from_other_clients(k, world.codec.caps().monster_invis_removes_from_tile)
+    })
 }
 
 /// One 772 index and one OTC index. Hidden bodies above the target are
@@ -190,9 +184,9 @@ pub(crate) fn stack_for_viewer(
             continue;
         }
         if access
-            && world.creatures.get(hidden).is_some_and(|k| {
-                matches!(k, crate::creature::CreatureKind::Player(p) if p.ghost_mode)
-            })
+            && world.creatures.get(hidden).is_some_and(
+                |k| matches!(k, crate::creature::CreatureKind::Player(p) if p.ghost_mode),
+            )
         {
             extra += 1;
         }

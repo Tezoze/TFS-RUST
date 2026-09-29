@@ -387,9 +387,6 @@ mod tests {
             i32::from(tile.z),
             &mut out,
         );
-        out.creatures
-            .iter()
-            .map(|c| c.outfit.look_type)
-            .collect()
+        out.creatures.iter().map(|c| c.outfit.look_type).collect()
     }
 }

@@ -668,9 +668,8 @@ impl GameWorld {
         };
         let (target_distance, fleeing, is_summon, has_follow_path) = match self.creatures.get(cid) {
             Some(CreatureKind::Monster(m)) => (
-                goal_band.unwrap_or_else(|| {
-                    self.monster_effective_target_distance(m.target_distance)
-                }),
+                goal_band
+                    .unwrap_or_else(|| self.monster_effective_target_distance(m.target_distance)),
                 m.is_fleeing(),
                 m.base.is_summon(),
                 m.base.has_follow_path,

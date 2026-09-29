@@ -8,8 +8,8 @@ use tfs_rust_common::enums::Direction;
 
 use crate::creature::{ChaseMode, CreatureKind, MonsterAiConfig, MonsterState};
 use crate::creature_todo::CreatureAction;
-use crate::idle_stimulus::TodoExecuteKind;
 use crate::formulas::MechanicsProfile;
+use crate::idle_stimulus::TodoExecuteKind;
 use crate::login_out::creature_wire_id;
 use crate::monster_ai::{MonsterCombatCloseChaseEnqueue, MonsterIdleChaseRepathOutcome};
 use crate::pathfinding::{
@@ -58,13 +58,8 @@ fn close_chase_walks_in_from_keep_distance_band() {
     for x in 100..=104u16 {
         ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 150);
     }
-    let monster = insert_monster_with_config(
-        &mut world,
-        "Hunter",
-        mpos,
-        200,
-        dist_idle_monster_config(4),
-    );
+    let monster =
+        insert_monster_with_config(&mut world, "Hunter", mpos, 200, dist_idle_monster_config(4));
     let player = insert_player(&mut world, test_player("Hero", ppos));
     world.map.register_creature_at(ppos, player);
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
@@ -103,13 +98,8 @@ fn attack_execute_out_of_range_yields_without_another_step() {
     for x in 100..=102u16 {
         ensure_walkable_tile(&mut world.map, Position::new(x, 100, 7), 150);
     }
-    let monster = insert_monster_with_config(
-        &mut world,
-        "Hunter",
-        mpos,
-        200,
-        dist_idle_monster_config(4),
-    );
+    let monster =
+        insert_monster_with_config(&mut world, "Hunter", mpos, 200, dist_idle_monster_config(4));
     let player = insert_player(&mut world, test_player("Hero", ppos));
     world.map.register_creature_at(ppos, player);
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {

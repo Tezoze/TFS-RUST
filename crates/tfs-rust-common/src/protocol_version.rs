@@ -201,6 +201,10 @@ mod tests {
     fn monster_invis_tile_remove_starts_at_780() {
         assert!(!ProtocolVersion::V772.caps().monster_invis_removes_from_tile);
         assert!(ProtocolVersion::V800.caps().monster_invis_removes_from_tile);
-        assert!(ProtocolVersion::V1098.caps().monster_invis_removes_from_tile);
+        assert!(
+            ProtocolVersion::V1098
+                .caps()
+                .monster_invis_removes_from_tile
+        );
     }
 }

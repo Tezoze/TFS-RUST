@@ -1004,15 +1004,19 @@ mod tests {
         let mut viewer = test_player("Witness", pos);
         viewer.guid = 22;
         let ghost_id = crate::test_support::insert_spectator_player(&mut world, ConnId(1), ghost);
-        let _viewer =
-            crate::test_support::insert_spectator_player(&mut world, ConnId(2), viewer);
+        let _viewer = crate::test_support::insert_spectator_player(&mut world, ConnId(2), viewer);
 
         world
             .lua_script_set_ghost_mode(ghost_id.data().as_ffi(), true)
             .unwrap();
-        let on = world.pending_outgoing.get(&ConnId(2)).cloned().unwrap_or_default();
+        let on = world
+            .pending_outgoing
+            .get(&ConnId(2))
+            .cloned()
+            .unwrap_or_default();
         assert!(
-            on.iter().any(|p| p.first() == Some(&0x6C) && p.last() == Some(&2)),
+            on.iter()
+                .any(|p| p.first() == Some(&0x6C) && p.last() == Some(&2)),
             "ghost on should 0x6C the ghost's stack, not the witness above them: {on:?}"
         );
         assert!(
@@ -1024,7 +1028,11 @@ mod tests {
         world
             .lua_script_set_ghost_mode(ghost_id.data().as_ffi(), false)
             .unwrap();
-        let off = world.pending_outgoing.get(&ConnId(2)).cloned().unwrap_or_default();
+        let off = world
+            .pending_outgoing
+            .get(&ConnId(2))
+            .cloned()
+            .unwrap_or_default();
         assert!(
             off.iter().any(|p| p.first() == Some(&0x6A)),
             "ghost off should 0x6A-add the body back: {off:?}"
@@ -1070,7 +1078,10 @@ mod tests {
         world
             .lua_script_set_ghost_mode(ghost_id.data().as_ffi(), true)
             .unwrap();
-        let on = world.pending_outgoing.get(&ConnId(3)).expect("access outfit");
+        let on = world
+            .pending_outgoing
+            .get(&ConnId(3))
+            .expect("access outfit");
         assert!(
             on.iter().any(|p| {
                 p.first() == Some(&server::CREATURE_OUTFIT)
@@ -1088,7 +1099,10 @@ mod tests {
         world
             .lua_script_set_ghost_mode(ghost_id.data().as_ffi(), false)
             .unwrap();
-        let off = world.pending_outgoing.get(&ConnId(3)).expect("access restore");
+        let off = world
+            .pending_outgoing
+            .get(&ConnId(3))
+            .expect("access restore");
         assert!(
             off.iter().any(|p| {
                 p.first() == Some(&server::CREATURE_OUTFIT)

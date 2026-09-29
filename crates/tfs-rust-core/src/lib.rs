@@ -4,6 +4,7 @@
 mod actions;
 mod aid_move_events;
 mod bed;
+mod blessing;
 pub mod chat;
 mod chat_talk;
 mod clear_field;
@@ -26,7 +27,6 @@ mod creature_todo;
 pub mod cylinder;
 #[cfg(test)]
 mod data_pack_lua_tests;
-mod blessing;
 mod death;
 mod death_record;
 mod decay;
