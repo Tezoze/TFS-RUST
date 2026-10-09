@@ -275,3 +275,8 @@ Cargo.lock
 .tmp/
 # Added by code-review-graph
 .code-review-graph/
+
+#############
+## Local map editor checkout — not part of the server
+#############
+/remeres-map-editor-redux/

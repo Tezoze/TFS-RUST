@@ -78,6 +78,10 @@ pub fn inject_door_tables_from_global(
     let path = data_dir.join("global.lua");
     let text = std::fs::read_to_string(&path)
         .map_err(|e| LuaError::ScriptIo(path.display().to_string(), e.to_string()))?;
+    // Windows Git (`core.autocrlf=true` with `* text=auto`) checks this file
+    // out as CRLF. The closer search below is `\nend\n`, which does not match
+    // `\r\nend\r\n`, so `table.contains` never lands and boot aborts.
+    let text = normalize_lua_newlines(&text);
 
     let contains_start = text.find("table.contains = function").ok_or_else(|| {
         LuaError::ScriptIo(
@@ -98,6 +102,11 @@ pub fn inject_door_tables_from_global(
 
     let chunk = format!("{contains}\n\n{flag_helper}\n");
     runtime.exec_chunk("door_tables_from_global", &chunk)
+}
+
+/// LF-normalize Lua source so line-oriented slices match Windows checkouts.
+fn normalize_lua_newlines(text: &str) -> String {
+    text.replace("\r\n", "\n").replace('\r', "\n")
 }
 
 /// Load `data/formulas/<clientVersion>.lua` into the **game** Lua VM so action
@@ -446,6 +455,44 @@ mod tests {
 
         assert_required_data_globals(&runtime)
             .expect("required data globals present after lib load");
+    }
+
+    /// Windows checkout of `data/global.lua` is CRLF. The slice must still
+    /// install a working `table.contains`.
+    #[test]
+    fn table_contains_injects_from_crlf_global_lua() {
+        let pack = TempDataPack::new();
+        pack.write(
+            "defs/tools.lua",
+            "return { actionIds = {}, Fields = {}, ropeSpots = {}, jungleGrass = {}, pickGrounds = {}, sandIds = {}, holeId = {}, holes = {}, corpseIds = {} }\n",
+        );
+        pack.write(
+            "global.lua",
+            "table.contains = function(array, value)\r\n\
+             \tfor _, targetColumn in pairs(array) do\r\n\
+             \t\tif targetColumn == value then\r\n\
+             \t\t\treturn true\r\n\
+             \t\tend\r\n\
+             \tend\r\n\
+             \treturn false\r\n\
+             end\r\n\
+             \r\n",
+        );
+
+        let runtime = LuaRuntime::new().expect("runtime");
+        inject_door_tables_from_global(&runtime, &pack.0).expect("crlf global.lua");
+        let hit: bool = runtime
+            .lua
+            .load("return table.contains({10, 20}, 20)")
+            .eval()
+            .expect("table.contains hit");
+        let miss: bool = runtime
+            .lua
+            .load("return table.contains({10, 20}, 30)")
+            .eval()
+            .expect("table.contains miss");
+        assert!(hit);
+        assert!(!miss);
     }
 
     /// TILEP: `ice_pick.lua` does `parent:isContainer() or parent:isPlayer()`.
