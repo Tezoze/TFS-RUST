@@ -35,7 +35,10 @@ COPY --chown=tfs:tfs data /srv/data
 COPY --chown=tfs:tfs crates/tfs-rust-db/migrations /srv/migrations
 COPY docker/entrypoint.sh /usr/local/bin/tfs-rust-entrypoint.sh
 
-RUN chmod +x /usr/local/bin/tfs-rust-entrypoint.sh \
+# Strip CR so `docker compose up --build` still runs when the Windows
+# checkout of entrypoint.sh is CRLF.
+RUN sed -i 's/\r$//' /usr/local/bin/tfs-rust-entrypoint.sh \
+    && chmod +x /usr/local/bin/tfs-rust-entrypoint.sh \
     && mkdir -p /srv/data/logs \
     && chown -R tfs:tfs /srv
 

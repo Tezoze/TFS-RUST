@@ -56,7 +56,11 @@ docker compose logs -f db
 | `MYSQL_PASSWORD` / `MYSQL_ROOT_PASSWORD` | MariaDB (defaults match Compose) |
 | `RUST_LOG` | Tracing filter |
 
-MariaDB is **not** published on host `3306` (avoids clashing with a local daemon).
+MariaDB is **not** published on host `3306` (avoids clashing with a local daemon). The game server in this file runs **inside** the `tfs` container and reaches the database on the Compose network (`db:3306`). Same file on Linux and on Docker Desktop (Windows, Linux containers / WSL2).
+
+Shell scripts under `docker/` are LF (`eol=lf` in `.gitattributes`). The image build and the `seed` entrypoint also strip CR, so a Windows checkout cannot turn `#!/bin/sh` into a bad interpreter or skip the dev account.
+
+To run a **host** `tfs-rust` binary against this database instead, publish `3306:3306` on `db` and point that binary at `127.0.0.1`. That port is omitted here on purpose.
 
 Copy `.env.example` → `.env` next to `docker-compose.yml` to override those values.
 

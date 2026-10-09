@@ -62,7 +62,8 @@ services:
     volumes:
       - ./docker/seed_dev_account.sql:/seed.sql:ro
       - ./docker/seed-dev-account.sh:/seed.sh:ro
-    entrypoint: ["/bin/sh", "/seed.sh"]
+    # `tr` drops CR so a Windows CRLF checkout of seed-dev-account.sh still runs.
+    entrypoint: ["/bin/sh", "-c", "tr -d '\\r' < /seed.sh | /bin/sh"]
     restart: "no"
 
 volumes:

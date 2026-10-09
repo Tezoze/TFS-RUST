@@ -18,6 +18,9 @@
 /vc17
 /reference
 
+# Local map-editor checkout (not part of the server image)
+/remeres-map-editor-redux
+
 # Optional 1098 datapack and docs (not required to run 772)
 /data1098
 /docs

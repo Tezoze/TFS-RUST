@@ -1,6 +1,12 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 
+# Linux images execute these directly. Windows `core.autocrlf=true` must not
+# check them out as CRLF (`#!/bin/sh\r` fails inside the container).
+*.sh text eol=lf
+Dockerfile text eol=lf
+docker/* text eol=lf
+
 # Custom for Visual Studio
 *.sln     merge=union
 *.vcxproj merge=union
