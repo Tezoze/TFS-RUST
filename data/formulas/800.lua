@@ -44,15 +44,6 @@ formulas = {
     itemRegenMana = 4,
   },
   raidWaveMaxCount = 64, -- monsters spawned in one raid wave
-  -- Condition length. cycle is the tick, count and max are how many ticks run.
-  skillTimers = {
-    haste = { cycle = 3, count = 10, max = 10 },
-    strongHaste = { cycle = 2, count = 10, max = 10 },
-    paralyze = { cycle = 1, count = 10, max = 10 },
-    manaShield = { cycle = 1, count = 200, max = 200 },
-    invisible = { cycle = 1, count = 200, max = 200 },
-    light = { [6] = 500, [8] = 1000, [9] = 2000 }, -- duration in ms for light radius 6, 8, and 9
-  },
   otherActions = {
     changeGold = false, -- coin piles convert on use
     extraInstruments = false, -- extra instrument items have a use action

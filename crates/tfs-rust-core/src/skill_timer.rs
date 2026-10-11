@@ -69,7 +69,7 @@ impl SkillTimer {
     }
 }
 
-/// Profile triple loaded from `772.lua` `skillTimers`.
+/// Corpus `SetTimer` triple. Fixed on the profile; formula files do not override it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SkillTimerTriple {
     pub cycle: i32,

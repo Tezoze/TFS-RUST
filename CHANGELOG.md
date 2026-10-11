@@ -36,6 +36,7 @@ Protocol 800 uses the same 772 mechanics corpus, with its own wire codec and `da
 - A hit that mana shield fully absorbs still blocks logout, including field damage with no attacker. Mana drain on a monster clears invisibility and wakes it.
 - Food regeneration uses the active vocation. A promoted character on a free account regenerates as the base vocation.
 - A skill whose growth factor is below 1.05 costs the base number of tries for each level. Monster fist uses that path.
+- Haste, strong haste, paralyze, mana shield, invisibility, and light keep the corpus durations. Formula files no longer set those timers.
 - Sleeping in a house bed writes the sleeper's name on the bed. At login the corpus formula applies: mana is `min(food / 3, offline / 15)`, health is a quarter of that, food spends three times that, and soul gains `offline / 900` up to the soul maximum.
 
 ### NPCs
