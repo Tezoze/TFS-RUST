@@ -178,7 +178,23 @@ impl Item {
             attrs.reset_date();
         }
     }
+}
 
+/// `800src/tools.cpp` `formatDateShort`: `%d %b %Y` (11 characters, local time).
+/// Zero means the item has no date (`sendTextWindow` writes an empty string).
+pub fn format_written_date(unix_secs: i64) -> Option<String> {
+    if unix_secs == 0 {
+        return None;
+    }
+    let dt = chrono::DateTime::from_timestamp(unix_secs, 0)?;
+    Some(
+        dt.with_timezone(&chrono::Local)
+            .format("%d %b %Y")
+            .to_string(),
+    )
+}
+
+impl Item {
     pub fn sleeper_guid(&self) -> u32 {
         self.attributes
             .as_deref()
@@ -517,5 +533,12 @@ mod tests {
         assert_eq!(item.charges(), 20);
         let explicit = Item::from_item_type(&it, 7);
         assert_eq!(explicit.charges(), 7);
+    }
+
+    #[test]
+    fn written_date_zero_is_absent_and_a_stamp_is_eleven_chars() {
+        assert_eq!(format_written_date(0), None);
+        let formatted = format_written_date(1_760_169_600).expect("date");
+        assert_eq!(formatted.len(), 11, "{formatted}");
     }
 }

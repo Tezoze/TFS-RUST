@@ -12,7 +12,7 @@
 //! `Channel(id, name)` loader arrive in CH-4 (see `tasks/chat-system-plan.md` §2.1/§3).
 //!
 //! Static channel ids (C++ `const.h:302-305`): `CHANNEL_GUILD=0x00`, `CHANNEL_PARTY=0x01`,
-//! `CHANNEL_RULE_REP=0x02` (excluded — RVR non-goal, §1), `CHANNEL_PRIVATE=0xFFFF`
+//! `CHANNEL_RULE_REP=0x02` (8.0 rule-violation channel), `CHANNEL_PRIVATE=0xFFFF`
 //! (sentinel/base for dynamic private channels; exact allocation scheme confirmed
 //! against `Chat::createChannel` in CH-4). Static public/GM/tutor channels
 //! (Tutor=3, Game-Chat=4, RL-Chat=5, Trade=6, Help=7, Gamemaster=8) are seeded from
@@ -43,7 +43,7 @@ use crate::ids::CreatureId;
 /// Static channel ids (C++ `const.h:302-305`).
 pub const CHANNEL_GUILD: u16 = 0x00;
 pub const CHANNEL_PARTY: u16 = 0x01;
-pub const CHANNEL_RULE_REP: u16 = 0x02; // Excluded — RVR non-goal
+pub const CHANNEL_RULE_REP: u16 = 0x02; // 8.0 rule-violation channel (`800src/const.h`)
 /// Pack `Channel(6, "Trade")` — corpus `CHANNEL_TRADE=5` is pack RL-Chat.
 pub const CHANNEL_TRADE: u16 = crate::chat_talk::CHANNEL_TRADE;
 pub const CHANNEL_PRIVATE: u16 = 0xFFFF; // Sentinel/base for dynamic private channels

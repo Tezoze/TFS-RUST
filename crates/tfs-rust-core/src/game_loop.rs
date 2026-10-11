@@ -815,6 +815,26 @@ fn finish_loaded_player(
     output_sinks: &mut OutputSinkMap,
     out_registry: &Option<OutRegistry>,
 ) {
+    let queued = if world.player_by_name.contains_key(&loaded.player.name) {
+        None
+    } else {
+        crate::waiting_list::deny_login(world, &loaded)
+    };
+    if let Some(notice) = queued {
+        if let Some(bytes) = notice {
+            world.enqueue_outgoing(conn_id, bytes);
+        }
+        handle_player_disconnect(
+            world,
+            pending_login_conns,
+            conn_id,
+            false,
+            true,
+            output_sinks,
+            out_registry,
+        );
+        return;
+    }
     match login::apply_loaded_player(world, loaded, operating_system, otclient_v8, peer_ip) {
         Ok(login::ApplyPlayerOutcome::Spawned(cid)) => {
             world.register_conn_mapping(conn_id, cid);

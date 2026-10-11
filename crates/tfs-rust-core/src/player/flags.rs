@@ -19,6 +19,8 @@ pub const PLAYER_FLAG_CAN_ILLUSION_ALL: u64 = 1 << 6;
 pub const PLAYER_FLAG_CANNOT_BE_ATTACKED: u64 = 1 << 3;
 /// C++ `PlayerFlag_CannotPickupItem` — `src/const.h`
 pub const PLAYER_FLAG_CANNOT_PICKUP_ITEM: u64 = 1 << 14;
+/// C++ `PlayerFlag_CanAlwaysLogin` — `800src/const.h` bit 15. Skips the waiting list.
+pub const PLAYER_FLAG_CAN_ALWAYS_LOGIN: u64 = 1 << 15;
 /// C++ `PlayerFlag_HasInfiniteCapacity` — `src/const.h`
 pub const PLAYER_FLAG_HAS_INFINITE_CAPACITY: u64 = 1 << 20;
 /// C++ `PlayerFlag_HasInfiniteMana` — `src/const.h`. 772 equivalent: `UNLIMITED_MANA`
@@ -77,6 +79,7 @@ fn flag_name_to_bit(name: &str) -> Option<u64> {
         "canillusionall" => Some(PLAYER_FLAG_CAN_ILLUSION_ALL),
         "cannotbeattacked" => Some(PLAYER_FLAG_CANNOT_BE_ATTACKED),
         "cannotpickupitem" => Some(PLAYER_FLAG_CANNOT_PICKUP_ITEM),
+        "canalwayslogin" => Some(PLAYER_FLAG_CAN_ALWAYS_LOGIN),
         "hasinfinitecapacity" => Some(PLAYER_FLAG_HAS_INFINITE_CAPACITY),
         "hasinfinitemana" => Some(PLAYER_FLAG_HAS_INFINITE_MANA),
         "hasinfinitesoul" => Some(PLAYER_FLAG_HAS_INFINITE_SOUL),

@@ -17,6 +17,9 @@ Protocol 800 uses the same 772 mechanics corpus, with its own wire codec and `da
 - 2026-09-27 — Stamina, outfit scripts, a death bag, a quest toast, and the post-8.0 spell range.
 - 2026-09-27 — `playerSpeed = "classic"` selects the linear curve for both 772 and 8.0. The old 772 label still maps to it.
 - 2026-10-11 — Protocol 10.98 players wait one step on a diagonal, the same as 7.72 and 8.0.
+- 2026-10-11 — Letters and labels show the written date from client 7.9 on. Anonymous channel speech hides the speaker. Tutors can report bugs, and an 8.0 gamemaster login sends the staff viewport bytes.
+- 2026-10-11 — `maxPlayers` queues a full server. Clients from 7.9 through 8.0 are told their place on the list. Gamemasters and the always-login flag skip the queue. Leave the key unset and the server stays open.
+- 2026-10-11 — The rule-violation channel is open to gamemasters. Reports, answers, and cancels use the 8.0 channel packets. 7.72 still uses the gamemaster request.
 
 ### World
 

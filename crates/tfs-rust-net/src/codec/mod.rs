@@ -83,7 +83,13 @@ pub trait ProtocolCodec {
         vocation_client_id: u8,
     ) -> NetworkMessage;
 
-    fn encode_self_appear_login(&self, player_id: u32, server_beat: u16) -> NetworkMessage;
+    fn encode_self_appear_login(
+        &self,
+        player_id: u32,
+        server_beat: u16,
+        can_report_bugs: bool,
+        gamemaster_client: bool,
+    ) -> NetworkMessage;
 
     /// Standalone `0x6A` tile item. 10.98 always includes `stackpos`; 7.72 omits it (OTCv8
     /// `GameTileAddThingWithStackpos` is 8.41+ only — `otclient_stackpos` is ignored on 772).
@@ -379,8 +385,20 @@ impl ProtocolCodec for Codec1098 {
         Codec1098::encode_basic_data(self, is_premium, premium_ends_at, vocation_client_id)
     }
 
-    fn encode_self_appear_login(&self, player_id: u32, server_beat: u16) -> NetworkMessage {
-        Codec1098::encode_self_appear_login(self, player_id, server_beat)
+    fn encode_self_appear_login(
+        &self,
+        player_id: u32,
+        server_beat: u16,
+        can_report_bugs: bool,
+        gamemaster_client: bool,
+    ) -> NetworkMessage {
+        Codec1098::encode_self_appear_login(
+            self,
+            player_id,
+            server_beat,
+            can_report_bugs,
+            gamemaster_client,
+        )
     }
 
     fn encode_add_tile_item(
@@ -698,8 +716,15 @@ impl ProtocolCodec for Codec772 {
         Codec772::encode_basic_data(self, is_premium, premium_ends_at, vocation_client_id)
     }
 
-    fn encode_self_appear_login(&self, player_id: u32, server_beat: u16) -> NetworkMessage {
-        Codec772::encode_self_appear_login(self, player_id, server_beat)
+    fn encode_self_appear_login(
+        &self,
+        player_id: u32,
+        server_beat: u16,
+        can_report_bugs: bool,
+        _gamemaster_client: bool,
+    ) -> NetworkMessage {
+        // 772 packet has the report byte and no gamemaster tail (`0x0B` + 32 `0xFF`).
+        Codec772::encode_self_appear_login(self, player_id, server_beat, can_report_bugs)
     }
 
     fn encode_add_tile_item(
@@ -1028,7 +1053,12 @@ impl Codec {
             vocation_client_id: u8,
         ) -> NetworkMessage;
 
-        encode_self_appear_login(player_id: u32, server_beat: u16) -> NetworkMessage;
+        encode_self_appear_login(
+            player_id: u32,
+            server_beat: u16,
+            can_report_bugs: bool,
+            gamemaster_client: bool,
+        ) -> NetworkMessage;
 
         encode_add_tile_item(
             pos: Position,
@@ -1228,8 +1258,20 @@ impl ProtocolCodec for Codec {
         Codec::encode_basic_data(self, is_premium, premium_ends_at, vocation_client_id)
     }
 
-    fn encode_self_appear_login(&self, player_id: u32, server_beat: u16) -> NetworkMessage {
-        Codec::encode_self_appear_login(self, player_id, server_beat)
+    fn encode_self_appear_login(
+        &self,
+        player_id: u32,
+        server_beat: u16,
+        can_report_bugs: bool,
+        gamemaster_client: bool,
+    ) -> NetworkMessage {
+        Codec::encode_self_appear_login(
+            self,
+            player_id,
+            server_beat,
+            can_report_bugs,
+            gamemaster_client,
+        )
     }
 
     fn encode_add_tile_item(

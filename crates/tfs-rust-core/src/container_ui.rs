@@ -821,7 +821,7 @@ impl GameWorld {
         cid: CreatureId,
         item_id: ItemId,
     ) -> Result<(), ReturnValue> {
-        let (item_type, text, writer, can_write, max_len) = {
+        let (item_type, text, writer, written_unix, can_write, max_len) = {
             let item = self.items.get(item_id).ok_or(ReturnValue::NotPossible)?;
             let it = self
                 .items_db
@@ -832,9 +832,16 @@ impl GameWorld {
                 item.item_type,
                 item.text().to_string(),
                 item.writer().to_string(),
+                item.written_date(),
                 it.can_write_text,
                 it.max_text_len,
             )
+        };
+        // `800src/protocolgame.cpp` `sendTextWindow`: date string when client >= 790.
+        let written_date = if self.codec.version().raw() >= 790 {
+            crate::item::format_written_date(written_unix)
+        } else {
+            None
         };
         self.next_window_text_id = self.next_window_text_id.wrapping_add(1);
         let window_text_id = self.next_window_text_id;
@@ -866,7 +873,7 @@ impl GameWorld {
             },
             text,
             writer,
-            written_date: None,
+            written_date,
             can_write,
             max_text_len: max_len,
         });

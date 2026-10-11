@@ -141,6 +141,7 @@ mod tool_use;
 mod trade;
 mod vip;
 mod visibility;
+mod waiting_list;
 pub mod walk;
 pub mod walk_action;
 pub mod weapon;

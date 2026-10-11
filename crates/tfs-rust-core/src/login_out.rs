@@ -669,7 +669,7 @@ fn enqueue_initial_login_packets_classic(
     conn_id: ConnId,
     creature_id: CreatureId,
 ) {
-    let (pid, pos, equipment_slots, vip_list, with_desc_inv, is_otclient) = {
+    let (pid, pos, equipment_slots, vip_list, with_desc_inv, is_otclient, account_type) = {
         let Some(CreatureKind::Player(p)) = world.creatures.get(creature_id) else {
             return;
         };
@@ -682,6 +682,7 @@ fn enqueue_initial_login_packets_classic(
             p.vip_list.clone(),
             p.item_with_description(),
             is_otclient,
+            p.account_type,
         )
     };
 
@@ -694,9 +695,15 @@ fn enqueue_initial_login_packets_classic(
     // Self-appear (`0x0A` in 772 via the codec) then the full map description (`0x64`).
     // Beat advertised to the client is `MechanicsProfile::beat_ms` (50 ms), the same clock the game loop ticks.
     let server_beat = world.mechanics.profile.beat_ms.min(u16::MAX as u32) as u16;
+    // `ACCOUNT_TYPE_TUTOR` = 2, `ACCOUNT_TYPE_GAMEMASTER` = 4 (`800src/enums.h`).
+    // The gamemaster tail is 8.0 only; 772 keeps the report byte and stops there.
+    let can_report_bugs = account_type >= 2;
+    let gamemaster_client = account_type >= 4 && world.codec.version().raw() >= 800;
     world.enqueue_encoded(
         conn_id,
-        world.codec.encode_self_appear_login(pid, server_beat),
+        world
+            .codec
+            .encode_self_appear_login(pid, server_beat, can_report_bugs, gamemaster_client),
     );
 
     let mut known = world.take_known_creatures_for_send(conn_id);
@@ -859,7 +866,12 @@ fn enqueue_initial_login_packets_1098(
     );
     world.enqueue_outgoing(conn_id, send_extended_opcode(0, "").into_bytes());
 
-    world.enqueue_encoded(conn_id, world.codec.encode_self_appear_login(pid, 0x32));
+    world.enqueue_encoded(
+        conn_id,
+        world
+            .codec
+            .encode_self_appear_login(pid, 0x32, false, false),
+    );
     world.enqueue_outgoing(conn_id, send_pending_state_entered().into_bytes());
     world.enqueue_outgoing(conn_id, send_otc_features_raw().into_bytes());
     world.enqueue_outgoing(conn_id, send_enter_world().into_bytes());

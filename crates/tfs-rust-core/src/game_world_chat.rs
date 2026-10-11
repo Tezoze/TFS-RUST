@@ -95,7 +95,8 @@ impl GameWorld {
             return;
         }
         // 772 `TALK_GAMEMASTER_REQUEST` (`enums.hh:657`, `receiving.cc:888`).
-        if self.codec.version().raw() < 1098 && speak_class == 6 {
+        // 8.0 speak class 6 is the rule-violation channel (`800src/const.h`).
+        if self.codec.version().raw() < 800 && speak_class == 6 {
             self.open_gamemaster_request(cid, text);
             return;
         }
@@ -195,10 +196,11 @@ impl GameWorld {
                 self.player_speak_to(cid, speak_class, receiver, text);
             }
             TALKTYPE_CHANNEL_O | TALKTYPE_CHANNEL_Y | TALKTYPE_CHANNEL_R1 | TALKTYPE_CHANNEL_R2 => {
-                // C++ `g_chat->talkToChannel(*player, type, text, channelId)` —
-                // `game.cpp:3261`, `chat.cpp:107-117` (membership check → `onSpeak` →
-                // `send_to_channel` fan-out). `CHANNEL_RULE_REP` special-case
-                // (→ `internalCreatureSay`) is an RVR non-goal (§1).
+                // `800src/game.cpp` `playerSay`: speech on the rule channel is a local say.
+                if channel_id == crate::chat::CHANNEL_RULE_REP && self.rule_channel_era() {
+                    self.player_say(conn_id, cid, TALKTYPE_SAY, 0, receiver, text);
+                    return;
+                }
                 self.player_talk_to_channel(cid, speak_class, channel_id, text);
             }
             TALKTYPE_BROADCAST => {
@@ -206,9 +208,16 @@ impl GameWorld {
                 self.player_broadcast_message(cid, text);
             }
             TALKTYPE_RVR_CHANNEL | TALKTYPE_RVR_CONTINUE => {
-                // RVR (Rule Violation Report) GM system — explicit non-goal (§1).
-                // `playerReportRuleViolationReport` / `playerContinueRuleViolationReport`.
-                // No-op until RVR is greenlit (§4.6).
+                // `800src/game.cpp` `playerReportRuleViolationReport` /
+                // `playerContinueRuleViolationReport`. 772 keeps class 6 on the
+                // gamemaster-request path above.
+                if self.rule_channel_era() {
+                    if speak_class == TALKTYPE_RVR_CHANNEL {
+                        self.player_report_rule_channel(cid, text);
+                    } else {
+                        self.player_continue_rule_channel(cid, text);
+                    }
+                }
             }
             other => {
                 tracing::warn!(conn_id = conn_id.0, cid = ?cid, speak_class = other, "player_say unknown speak class");
@@ -607,6 +616,17 @@ impl GameWorld {
 
         self.chat.add_user_to_channel(channel_id, cid);
         crate::lua_scope::fire_channel_on_join(self, channel_id, cid);
+
+        // `800src/game.cpp` `playerOpenChannel`: the rule channel sends `0xAE`
+        // instead of the normal `0xAC` open ack.
+        if channel_id == crate::chat::CHANNEL_RULE_REP && self.rule_channel_era() {
+            let bytes = self.encode_open_rule_channel(channel_id);
+            self.pending_outgoing
+                .entry(conn_id)
+                .or_default()
+                .push(bytes.into());
+            return;
+        }
 
         // Send channel ack (use codec version for era correctness)
         let wire = ChannelOpenWire {

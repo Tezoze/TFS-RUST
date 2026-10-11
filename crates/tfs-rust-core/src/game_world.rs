@@ -118,6 +118,8 @@ pub struct GameWorld {
     pub chat: ChatRegistry,
     /// 772 gamemaster-request queue (`TPlayer::Request` / `RequestProcessingGamemaster`).
     pub(crate) rule_requests: crate::rule_violation::RuleRequests,
+    /// `800src/waitlist.cpp` — premium and normal queues when `maxPlayers` is set.
+    pub(crate) waiting_list: crate::waiting_list::WaitingList,
     /// C++ `Player::muteCountMap` — flood protection escalation (player guid → mute count).
     /// Game-thread only; static in C++ (`player.cpp:112`), per-world here for test isolation.
     pub mute_count_map: HashMap<u32, u32>,
@@ -486,6 +488,7 @@ impl GameWorld {
             decay: DecayManager::default(),
             chat: ChatRegistry::new(),
             rule_requests: crate::rule_violation::RuleRequests::default(),
+            waiting_list: crate::waiting_list::WaitingList::default(),
             mute_count_map: HashMap::new(),
             spawns,
             houses: HouseManager::default(),

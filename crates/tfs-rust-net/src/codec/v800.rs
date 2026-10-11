@@ -345,14 +345,21 @@ impl Codec800 {
         let mut m = NetworkMessage::new();
         m.write_u8(0xAA);
         m.write_u32(statement_id);
-        match &w.speaker_name {
-            Some(name) => {
-                m.write_string(name);
-                m.write_u16(w.level);
+        // `800src/protocolgame.cpp` `sendToChannel`: CHANNEL_R2 is anonymous
+        // (`u32 0` = empty name + level 0) and the type is rewritten to R1 (10).
+        if w.speak_type == CORPUS_CHANNEL_R2 {
+            m.write_u32(0);
+            m.write_u8(10);
+        } else {
+            match &w.speaker_name {
+                Some(name) => {
+                    m.write_string(name);
+                    m.write_u16(w.level);
+                }
+                None => m.write_u32(0),
             }
-            None => m.write_u32(0),
+            m.write_u8(speak_type_on_wire(w.speak_type));
         }
-        m.write_u8(speak_type_on_wire(w.speak_type));
         m.write_u16(w.channel_id);
         m.write_string(&w.text);
         m
@@ -508,8 +515,29 @@ impl ProtocolCodec for Codec800 {
         ProtocolCodec::encode_basic_data(&Codec772, is_premium, premium_ends_at, vocation_client_id)
     }
 
-    fn encode_self_appear_login(&self, player_id: u32, server_beat: u16) -> NetworkMessage {
-        ProtocolCodec::encode_self_appear_login(&Codec772, player_id, server_beat)
+    fn encode_self_appear_login(
+        &self,
+        player_id: u32,
+        server_beat: u16,
+        can_report_bugs: bool,
+        gamemaster_client: bool,
+    ) -> NetworkMessage {
+        // Same `0x0A` body as 7.72. `800src/protocolgame.cpp` ~1982 appends `0x0B`
+        // and 32 `0xFF` bytes when `accountType >= ACCOUNT_TYPE_GAMEMASTER`.
+        let mut m = ProtocolCodec::encode_self_appear_login(
+            &Codec772,
+            player_id,
+            server_beat,
+            can_report_bugs,
+            false,
+        );
+        if gamemaster_client {
+            m.write_u8(0x0B);
+            for _ in 0..32 {
+                m.write_u8(0xFF);
+            }
+        }
+        m
     }
 
     fn encode_add_tile_item(

@@ -1001,7 +1001,7 @@ mod v772 {
     #[test]
     fn self_appear_772_layout() {
         let b = codec()
-            .encode_self_appear_login(0x11223344, 200)
+            .encode_self_appear_login(0x11223344, 200, false, false)
             .into_bytes();
         assert_eq!(b, vec![0x0A, 0x44, 0x33, 0x22, 0x11, 0xC8, 0x00, 0x00]);
     }
@@ -2006,6 +2006,74 @@ mod v800 {
                 0, 0, // empty date
             ]
         );
+    }
+
+    #[test]
+    fn text_window_writes_supplied_date() {
+        let w = TextWindowWire {
+            window_text_id: 1,
+            item: ItemTemplateArgs {
+                client_id: 100,
+                count: 1,
+                stackable: false,
+                is_splash_or_fluid: false,
+                is_animation: false,
+                with_description: false,
+            },
+            text: "hi".into(),
+            writer: "A".into(),
+            written_date: Some("11 Oct 2026".into()),
+            can_write: false,
+            max_text_len: 0,
+        };
+        let b = codec().encode_text_window(&w).into_bytes();
+        assert_eq!(
+            b,
+            vec![
+                0x96, 1, 0, 0, 0, 100, 0, 2, 0, 2, 0, b'h', b'i', 1, 0, b'A', 11, 0, b'1', b'1',
+                b' ', b'O', b'c', b't', b' ', b'2', b'0', b'2', b'6',
+            ]
+        );
+    }
+
+    #[test]
+    fn channel_r2_is_anonymous_r1() {
+        let w = ToChannelWire {
+            speaker_name: Some("Tutor".into()),
+            level: 20,
+            speak_type: 14,
+            channel_id: 3,
+            text: "d".into(),
+        };
+        let b = codec().encode_to_channel(7, &w).into_bytes();
+        assert_eq!(
+            b,
+            vec![
+                0xAA, 7, 0, 0, 0, // statement
+                0, 0, 0, 0,  // anonymous name + level
+                10, // rewritten to CHANNEL_R1
+                3, 0, // channel
+                1, 0, b'd',
+            ]
+        );
+    }
+
+    #[test]
+    fn self_appear_tutor_sets_report_byte() {
+        let b = codec()
+            .encode_self_appear_login(0x11223344, 50, true, false)
+            .into_bytes();
+        assert_eq!(b, vec![0x0A, 0x44, 0x33, 0x22, 0x11, 50, 0, 1]);
+    }
+
+    #[test]
+    fn self_appear_gamemaster_appends_viewport_bytes() {
+        let b = codec()
+            .encode_self_appear_login(1, 50, true, true)
+            .into_bytes();
+        assert_eq!(b.len(), 8 + 1 + 32);
+        assert_eq!(&b[..9], &[0x0A, 1, 0, 0, 0, 50, 0, 1, 0x0B]);
+        assert!(b[9..].iter().all(|&byte| byte == 0xFF));
     }
 
     #[test]
