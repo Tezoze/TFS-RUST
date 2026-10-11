@@ -302,6 +302,9 @@ pub struct Monster {
     /// 772 `LifeEndRound` — timed despawn drained by `IdleStimulus` (`crnonpl.cc:2352`).
     /// Set at raid spawn (`crmain.cc` ProcessMonsterRaids). `None` ≡ 0 (no timed despawn).
     pub life_end_round: Option<u32>,
+    /// Next `server_ms` a spell round may roll. Used only when
+    /// [`crate::formulas::MonsterSpellCadence::Round`] is selected. `0` means ready.
+    pub spell_round_ready_ms: u64,
 }
 
 impl Monster {
@@ -371,6 +374,7 @@ impl Monster {
             friend_ids: Vec::new(),
             wire_id: 0,
             life_end_round: None,
+            spell_round_ready_ms: 0,
         }
     }
 

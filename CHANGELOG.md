@@ -20,18 +20,23 @@ Protocol 800 uses the same 772 mechanics corpus, with its own wire codec and `da
 ### World
 
 - Changed non-house tiles persist in `data/world/forgotten-live.bin` and are restored on boot. Ctrl+C refreshes those tiles before the write. The checked-in overlay is two tiles: mummy remains holding two worms at 33005, 32397, 11, and a dead spider with a pool at 32648, 32082, 12. The earlier persist test (empty vials, a rope, and a letter) is no longer in that file.
-- Sleeping in a bed saves the player and closes the client.
+- Sleeping in a bed saves the player and closes the client. The health and mana granted on wake come from the food and offline time, not from how long the character was in the bed.
 - Logout closes the socket in the same call on every client version.
 
 ### Monsters
 
 - A monster that already has a chase target keeps it when another creature steps inside its view. The walk armed by idle waits until the next beat.
+- `monsterSpells.cadence` in the formula file is `machineGun` by default: every idle still rolls every spell. `round` is one shared pass per interval (adjacent 2000 ms, at range or fleeing 1000 ms, a melee monster still chasing 4000 ms). Several spells can still land on that pass.
 
 ### Combat
 
 - A close-chase step does not strike while the attack is still exhausted. The strike waits until that delay ends.
-- A healing spell clears paralyze on its own, including the intense and ultimate healing runes. A life fluid does not.
+- A healing spell clears paralyze on its own, including the intense and ultimate healing runes. Drinking a life fluid does the same. Mana fluid and life fluid also start the 1 second spell cooldown and show the blue effect.
 - Poison storm covers the full disc. Berserk costs four times the caster's level, and its damage is one roll scaled by level and magic level. Mana fluid restores 50–150 mana and life fluid restores 25–75 hit points, both on the server roll.
+- A hit that mana shield fully absorbs still blocks logout, including field damage with no attacker. Mana drain on a monster clears invisibility and wakes it.
+- Food regeneration uses the active vocation. A promoted character on a free account regenerates as the base vocation.
+- A skill whose growth factor is below 1.05 costs the base number of tries for each level. Monster fist uses that path.
+- Sleeping in a house bed writes the sleeper's name on the bed. At login the corpus formula applies: mana is `min(food / 3, offline / 15)`, health is a quarter of that, food spends three times that, and soul gains `offline / 900` up to the soul maximum.
 
 ### NPCs
 

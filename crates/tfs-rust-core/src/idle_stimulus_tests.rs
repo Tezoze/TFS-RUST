@@ -2292,6 +2292,112 @@ fn e5_apply_player_hit(
     );
 }
 
+/// Field damage with no attacker still blocks logout when mana shield takes the hit.
+#[test]
+fn full_mana_shield_without_attacker_blocks_logout() {
+    use crate::condition::{ActiveCondition, ConditionData};
+
+    let mut world = beat_driven_test_world();
+    world.round_nr = 10;
+    let pos = Position::new(100, 100, 7);
+    ensure_walkable_tile(&mut world.map, pos, TEST_SYNTHETIC_GROUND_WP);
+    let mut player = test_player("Shield", pos);
+    player.mana = 50;
+    player.base.active_conditions.push(ActiveCondition::new(
+        0,
+        0,
+        ConditionType::ManaShield,
+        ConditionData::Generic { ticks: 0 },
+        None,
+    ));
+    let cid = insert_player(&mut world, player);
+    world.map.register_creature_at(pos, cid);
+    world.register_conn_mapping(ConnId(1), cid);
+
+    world.combat_execute_with_stimulus(
+        None,
+        cid,
+        &CombatDamage {
+            primary: (CombatType::Energy, -20),
+            secondary: (CombatType::Energy, 0),
+        },
+        &CombatParams {
+            primary_type: CombatType::Energy,
+            ..CombatParams::default()
+        },
+    );
+
+    let p = match world.creatures.get(cid) {
+        Some(CreatureKind::Player(p)) => p,
+        _ => panic!("player"),
+    };
+    assert_eq!(p.base.health, 100, "mana shield took the whole hit");
+    assert_eq!(p.mana, 30);
+    assert!(
+        p.earliest_logout_round > world.round_nr,
+        "DamageStimulus runs before the full absorb return"
+    );
+}
+
+/// Mana drain on a monster still wakes it and drops invisibility.
+#[test]
+fn mana_drain_on_monster_clears_invisibility() {
+    use crate::condition::{ActiveCondition, ConditionData, add_condition_merge};
+
+    let mut world = beat_driven_test_world();
+    let mpos = Position::new(100, 100, 7);
+    let ppos = Position::new(101, 100, 7);
+    ensure_walkable_tile(&mut world.map, mpos, TEST_SYNTHETIC_GROUND_WP);
+    ensure_walkable_tile(&mut world.map, ppos, TEST_SYNTHETIC_GROUND_WP);
+    let player = insert_player(&mut world, test_player("Mage", ppos));
+    world.map.register_creature_at(ppos, player);
+    let monster = insert_monster(&mut world, "Rat", mpos, 200);
+    if let Some(k) = world.creatures.get_mut(monster) {
+        add_condition_merge(
+            &mut k.base_mut().active_conditions,
+            ActiveCondition::new(
+                0,
+                0,
+                ConditionType::Invisible,
+                ConditionData::Generic { ticks: 0 },
+                None,
+            ),
+        );
+    }
+    if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
+        m.state = MonsterState::Sleeping;
+        m.base.clear_targets();
+    }
+    let health_before = world.creatures.get(monster).unwrap().base().health;
+
+    world.combat_execute_with_stimulus(
+        Some(player),
+        monster,
+        &CombatDamage {
+            primary: (CombatType::ManaDrain, -10),
+            secondary: (CombatType::ManaDrain, 0),
+        },
+        &CombatParams {
+            primary_type: CombatType::ManaDrain,
+            ..CombatParams::default()
+        },
+    );
+
+    let m = match world.creatures.get(monster) {
+        Some(CreatureKind::Monster(m)) => m,
+        _ => panic!("monster"),
+    };
+    assert!(
+        !m.base
+            .active_conditions
+            .iter()
+            .any(|c| c.ctype == ConditionType::Invisible),
+        "invisibility clears before the mana-drain return"
+    );
+    assert_eq!(m.state, MonsterState::Panic);
+    assert_eq!(m.base.health, health_before);
+}
+
 #[test]
 fn test_e5_idle_with_target_hit_becomes_under_attack() {
     let mut world = beat_driven_test_world();

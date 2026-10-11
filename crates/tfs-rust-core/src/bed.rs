@@ -102,7 +102,7 @@ impl GameWorld {
             self.houses.houses.get(&hid).and_then(|h| h.owner_guid) == Some(guid)
         });
         if transform_free != 0 && is_owner {
-            self.bed_wake_up(item_id, None);
+            self.bed_wake_up(item_id);
         }
         if let Some(pos) = self.creatures.get(cid).map(|k| k.position()) {
             self.broadcast_magic_effect(pos, ME_POFF);
@@ -166,8 +166,7 @@ impl GameWorld {
     ///
     /// Runs after the player is on the map. Only a bed on that tile whose text is
     /// the player name (case-insensitive) applies food HP/mana/soul and is cleared.
-    /// `bed_sleepers` wake stays a separate path for a logged-out sleeper whose
-    /// bed text is not the raw name.
+    /// Waking a bed only clears the sleeper and restores the appearance.
     pub(crate) fn apply_named_bed_login_regen(&mut self, cid: CreatureId) {
         let (name, pos, food, lastlogout, health, max_health, mana, max_mana, soul, soul_max) =
             match self.creatures.get(cid) {
@@ -220,8 +219,7 @@ impl GameWorld {
         if let Some(item) = self.items.get_mut(bed_id) {
             item.reset_text();
         }
-        // Clear the bed without the TFS sleep-duration bump (`bed_regenerate_player`).
-        self.bed_wake_up(bed_id, None);
+        self.bed_wake_up(bed_id);
     }
 
     /// Bed on `pos` whose text equals `name` — `crplayer.cc:1394` `stricmp`.
@@ -235,8 +233,8 @@ impl GameWorld {
         }
     }
 
-    /// C++ `BedItem::wakeUp` — `bed.cpp:163-200`.
-    pub(crate) fn bed_wake_up(&mut self, item_id: ItemId, player: Option<CreatureId>) {
+    /// Clear the sleeper and restore the free bed. Regen is `TPlayer::Regenerate` only.
+    pub(crate) fn bed_wake_up(&mut self, item_id: ItemId) {
         if self.bed_house_id(item_id).is_none() {
             return;
         }
@@ -246,9 +244,6 @@ impl GameWorld {
             .map(|i| i.sleeper_guid())
             .unwrap_or(0);
         if sleeper_guid != 0 {
-            if let Some(cid) = player {
-                self.bed_regenerate_player(cid, item_id);
-            }
             self.houses.bed_sleepers.remove(&sleeper_guid);
         }
         let partner = self.bed_partner_item(item_id);
@@ -259,24 +254,6 @@ impl GameWorld {
         self.bed_update_appearance(item_id, None);
         if let Some(pid) = partner {
             self.bed_update_appearance(pid, None);
-        }
-    }
-
-    /// C++ `BedItem::regeneratePlayer` — `bed.cpp:202-227` (HP/mana/soul from sleep duration).
-    fn bed_regenerate_player(&mut self, cid: CreatureId, item_id: ItemId) {
-        let sleep_start = self
-            .items
-            .get(item_id)
-            .map(|i| i.sleep_start())
-            .unwrap_or(0);
-        let now = unix_secs();
-        let slept = now.saturating_sub(sleep_start);
-        let regen = (slept / 30) as i32;
-        let soul = (slept / (60 * 15)) as i32;
-        if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
-            p.base.health = (p.base.health + regen).min(p.base.max_health);
-            p.mana = (p.mana + regen).min(p.max_mana);
-            p.economy.soul = p.economy.soul.saturating_add(soul);
         }
     }
 
@@ -325,6 +302,8 @@ impl GameWorld {
             item.set_sleeper_guid(guid);
             item.set_sleep_start(unix_secs());
             item.set_description(desc);
+            // `TPlayer::Regenerate` matches `TEXTSTRING` to the sleeper name (`crplayer.cc:1394`).
+            item.set_text(name);
         }
     }
 
@@ -333,6 +312,7 @@ impl GameWorld {
             item.set_sleeper_guid(0);
             item.set_sleep_start(0);
             item.set_description("Nobody is sleeping there.");
+            item.reset_text();
         }
     }
 
@@ -503,6 +483,74 @@ mod tests {
         assert_eq!(p.food_remaining, 0);
         assert_eq!(p.economy.soul, 1);
         assert_eq!(world.items.get(bed).map(|i| i.text()), Some(""));
+    }
+
+    /// Sleep writes the name into the bed text. Login uses corpus regen, not slept/30.
+    #[test]
+    fn sleep_writes_name_and_login_uses_corpus_regen() {
+        let mut world = beat_driven_test_world();
+        register_bed_pair(&mut world);
+        let pos = Position::new(50, 50, 7);
+        world.map.insert_tile(
+            pos,
+            Tile::House(HouseTile {
+                inner: TileBody {
+                    ground: Some(100),
+                    ground_item: None,
+                    stacks: None,
+                    flags: 0,
+                    zone: ZoneType::Protection,
+                },
+                house_id: 1,
+            }),
+        );
+        world.houses.set_owner(1, 1);
+        let mut player = test_player("Sleeper", pos);
+        player.premium_ends_at = u32::MAX;
+        player.guid = 1;
+        player.base.health = 40;
+        player.base.max_health = 400;
+        player.mana = 10;
+        player.max_mana = 200;
+        player.food_remaining = 300;
+        player.economy.soul = 90;
+        player.vocation_profile.soul_max = 100;
+        let ago = unix_secs().saturating_sub(1500) as u64;
+        if let Some(persist) = player.persist.as_mut() {
+            persist.player_row.lastlogout = ago;
+        }
+        let cid = insert_player(&mut world, player);
+        world.map.register_creature_at(pos, cid);
+        let bed = world.items.insert(Item::new_single(1754));
+        world
+            .internal_add_item_to_tile(pos, bed, crate::cylinder::CylinderFlags::NO_LIMIT)
+            .expect("place bed");
+        world.player_use_bed(ConnId(1), cid, bed).expect("sleep");
+        assert_eq!(world.items.get(bed).map(|i| i.text()), Some("Sleeper"));
+        // A long sleep would add slept/30 if the TFS wake formula still ran.
+        world
+            .items
+            .get_mut(bed)
+            .unwrap()
+            .set_sleep_start(unix_secs().saturating_sub(3000));
+
+        world.apply_named_bed_login_regen(cid);
+        if let Some(bed_id) = world.houses.bed_sleepers.get(&1).copied() {
+            world.bed_wake_up(bed_id);
+        }
+
+        let p = match world.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => p,
+            _ => panic!("player"),
+        };
+        // Regen = min(300/3, 1500/15) = 100. HP +25, mana +100, food 0, soul +1 capped at 100.
+        assert_eq!(p.base.health, 65);
+        assert_eq!(p.mana, 110);
+        assert_eq!(p.food_remaining, 0);
+        assert_eq!(p.economy.soul, 91);
+        assert!(p.economy.soul <= p.vocation_profile.soul_max);
+        assert_eq!(world.items.get(bed).map(|i| i.text()), Some(""));
+        assert_eq!(world.items.get(bed).map(|i| i.sleeper_guid()), Some(0));
     }
 
     #[test]

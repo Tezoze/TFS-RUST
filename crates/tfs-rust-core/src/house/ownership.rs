@@ -201,7 +201,7 @@ impl GameWorld {
             .map(|r| r.beds.clone())
             .unwrap_or_default();
         for bed in beds {
-            self.bed_wake_up(bed, None);
+            self.bed_wake_up(bed);
         }
     }
 

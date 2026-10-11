@@ -49,6 +49,11 @@ formulas = {
   },
   -- Pool size in hours. Rest recovers one minute per regenSeconds. Combat spends one minute per drainSeconds. 0 hours turns it off.
   stamina = { hours = 56, regenSeconds = 180, drainSeconds = 60 },
+  -- "machineGun" rolls every spell on every idle (772). "round" is one shared pass:
+  -- 2000 ms adjacent, 1000 ms at range or fleeing, 4000 ms while a melee monster is still chasing.
+  monsterSpells = {
+    cadence = "machineGun",
+  },
 }
 
 -- True when the linear fishing roll succeeds for this skill.

@@ -442,7 +442,23 @@ impl GameWorld {
             }
         }
 
-        // 772 `DAMAGE_MANADRAIN` — before mana shield / HP (`crmain.cc:649-657`).
+        // `DamageStimulus` and the non-player invisibility clear run before mana
+        // drain and mana shield (`crmain.cc:632-641`). Armor and immunity already
+        // returned above. The amount is the pre-shield hit, including a full absorb.
+        let pre_shield_damage = (-(reduced_damage.primary.1 + reduced_damage.secondary.1)).max(0);
+        if pre_shield_damage > 0 {
+            if let Some(attacker_id) = attacker {
+                self.monster_damage_stimulus(target, attacker_id, pre_shield_damage);
+            }
+            // `TPlayer::DamageStimulus` blocks logout even when `Attacker` is NULL
+            // (`crplayer.cc:382-385`) — field damage under a full mana shield.
+            self.player_attack_stimulus(target);
+            if !matches!(self.creatures.get(target), Some(CreatureKind::Player(_))) {
+                self.clear_nonplayer_invisibility(target);
+            }
+        }
+
+        // 772 `DAMAGE_MANADRAIN` — before mana shield / HP (`crmain.cc:643-659`).
         if reduced_damage.primary.0 == CombatType::ManaDrain
             || params.primary_type == CombatType::ManaDrain
         {
@@ -473,23 +489,14 @@ impl GameWorld {
 
         let stimulus_damage = (-(reduced_damage.primary.1 + reduced_damage.secondary.1)).max(0);
         // 772 `if (Damage > HitPoints) Damage = HitPoints` — `crmain.cc:690-693`.
-        // `DamageStimulus` uses the unclamped amount (`crmain.cc:632`, before this clamp).
-        // `TextualEffect` / `"You lose X"` / `return Damage` all use the clamped scalar.
+        // Stimulus already ran on the pre-shield amount. Hit effects use this
+        // post-shield remainder so a full mana absorb does not draw blood.
         let hp_now = self
             .creatures
             .get(target)
             .map(|k| k.base().health.max(0))
             .unwrap_or(0);
         let hp_damage = stimulus_damage.min(hp_now);
-        if stimulus_damage > 0 {
-            if let Some(attacker_id) = attacker {
-                // C++ `DamageStimulus` runs before HP apply — `crmain.cc:632`.
-                self.monster_damage_stimulus(target, attacker_id, stimulus_damage);
-            }
-            // 772 `TPlayer::DamageStimulus` (`crplayer.cc:382-385`): `BlockLogout(60, false)`
-            // even when `Attacker` is NULL (field `initdamage` / traps).
-            self.player_attack_stimulus(target);
-        }
         let applied = {
             let responsible = attacker.and_then(|aid| {
                 self.creatures
@@ -538,13 +545,6 @@ impl GameWorld {
                     crate::combat::combat_type_hit_effect(reduced_damage.primary.0)
                 {
                     self.broadcast_magic_effect(pos, effect);
-                }
-
-                // Non-player invisibility ends on any hit that reaches this point.
-                // Periodic arms return earlier (`crmain.cc:582-613`). Players keep it
-                // (`crmain.cc:636` `Type != PLAYER`). 8.0 then adds the body back.
-                if !matches!(self.creatures.get(target), Some(CreatureKind::Player(_))) {
-                    self.clear_nonplayer_invisibility(target);
                 }
 
                 if reduced_damage.secondary.1 < 0
@@ -1610,6 +1610,10 @@ impl GameWorld {
             ),
             _ => return,
         };
+        // `machineGun` falls through. `round` returns here without drawing delay rolls.
+        if !self.monster_spell_round_allows_cast(cid) {
+            return;
+        }
         // Attack + defense spells are merged at spawn (`combat_from_monster_type`, audit IDLE-1).
         // 772 CASTING (`crnonpl.cc:2521-2667`): Target may be 0 — the loop still runs,
         // consuming delay + flee rolls for every spell. Non-aggressive spells (Healing)

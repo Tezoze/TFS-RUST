@@ -484,8 +484,8 @@ impl GameWorld {
     /// (no HP/mana) but the timer still drains. Returns `true` when an HP or mana
     /// grant was due (even if already at cap — corpus still `SendPlayerData`).
     fn process_player_fed_regen(&mut self, cid: CreatureId) -> bool {
-        let (food_remaining, voc_id, pos) = match self.creatures.get(cid) {
-            Some(CreatureKind::Player(p)) => (p.food_remaining, p.vocation_id, p.base.position),
+        let (food_remaining, pos) = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(p)) => (p.food_remaining, p.base.position),
             _ => return false,
         };
         // Food-remaining gate — `SKILL_FED` inactive (`crskill.cc:180`).
@@ -504,6 +504,8 @@ impl GameWorld {
             return false;
         }
 
+        // `GetActiveProfession` — a free account on a promoted row uses the base vocation.
+        let voc_id = self.player_active_vocation_id(cid).unwrap_or(0);
         let (hp_ticks, hp_amount, mana_ticks, mana_amount) =
             self.vocations.fed_regen_params(voc_id);
 
@@ -911,6 +913,68 @@ mod tests {
         Arc::new(VocationRegistry { vocations })
     }
 
+    /// Knight (id 4, HP every 6) and elite knight (id 8, HP every 4).
+    fn knight_and_elite_db() -> Arc<VocationRegistry> {
+        let mut vocations = HashMap::new();
+        vocations.insert(
+            4u16,
+            VocationDef {
+                id: 4,
+                client_id: 1,
+                name: "Knight".into(),
+                description: "a knight".into(),
+                from_vocation: 4,
+                gain_cap: 25,
+                gain_hp: 15,
+                gain_mana: 5,
+                gain_hp_ticks: 6,
+                gain_hp_amount: 1,
+                gain_mana_ticks: 6,
+                gain_mana_amount: 2,
+                mana_multiplier: 3.0,
+                attack_speed_ms: 2000,
+                base_speed: 70,
+                soul_max: 100,
+                gain_soul_ticks: 120,
+                allow_pvp: false,
+                base_hp: 150,
+                base_mana: 0,
+                base_cap: 400,
+                formula: tfs_rust_content::vocations::VocationFormula::default(),
+                skill_multipliers: [1.1, 1.1, 1.1, 1.1, 1.4, 1.1, 1.1],
+            },
+        );
+        vocations.insert(
+            8u16,
+            VocationDef {
+                id: 8,
+                client_id: 1,
+                name: "Elite Knight".into(),
+                description: "an elite knight".into(),
+                from_vocation: 4,
+                gain_cap: 25,
+                gain_hp: 15,
+                gain_mana: 5,
+                gain_hp_ticks: 4,
+                gain_hp_amount: 1,
+                gain_mana_ticks: 6,
+                gain_mana_amount: 2,
+                mana_multiplier: 3.0,
+                attack_speed_ms: 2000,
+                base_speed: 70,
+                soul_max: 200,
+                gain_soul_ticks: 15,
+                allow_pvp: false,
+                base_hp: 150,
+                base_mana: 0,
+                base_cap: 400,
+                formula: tfs_rust_content::vocations::VocationFormula::default(),
+                skill_multipliers: [1.1, 1.1, 1.1, 1.1, 1.4, 1.1, 1.1],
+            },
+        );
+        Arc::new(VocationRegistry { vocations })
+    }
+
     /// Insert a protection-zone ground tile at `pos` (mirrors `ensure_walkable_tile`
     /// but with `ZoneType::Protection` — `crskill.cc:819` PZ gate).
     fn ensure_pz_tile(map: &mut Map, pos: Position, ground_type: u16) {
@@ -970,6 +1034,51 @@ mod tests {
         }
         let p = world.creatures.get(pid).unwrap();
         assert_eq!(p.base().health, 92, "no regen after food runs out");
+    }
+
+    /// Free-account promotion uses the base vocation's fed ticks (`GetActiveProfession`).
+    #[test]
+    fn fed_regen_free_promoted_uses_base_vocation() {
+        let mut world = beat_driven_test_world();
+        world.vocations = knight_and_elite_db();
+
+        let pos = Position::new(100, 100, 7);
+        ensure_walkable_tile(&mut world.map, pos, 150);
+
+        let mut player = test_player("Elite", pos);
+        player.vocation_id = 8;
+        player.premium_ends_at = 0;
+        player.base.health = 90;
+        player.base.max_health = 100;
+        player.food_remaining = 12;
+        let pid = insert_player(&mut world, player);
+
+        for _ in 0..12 {
+            world.process_skills();
+        }
+        let health = world.creatures.get(pid).unwrap().base().health;
+        // Knight cadence (6): grants at food 6 and 0 → +2. Elite cadence (4) would be +3.
+        assert_eq!(health, 92, "free elite knight regenerates as a knight");
+
+        let mut premium = beat_driven_test_world();
+        premium.vocations = knight_and_elite_db();
+        let prem_pos = Position::new(110, 100, 7);
+        ensure_walkable_tile(&mut premium.map, prem_pos, 150);
+        let mut player = test_player("Prem", prem_pos);
+        player.vocation_id = 8;
+        player.premium_ends_at = u32::MAX;
+        player.base.health = 90;
+        player.base.max_health = 100;
+        player.food_remaining = 12;
+        let pid = insert_player(&mut premium, player);
+        for _ in 0..12 {
+            premium.process_skills();
+        }
+        assert_eq!(
+            premium.creatures.get(pid).unwrap().base().health,
+            93,
+            "premium elite knight keeps the promoted cadence"
+        );
     }
 
     /// `TSkillFed::Event` grants 2 mana for profession 0 (`crskill.cc:880-882`).

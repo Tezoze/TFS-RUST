@@ -592,7 +592,7 @@ pub fn apply_loaded_player(
     world.apply_named_bed_login_regen(cid);
 
     if let Some(bed) = world.houses.bed_sleepers.get(&guid).copied() {
-        world.bed_wake_up(bed, Some(cid));
+        world.bed_wake_up(bed);
     }
 
     let guild_opt = world.creatures.get(cid).and_then(|k| match k {

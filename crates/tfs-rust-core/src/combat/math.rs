@@ -576,11 +576,12 @@ pub fn pvp_kill_experience_amount(
     (((max_level - attacker_level as i64) as u128 * amount as u128) / victim_level as u128) as u64
 }
 
-/// Skill tries required to reach `level` (B4.5).
+/// Tries for one skill level. Callers subtract this and increment the level.
 ///
-/// Geometric curve shared by both eras: `skill_base * multiplier^(level - (min_level + 1))`.
-/// 772 `FactorPercent < 1050` falls back to linear `(Level - Min) * Delta` (`crskill.cc:483-491`);
-/// `multiplier < 1.05` mirrors that gate (`FactorPercent / 1000`).
+/// Geometric curve: `skill_base * multiplier^(level - (min_level + 1))`, the one-level
+/// step of `Delta * (Base^(Level-Min) - 1) / (Base - 1)` (`crskill.cc:490-493`).
+/// `multiplier < 1.05` is `FactorPercent < 1050`. That branch's cumulative total is
+/// `(Level - Min) * Delta` (`crskill.cc:487`), so each level costs `skill_base`.
 /// Tier-2 `getReqSkillTries(skill, level)` overrides the whole curve.
 pub fn req_skill_tries(
     hooks: &FormulaHooks,
@@ -593,10 +594,9 @@ pub fn req_skill_tries(
     if let Some(v) = hooks.req_skill_tries(skill, level) {
         return v.max(0) as u64;
     }
-    // 772 linear branch when FactorPercent < 1050 (`crskill.cc:483-491`).
+    // Per-level cost of `(Level - Min) * Delta` when FactorPercent < 1050 (`crskill.cc:487`).
     if multiplier < 1.05 {
-        let steps = (level - min_level).max(0) as u64;
-        return steps.saturating_mul(skill_base);
+        return if level > min_level { skill_base } else { 0 };
     }
     let exp = level - (min_level + 1);
     (skill_base as f64 * multiplier.powi(exp)).floor() as u64
@@ -981,9 +981,10 @@ mod tests {
     #[test]
     fn req_skill_tries_linear_when_multiplier_below_1050() {
         let m = Mechanics::for_version(tfs_rust_common::ProtocolVersion::V772);
-        // FactorPercent < 1050 → (Level - Min) * Delta.
-        assert_eq!(req_skill_tries(&m.hooks, 2, 15, 50, 1.0, 10), 250);
-        assert_eq!(req_skill_tries(&m.hooks, 2, 15, 50, 1.049, 10), 250);
+        // FactorPercent < 1050: each level costs Delta, not the running total.
+        assert_eq!(req_skill_tries(&m.hooks, 2, 15, 50, 1.0, 10), 50);
+        assert_eq!(req_skill_tries(&m.hooks, 2, 15, 50, 1.049, 10), 50);
+        assert_eq!(req_skill_tries(&m.hooks, 2, 10, 50, 1.0, 10), 0);
     }
 
     #[test]

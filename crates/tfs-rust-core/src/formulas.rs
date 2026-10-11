@@ -368,6 +368,62 @@ impl NpcTuning {
     }
 }
 
+/// How often a monster gets a spell-roll pass.
+///
+/// `machineGun` is 772 `TMonster::IdleStimulus` CASTING (`crnonpl.cc:2587`): every idle
+/// rolls every spell, and several may fire. `round` is the later measured cadence: one
+/// pass per interval, interval chosen from flee / melee / chase / range. The pass still
+/// rolls every spell. There is no per-spell cooldown in either mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MonsterSpellCadence {
+    /// 772: a roll on every idle.
+    MachineGun,
+    /// One roll-pass per shared interval.
+    Round,
+}
+
+/// Cadence for monster spell rolls. The round lengths are fixed.
+///
+/// Adjacent 2000 ms, at range or with no path 1000 ms, fleeing 1000 ms, a melee
+/// monster still chasing 4000 ms. Those match the measured 7.7 round clock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MonsterSpellTuning {
+    pub cadence: MonsterSpellCadence,
+}
+
+impl MonsterSpellTuning {
+    const MELEE_MS: u32 = 2000;
+    const RANGED_MS: u32 = 1000;
+    const FLEE_MS: u32 = 1000;
+    const CHASE_MS: u32 = 4000;
+
+    /// 772 default: a roll on every idle.
+    pub const fn classic_772() -> Self {
+        Self {
+            cadence: MonsterSpellCadence::MachineGun,
+        }
+    }
+
+    /// Shared round length. `distance` is Chebyshev to the cast target; `None` is no target.
+    pub fn round_interval_ms(
+        self,
+        fleeing: bool,
+        distance: Option<i32>,
+        has_follow_path: bool,
+        target_distance: i32,
+    ) -> u32 {
+        if fleeing {
+            return Self::FLEE_MS;
+        }
+        match distance {
+            Some(d) if d <= 1 => Self::MELEE_MS,
+            Some(_) if !has_follow_path => Self::RANGED_MS,
+            Some(_) if target_distance <= 1 => Self::CHASE_MS,
+            _ => Self::RANGED_MS,
+        }
+    }
+}
+
 /// Era-tuned mechanics knobs (Tier-1). `Copy` — read freely on the game thread, no per-call cost.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MechanicsProfile {
@@ -475,6 +531,9 @@ pub struct MechanicsProfile {
     pub stamina_regen_seconds: u32,
     /// Real seconds in combat to spend 1 stamina minute. `0` disables drain.
     pub stamina_drain_seconds: u32,
+    /// Monster CASTING cadence. `machineGun` is 772 (every idle). `round` is the
+    /// shared distance clock measured on the 7.7 leak and live servers.
+    pub monster_spells: MonsterSpellTuning,
 }
 
 /// Fishing catch-success model (`data/scripts/actions/tools/fishing_rod.lua`).
@@ -681,6 +740,7 @@ impl MechanicsProfile {
                 stamina_max_minutes: if version.raw() == 800 { 56 * 60 } else { 0 },
                 stamina_regen_seconds: 180,
                 stamina_drain_seconds: 60,
+                monster_spells: MonsterSpellTuning::classic_772(),
             },
             1098 => Self {
                 beat_ms: 50,
@@ -758,6 +818,7 @@ impl MechanicsProfile {
                 stamina_max_minutes: 56 * 60,
                 stamina_regen_seconds: 180,
                 stamina_drain_seconds: 60,
+                monster_spells: MonsterSpellTuning::classic_772(),
             },
             other => unreachable!("unsupported protocol version {other}"),
         };
@@ -1366,6 +1427,14 @@ fn parse_profile(lua: &Lua, defaults: MechanicsProfile) -> MechanicsProfile {
             num_or(lua, &creatures, "itemRegenMana", p.item_regen_mana as i64) as i32;
     }
 
+    if let Ok(Value::Table(spells)) = formulas.get::<Value>("monsterSpells") {
+        p.monster_spells.cadence = match str_or(&spells, "cadence", "").as_str() {
+            "machineGun" | "machine_gun" => MonsterSpellCadence::MachineGun,
+            "round" => MonsterSpellCadence::Round,
+            _ => p.monster_spells.cadence,
+        };
+    }
+
     p.raid_wave_max_count = num_or(
         lua,
         &formulas,
@@ -1600,6 +1669,50 @@ mod tests {
         assert_eq!(hooks.weapon_damage(1, 2, 3, 4), Some(10));
         // Unregistered hook stays native (None).
         assert_eq!(hooks.spell_damage(1, 2, 3), None);
+    }
+
+    #[test]
+    fn monster_spell_cadence_defaults_to_machine_gun() {
+        let p = MechanicsProfile::for_version(ProtocolVersion::V772);
+        assert_eq!(p.monster_spells.cadence, MonsterSpellCadence::MachineGun);
+        assert_eq!(
+            p.monster_spells
+                .round_interval_ms(false, Some(1), true, 1),
+            2000
+        );
+    }
+
+    #[test]
+    fn monster_spell_round_interval_follows_distance() {
+        let t = MonsterSpellTuning::classic_772();
+        assert_eq!(t.round_interval_ms(true, Some(4), true, 4), 1000);
+        assert_eq!(t.round_interval_ms(false, Some(1), true, 1), 2000);
+        assert_eq!(t.round_interval_ms(false, Some(3), false, 4), 1000);
+        assert_eq!(t.round_interval_ms(false, Some(3), true, 1), 4000);
+        assert_eq!(t.round_interval_ms(false, Some(4), true, 4), 1000);
+        assert_eq!(t.round_interval_ms(false, None, true, 1), 1000);
+    }
+
+    #[test]
+    fn monster_spell_cadence_overlay() {
+        let lua = Lua::new();
+        lua.load(
+            r#"formulas = { monsterSpells = { cadence = "round" } }"#,
+        )
+        .exec()
+        .unwrap();
+        let p = parse_profile(&lua, MechanicsProfile::for_version(ProtocolVersion::V772));
+        assert_eq!(p.monster_spells.cadence, MonsterSpellCadence::Round);
+        assert_eq!(
+            p.monster_spells
+                .round_interval_ms(false, Some(1), true, 1),
+            2000
+        );
+        assert_eq!(
+            p.monster_spells
+                .round_interval_ms(false, Some(3), true, 1),
+            4000
+        );
     }
 
     #[test]

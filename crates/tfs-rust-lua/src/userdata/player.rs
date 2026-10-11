@@ -442,7 +442,7 @@ impl UserData for CreatureRef {
                 .map_err(mlua::Error::runtime)?;
             Ok(true)
         });
-        // Life fluid is hit points only. It does not clear paralyze.
+        // Life fluid is `Heal` (`magic.cc:4333`): hit points, paralyze clear, blue effect.
         methods.add_method("drinkLifeFluid", |_, this, ()| {
             crate::lua_mutation::call_lua_drink_fluid(this.0, true)
                 .map_err(mlua::Error::runtime)?;

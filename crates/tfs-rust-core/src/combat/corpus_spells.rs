@@ -1,12 +1,12 @@
 //! Corpus spell outcomes the data pack does not express on its own.
 //!
 //! - Healing spells clear paralyze — `THealingImpact::handleCreature` `magic.cc:202-205`,
-//!   spell `Heal` `magic.cc:2113-2115`. Life fluid does not: `DrinkPotion` shares that
-//!   helper (`magic.cc:4333`), and the clear there is a reconstruction of the spell impact.
+//!   spell `Heal` `magic.cc:2112-2117`. Life fluid calls that `Heal` (`magic.cc:4333`).
 //! - Berserk — `magic.cc:3557-3561`: one `ComputeDamage(80, 20)`, then `level * scaled / 25`.
 //!   Mana is `level * 4`.
-//! - Fluids — `DrinkPotion` `magic.cc:4327-4334`: mana `100 + random(-50, 50)`,
-//!   life `50 + random(-25, 25)` hit points only.
+//! - Fluids — `DrinkPotion` `magic.cc:4327-4334`: mana `100 + random(-50, 50)` via
+//!   `RefreshMana`, life `50 + random(-25, 25)` via `Heal`. Both `CheckMana(..., 1000)`
+//!   and `EFFECT_MAGIC_BLUE`.
 
 use crate::formulas::{FormulaHooks, MechanicsProfile};
 use crate::game_world::GameWorld;
@@ -18,8 +18,8 @@ use super::spell_damage;
 impl GameWorld {
     /// Drop paralyze after a healing spell lands on a living creature.
     ///
-    /// `health_before` is `SKILL_HITPOINTS` before the change (`magic.cc:198`).
-    /// Life fluid and `addHealth` must not call this.
+    /// `health_before` is `SKILL_HITPOINTS` before the change (`magic.cc:2107`).
+    /// `addHealth` must not call this. Life fluid does: `DrinkPotion` calls `Heal`.
     pub(crate) fn clear_paralyze_after_heal_spell(
         &mut self,
         target: CreatureId,
@@ -40,18 +40,38 @@ impl GameWorld {
         }
     }
 
-    /// `DrinkPotion` (`magic.cc:4327-4334`). One glibc roll. Life does not clear paralyze.
+    /// `DrinkPotion` (`magic.cc:4327-4334`). One glibc roll, then `Heal` or `RefreshMana`.
+    ///
+    /// Both call `CheckMana` with a 1000 ms delay (`magic.cc:2099`, `:2246`) and play
+    /// `EFFECT_MAGIC_BLUE` (13). `Heal` also clears paralyze when hit points were above 0.
     pub(crate) fn drink_potion(&mut self, creature_u64: u64, life: bool) -> Result<(), String> {
         let amount = if life {
             50 + self.parity_random(-25, 25)
         } else {
             100 + self.parity_random(-50, 50)
         };
+        let cid = self
+            .resolve_creature_u64(creature_u64)
+            .ok_or_else(|| "creature not found".to_string())?;
+        // Hardcoded 1000. `spell_exhaust_delay_ms(0)` is 2000 off PvP-enforced.
+        self.player_apply_spell_exhaust_ms(cid, 1000);
+        let (health_before, pos) = match self.creatures.get(cid) {
+            Some(kind) => (kind.base().health, kind.position()),
+            None => return Err("creature not found".into()),
+        };
         if life {
-            self.lua_script_player_add_health(creature_u64, amount)
+            if health_before > 0 {
+                self.clear_paralyze_after_heal_spell(cid, health_before);
+            }
+            self.lua_script_player_add_health(creature_u64, amount)?;
+            if health_before > 0 {
+                self.broadcast_magic_effect(pos, 13);
+            }
         } else {
-            self.lua_script_player_add_mana(creature_u64, amount)
+            self.lua_script_player_add_mana(creature_u64, amount)?;
+            self.broadcast_magic_effect(pos, 13);
         }
+        Ok(())
     }
 }
 
@@ -179,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn life_fluid_leaves_paralyze() {
+    fn life_fluid_clears_paralyze_and_sets_spell_exhaust() {
         let mut world = minimal_world();
         world.seed_parity_rng(3);
         let expected = 50 + {
@@ -189,15 +209,22 @@ mod tests {
             probe.parity_random(-25, 25)
         };
         let (cid, ffi) = place_player(&mut world, "Drinker");
+        let now = world.now_ms();
         world.drink_potion(ffi, true).expect("life");
         let kind = world.creatures.get(cid).unwrap();
         assert_eq!(kind.base().health, 80 + expected);
         assert!(
-            kind.base()
+            !kind
+                .base()
                 .active_conditions
                 .iter()
                 .any(|c| c.ctype == ConditionType::Paralyze),
-            "life fluid does not clear paralyze"
+            "life fluid goes through Heal and clears paralyze"
+        );
+        assert_eq!(
+            kind.base().earliest_spell_server_ms,
+            now.saturating_add(1000),
+            "CheckMana delay is 1000 ms"
         );
     }
 
@@ -209,13 +236,15 @@ mod tests {
         probe.seed_parity_rng(9);
         let expected = 100 + probe.parity_random(-50, 50);
         let (cid, ffi) = place_player(&mut world, "Mage");
+        let now = world.now_ms();
         world.drink_potion(ffi, false).expect("mana");
-        let mana = match world.creatures.get(cid).unwrap() {
-            crate::creature::CreatureKind::Player(p) => p.mana,
+        let (mana, earliest) = match world.creatures.get(cid).unwrap() {
+            crate::creature::CreatureKind::Player(p) => (p.mana, p.base.earliest_spell_server_ms),
             _ => panic!("player"),
         };
         assert_eq!(mana, expected);
         assert!((50..=150).contains(&mana));
+        assert_eq!(earliest, now.saturating_add(1000));
     }
 
     #[test]

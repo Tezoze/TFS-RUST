@@ -227,6 +227,49 @@ impl GameWorld {
         }
     }
 
+    /// Whether this idle may roll spells.
+    ///
+    /// `machineGun` always allows the 772 CASTING loop. `round` allows one pass, then
+    /// stamps `spell_round_ready_ms` before any delay roll, so a miss still waits.
+    pub(crate) fn monster_spell_round_allows_cast(&mut self, cid: CreatureId) -> bool {
+        use crate::formulas::MonsterSpellCadence;
+
+        let tuning = self.mechanics.profile.monster_spells;
+        if tuning.cadence == MonsterSpellCadence::MachineGun {
+            return true;
+        }
+        let now = self.server_ms();
+        let Some((ready, fleeing, pos, follow, has_path, keep)) =
+            self.creatures.get(cid).and_then(|k| match k {
+                CreatureKind::Monster(m) => Some((
+                    m.spell_round_ready_ms,
+                    m.is_fleeing(),
+                    m.base.position,
+                    m.base.follow_target,
+                    m.base.has_follow_path,
+                    m.target_distance,
+                )),
+                _ => None,
+            })
+        else {
+            return false;
+        };
+        if now < ready {
+            return false;
+        }
+        let distance = follow.and_then(|tid| {
+            self.creatures
+                .get(tid)
+                .map(|k| chebyshev(pos, k.position()))
+        });
+        let keep = self.monster_effective_target_distance(keep);
+        let interval = tuning.round_interval_ms(fleeing, distance, has_path, keep);
+        if let Some(CreatureKind::Monster(m)) = self.creatures.get_mut(cid) {
+            m.spell_round_ready_ms = now.saturating_add(u64::from(interval));
+        }
+        true
+    }
+
     /// 772 idle distance-fighting branch — `DistanceFighting && ThrowPossible` (`crnonpl.cc:2795-2834`).
     pub(crate) fn monster_idle_uses_dist_branch(
         &self,
