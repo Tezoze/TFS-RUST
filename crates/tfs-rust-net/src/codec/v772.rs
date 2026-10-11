@@ -222,7 +222,7 @@ impl Codec772 {
     ///
     /// `server_beat` is the beat duration in ms advertised to the client. The profile fixes it at
     /// 50 ms so the client walk clock matches the game-loop beat (`game_loop.rs` uses the same `beat_ms`).
-    /// The gamemaster `0x0B` tail is 8.0-only and is not written here.
+    /// Gamemaster opcode `0x0B` is a later packet (`encode_rights`), not bytes on this one.
     pub fn encode_self_appear_login(
         &self,
         player_id: u32,
@@ -237,6 +237,11 @@ impl Codec772 {
         m.write_u16(server_beat);
         m.write_u8(u8::from(can_report_bugs));
         m
+    }
+
+    /// `SendRights` (`sending.cc`). Separate from `0x0A`. Empty when no action bit is set.
+    pub fn encode_rights(&self, rights: super::rights::BanishmentRights) -> NetworkMessage {
+        super::rights::encode_rights(rights)
     }
 
     /// 7.72 `sendAddTileItem` opcode `0x6A` (~L1591).
@@ -529,17 +534,16 @@ impl Codec772 {
         m
     }
 
-    /// 7.72 `ProtocolGame::sendToChannel` — opcode `0xAA` (`gameserver/src/protocolgame.cpp:1442`):
-    /// `u32 statementId + name + u8 speakType + u16 channelId + text`. **No `level` field** (10.98
-    /// adds it after the name; writing it desyncs the 772 client's message-mode byte read).
-    /// Anonymous (`speaker_name = None`) writes `u32 0` in place of the name.
+    /// Channel `SendTalk` (`sending.cc`): statement, name, mode, `u16` channel, text.
+    /// `TALK_ANONYMOUS_CHANNELCALL` (`speaker_name = None`) is `SendString("")` — a `u16` length
+    /// of 0, not a `u32` 0. 800 and 1098 still write `u32 0` in that slot.
     pub fn encode_to_channel(&self, statement_id: u32, w: &ToChannelWire) -> NetworkMessage {
         let mut m = NetworkMessage::new();
         m.write_u8(0xAA);
         m.write_u32(statement_id);
         match &w.speaker_name {
             Some(name) => m.write_string(name),
-            None => m.write_u32(0),
+            None => m.write_string(""),
         }
         m.write_u8(w.speak_type);
         m.write_u16(w.channel_id);
@@ -547,21 +551,21 @@ impl Codec772 {
         m
     }
 
-    /// 7.72 `ProtocolGame::sendPrivateMessage` — opcode `0xAA`
-    /// (`gameserver/src/protocolgame.cpp:1465`): `u32 statementId + name + u8 speakType + text`.
-    /// **No `level` field** (10.98 adds it). Anonymous (`speaker_name = None`) writes `u32 0`.
+    /// Private `SendTalk` (`sending.cc`). A null sender returns before `BeginSendData`, so
+    /// `speaker_name = None` is an empty message and is not queued. A present name is
+    /// statement, string, mode, text.
     pub fn encode_private_message(
         &self,
         statement_id: u32,
         w: &PrivateMessageWire,
     ) -> NetworkMessage {
+        let Some(name) = &w.speaker_name else {
+            return NetworkMessage::new();
+        };
         let mut m = NetworkMessage::new();
         m.write_u8(0xAA);
         m.write_u32(statement_id);
-        match &w.speaker_name {
-            Some(name) => m.write_string(name),
-            None => m.write_u32(0),
-        }
+        m.write_string(name);
         m.write_u8(w.speak_type);
         m.write_string(&w.text);
         m

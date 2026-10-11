@@ -2,7 +2,7 @@
 //!
 //! - `Creature::getStepSpeed` / `getStepDuration` / `getWalkDelay` / `getEventStepTicks` — `creature.cpp` (~1485–1547).
 //! - `Player::getStepSpeed` clamp — `player.h` `PLAYER_MIN_SPEED` / `PLAYER_MAX_SPEED`.
-//! - 772 `NotifyGo` — `cract.cc:1454–1462`.
+//! - 772 `NotifyGo` — `cract.cc:1472`, `:1584–1595` (same-floor diagonal `Waypoints *= 3`).
 
 use std::time::Instant;
 
@@ -193,16 +193,26 @@ fn ceil_to_walk_quantizer(raw_ms: i64, quantizer_ms: i64) -> i64 {
     ((raw_ms + quantizer_ms - 1) / quantizer_ms) * quantizer_ms
 }
 
-/// Waypoint multiplier for the step the server waits.
+/// Same-floor diagonal waypoint multiplier (`cract.cc:1472`, `:1586–1587`).
 ///
-/// 7.72 (`Tibia.exe` `0x44bd22`) and 8.0 (`0x450fe8`) store the ceiled straight-step
-/// duration at creature+0x48 and the cycle end at +0x38. A diagonal writes
-/// `(groundSpeed * 3000) / speed` only to +0x3c. The frame picker (`0x44c20a` /
-/// `0x45150f`) returns the standing frame once both pixel offsets are 0 and `now`
-/// is past +0x38. Waiting the `cract.cc:1526-1528` ×3 leaves the creature standing
-/// until the next step, so every direction uses one waypoint here.
-fn waypoint_step_cost_for_direction(_dir: Direction) -> u32 {
-    1
+/// `NotifyGo` sets `DiagonalMove` when both axes change and Z does not, then
+/// `Waypoints *= 3` before `(Waypoints * 1000) / GetSpeed()`. A floor change is
+/// not diagonal. The client frame end is a separate timer and does not shorten
+/// `EarliestWalkTime`.
+fn waypoint_step_cost_for_direction(dir: Direction) -> u32 {
+    match dir {
+        Direction::NorthEast
+        | Direction::NorthWest
+        | Direction::SouthEast
+        | Direction::SouthWest => 3,
+        _ => 1,
+    }
+}
+
+/// `last_step_cost` 3 is a same-floor diagonal. Cost 2 is a floor change and stays ×1
+/// so a stair does not double the cooldown.
+fn completed_waypoint_cost(last_step_cost: u32) -> u32 {
+    if last_step_cost == 3 { 3 } else { 1 }
 }
 
 /// Next queued step without popping — `walk_queue` is LIFO at the back (`creature.cpp` `listWalkDir`).
@@ -215,7 +225,7 @@ fn uses_corpus_step_clock(kind: &CreatureKind) -> bool {
 }
 
 /// Monster/NPC `NotifyGo` on every client version — `(Waypoints * 1000) / (2×Go+80)`,
-/// ceil to `Beat` (`crmain.cc:484`, `cract.cc:1526-1535`). Ignores `player_speed_model`
+/// ceil to `Beat` (`crmain.cc:484`, `cract.cc:1586-1595`). Ignores `player_speed_model`
 /// and `step_speed`. Players stay on the profile arm.
 fn corpus_monster_step_ms(
     kind: &CreatureKind,
@@ -238,8 +248,8 @@ fn corpus_monster_step_ms(
     ceil_to_walk_quantizer(delay, mech.profile.beat_ms.max(1) as i64)
 }
 
-/// 772 `NotifyGo` — `(Waypoints * 1000) / GetSpeed()`, ceil to `Beat` (`cract.cc:1461–1534`).
-/// `waypoint_cost` is 1 for every direction: the client walk cycle is the straight step.
+/// 772 `NotifyGo` — `(Waypoints * 1000) / GetSpeed()`, ceil to `Beat` (`cract.cc:1592–1595`).
+/// `waypoint_cost` is 3 for a same-floor diagonal (`Waypoints *= 3`).
 fn linear_go_step_duration_ms(
     kind: &CreatureKind,
     base: &crate::creature::CreatureBase,
@@ -261,6 +271,30 @@ fn linear_go_step_duration_ms(
     ceil_to_walk_quantizer(delay, walk_quantizer_ms(mech))
 }
 
+/// 1098 log-speed step. Waypoints are scaled before the formula, same order as
+/// `NotifyGo` (`Waypoints *= 3`, then the duration, then the beat ceil).
+fn tfs_log_step_duration_ms(
+    kind: &CreatureKind,
+    base: &crate::creature::CreatureBase,
+    ground_speed: u32,
+    waypoint_cost: u32,
+    mech: &crate::formulas::Mechanics,
+) -> i64 {
+    if base.health <= 0 {
+        return 0;
+    }
+    let go = step_speed_for_walk(kind, base, mech);
+    let gs = if ground_speed == 0 { 150 } else { ground_speed };
+    let waypoints = gs.saturating_mul(waypoint_cost.max(1));
+    if let Some(ms) = mech.hooks.step_duration(go, gs as i32, waypoint_cost > 1) {
+        return ms.max(1);
+    }
+    let calculated_step_speed = calculated_step_speed_tfs(go);
+    let duration = (1000.0 * waypoints as f64 / calculated_step_speed as f64).floor();
+    let beat_f = walk_quantizer_ms(mech) as f64;
+    ((duration / beat_f).ceil() * beat_f) as i64
+}
+
 pub(crate) fn get_step_duration(
     kind: &CreatureKind,
     base: &crate::creature::CreatureBase,
@@ -277,7 +311,7 @@ pub(crate) fn get_step_duration(
     let gs = if ground_speed == 0 { 150 } else { ground_speed };
 
     // Tier-2 override (`getStepDuration(speed, ground)`) — one tile, already ceiled.
-    // Native fast path when unset. Diagonal and floor-change waits are also one waypoint.
+    // Directional waits go through `get_step_duration_ms_with_waypoint_cost`.
     if let Some(ms) = mech.hooks.step_duration(go, gs as i32, false) {
         return ms.max(1);
     }
@@ -287,38 +321,37 @@ pub(crate) fn get_step_duration(
             linear_go_step_duration_ms(kind, base, ground_speed, 1, mech)
         }
         crate::formulas::StepSpeedModel::TfsLog => {
-            let calculated_step_speed = calculated_step_speed_tfs(go);
-            let duration = (1000.0 * gs as f64 / calculated_step_speed as f64).floor();
-            let beat_f = walk_quantizer_ms(mech) as f64;
-            ((duration / beat_f).ceil() * beat_f) as i64
+            tfs_log_step_duration_ms(kind, base, ground_speed, 1, mech)
         }
     }
 }
 
-/// Duration of the step that just completed — era-specific cost application.
+/// Duration of the step that just completed.
+///
+/// Cost 3 is a same-floor diagonal. Cost 2 is a floor change and stays ×1 — multiplying
+/// `last_step_cost` itself doubled the post-stair cooldown.
 fn completed_step_duration_ms(
     kind: &CreatureKind,
     base: &crate::creature::CreatureBase,
     ground_speed: u32,
     mech: &crate::formulas::Mechanics,
 ) -> i64 {
+    let cost = completed_waypoint_cost(base.last_step_cost);
     if uses_corpus_step_clock(kind) {
-        // Walk cycle is one waypoint on every direction, including 1098 players.
-        return corpus_monster_step_ms(kind, base, ground_speed, 1, mech);
+        return corpus_monster_step_ms(kind, base, ground_speed, cost, mech);
     }
     match mech.profile.step_speed {
         crate::formulas::StepSpeedModel::LinearGo => {
-            // Same cycle as the upcoming step. A floor change (`last_step_cost` 2) must
-            // stay ×1 — the old `last_step_cost.max(1)` doubled the post-stair cooldown.
-            linear_go_step_duration_ms(kind, base, ground_speed, 1, mech)
+            linear_go_step_duration_ms(kind, base, ground_speed, cost, mech)
         }
         crate::formulas::StepSpeedModel::TfsLog => {
-            get_step_duration(kind, base, ground_speed, mech)
+            tfs_log_step_duration_ms(kind, base, ground_speed, cost, mech)
         }
     }
 }
 
-/// Duration until the next queued step may fire — uses upcoming direction on CipSoft.
+/// Duration until the next queued step may fire. A diagonal direction waits ×3.
+/// No queued direction is one waypoint (`get_step_duration`).
 fn upcoming_step_duration_ms(
     kind: &CreatureKind,
     base: &crate::creature::CreatureBase,
@@ -326,26 +359,39 @@ fn upcoming_step_duration_ms(
     next_direction: Option<Direction>,
     mech: &crate::formulas::Mechanics,
 ) -> i64 {
+    match next_direction {
+        Some(dir) => get_step_duration_ms_with_direction(kind, base, dir, ground_speed, mech),
+        None => get_step_duration(kind, base, ground_speed, mech),
+    }
+}
+
+/// `NotifyGo` delay for an already-known waypoint multiplier.
+///
+/// Pass 3 only for a same-floor diagonal (`cract.cc:1472`). A floor change is 1
+/// even when the queued direction is diagonal, because `DiagonalMove` requires
+/// `DestZ == OrigZ`.
+pub(crate) fn get_step_duration_ms_with_waypoint_cost(
+    kind: &CreatureKind,
+    base: &crate::creature::CreatureBase,
+    waypoint_cost: u32,
+    ground_speed: u32,
+    mech: &crate::formulas::Mechanics,
+) -> i64 {
     if uses_corpus_step_clock(kind) {
-        let cost = next_direction
-            .map(waypoint_step_cost_for_direction)
-            .unwrap_or(1);
-        return corpus_monster_step_ms(kind, base, ground_speed, cost, mech);
+        return corpus_monster_step_ms(kind, base, ground_speed, waypoint_cost, mech);
     }
     match mech.profile.step_speed {
         crate::formulas::StepSpeedModel::LinearGo => {
-            let cost = next_direction
-                .map(waypoint_step_cost_for_direction)
-                .unwrap_or(1);
-            linear_go_step_duration_ms(kind, base, ground_speed, cost, mech)
+            linear_go_step_duration_ms(kind, base, ground_speed, waypoint_cost, mech)
         }
         crate::formulas::StepSpeedModel::TfsLog => {
-            get_step_duration(kind, base, ground_speed, mech)
+            tfs_log_step_duration_ms(kind, base, ground_speed, waypoint_cost, mech)
         }
     }
 }
 
-/// Step duration for `next_action_until`. Every era waits one waypoint.
+/// Step duration from a facing. Same-floor callers can use the direction.
+/// Floor changes must use [`get_step_duration_ms_with_waypoint_cost`] with cost 1.
 pub(crate) fn get_step_duration_ms_with_direction(
     kind: &CreatureKind,
     base: &crate::creature::CreatureBase,
@@ -353,27 +399,21 @@ pub(crate) fn get_step_duration_ms_with_direction(
     ground_speed: u32,
     mech: &crate::formulas::Mechanics,
 ) -> i64 {
-    if uses_corpus_step_clock(kind) {
-        return corpus_monster_step_ms(
-            kind,
-            base,
-            ground_speed,
-            waypoint_step_cost_for_direction(direction),
-            mech,
-        );
-    }
-    match mech.profile.step_speed {
-        crate::formulas::StepSpeedModel::LinearGo => linear_go_step_duration_ms(
-            kind,
-            base,
-            ground_speed,
-            waypoint_step_cost_for_direction(direction),
-            mech,
-        ),
-        crate::formulas::StepSpeedModel::TfsLog => {
-            get_step_duration(kind, base, ground_speed, mech)
-        }
-    }
+    get_step_duration_ms_with_waypoint_cost(
+        kind,
+        base,
+        waypoint_step_cost_for_direction(direction),
+        ground_speed,
+        mech,
+    )
+}
+
+/// `NotifyGo` multiplier from the move that just landed (`cract.cc:1472`).
+pub(crate) fn notify_go_waypoint_cost(
+    old_pos: tfs_rust_common::Position,
+    new_pos: tfs_rust_common::Position,
+) -> u32 {
+    completed_waypoint_cost(last_step_cost_for_move(old_pos, new_pos))
 }
 
 /// TFS `Creature::onCreatureMove` — `lastStepCost` (`creature.cpp` ~489–499).

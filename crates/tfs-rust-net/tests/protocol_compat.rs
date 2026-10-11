@@ -1006,6 +1006,76 @@ mod v772 {
         assert_eq!(b, vec![0x0A, 0x44, 0x33, 0x22, 0x11, 0xC8, 0x00, 0x00]);
     }
 
+    /// Channel `SendTalk`: anonymous is `SendString("")` (`u16` 0), then mode and `u16` channel.
+    #[test]
+    fn to_channel_anonymous_is_empty_string() {
+        use tfs_rust_net::codec::wire::ToChannelWire;
+        let b = codec()
+            .encode_to_channel(
+                0,
+                &ToChannelWire {
+                    speaker_name: None,
+                    level: 0,
+                    speak_type: 7,
+                    channel_id: 3,
+                    text: "hi".into(),
+                },
+            )
+            .into_bytes();
+        assert_eq!(b, vec![0xAA, 0, 0, 0, 0, 0, 0, 7, 3, 0, 2, 0, b'h', b'i']);
+    }
+
+    /// Private `SendTalk` drops a null sender and always writes a name string otherwise.
+    #[test]
+    fn private_message_null_sender_is_dropped() {
+        use tfs_rust_net::codec::wire::PrivateMessageWire;
+        let dropped = codec()
+            .encode_private_message(
+                1,
+                &PrivateMessageWire {
+                    speaker_name: None,
+                    level: 0,
+                    speak_type: 4,
+                    text: "x".into(),
+                },
+            )
+            .into_bytes();
+        assert!(dropped.is_empty());
+
+        let named = codec()
+            .encode_private_message(
+                1,
+                &PrivateMessageWire {
+                    speaker_name: Some("A".into()),
+                    level: 9,
+                    speak_type: 4,
+                    text: "x".into(),
+                },
+            )
+            .into_bytes();
+        assert_eq!(named, vec![0xAA, 1, 0, 0, 0, 1, 0, b'A', 4, 1, 0, b'x']);
+    }
+
+    /// `SendRights`: no bits means no packet. An access group is opcode 11 and 32 computed bytes.
+    #[test]
+    fn rights_packet_follows_banishment_bits() {
+        use tfs_rust_net::codec::{BanishmentRights, Codec772};
+        assert!(
+            Codec772
+                .encode_rights(BanishmentRights::default())
+                .into_bytes()
+                .is_empty()
+        );
+        let bytes = Codec772
+            .encode_rights(BanishmentRights::access_group())
+            .into_bytes();
+        assert_eq!(bytes.len(), 33);
+        assert_eq!(bytes[0], 0x0B);
+        assert!(bytes[1..10].iter().all(|byte| *byte == 0xAB));
+        assert_eq!(bytes[29], 0x95);
+        assert_eq!(bytes[30], 0xD5);
+    }
+
     /// `sendAddContainerItem` (`0x70`): cid + item — no slot index (10.x adds `u16`).
     #[test]
     fn add_container_item_772_no_slot_index() {

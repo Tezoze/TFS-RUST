@@ -2,11 +2,13 @@
 //!
 //! C++ reference: 10.98 `src/protocolgame.cpp`; 7.72 `gameserver/src/protocolgame.cpp` (Phase A5).
 
+mod rights;
 mod v1098;
 mod v772;
 mod v800;
 pub mod wire;
 
+pub use rights::BanishmentRights;
 pub use v772::Codec772;
 pub use v800::{Codec800, client_color_to_fluid_800, liquid_color_800};
 pub use v1098::Codec1098;

@@ -669,7 +669,7 @@ fn enqueue_initial_login_packets_classic(
     conn_id: ConnId,
     creature_id: CreatureId,
 ) {
-    let (pid, pos, equipment_slots, vip_list, with_desc_inv, is_otclient, account_type) = {
+    let (pid, pos, equipment_slots, vip_list, with_desc_inv, is_otclient, account_type, group_id) = {
         let Some(CreatureKind::Player(p)) = world.creatures.get(creature_id) else {
             return;
         };
@@ -683,6 +683,7 @@ fn enqueue_initial_login_packets_classic(
             p.item_with_description(),
             is_otclient,
             p.account_type,
+            p.group_id,
         )
     };
 
@@ -696,7 +697,8 @@ fn enqueue_initial_login_packets_classic(
     // Beat advertised to the client is `MechanicsProfile::beat_ms` (50 ms), the same clock the game loop ticks.
     let server_beat = world.mechanics.profile.beat_ms.min(u16::MAX as u32) as u16;
     // `ACCOUNT_TYPE_TUTOR` = 2, `ACCOUNT_TYPE_GAMEMASTER` = 4 (`800src/enums.h`).
-    // The gamemaster tail is 8.0 only; 772 keeps the report byte and stops there.
+    // 800 appends `0x0B` and 32 `0xFF` bytes on this message. 772 sends opcode 11
+    // as the next packet, and only when a banishment bit is set.
     let can_report_bugs = account_type >= 2;
     let gamemaster_client = account_type >= 4 && world.codec.version().raw() >= 800;
     world.enqueue_encoded(
@@ -705,6 +707,19 @@ fn enqueue_initial_login_packets_classic(
             .codec
             .encode_self_appear_login(pid, server_beat, can_report_bugs, gamemaster_client),
     );
+    if world.codec.version().raw() == 772 {
+        let access = world
+            .groups
+            .groups
+            .get(&group_id)
+            .is_some_and(|group| group.access);
+        let rights = if access {
+            tfs_rust_net::codec::BanishmentRights::access_group()
+        } else {
+            tfs_rust_net::codec::BanishmentRights::default()
+        };
+        world.enqueue_encoded(conn_id, tfs_rust_net::codec::Codec772.encode_rights(rights));
+    }
 
     let mut known = world.take_known_creatures_for_send(conn_id);
     world.reconcile_known_creatures_for_send(conn_id, &mut known);

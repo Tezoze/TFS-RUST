@@ -1,6 +1,6 @@
 //! Login waiting list when `maxPlayers` is set.
-//! C++ reference: `800src/waitlist.cpp` `WaitingList::clientLogin` /
-//! `WaitingList::getTime`; `800src/protocolgame.cpp` opcode `0x16`.
+//! Corpus: `communication.cc` `SendLoginMessage` opcode `SV_CMD_LOGIN_WAITINGLIST` (22).
+//! Queue timing follows `800src/waitlist.cpp` `WaitingList::clientLogin` / `getTime`.
 
 use tfs_rust_db::LoadedPlayerData;
 use tfs_rust_net::NetworkMessage;
@@ -140,7 +140,7 @@ impl WaitingList {
     }
 }
 
-/// `0x16` + message + retry byte. Sent only for client versions that read it.
+/// `0x16` + message + retry byte. 772 and 800 read it. 1098 does not.
 pub fn encode_waiting_list(slot: u32, retry_seconds: u8) -> Vec<u8> {
     let text = format!("Too many players online.\nYou are at place {slot} on the waiting list.");
     let mut msg = NetworkMessage::new();
@@ -185,13 +185,17 @@ pub(crate) fn deny_login(
             retry_seconds,
         } => {
             let version = world.codec.version().raw();
-            let notice = if (790..1098).contains(&version) {
-                Some(encode_waiting_list(slot, retry_seconds))
-            } else {
-                None
-            };
-            Some(notice)
+            Some(waiting_list_packet(version, slot, retry_seconds))
         }
+    }
+}
+
+/// Opcode 22 on 772 and 800. 1098 stays off this packet.
+pub(crate) fn waiting_list_packet(version: u16, slot: u32, retry_seconds: u8) -> Option<Vec<u8>> {
+    if (772..1098).contains(&version) {
+        Some(encode_waiting_list(slot, retry_seconds))
+    } else {
+        None
     }
 }
 
@@ -303,5 +307,12 @@ mod tests {
         let bytes = encode_waiting_list(3, 5);
         assert_eq!(bytes[0], 0x16);
         assert_eq!(*bytes.last().unwrap(), 5);
+    }
+
+    #[test]
+    fn waiting_packet_is_sent_on_772_and_800() {
+        assert!(waiting_list_packet(772, 1, 5).is_some());
+        assert!(waiting_list_packet(800, 1, 5).is_some());
+        assert!(waiting_list_packet(1098, 1, 5).is_none());
     }
 }

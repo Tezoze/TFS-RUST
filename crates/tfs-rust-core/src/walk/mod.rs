@@ -14,9 +14,9 @@
 //! **Timing:** `get_walk_delay` uses `last_step_ground_speed` (**destination** tile of the completed step,
 //! OTCv8 / TFS `getWalkDelay`). When `walk_delay <= 0`, `get_event_step_ticks` uses the **current** tile for
 //! the *next* step. Wall `Instant::now()` samples (C++ `OTSYS_TIME()`).
-//! 772/800: the step the server waits is the client walk cycle (ceiled straight step).
-//! Diagonal ×3 lives only on the client's second timer and is not the frame end.
-//! 1098 players use the same one-waypoint wait after the log-speed ceil.
+//! `NotifyGo` (`cract.cc:1472`, `:1586–1595`) multiplies destination waypoints by 3 on a same-floor
+//! diagonal, then ceils `(Waypoints * 1000) / GetSpeed()` to the beat. A floor change stays ×1.
+//! 1098 players use the log-speed formula with that same waypoint scale.
 //! `next_walk_check` stores the **logical** deadline. Initial arms from a new move use `walk_sched_base`;
 //! reschedules after a step match C++ `addEventWalk` by anchoring to `Instant::now()` at reschedule time
 //! (`tasks/walk-audit.md` Issue 3).
@@ -291,7 +291,12 @@ use walk_tile::{
     query_destination, tile_query_add_monster, tile_query_add_npc, tile_query_add_player,
     try_player_elevation_climb,
 };
-pub(crate) use walk_timing::{WalkSpeedRole, get_step_duration_ms_with_direction, wire_step_speed};
+#[cfg(test)]
+pub(crate) use walk_timing::get_step_duration_ms_with_direction;
+pub(crate) use walk_timing::{
+    WalkSpeedRole, get_step_duration_ms_with_waypoint_cost, notify_go_waypoint_cost,
+    wire_step_speed,
+};
 use walk_timing::{
     get_event_step_ticks, last_step_cost_for_move, peek_next_walk_direction, walk_timing_speed_kind,
 };
@@ -1271,7 +1276,7 @@ impl GameWorld {
         cid: CreatureId,
         old_pos: Position,
         new_pos: Position,
-        step_dir: Direction,
+        _step_dir: Direction,
         apply_notify_turn: bool,
     ) {
         // `NotifyTurn` — state only; C++ does not broadcast `0x6B` here (`cract.cc:1566–1581`).
@@ -1284,11 +1289,20 @@ impl GameWorld {
             .get_tile(new_pos)
             .map(|t| ground_speed_for_tile_body(t.body(), self.items_db.as_ref()))
             .unwrap_or(150);
+        // `DiagonalMove` needs both axes and the same Z (`cract.cc:1472`). The queued
+        // direction ignores Z, so a diagonal stair must not wait ×3.
+        let waypoint_cost = notify_go_waypoint_cost(old_pos, new_pos);
         let notify_go_ms = self
             .creatures
             .get(cid)
             .map(|k| {
-                get_step_duration_ms_with_direction(k, k.base(), step_dir, gs_dest, &self.mechanics)
+                get_step_duration_ms_with_waypoint_cost(
+                    k,
+                    k.base(),
+                    waypoint_cost,
+                    gs_dest,
+                    &self.mechanics,
+                )
             })
             .unwrap_or(0);
         if let Some(k) = self.creatures.get_mut(cid) {
@@ -2113,10 +2127,10 @@ impl GameWorld {
                                         base,
                                         &self.mechanics,
                                     );
-                                    let ms = get_step_duration_ms_with_direction(
+                                    let ms = get_step_duration_ms_with_waypoint_cost(
                                         k,
                                         base,
-                                        dir,
+                                        notify_go_waypoint_cost(old_pos, new_pos),
                                         gs_dest,
                                         &self.mechanics,
                                     );
@@ -2883,6 +2897,7 @@ mod step_speed_tests {
             150,
             &mech1098,
         );
+        assert_eq!(diag772, 2750);
         assert_eq!(diag1098, diag772);
         let player = CreatureKind::Player(test_player("Walker", Position::new(100, 100, 7)));
         let player_ms = get_step_duration(&player, &base, 150, &mech1098);
@@ -2949,9 +2964,11 @@ mod step_speed_tests {
         assert_eq!(get_step_duration(&kind, &base, 150, &mech) % 50, 0);
     }
 
-    /// Diagonal step wait matches the client walk cycle (straight step), not `cract.cc` ×3.
+    /// Same-floor diagonal waits `Waypoints * 3` before the beat ceil (`cract.cc:1586–1595`).
+    /// Wolf Go 42, ground 150: cardinal `(150*1000)/164 = 914` → 950; diagonal
+    /// `(450*1000)/164 = 2743` → 2750.
     #[test]
-    fn linear_go_diagonal_step_duration_matches_walk_cycle() {
+    fn linear_go_diagonal_step_duration_is_three_waypoints() {
         use tfs_rust_common::enums::Direction;
         let p = test_player("Wolf", Position::new(100, 100, 7));
         let mut base = p.base.clone();
@@ -2964,7 +2981,7 @@ mod step_speed_tests {
         let diagonal =
             get_step_duration_ms_with_direction(&kind, &base, Direction::NorthEast, 150, &mech);
         assert_eq!(cardinal, 950);
-        assert_eq!(diagonal, cardinal);
+        assert_eq!(diagonal, 2750);
     }
 
     /// 1098 — TFS log curve; durations quantize to 50 ms beat.
@@ -3004,10 +3021,11 @@ mod step_speed_tests {
         assert_eq!(get_step_duration(&kind, &p.base, 150, &mech), 1234);
     }
 
-    /// Completed-step wait matches the client walk cycle for cardinal, diagonal, and floor change.
-    /// Floor change stays ×1 (`last_step_cost` 2 must not double the cooldown).
+    /// Completed-step wait: same-floor diagonal is ×3, floor change stays ×1.
+    /// Player Go 220 → speed 520. Cardinal `(150*1000)/520 = 288` → 300.
+    /// Diagonal `(450*1000)/520 = 865` → 900. Cost 2 must not double the stair cooldown.
     #[test]
-    fn linear_go_completed_step_zchange_uses_one_waypoint_cost() {
+    fn linear_go_completed_step_diagonal_is_three_waypoints() {
         use super::walk_timing::get_walk_delay_logical;
         let p = test_player("Walker", Position::new(100, 100, 7));
         let mut base = p.base.clone();
@@ -3030,15 +3048,26 @@ mod step_speed_tests {
         base_zchange.last_step_cost = 2;
         let delay_zchange = get_walk_delay_logical(&kind, &base_zchange, 0, &mech);
 
-        // 150×1000/520 = 288 → ceil 50 = 300 ms. Diagonal and floor change use the same cycle.
         assert_eq!(delay_cardinal, 300, "cardinal completed step = 300 ms");
-        assert_eq!(delay_diagonal, delay_cardinal);
-        assert_eq!(delay_zchange, delay_cardinal);
+        assert_eq!(delay_diagonal, 900, "same-floor diagonal = 900 ms");
+        assert_eq!(delay_zchange, 300, "floor change stays one waypoint");
+
+        // A diagonal stair changes both axes and Z. `DiagonalMove` is false.
+        use super::walk_timing::notify_go_waypoint_cost;
+        assert_eq!(
+            notify_go_waypoint_cost(Position::new(100, 100, 7), Position::new(101, 101, 7)),
+            3
+        );
+        assert_eq!(
+            notify_go_waypoint_cost(Position::new(100, 100, 7), Position::new(101, 101, 6)),
+            1
+        );
     }
 
-    /// 1098 players wait the ceiled straight step on a diagonal and after a floor change.
+    /// 1098 log arm scales waypoints before the ceil. Speed 220, ground 150:
+    /// cardinal 539 → 550; diagonal 1618 → 1650. Floor change stays 550.
     #[test]
-    fn tfs_log_player_diagonal_uses_one_waypoint() {
+    fn tfs_log_player_diagonal_is_three_waypoints() {
         use super::walk_timing::get_walk_delay_logical;
         let p = test_player("Walker", Position::new(100, 100, 7));
         let mut base = p.base.clone();
@@ -3053,10 +3082,8 @@ mod step_speed_tests {
             get_step_duration_ms_with_direction(&kind, &base, Direction::East, 150, &mech);
         let diagonal =
             get_step_duration_ms_with_direction(&kind, &base, Direction::NorthEast, 150, &mech);
-        assert_eq!(
-            diagonal, cardinal,
-            "1098 diagonal wait is the straight step"
-        );
+        assert_eq!(cardinal, 550);
+        assert_eq!(diagonal, 1650);
 
         let mut base_cardinal = base.clone();
         base_cardinal.last_step_cost = 1;
@@ -3064,7 +3091,12 @@ mod step_speed_tests {
         let mut base_diagonal = base.clone();
         base_diagonal.last_step_cost = 3;
         let delay_diagonal = get_walk_delay_logical(&kind, &base_diagonal, 0, &mech);
-        assert_eq!(delay_diagonal, delay_cardinal);
+        let mut base_zchange = base.clone();
+        base_zchange.last_step_cost = 2;
+        let delay_zchange = get_walk_delay_logical(&kind, &base_zchange, 0, &mech);
+        assert_eq!(delay_cardinal, 550);
+        assert_eq!(delay_diagonal, 1650);
+        assert_eq!(delay_zchange, 550);
     }
 
     /// Phase 3 reachability guard (`docs/772_FLOOR_CHANGE_DESYNC.md` §16.3):

@@ -162,7 +162,8 @@ pub struct CreatureSayWire {
 /// 1098 (`src/protocolgame.cpp` ~1730): `u32 stmt + name + u16 level + u8 speak_type + u16 channelId + text`.
 /// 772 (`gameserver/src/protocolgame.cpp:1442`): `u32 stmt + name + u8 speak_type + u16 channelId + text`
 /// — **no `level` field** (10.98 adds it, which desyncs a 772 client's message-mode read if written).
-/// `speaker_name = None` → anonymous branch (C++ `!creature`): a `u32 0` is written in place of the name.
+/// `speaker_name = None` is anonymous. 772 writes an empty string (`u16` length 0). 800 and 1098
+/// write `u32 0` in place of the name (and, on 1098, the level).
 #[derive(Debug, Clone)]
 pub struct ToChannelWire {
     pub speaker_name: Option<String>,
@@ -176,7 +177,7 @@ pub struct ToChannelWire {
 /// `ProtocolGame::sendPrivateMessage` — `0xAA` private message (tell / broadcast).
 /// 1098 (`src/protocolgame.cpp` ~2480): `u32 stmt + name + u16 level + u8 speak_type + text`.
 /// 772 (`gameserver/src/protocolgame.cpp:1465`): `u32 stmt + name + u8 speak_type + text` — **no `level`**.
-/// `speaker_name = None` → anonymous branch (`u32 0` in place of the name).
+/// `speaker_name = None` is a null sender. 772 sends no packet. 800 and 1098 write `u32 0`.
 #[derive(Debug, Clone)]
 pub struct PrivateMessageWire {
     pub speaker_name: Option<String>,
