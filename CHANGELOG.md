@@ -20,6 +20,7 @@ Protocol 800 uses the same 772 mechanics corpus, with its own wire codec and `da
 - 2026-10-11 — Letters and labels show the written date from client 7.9 on. Anonymous channel speech hides the speaker. Tutors can report bugs, and an 8.0 gamemaster login sends the staff viewport bytes.
 - 2026-10-11 — `maxPlayers` queues a full server. 7.72 and 8.0 clients are told their place on the list. Gamemasters and the always-login flag skip the queue. Leave the key unset and the server stays open.
 - 2026-10-11 — 7.72 anonymous channel speech sends an empty name. A private message with no speaker is not sent. A 7.72 gamemaster login sends the banishment-rights packet after the character appears. 8.0 still sends the staff viewport bytes on the appear packet.
+- 2026-10-11 — Stopping during a push wait cancels that push when the wait ends. The item or creature stays put, and the client gets a position snapback.
 - 2026-10-11 — The rule-violation channel is open to gamemasters. Reports, answers, and cancels use the 8.0 channel packets. 7.72 still uses the gamemaster request.
 
 ### World

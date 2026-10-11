@@ -3759,6 +3759,8 @@ impl GameWorld {
                 // `WaitTime = max(TD->Wait.Time, EarliestWalkTime)`;
                 // `Delay = WaitTime - ServerMilliseconds` when still in the future.
                 // `TD->Wait.Time` is absolute at enqueue (`cract.cc:1033`).
+                // `Delay > 0` does not advance `ActToDo` (`cract.cc:804-826`), so the wait
+                // stays in front of the following `TDMove` until it is due.
                 let earliest = self
                     .creatures
                     .get(cid)
@@ -3766,6 +3768,12 @@ impl GameWorld {
                     .unwrap_or(0);
                 let wait_time = deadline_ms.max(earliest);
                 if wait_time > self.server_ms {
+                    if let Some(k) = self.creatures.get_mut(cid) {
+                        k.base_mut()
+                            .todo
+                            .queue
+                            .push_front(CreatureAction::Wait { deadline_ms });
+                    }
                     self.schedule_creature_wakeup(
                         cid,
                         wait_time.max(self.server_ms.saturating_add(1)),
@@ -4490,6 +4498,26 @@ impl GameWorld {
         )
     }
 
+    fn player_todo_stop_requested(&self, cid: CreatureId) -> bool {
+        self.creatures
+            .get(cid)
+            .is_some_and(|k| matches!(k, CreatureKind::Player(_)) && k.base().todo.todo_stop)
+    }
+
+    /// `Execute` on `Stop`: `ToDoClear` and `SendSnapback` for a player (`cract.cc:813-817`,
+    /// `:935-939`). The snapback is unconditional — a standing push has no pending `TDGo`.
+    fn apply_player_todo_stop(&mut self, cid: CreatureId) {
+        if let Some(conn) = self.conn_for_creature(cid) {
+            let dir_byte = self
+                .creatures
+                .get(cid)
+                .map(|k| k.base().direction as u8)
+                .unwrap_or(0);
+            self.enqueue_encoded(conn, self.codec.encode_cancel_walk(dir_byte));
+        }
+        self.creature_todo_clear(cid);
+    }
+
     /// After Go/Attack execute: schedule next step or chain queued actions.
     #[allow(dead_code)] // test-exercised drain entry point
     pub(crate) fn finish_creature_todo_execute(&mut self, cid: CreatureId) {
@@ -4509,20 +4537,10 @@ impl GameWorld {
         // next step's `Delay > 0` (`cract.cc:797-801`): `ToDoClear + SendSnapback` (player only).
         // `todo_stop` is set by `player_stop_auto_walk` (772 `ToDoStop` locked branch,
         // `cract.cc:1003-1004`). The in-flight step has just landed; now clear + snapback.
-        let stop_requested = self
-            .creatures
-            .get(cid)
-            .is_some_and(|k| matches!(k, CreatureKind::Player(_)) && k.base().todo.todo_stop);
-        if stop_requested {
-            if let Some(conn) = self.conn_for_creature(cid) {
-                let dir_byte = self
-                    .creatures
-                    .get(cid)
-                    .map(|k| k.base().direction as u8)
-                    .unwrap_or(0);
-                self.enqueue_encoded(conn, self.codec.encode_cancel_walk(dir_byte));
-            }
-            self.creature_todo_clear(cid);
+        if self.player_todo_stop_requested(cid) {
+            // The step that just ran is the in-flight one. `Stop` drops whatever follows
+            // (`cract.cc:935-939`), including a push `TDMove` behind a finished `TDWait`.
+            self.apply_player_todo_stop(cid);
             return TodoExecuteLoopControl::Break;
         }
 
@@ -4674,16 +4692,20 @@ impl GameWorld {
                 }
                 TodoExecuteKind::Wait => {
                     // C++ `CalculateDelay(TDWait)` with `Delay > 0` breaks the Execute loop
-                    // and leaves the entry pending (`cract.cc:795-801`, `:905-915`). Rust pops
-                    // Wait up front; if a future wakeup was armed, do **not** IdleStimulus yet
-                    // — otherwise Go+Wait(2000) roam immediately re-idles and loses the pause
-                    // (NPC-6; also trips the zero-delay iteration guard).
+                    // and leaves the entry pending (`cract.cc:795-801`, `:905-915`). The wait
+                    // is pushed back onto the queue in that case. A future wakeup must not
+                    // IdleStimulus — otherwise Go+Wait(2000) roam re-idles and loses the pause.
+                    // Once the wait is due, `Stop` clears the rest (`cract.cc:935-939`) before
+                    // a following push `TDMove` runs.
                     let has_future_wakeup = self
                         .creatures
                         .get(cid)
                         .is_some_and(|k| k.base().next_wakeup.is_some_and(|w| w > self.server_ms));
                     if has_future_wakeup {
                         self.monster_combat_reschedule_if_stalled(cid);
+                        TodoExecuteLoopControl::Break
+                    } else if self.player_todo_stop_requested(cid) {
+                        self.apply_player_todo_stop(cid);
                         TodoExecuteLoopControl::Break
                     } else if self.creature_todo_queue_empty(cid) {
                         // Expired Wait(0) / past deadline — drained list runs IdleStimulus

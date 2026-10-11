@@ -5181,6 +5181,73 @@ fn test_audit2_stop_from_standstill_sends_immediate_snapback() {
     );
 }
 
+/// `CGoStop` during a push wait drops the move when the wait ends (`cract.cc:935-939`).
+/// The wait stays queued until it is due, then `Stop` clears the following `TDMove`.
+#[test]
+fn stop_during_push_wait_drops_the_move() {
+    let (mut world, player, conn) = setup_player_world_with_conn();
+    world.server_ms = 1_000;
+    let from = Position::new(101, 100, 7);
+    let dest = Position::new(101, 101, 7);
+    ensure_walkable_tile(&mut world.map, dest, TEST_SYNTHETIC_GROUND_WP);
+    let obj = place_bag_on_tile_772(&mut world, from);
+    world
+        .enqueue_player_move(player, obj, dest, 1)
+        .expect("bag resolves");
+    world.todo_start_from_action(player, 1);
+
+    // The +1 wake must leave the wait in front of the move (`ActToDo` does not advance).
+    world.advance_beat(50);
+    {
+        let queue = &world.creatures.get(player).unwrap().base().todo.queue;
+        assert!(
+            matches!(queue.front(), Some(CreatureAction::Wait { .. })),
+            "wait stays queued until it is due"
+        );
+        assert!(
+            queue.iter().any(|a| matches!(a, CreatureAction::Move { .. })),
+            "move stays behind the wait"
+        );
+    }
+
+    world.player_stop_auto_walk(player);
+    assert!(
+        world.creatures.get(player).unwrap().base().todo.todo_stop,
+        "stop during the wait only sets Stop"
+    );
+
+    world.pending_outgoing.clear();
+    // Deadline is server_ms 1100. This beat lands on it.
+    world.advance_beat(50);
+    let base = world.creatures.get(player).unwrap().base();
+    assert!(
+        base.todo.queue.is_empty(),
+        "due wait plus Stop clears the move"
+    );
+    assert!(!base.todo.todo_stop, "Stop is cleared with the queue");
+    let pkts = world
+        .pending_outgoing
+        .get(&conn)
+        .expect("snapback after the wait");
+    assert!(
+        pkts.iter().any(|b| !b.is_empty() && b[0] == 0xB5),
+        "Stop sends 0xB5 even when the push had no pending walk"
+    );
+    assert!(
+        world
+            .map
+            .get_tile(from)
+            .is_some_and(|t| !t.body().down_items().is_empty() || !t.body().top_items().is_empty()),
+        "the item stays on the source tile"
+    );
+    assert!(
+        world.map.get_tile(dest).is_some_and(|t| {
+            t.body().down_items().is_empty() && t.body().top_items().is_empty()
+        }),
+        "the item is not pushed"
+    );
+}
+
 /// Audit #2: `player_cancel_attack_and_follow` sends snapback when a pending Go is cleared —
 /// C++ `CCancelAttack`: `if(Player->ToDoClear()) SendSnapback` (`receiving.cc:1339-1341`).
 #[test]

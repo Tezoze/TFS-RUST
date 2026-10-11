@@ -194,8 +194,9 @@ pub struct CreatureTodo {
     /// (`cract.cc:1010-1012`). Blocks `IdleStimulus` / `ToDoYield` while a batch is in flight.
     pub locked: bool,
     /// C++ `Stop` flag — set by `ToDoStop` when `LockToDo` is true (`cract.cc:1002-1008`).
-    /// The in-flight step lands on the next beat, then `Execute` checks `Stop` and does
-    /// `ToDoClear + SendSnapback` (`cract.cc:891-897`, `:797-801`). Player-only semantics.
+    /// The in-flight step lands, then `Execute` clears the rest and snapbacks
+    /// (`cract.cc:813-817`, `:935-939`). A push `TDMove` behind a wait that has not
+    /// finished is part of that rest.
     pub todo_stop: bool,
 }
 
