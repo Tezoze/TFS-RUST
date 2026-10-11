@@ -448,6 +448,28 @@ pub trait EventDispatcher {
     /// `Game.reload(type)` — TFS `luaGameReload`. Default no-op (Null dispatcher).
     fn reload_scripts(&mut self, _reload_type: i32) {}
 
+    /// Pack `Channel.canJoin`. No hook means the native check already decided.
+    fn channel_can_join(&self, _channel_id: u16, _player: CreatureId) -> bool {
+        true
+    }
+
+    /// Pack `Channel.onJoin`. No-op when the channel has no hook.
+    fn channel_on_join(&self, _channel_id: u16, _player: CreatureId) {}
+
+    /// Pack `Channel.onLeave`. No-op when the channel has no hook.
+    fn channel_on_leave(&self, _channel_id: u16, _player: CreatureId) {}
+
+    /// Pack `Channel.onSpeak`. [`ChannelSpeakResult::Keep`] when there is no hook.
+    fn channel_on_speak(
+        &self,
+        _channel_id: u16,
+        _player: CreatureId,
+        _speak_type: u8,
+        _message: &str,
+    ) -> crate::chat_hooks::ChannelSpeakResult {
+        crate::chat_hooks::ChannelSpeakResult::Keep
+    }
+
     /// Downcast to `Any` for runtime type checking (e.g., to access Lua runtime).
     fn as_any(&self) -> &dyn Any
     where

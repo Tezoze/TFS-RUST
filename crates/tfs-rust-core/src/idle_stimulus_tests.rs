@@ -3053,21 +3053,19 @@ fn test_rotate_direct_call_turns_monster_immediately() {
         .count();
 }
 
-/// `Rotate(Target)` fires even when a walk (`Go`) is already armed — no `walk_timer_idle`
-/// gate, matching C++'s unconditional direct call. The old `monster_update_look_direction`
-/// path was gated and would SKIP the rotate when a walk timer was armed.
+/// A queued step that does not already face the target defers the turn until
+/// that step has run (`face_after_step`). The direction stays put and no `0x6B`
+/// goes out while the step is still queued.
 #[test]
 fn test_rotate_direct_call_fires_when_walk_armed() {
     let mut world = beat_driven_test_world();
     world.server_ms = 1000;
-    let (monster, player) = e1_melee_target_setup(&mut world, 15);
+    let (monster, _player) = e1_melee_target_setup(&mut world, 15);
     if let Some(CreatureKind::Monster(m)) = world.creatures.get_mut(monster) {
         m.state = MonsterState::Attacking;
     }
 
-    // Arm a Go first (simulates the walk branch having queued a step).
     assert!(world.enqueue_creature_go(monster));
-    // Arm a wakeup so walk_timer_idle() returns false — the old gate condition.
     world.schedule_immediate_todo_wakeup(monster);
     assert!(
         !world
@@ -3079,13 +3077,26 @@ fn test_rotate_direct_call_fires_when_walk_armed() {
         "test precondition: walk timer must be armed (walk_timer_idle == false)"
     );
 
-    // The idle rotate tail must still turn the monster despite the armed walk timer.
     world.monster_idle_rotate_toward_attack_target(monster);
 
+    let monster_kind = world.creatures.get(monster).unwrap();
+    assert_eq!(monster_kind.base().direction, Direction::North);
+    let CreatureKind::Monster(m) = monster_kind else {
+        panic!("monster");
+    };
+    assert!(
+        m.face_after_step,
+        "sidestep arms the turn for after the step"
+    );
+
+    if let Some(k) = world.creatures.get_mut(monster) {
+        k.base_mut().walk_queue.clear();
+    }
+    world.monster_face_after_queued_step(monster);
     assert_eq!(
         world.creatures.get(monster).unwrap().base().direction,
         Direction::East,
-        "Rotate must fire directly even when a walk timer is armed (no walk_timer_idle gate)"
+        "the deferred turn faces the target after the step"
     );
 }
 
@@ -3121,7 +3132,9 @@ fn test_idle_tail_rotate_direct_then_attack_enqueued() {
     );
 }
 
-/// When a Go is already queued, idle Rotate updates direction but does not emit 0x6B.
+/// When a Go is already queued and that step does not face the target, idle
+/// Rotate keeps the current direction and emits no `0x6B`. The turn runs after
+/// the queue drains.
 #[test]
 fn test_idle_rotate_suppresses_turn_packet_when_go_pending() {
     let mut world = beat_driven_test_world();
@@ -3148,8 +3161,8 @@ fn test_idle_rotate_suppresses_turn_packet_when_go_pending() {
 
     assert_eq!(
         world.creatures.get(monster).unwrap().base().direction,
-        Direction::East,
-        "direction must still update toward target"
+        Direction::North,
+        "facing waits until the queued sidestep has run"
     );
     let packets = world
         .pending_outgoing
@@ -3160,6 +3173,25 @@ fn test_idle_rotate_suppresses_turn_packet_when_go_pending() {
         !packets.iter().any(|p| p.first() == Some(&0x6B)),
         "must not broadcast 0x6B when Go is pending, got {} packets",
         packets.len()
+    );
+
+    if let Some(k) = world.creatures.get_mut(monster) {
+        k.base_mut().walk_queue.clear();
+    }
+    world.pending_outgoing.remove(&conn);
+    world.monster_face_after_queued_step(monster);
+    assert_eq!(
+        world.creatures.get(monster).unwrap().base().direction,
+        Direction::East
+    );
+    let packets = world
+        .pending_outgoing
+        .get(&conn)
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        packets.iter().any(|p| p.first() == Some(&0x6B)),
+        "the deferred turn broadcasts 0x6B"
     );
 }
 

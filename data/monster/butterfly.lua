@@ -1,0 +1,49 @@
+-- Corpus race "butterfly" (`runtime/mon/butterflyyellow.mon`).
+-- Colored butterflies are separate races.
+return {
+  schema = 1,
+  name = "butterfly",
+  description = "a butterfly",
+  race = "venom",
+  experience = 0,
+  speed = 180,
+  mana_cost = 0,
+  health = 2,
+  max_health = 2,
+  outfit = {
+    look_type = 10,
+    look_head = 0,
+    look_body = 0,
+    look_legs = 0,
+    look_feet = 0,
+    corpse = 5013,
+  },
+  change_target = { chance = 10 },
+  target_strategy = { nearest = 60, weakest = 0, most_damage = 0, random = 40 },
+  lose_target = { chance = 10 },
+  flags = {
+    hostile = false,
+    summonable = false,
+    illusionable = true,
+    pushable = true,
+    convinceable = false,
+    can_push_items = false,
+    can_push_creatures = false,
+    target_distance = 1,
+    run_health = 2,
+  },
+  attacks = {
+    {
+      name = "melee",
+      skill = 5,
+      attack = 0,
+      skill_factor = 1100,
+      skill_next_level = 100,
+      skill_add_count = 1,
+    },
+  },
+  defenses = {
+    armor = 0,
+    defense = 14,
+  },
+}

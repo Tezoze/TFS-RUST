@@ -7,6 +7,7 @@ use std::any::Any;
 use std::path::PathBuf;
 
 use crate::actions::ActionRegistry;
+use crate::chat_hooks::{ChannelSpeakResult, ChatChannelHookRegistry};
 use crate::event_dispatcher::{
     EventCylinder, EventDispatcher, TalkActionResult, TileMoveEventItem,
 };
@@ -28,6 +29,8 @@ pub struct LuaEventDispatcher {
     /// CH-6: talkaction registry — `/i`, `/a`, … GM commands. The
     /// `mlua::RegistryKey`s are tied to `runtime`'s `Lua` instance.
     talkactions: TalkActionRegistry,
+    /// Channel `canJoin` / `onJoin` / `onLeave` / `onSpeak` keys.
+    chat_hooks: ChatChannelHookRegistry,
     /// Action `onUse` registry — food, doors, levers, …
     actions: ActionRegistry,
     /// Data pack root for slim `Game.reload` (talkactions / scripts-interface).
@@ -40,6 +43,7 @@ impl LuaEventDispatcher {
             runtime,
             move_events,
             talkactions: TalkActionRegistry::default(),
+            chat_hooks: ChatChannelHookRegistry::default(),
             actions: ActionRegistry::default(),
             data_dir: PathBuf::new(),
         }
@@ -53,6 +57,11 @@ impl LuaEventDispatcher {
     /// CH-6: Set the talkaction registry (called after loading talkaction scripts).
     pub fn set_talkactions(&mut self, talkactions: TalkActionRegistry) {
         self.talkactions = talkactions;
+    }
+
+    /// Keep channel script keys after the plain channel list is seeded.
+    pub fn set_chat_hooks(&mut self, hooks: ChatChannelHookRegistry) {
+        self.chat_hooks = hooks;
     }
 
     /// Set the action registry (after `load_action_scripts`).
@@ -977,12 +986,105 @@ impl EventDispatcher for LuaEventDispatcher {
         }
     }
 
+    fn channel_can_join(&self, channel_id: u16, player: CreatureId) -> bool {
+        let Some(hook) = self
+            .chat_hooks
+            .get(channel_id)
+            .and_then(|set| set.can_join.as_ref())
+        else {
+            return true;
+        };
+        match self
+            .runtime
+            .call_channel_can_join(hook, player.data().as_ffi())
+        {
+            Ok(allowed) => allowed,
+            Err(e) => {
+                tracing::error!(channel_id, ?player, "channel canJoin failed: {e}");
+                false
+            }
+        }
+    }
+
+    fn channel_on_join(&self, channel_id: u16, player: CreatureId) {
+        let Some(hook) = self
+            .chat_hooks
+            .get(channel_id)
+            .and_then(|set| set.on_join.as_ref())
+        else {
+            return;
+        };
+        if let Err(e) = self
+            .runtime
+            .call_channel_on_join(hook, player.data().as_ffi())
+        {
+            tracing::error!(channel_id, ?player, "channel onJoin failed: {e}");
+        }
+    }
+
+    fn channel_on_leave(&self, channel_id: u16, player: CreatureId) {
+        let Some(hook) = self
+            .chat_hooks
+            .get(channel_id)
+            .and_then(|set| set.on_leave.as_ref())
+        else {
+            return;
+        };
+        if let Err(e) = self
+            .runtime
+            .call_channel_on_leave(hook, player.data().as_ffi())
+        {
+            tracing::error!(channel_id, ?player, "channel onLeave failed: {e}");
+        }
+    }
+
+    fn channel_on_speak(
+        &self,
+        channel_id: u16,
+        player: CreatureId,
+        speak_type: u8,
+        message: &str,
+    ) -> ChannelSpeakResult {
+        let Some(hook) = self
+            .chat_hooks
+            .get(channel_id)
+            .and_then(|set| set.on_speak.as_ref())
+        else {
+            return ChannelSpeakResult::Keep;
+        };
+        match self.runtime.call_channel_on_speak(
+            hook,
+            player.data().as_ffi(),
+            i32::from(speak_type),
+            message,
+        ) {
+            Ok(value) => interpret_channel_speak(value),
+            Err(e) => {
+                tracing::error!(channel_id, ?player, "channel onSpeak failed: {e}");
+                ChannelSpeakResult::Cancel
+            }
+        }
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+}
+
+fn interpret_channel_speak(value: mlua::Value) -> ChannelSpeakResult {
+    match value {
+        mlua::Value::Boolean(false) => ChannelSpeakResult::Cancel,
+        mlua::Value::Integer(n) => u8::try_from(n)
+            .map(ChannelSpeakResult::Retype)
+            .unwrap_or(ChannelSpeakResult::Keep),
+        mlua::Value::Number(n) if n.is_finite() && (0.0..=f64::from(u8::MAX)).contains(&n) => {
+            ChannelSpeakResult::Retype(n as u8)
+        }
+        _ => ChannelSpeakResult::Keep,
     }
 }
 

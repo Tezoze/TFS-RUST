@@ -1502,7 +1502,7 @@ mod tests {
                 assert_spell_shape(a, b);
             }
         }
-        assert_eq!(n, 157, "stock 772 pack size");
+        assert_eq!(n, 159, "stock 772 pack size");
     }
 
     #[test]
@@ -1513,13 +1513,19 @@ mod tests {
         }
         let items = repo_items();
         let db = load_monster_dir(&dir, &items).expect("load lua monsters");
-        assert_eq!(db.monsters.len(), 157, "one type per lua file");
+        assert_eq!(db.monsters.len(), 159, "one type per lua file");
         let dragon = db.get_by_name("Dragon").expect("dragon");
         assert_eq!(dragon.name, "Dragon");
         assert_eq!(dragon.speed, 45);
         let red = db.get_by_name("red butterfly").expect("red butterfly");
         assert_eq!(red.name, "Butterfly");
-        assert!(!db.monsters.contains_key("butterfly"));
+        let butterfly = db.get_by_name("butterfly").expect("butterfly");
+        assert_eq!(butterfly.name, "butterfly");
+        assert!(!butterfly.flags.summonable);
+        let human = db.get_by_name("human").expect("human");
+        assert_eq!(human.health_max, 150);
+        assert!(!human.flags.summonable);
+        assert!(!human.flags.illusionable);
         assert!(
             !db.monsters.values().any(|m| m.filename.contains('#')),
             "filenames with # must not load"

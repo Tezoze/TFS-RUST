@@ -16,7 +16,7 @@
 //! the *next* step. Wall `Instant::now()` samples (C++ `OTSYS_TIME()`).
 //! 772/800: the step the server waits is the client walk cycle (ceiled straight step).
 //! Diagonal ×3 lives only on the client's second timer and is not the frame end.
-//! 1098 players keep cardinal duration × `last_step_cost` after ceil (`creature.cpp`).
+//! 1098 players use the same one-waypoint wait after the log-speed ceil.
 //! `next_walk_check` stores the **logical** deadline. Initial arms from a new move use `walk_sched_base`;
 //! reschedules after a step match C++ `addEventWalk` by anchoring to `Instant::now()` at reschedule time
 //! (`tasks/walk-audit.md` Issue 3).
@@ -3034,6 +3034,37 @@ mod step_speed_tests {
         assert_eq!(delay_cardinal, 300, "cardinal completed step = 300 ms");
         assert_eq!(delay_diagonal, delay_cardinal);
         assert_eq!(delay_zchange, delay_cardinal);
+    }
+
+    /// 1098 players wait the ceiled straight step on a diagonal and after a floor change.
+    #[test]
+    fn tfs_log_player_diagonal_uses_one_waypoint() {
+        use super::walk_timing::get_walk_delay_logical;
+        let p = test_player("Walker", Position::new(100, 100, 7));
+        let mut base = p.base.clone();
+        base.speed = 220;
+        base.base_speed = 220;
+        base.last_step_ground_speed = 150;
+        base.last_step_server_ms = Some(0);
+        let mech = Mechanics::for_version(ProtocolVersion::V1098);
+        let kind = CreatureKind::Player(p);
+
+        let cardinal =
+            get_step_duration_ms_with_direction(&kind, &base, Direction::East, 150, &mech);
+        let diagonal =
+            get_step_duration_ms_with_direction(&kind, &base, Direction::NorthEast, 150, &mech);
+        assert_eq!(
+            diagonal, cardinal,
+            "1098 diagonal wait is the straight step"
+        );
+
+        let mut base_cardinal = base.clone();
+        base_cardinal.last_step_cost = 1;
+        let delay_cardinal = get_walk_delay_logical(&kind, &base_cardinal, 0, &mech);
+        let mut base_diagonal = base.clone();
+        base_diagonal.last_step_cost = 3;
+        let delay_diagonal = get_walk_delay_logical(&kind, &base_diagonal, 0, &mech);
+        assert_eq!(delay_diagonal, delay_cardinal);
     }
 
     /// Phase 3 reachability guard (`docs/772_FLOOR_CHANGE_DESYNC.md` §16.3):

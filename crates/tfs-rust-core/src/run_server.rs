@@ -476,6 +476,9 @@ async fn run_on_game_thread(io_handle: tokio::runtime::Handle) -> anyhow::Result
             // registry holds `mlua::RegistryKey`s tied to the runtime.
             dispatcher.set_talkactions(talkactions);
             dispatcher.set_actions(actions);
+            dispatcher.set_chat_hooks(crate::chat_hooks::ChatChannelHookRegistry::from_defs(
+                &chat_channels,
+            ));
             dispatcher.set_data_dir(data_path.clone());
             tracing::info!(
                 actions = dispatcher.actions_count(),

@@ -464,4 +464,86 @@ mod tests {
         assert_eq!(level, 1, "Event at MaxCount+1 (121) ticks");
         assert_eq!(list[0].skill_count, DRINK_DRUNK_INTERVAL);
     }
+
+    /// Slime is `Damage(NULL, 200, DAMAGE_POISON_PERIODIC)` (`moveuse.cc:1789`).
+    /// Re-arm only when the new damage is strictly stronger (`crmain.cc:587`).
+    #[test]
+    fn slime_poison_replaces_only_weaker() {
+        let slime = ActiveCondition::new(
+            2,
+            0,
+            ConditionType::Poison,
+            ConditionData::Damage {
+                total_rank: 200,
+                factor_percent: 50,
+            },
+            Some(200),
+        )
+        .with_skill_timer(3, 3);
+
+        let mut strong = vec![
+            ActiveCondition::new(
+                1,
+                0,
+                ConditionType::Poison,
+                ConditionData::Damage {
+                    total_rank: 250,
+                    factor_percent: 50,
+                },
+                Some(250),
+            )
+            .with_skill_timer(3, 3),
+        ];
+        add_condition_merge(&mut strong, slime.clone());
+        assert!(matches!(
+            strong[0].data,
+            ConditionData::Damage {
+                total_rank: 250,
+                ..
+            }
+        ));
+        assert_eq!(strong[0].id, 1);
+        assert_eq!(strong[0].timer_rounds_left, Some(250));
+
+        let mut equal = vec![
+            ActiveCondition::new(
+                1,
+                0,
+                ConditionType::Poison,
+                ConditionData::Damage {
+                    total_rank: 200,
+                    factor_percent: 50,
+                },
+                Some(200),
+            )
+            .with_skill_timer(3, 3),
+        ];
+        add_condition_merge(&mut equal, slime.clone());
+        assert_eq!(equal[0].id, 1);
+
+        let mut weak = vec![
+            ActiveCondition::new(
+                1,
+                0,
+                ConditionType::Poison,
+                ConditionData::Damage {
+                    total_rank: 100,
+                    factor_percent: 50,
+                },
+                Some(100),
+            )
+            .with_skill_timer(3, 3),
+        ];
+        add_condition_merge(&mut weak, slime);
+        assert!(matches!(
+            weak[0].data,
+            ConditionData::Damage {
+                total_rank: 200,
+                ..
+            }
+        ));
+        assert_eq!(weak[0].skill_count, 3);
+        assert_eq!(weak[0].skill_max_count, 3);
+        assert_eq!(weak[0].timer_rounds_left, Some(200));
+    }
 }

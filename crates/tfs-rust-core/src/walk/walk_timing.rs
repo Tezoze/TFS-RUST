@@ -11,8 +11,6 @@ use tfs_rust_common::enums::Direction;
 use crate::condition::ConditionData;
 use crate::creature::CreatureKind;
 
-use super::is_diagonal;
-
 const SPEED_A: f64 = 857.36; // creature.h
 const SPEED_B: f64 = 261.29;
 const SPEED_C: f64 = -4795.01;
@@ -278,8 +276,8 @@ pub(crate) fn get_step_duration(
     let go = step_speed_for_walk(kind, base, mech);
     let gs = if ground_speed == 0 { 150 } else { ground_speed };
 
-    // Tier-2 override (`getStepDuration(speed, ground)`) — returns the base per-tile duration; the
-    // engine still applies the diagonal / `last_step_cost` multiplier on TFS. Native fast path when unset.
+    // Tier-2 override (`getStepDuration(speed, ground)`) — one tile, already ceiled.
+    // Native fast path when unset. Diagonal and floor-change waits are also one waypoint.
     if let Some(ms) = mech.hooks.step_duration(go, gs as i32, false) {
         return ms.max(1);
     }
@@ -305,8 +303,7 @@ fn completed_step_duration_ms(
     mech: &crate::formulas::Mechanics,
 ) -> i64 {
     if uses_corpus_step_clock(kind) {
-        // Walk cycle is the straight step on 772 and 800. `last_step_cost` 3 (diagonal)
-        // and 2 (floor change) both wait one waypoint. TFS log players still scale below.
+        // Walk cycle is one waypoint on every direction, including 1098 players.
         return corpus_monster_step_ms(kind, base, ground_speed, 1, mech);
     }
     match mech.profile.step_speed {
@@ -317,7 +314,6 @@ fn completed_step_duration_ms(
         }
         crate::formulas::StepSpeedModel::TfsLog => {
             get_step_duration(kind, base, ground_speed, mech)
-                .saturating_mul(base.last_step_cost as i64)
         }
     }
 }
@@ -345,12 +341,11 @@ fn upcoming_step_duration_ms(
         }
         crate::formulas::StepSpeedModel::TfsLog => {
             get_step_duration(kind, base, ground_speed, mech)
-                .saturating_mul(base.last_step_cost as i64)
         }
     }
 }
 
-/// Step duration for `next_action_until` — era-specific diagonal handling.
+/// Step duration for `next_action_until`. Every era waits one waypoint.
 pub(crate) fn get_step_duration_ms_with_direction(
     kind: &CreatureKind,
     base: &crate::creature::CreatureBase,
@@ -376,11 +371,7 @@ pub(crate) fn get_step_duration_ms_with_direction(
             mech,
         ),
         crate::formulas::StepSpeedModel::TfsLog => {
-            let mut ms = get_step_duration(kind, base, ground_speed, mech);
-            if is_diagonal(direction) {
-                ms *= 3;
-            }
-            ms
+            get_step_duration(kind, base, ground_speed, mech)
         }
     }
 }

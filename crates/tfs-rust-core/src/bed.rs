@@ -201,14 +201,7 @@ impl GameWorld {
             now.saturating_sub(lastlogout)
         };
         let (food, health, mana, soul) = crate::login::named_bed_offline_regen(
-            food,
-            offline,
-            health,
-            max_health,
-            mana,
-            max_mana,
-            soul,
-            soul_max,
+            food, offline, health, max_health, mana, max_mana, soul, soul_max,
         );
         if let Some(CreatureKind::Player(p)) = self.creatures.get_mut(cid) {
             p.food_remaining = food;

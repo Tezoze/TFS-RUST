@@ -8,45 +8,57 @@ Playable 8.0 shard, not tagged yet. Login port 7171, game port 7172, `clientVers
 
 Protocol 800 uses the same 772 mechanics corpus, with its own wire codec and `data/formulas/800.lua`.
 
-- Hotkey object use.
-- Step timing follows the client walk cycle. 8.0 walk speed uses the linear model, so that era can be retuned on its own. The scheduler beat stays 50 ms.
-- The 8.0 fluid palette, and walk flags taken from `items.srv`.
-- One item id across the catalog, the map, and scripts. The 8.0 catalog is extended from `items.srv`. Load path is the versioned catalogs (`data/items/772`, `800`, `1098`). The old root item dumps are gone.
-- A house load still accepts a pre-cutover id when it is the old id of that map item. GM look prints that single id.
-- Rune charges report the drawn count. Attack runes print exhaustion.
-- Stamina, outfit scripts, a death bag, a quest toast, and the post-8.0 spell range.
-- `playerSpeed = "classic"` selects the linear curve for both 772 and 8.0. The old 772 label still maps to it.
+- 2026-09-26 — Hotkey object use.
+- 2026-09-26 — Step timing follows the client walk cycle. 8.0 walk speed uses the linear model, so that era can be retuned on its own. The scheduler beat stays 50 ms.
+- 2026-09-26 — One item id across the catalog, the map, and scripts. The 8.0 catalog is extended from `items.srv`. Load path is the versioned catalogs (`data/items/772`, `800`, `1098`). The old root item dumps are gone.
+- 2026-09-26 — A house load still accepts a pre-cutover id when it is the old id of that map item. GM look prints that single id.
+- 2026-09-26 — Rune charges report the drawn count. Attack runes print exhaustion.
+- 2026-09-27 — The 8.0 fluid palette, and walk flags taken from `items.srv`.
+- 2026-09-27 — Stamina, outfit scripts, a death bag, a quest toast, and the post-8.0 spell range.
+- 2026-09-27 — `playerSpeed = "classic"` selects the linear curve for both 772 and 8.0. The old 772 label still maps to it.
+- 2026-10-11 — Protocol 10.98 players wait one step on a diagonal, the same as 7.72 and 8.0.
 
 ### World
 
-- Changed non-house tiles persist in `data/world/forgotten-live.bin` and are restored on boot. Ctrl+C refreshes those tiles before the write. The checked-in overlay is two tiles: mummy remains holding two worms at 33005, 32397, 11, and a dead spider with a pool at 32648, 32082, 12. The earlier persist test (empty vials, a rope, and a letter) is no longer in that file.
-- Sleeping in a bed saves the player and closes the client. The health and mana granted on wake come from the food and offline time, not from how long the character was in the bed.
-- Logout closes the socket in the same call on every client version.
+- 2026-09-27 — Changed non-house tiles persist in `data/world/forgotten-live.bin` and are restored on boot. Ctrl+C refreshes those tiles before the write. The checked-in overlay is two tiles: mummy remains holding two worms at 33005, 32397, 11, and a dead spider with a pool at 32648, 32082, 12. The earlier persist test (empty vials, a rope, and a letter) is no longer in that file.
+- 2026-09-27 — Sleeping in a bed saves the player and closes the client.
+- 2026-09-27 — Logout closes the socket in the same call on every client version.
+- 2026-10-11 — The health and mana granted on wake come from the food and offline time, not from how long the character was in the bed.
+- 2026-10-11 — The Rookgaard level-2 bridge drops a level 1 player on the same x, one tile south, floor 7.
 
 ### Monsters
 
-- A monster that already has a chase target keeps it when another creature steps inside its view. The walk armed by idle waits until the next beat.
-- `monsterSpells.cadence` in the formula file is `machineGun` by default: every idle still rolls every spell. `round` is one shared pass per interval (adjacent 2000 ms, at range or fleeing 1000 ms, a melee monster still chasing 4000 ms). Several spells can still land on that pass.
+- 2026-09-27 — A monster that already has a chase target keeps it when another creature steps inside its view. The walk armed by idle waits until the next beat.
+- 2026-10-11 — `monsterSpells.cadence` in the formula file is `machineGun` by default: every idle still rolls every spell. `round` is one shared pass per interval (adjacent 2000 ms, at range or fleeing 1000 ms, a melee monster still chasing 4000 ms). Several spells can still land on that pass.
+- 2026-10-11 — The pack includes the corpus races butterfly and human. Colored butterflies stay separate races.
 
 ### Combat
 
-- A close-chase step does not strike while the attack is still exhausted. The strike waits until that delay ends.
-- A healing spell clears paralyze on its own, including the intense and ultimate healing runes. Drinking a life fluid does the same. Mana fluid and life fluid also start the 1 second spell cooldown and show the blue effect.
-- Poison storm covers the full disc. Berserk costs four times the caster's level, and its damage is one roll scaled by level and magic level. Mana fluid restores 50–150 mana and life fluid restores 25–75 hit points, both on the server roll.
-- A hit that mana shield fully absorbs still blocks logout, including field damage with no attacker. Mana drain on a monster clears invisibility and wakes it.
-- Food regeneration uses the active vocation. A promoted character on a free account regenerates as the base vocation.
-- A skill whose growth factor is below 1.05 costs the base number of tries for each level. Monster fist uses that path.
-- Haste, strong haste, paralyze, mana shield, invisibility, and light keep the corpus durations. Formula files no longer set those timers.
-- Sleeping in a house bed writes the sleeper's name on the bed. At login the corpus formula applies: mana is `min(food / 3, offline / 15)`, health is a quarter of that, food spends three times that, and soul gains `offline / 900` up to the soul maximum.
+- 2026-09-27 — A close-chase step does not strike while the attack is still exhausted. The strike waits until that delay ends.
+- 2026-09-27 — A healing spell clears paralyze on its own, including the intense and ultimate healing runes.
+- 2026-09-27 — Poison storm covers the full disc. Berserk costs four times the caster's level, and its damage is one roll scaled by level and magic level. Mana fluid restores 50–150 mana and life fluid restores 25–75 hit points, both on the server roll.
+- 2026-10-11 — Drinking a life fluid clears paralyze. Mana fluid and life fluid also start the 1 second spell cooldown and show the blue effect.
+- 2026-10-11 — A hit that mana shield fully absorbs still blocks logout, including field damage with no attacker. Mana drain on a monster clears invisibility and wakes it.
+- 2026-10-11 — Food regeneration uses the active vocation. A promoted character on a free account regenerates as the base vocation.
+- 2026-10-11 — A skill whose growth factor is below 1.05 costs the base number of tries for each level. Monster fist uses that path.
+- 2026-10-11 — Sleeping in a house bed writes the sleeper's name on the bed. At login the corpus formula applies: mana is `min(food / 3, offline / 15)`, health is a quarter of that, food spends three times that, and soul gains `offline / 900` up to the soul maximum.
+- 2026-10-11 — Haste, strong haste, paralyze, mana shield, invisibility, and light keep the corpus durations. Formula files no longer set those timers.
+- 2026-10-11 — Cancel invisibility leaves the caster's tile, protection zones, and peaceful creatures on a no-PvP world hidden. It only reveals someone who is actually invisible.
+- 2026-10-11 — Drinking slime applies a poison of strength 200. A stronger poison already on the player stays.
 
 ### NPCs
 
-- Shared shop and guard lists live in `data/npc/catalogs/`. Scripts splice them with `NpcAppendRules` instead of copying each list into the script. The old `.npc` / `.ndb` archive is no longer in the tree.
+- 2026-09-27 — Shared shop and guard lists live in `data/npc/catalogs/`. Scripts splice them with `NpcAppendRules` instead of copying each list into the script. The old `.npc` / `.ndb` archive is no longer in the tree.
+- 2026-10-11 — An NPC that summons a monster is that monster's master.
+
+### Chat
+
+- 2026-10-11 — Channel scripts run. `canJoin` can refuse a join. `onSpeak` can drop a line or change its color. `onJoin` and `onLeave` fire when a player enters or leaves.
 
 ### Release tree and CI
 
-- `tasks/` and the audit notes stay on disk and out of git. The compiling and Docker guides stay tracked. Unused NPC fixture traces and the local helper scripts are not published. Start the server with `cargo run --bin tfs-rust`.
-- CI no longer runs the criterion benchmark or the `tfs-rust-sim` harness. Item tests load the tracked 772 `items.ron` catalog. LuaLS knows the injected tool globals (`actionIds`, `corpseIds`, `ropeSpots`, `Fields`) and the return types of `Game.getPlayers`, `Game.getHouses`, and the SQL result queries.
+- 2026-09-26 — `tasks/` and the audit notes stay on disk and out of git. The compiling and Docker guides stay tracked. Unused NPC fixture traces and the local helper scripts are not published. Start the server with `cargo run --bin tfs-rust`.
+- 2026-09-27 — CI no longer runs the criterion benchmark or the `tfs-rust-sim` harness. Item tests load the tracked 772 `items.ron` catalog. LuaLS knows the injected tool globals (`actionIds`, `corpseIds`, `ropeSpots`, `Fields`) and the return types of `Game.getPlayers`, `Game.getHouses`, and the SQL result queries.
 
 ## 1.0.0 — 2026-09-26
 

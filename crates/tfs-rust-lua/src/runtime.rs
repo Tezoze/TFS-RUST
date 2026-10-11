@@ -2840,12 +2840,11 @@ mod tests {
         let channels = crate::chat_channels::load_chat_channel_scripts(&mut runtime, &data_root)
             .expect("channel scripts load");
         // 8 active channels (ruleviolations.lua is skipped by the loader).
-        assert_eq!(
-            channels.len(),
-            8,
-            "expected 8 registered channels, got {}: {channels:?}",
-            channels.len()
-        );
+        assert_eq!(channels.len(), 8, "expected 8 registered channels");
+        let help = channels.iter().find(|c| c.id == 7).expect("help");
+        assert!(help.on_speak.is_some(), "help onSpeak must survive load");
+        let ads = channels.iter().find(|c| c.id == 9).expect("advertising");
+        assert!(ads.can_join.is_some() && ads.on_speak.is_some());
     }
 
     /// Gap 7 probe: does `data/global.lua` load via the native LuaJIT `dofile`

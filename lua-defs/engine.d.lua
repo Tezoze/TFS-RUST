@@ -61,6 +61,8 @@ function Creature:computeSkillDamage(...) end
 function Creature:computeSpell(...) end
 function Creature:conjureItem(...) end
 function Creature:depositMoney(...) end
+function Creature:drinkLifeFluid(...) end
+function Creature:drinkManaFluid(...) end
 function Creature:feed(...) end
 function Creature:getAccountId(...) end
 function Creature:getAccountType(...) end
@@ -113,6 +115,7 @@ function Creature:getStamina(...) end
 function Creature:getStorageValue(...) end
 function Creature:getSummons(...) end
 function Creature:getTile(...) end
+function Creature:getTotalMoney(...) end
 function Creature:getTown(...) end
 function Creature:getType(...) end
 function Creature:getVocation(...) end
@@ -190,6 +193,8 @@ function Game.reload(...) end
 function Game.saveServer(...) end
 function Game.setGameState(...) end
 function Game.startRaid(...) end
+function Game.summonCreature(...) end
+function Game.tryBreakIllusionItem(...) end
 function Game.unlockAccount(...) end
 function Game.unlockIp(...) end
 
@@ -334,6 +339,7 @@ function Npc:setMasterPos(...) end
 NpcType = {}
 
 function NpcType:appearance(...) end
+function NpcType:destinations(...) end
 function NpcType:dialogue(...) end
 function NpcType:health(...) end
 function NpcType:movement(...) end
@@ -348,6 +354,7 @@ function NpcType:parameter(...) end
 function NpcType:race(...) end
 function NpcType:register(...) end
 function NpcType:sex(...) end
+function NpcType:shop(...) end
 function NpcType:speechBubble(...) end
 function NpcType:voice(...) end
 

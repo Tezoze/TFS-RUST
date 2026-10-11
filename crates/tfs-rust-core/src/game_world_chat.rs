@@ -572,22 +572,19 @@ impl GameWorld {
     ///
     /// C++ reference: `src/game.cpp` `Game::playerOpenChannel`; `chat.cpp` `ChatChannel::executeCanJoinEvent`.
     pub fn player_open_channel(&mut self, conn_id: ConnId, cid: CreatureId, channel_id: u16) {
-        let Some(CreatureKind::Player(player)) = self.creatures.get(cid) else {
-            return;
-        };
-
-        // Check if channel exists
         let Some(channel) = self.chat.get_channel(channel_id) else {
             return;
         };
 
         let channel_name = channel.name.clone();
         let is_public = channel.public_channel;
+        let player_guid = match self.creatures.get(cid) {
+            Some(CreatureKind::Player(player)) => player.guid,
+            _ => return,
+        };
 
-        // TODO(chat CH-4): Run Lua `canJoin` hook if present
-        // For now, all public channels are joinable, private channels require ownership/invitation
+        // Private channel: owner or invite. Public channels fall through to canJoin.
         if !is_public {
-            // Private channel: check if player is owner or invited
             let is_owner = self
                 .chat
                 .get_private_channel(channel_id)
@@ -596,7 +593,7 @@ impl GameWorld {
             let is_invited = self
                 .chat
                 .get_private_channel(channel_id)
-                .map(|pc| pc.invited.contains(&player.guid))
+                .map(|pc| pc.invited.contains(&player_guid))
                 .unwrap_or(false);
 
             if !is_owner && !is_invited {
@@ -604,10 +601,12 @@ impl GameWorld {
             }
         }
 
-        // Add user to channel
-        self.chat.add_user_to_channel(channel_id, cid);
+        if !crate::lua_scope::fire_channel_can_join(self, channel_id, cid) {
+            return;
+        }
 
-        // TODO(chat CH-4): Run Lua `onJoin` hook if present
+        self.chat.add_user_to_channel(channel_id, cid);
+        crate::lua_scope::fire_channel_on_join(self, channel_id, cid);
 
         // Send channel ack (use codec version for era correctness)
         let wire = ChannelOpenWire {
@@ -629,9 +628,9 @@ impl GameWorld {
     ///
     /// C++ reference: `src/game.cpp` `Game::playerCloseChannel`; `chat.cpp` `ChatChannel::executeOnLeaveEvent`.
     pub fn player_close_channel(&mut self, cid: CreatureId, channel_id: u16) {
-        // TODO(chat CH-4): Run Lua `onLeave` hook if present
-
-        // Remove user from channel
+        if self.chat.is_user_in_channel(channel_id, cid) {
+            crate::lua_scope::fire_channel_on_leave(self, channel_id, cid);
+        }
         self.chat.remove_user_from_channel(channel_id, cid);
     }
 
@@ -644,7 +643,7 @@ impl GameWorld {
     pub fn player_talk_to_channel(
         &mut self,
         cid: CreatureId,
-        speak_class: u8,
+        mut speak_class: u8,
         channel_id: u16,
         text: &str,
     ) {
@@ -700,6 +699,14 @@ impl GameWorld {
             && self.player_record_talk_and_maybe_mute(cid)
         {
             return;
+        }
+
+        match crate::lua_scope::fire_channel_on_speak(self, channel_id, cid, speak_class, text) {
+            crate::chat_hooks::ChannelSpeakResult::Cancel => return,
+            crate::chat_hooks::ChannelSpeakResult::Keep => {}
+            crate::chat_hooks::ChannelSpeakResult::Retype(speak_type) => {
+                speak_class = speak_type;
+            }
         }
 
         let mut recipients: Vec<ConnId> = Vec::new();

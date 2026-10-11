@@ -1633,8 +1633,7 @@ mod tests {
         let p = MechanicsProfile::for_version(ProtocolVersion::V772);
         assert_eq!(p.monster_spells.cadence, MonsterSpellCadence::MachineGun);
         assert_eq!(
-            p.monster_spells
-                .round_interval_ms(false, Some(1), true, 1),
+            p.monster_spells.round_interval_ms(false, Some(1), true, 1),
             2000
         );
     }
@@ -1653,21 +1652,17 @@ mod tests {
     #[test]
     fn monster_spell_cadence_overlay() {
         let lua = Lua::new();
-        lua.load(
-            r#"formulas = { monsterSpells = { cadence = "round" } }"#,
-        )
-        .exec()
-        .unwrap();
+        lua.load(r#"formulas = { monsterSpells = { cadence = "round" } }"#)
+            .exec()
+            .unwrap();
         let p = parse_profile(&lua, MechanicsProfile::for_version(ProtocolVersion::V772));
         assert_eq!(p.monster_spells.cadence, MonsterSpellCadence::Round);
         assert_eq!(
-            p.monster_spells
-                .round_interval_ms(false, Some(1), true, 1),
+            p.monster_spells.round_interval_ms(false, Some(1), true, 1),
             2000
         );
         assert_eq!(
-            p.monster_spells
-                .round_interval_ms(false, Some(3), true, 1),
+            p.monster_spells.round_interval_ms(false, Some(3), true, 1),
             4000
         );
     }

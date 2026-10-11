@@ -184,8 +184,12 @@ impl NpcActionHost for GameWorld {
             .get(npc)
             .map(|k| k.position())
             .ok_or_else(|| "summon: npc not found".to_string())?;
-        let created = self.lua_script_create_monster(monster, pos.x, pos.y, pos.z, false, true)?;
-        if created.is_none() {
+        // `CreateMonster` binds Master (`crnonpl.cc:2012`). A free-field search
+        // places the body; the NPC is the master.
+        if self
+            .monster_create_summon(npc, monster, true, pos)
+            .is_none()
+        {
             return Err(format!("summon: unknown monster {monster:?}"));
         }
         Ok(())

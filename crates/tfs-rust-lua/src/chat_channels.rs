@@ -4,21 +4,24 @@
 //! self-registering Lua convention).
 
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::runtime::{LuaError, LuaRuntime, PendingChatChannel};
 
 /// Chat channel definition loaded from Lua scripts.
 ///
 /// C++ reference: `chat.h` `ChatChannel` — channel identity + hook storage.
+/// Hooks are `Arc` so the game thread can keep them after the def is copied
+/// into the plain channel list.
 #[derive(Debug)]
 pub struct ChatChannelDef {
     pub id: u16,
     pub name: String,
     pub public: bool,
-    pub on_speak: Option<mlua::RegistryKey>,
-    pub can_join: Option<mlua::RegistryKey>,
-    pub on_join: Option<mlua::RegistryKey>,
-    pub on_leave: Option<mlua::RegistryKey>,
+    pub on_speak: Option<Arc<mlua::RegistryKey>>,
+    pub can_join: Option<Arc<mlua::RegistryKey>>,
+    pub on_join: Option<Arc<mlua::RegistryKey>>,
+    pub on_leave: Option<Arc<mlua::RegistryKey>>,
 }
 
 impl From<PendingChatChannel> for ChatChannelDef {
@@ -27,10 +30,10 @@ impl From<PendingChatChannel> for ChatChannelDef {
             id: pending.id,
             name: pending.name,
             public: pending.public,
-            on_speak: pending.on_speak,
-            can_join: pending.can_join,
-            on_join: pending.on_join,
-            on_leave: pending.on_leave,
+            on_speak: pending.on_speak.map(Arc::new),
+            can_join: pending.can_join.map(Arc::new),
+            on_join: pending.on_join.map(Arc::new),
+            on_leave: pending.on_leave.map(Arc::new),
         }
     }
 }

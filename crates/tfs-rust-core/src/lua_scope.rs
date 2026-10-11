@@ -2,6 +2,7 @@
 //!
 //! C++ reference: `LuaScriptInterface::executeTimer` / creature event dispatch — single game thread.
 
+use crate::chat_hooks::ChannelSpeakResult;
 use crate::cylinder::Cylinder;
 use crate::event_dispatcher::TalkActionResult;
 use crate::game_world::{GameWorld, TileMoveEventItem};
@@ -1075,6 +1076,53 @@ pub fn fire_talkaction(world: &mut GameWorld, cid: CreatureId, text: &str) -> Ta
             tracing::debug!(?cid, text, ?result, "fire_talkaction result");
             result
         })
+    })
+}
+
+fn with_channel_scope<T>(world: &mut GameWorld, body: impl FnOnce(&mut GameWorld) -> T) -> T {
+    let world_ptr = std::ptr::from_mut(world);
+    with_lua_mutation_scope(world_ptr as *mut (), || {
+        let ctx: &dyn tfs_rust_common::ScriptContext = unsafe { &*world_ptr };
+        with_lua_context(ctx, || {
+            let world = unsafe { &mut *world_ptr };
+            body(world)
+        })
+    })
+}
+
+/// `Channel.canJoin`. False denies the join. No hook allows it.
+pub fn fire_channel_can_join(world: &mut GameWorld, channel_id: u16, cid: CreatureId) -> bool {
+    with_channel_scope(world, |world| {
+        world.events.channel_can_join(channel_id, cid)
+    })
+}
+
+/// `Channel.onJoin` after the player is a member.
+pub fn fire_channel_on_join(world: &mut GameWorld, channel_id: u16, cid: CreatureId) {
+    with_channel_scope(world, |world| {
+        world.events.channel_on_join(channel_id, cid);
+    });
+}
+
+/// `Channel.onLeave` while the player is still a member.
+pub fn fire_channel_on_leave(world: &mut GameWorld, channel_id: u16, cid: CreatureId) {
+    with_channel_scope(world, |world| {
+        world.events.channel_on_leave(channel_id, cid);
+    });
+}
+
+/// `Channel.onSpeak`. Cancel drops the line; Retype replaces the speak type.
+pub fn fire_channel_on_speak(
+    world: &mut GameWorld,
+    channel_id: u16,
+    cid: CreatureId,
+    speak_type: u8,
+    message: &str,
+) -> ChannelSpeakResult {
+    with_channel_scope(world, |world| {
+        world
+            .events
+            .channel_on_speak(channel_id, cid, speak_type, message)
     })
 }
 

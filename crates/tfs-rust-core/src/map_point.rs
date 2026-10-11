@@ -4,12 +4,12 @@
 //! write objects. Creature names go into one reused [`AddCreatureWire`].
 //! Pack surface: `GetTileDescription` order (ground, Cip bottom/top/creature/low, 10-thing cap).
 
+use tfs_rust_common::ConnId;
 use tfs_rust_common::Position;
 use tfs_rust_common::enums::SkullType;
 use tfs_rust_net::NetworkMessage;
 use tfs_rust_net::creature_encode::AddCreatureWire;
 use tfs_rust_net::creature_known::{KnownCreatureTable, check_creature_known};
-use tfs_rust_common::ConnId;
 use tfs_rust_net::map_description::{
     ItemStack, MapTilePass, TileContent, send_map_description_packet_direct,
     send_map_description_packet_fill, send_update_tile,
@@ -358,20 +358,11 @@ impl GameWorld {
     /// `CRefreshField` → `SendFieldData` (`receiving.cc:1349`, `sending.cc:580`, opcode `0x69`).
     ///
     /// Off-map and out-of-view requests are ignored. A visible tile is resent even when empty.
-    pub(crate) fn player_refresh_field(
-        &mut self,
-        conn_id: ConnId,
-        cid: CreatureId,
-        pos: Position,
-    ) {
+    pub(crate) fn player_refresh_field(&mut self, conn_id: ConnId, cid: CreatureId, pos: Position) {
         if pos.z > 15 || !self.can_see_position(cid, pos) {
             return;
         }
-        let player_pos = self
-            .creatures
-            .get(cid)
-            .map(|k| k.position())
-            .unwrap_or(pos);
+        let player_pos = self.creatures.get(cid).map(|k| k.position()).unwrap_or(pos);
         let Some(ctx) = MapDescribeCtx::from_world(self, cid, player_pos) else {
             return;
         };
@@ -409,7 +400,9 @@ mod tests {
     use tfs_rust_common::ConnId;
     use tfs_rust_common::Position;
 
-    use crate::test_support::{beat_driven_test_world, ensure_walkable_tile, insert_player, test_player};
+    use crate::test_support::{
+        beat_driven_test_world, ensure_walkable_tile, insert_player, test_player,
+    };
 
     #[test]
     fn refresh_visible_tile_sends_field_data() {

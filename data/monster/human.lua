@@ -1,0 +1,57 @@
+-- Corpus race "human" (`runtime/mon/human.mon`).
+-- Inventory chances are per-mille × 100, matching rat.mon → rat.lua.
+return {
+  schema = 1,
+  name = "human",
+  description = "a human",
+  race = "blood",
+  experience = 50,
+  speed = 70,
+  mana_cost = 350,
+  health = 150,
+  max_health = 150,
+  outfit = {
+    look_type = 1,
+    look_head = 0,
+    look_body = 0,
+    look_legs = 0,
+    look_feet = 0,
+    corpse = 4240,
+  },
+  target_strategy = { nearest = 100, weakest = 0, most_damage = 0, random = 0 },
+  flags = {
+    hostile = true,
+    summonable = false,
+    illusionable = false,
+    pushable = true,
+    convinceable = true,
+    can_push_items = false,
+    can_push_creatures = false,
+    target_distance = 1,
+    run_health = 20,
+  },
+  attacks = {
+    {
+      name = "melee",
+      skill = 10,
+      attack = 7,
+      skill_factor = 1500,
+      skill_next_level = 50,
+      skill_add_count = 0,
+    },
+  },
+  defenses = {
+    armor = 0,
+    defense = 5,
+  },
+  loot = {
+    { id = 2854, chance = 50000 },
+    { id = 3600, chance = 50000, count_max = 3 },
+    { id = 3607, chance = 30000 },
+    { id = 3031, chance = 60000, count_max = 20 },
+    { id = 3361, chance = 60000 },
+    { id = 3355, chance = 10000 },
+    { id = 3577, chance = 40000, count_max = 3 },
+    { id = 3264, chance = 80000 },
+  },
+}
