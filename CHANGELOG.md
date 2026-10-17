@@ -62,6 +62,7 @@ Protocol 800 uses the same 772 mechanics corpus, with its own wire codec and `da
 
 ### Release tree and CI
 
+- 2026-10-17 — An NPC shop catalog uses a derived `Default`. Rust 1.99 Clippy rejects the hand-written impl, which was failing CI.
 - 2026-09-26 — `tasks/` and the audit notes stay on disk and out of git. The compiling and Docker guides stay tracked. Unused NPC fixture traces and the local helper scripts are not published. Start the server with `cargo run --bin tfs-rust`.
 - 2026-09-27 — CI no longer runs the criterion benchmark or the `tfs-rust-sim` harness. Item tests load the tracked 772 `items.ron` catalog. LuaLS knows the injected tool globals (`actionIds`, `corpseIds`, `ropeSpots`, `Fields`) and the return types of `Game.getPlayers`, `Game.getHouses`, and the SQL result queries.
 

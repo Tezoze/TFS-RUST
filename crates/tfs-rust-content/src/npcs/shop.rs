@@ -59,7 +59,7 @@ impl NpcShopMessages {
 }
 
 /// Validated shop catalog attached to an [`super::NpcDefinition`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NpcShopDefinition {
     pub items: Vec<NpcShopItem>,
     pub messages: NpcShopMessages,
@@ -70,18 +70,6 @@ pub struct NpcShopDefinition {
     pub bag_price: u32,
     /// Optional script parameters (TFS `npc:getParameter` style).
     pub parameters: HashMap<String, String>,
-}
-
-impl Default for NpcShopDefinition {
-    fn default() -> Self {
-        Self {
-            items: Vec::new(),
-            messages: NpcShopMessages::default(),
-            bag_item_id: 0,
-            bag_price: 0,
-            parameters: HashMap::new(),
-        }
-    }
 }
 
 /// Named ship destination for `{ listDestinations = true }` and travel-by-name.
