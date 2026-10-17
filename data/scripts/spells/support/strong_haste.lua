@@ -4,7 +4,7 @@ combat:setParameter(COMBAT_PARAM_AGGRESSIVE, false)
 
 local condition = Condition(CONDITION_HASTE)
 condition:setParameter(CONDITION_PARAM_TICKS, 30000)
-condition:setParameter(CONDITION_PARAM_SPEED, 60)
+condition:setParameter(CONDITION_PARAM_SPEED, 70)
 combat:addCondition(condition)
 
 local spell = Spell(SPELL_INSTANT)

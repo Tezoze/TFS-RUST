@@ -499,6 +499,18 @@ fn on_use_knife(world: &mut GameWorld, req: &ToolUseRequest) -> bool {
     true
 }
 
+/// Climb only when the clicked object is the rope-spot ground (`moveuse.dat` Roping).
+/// A creature or another item does not take that target. Bare ground (`itemid` nil) does.
+fn rope_target_is_spot(req: &ToolUseRequest, ground: u16) -> bool {
+    if req.target_creature.is_some() {
+        return false;
+    }
+    match req.target_itemid {
+        Some(id) => id == ground,
+        None => true,
+    }
+}
+
 fn on_use_rope(world: &mut GameWorld, req: &ToolUseRequest) -> bool {
     let pos = to_pos(req);
     let Some(tile) = world.map.get_tile(pos) else {
@@ -507,6 +519,7 @@ fn on_use_rope(world: &mut GameWorld, req: &ToolUseRequest) -> bool {
     let ground_type = tile.body().ground;
     if let Some(gt) = ground_type
         && world.tool_ids.rope_spots.contains(&gt)
+        && rope_target_is_spot(req, gt)
     {
         let dest = move_upstairs(world, pos);
         if world.map.get_tile(dest).is_none() {
@@ -1281,5 +1294,112 @@ mod tests {
         };
         assert!(apply(&mut world, &req));
         assert_eq!(world.items.get(iid).unwrap().item_type, open);
+    }
+
+    fn rope_req(
+        player: CreatureId,
+        pos: Position,
+        itemid: Option<u16>,
+        creature: Option<u64>,
+    ) -> ToolUseRequest {
+        ToolUseRequest {
+            kind: ToolUseKind::Rope,
+            player: player.data().as_ffi(),
+            item: None,
+            target_item: None,
+            target_creature: creature,
+            target_is_item_userdata: itemid.is_some(),
+            target_itemid: itemid,
+            target_actionid: 0,
+            from: (pos.x, pos.y, pos.z),
+            to: (pos.x, pos.y, pos.z),
+            quest: None,
+        }
+    }
+
+    fn rope_spot_world() -> (GameWorld, Position, CreatureId) {
+        let mut world = minimal_world();
+        load_pack_ids(&mut world);
+        register_types(&mut world, &[386, 100, 2001]);
+        let pos = Position::new(50, 50, 7);
+        place_ground(&mut world, pos, 386, 0);
+        place_ground(&mut world, Position::new(50, 51, 6), 100, 0);
+        let cid = insert_player(&mut world, test_player("R", pos));
+        world.map.register_creature_at(pos, cid);
+        (world, pos, cid)
+    }
+
+    #[test]
+    fn rope_on_empty_spot_climbs() {
+        let (mut world, pos, cid) = rope_spot_world();
+        assert!(apply(&mut world, &rope_req(cid, pos, None, None)));
+        assert_eq!(
+            world.creatures.get(cid).unwrap().position(),
+            Position::new(50, 51, 6)
+        );
+        let (mut world, pos, cid) = rope_spot_world();
+        assert!(apply(&mut world, &rope_req(cid, pos, Some(386), None)));
+        assert_eq!(
+            world.creatures.get(cid).unwrap().position(),
+            Position::new(50, 51, 6)
+        );
+    }
+
+    #[test]
+    fn rope_on_creature_or_item_does_not_climb() {
+        let (mut world, pos, cid) = rope_spot_world();
+        let other = insert_player(&mut world, test_player("Occ", pos));
+        world.map.register_creature_at(pos, other);
+        assert!(!apply(
+            &mut world,
+            &rope_req(cid, pos, None, Some(other.data().as_ffi()))
+        ));
+        assert_eq!(world.creatures.get(cid).unwrap().position(), pos);
+
+        let (mut world, pos, cid) = rope_spot_world();
+        let bag = world.items.insert(Item::new_single(2001));
+        world.map.get_tile_mut(pos).unwrap().add_item(bag);
+        assert!(!apply(&mut world, &rope_req(cid, pos, Some(2001), None)));
+        assert_eq!(world.creatures.get(cid).unwrap().position(), pos);
+    }
+
+    #[test]
+    fn multiuse_rope_spot_requires_the_ground() {
+        use crate::creature_todo::ActionObjectRef;
+
+        let (mut world, pos, cid) = rope_spot_world();
+        world.map.get_tile_mut(pos).unwrap().remove_creature(cid);
+        let ground = ActionObjectRef {
+            pos,
+            stack_pos: 0,
+            sprite_id: 386,
+            creature_id: None,
+        };
+        assert!(world.multiuse_target_is_best(ground));
+
+        world.map.register_creature_at(pos, cid);
+        assert!(!world.multiuse_target_is_best(ground));
+        let on_creature = ActionObjectRef {
+            creature_id: Some(cid),
+            ..ground
+        };
+        assert!(world.multiuse_target_is_best(on_creature));
+
+        let (mut world, pos, cid) = rope_spot_world();
+        world.map.get_tile_mut(pos).unwrap().remove_creature(cid);
+        let bag = world.items.insert(Item::new_single(2001));
+        world.map.get_tile_mut(pos).unwrap().add_item(bag);
+        let ground = ActionObjectRef {
+            pos,
+            stack_pos: 0,
+            sprite_id: 386,
+            creature_id: None,
+        };
+        assert!(!world.multiuse_target_is_best(ground));
+        let on_bag = ActionObjectRef {
+            sprite_id: 2001,
+            ..ground
+        };
+        assert!(world.multiuse_target_is_best(on_bag));
     }
 }

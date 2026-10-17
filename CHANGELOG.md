@@ -22,6 +22,7 @@ Protocol 800 uses the same 772 mechanics corpus, with its own wire codec and `da
 - 2026-10-11 — 7.72 anonymous channel speech sends an empty name. A private message with no speaker is not sent. A 7.72 gamemaster login sends the banishment-rights packet after the character appears. 8.0 still sends the staff viewport bytes on the appear packet.
 - 2026-10-11 — Stopping during a push wait cancels that push when the wait ends. The item or creature stays put, and the client gets a position snapback.
 - 2026-10-11 — The rule-violation channel is open to gamemasters. Reports, answers, and cancels use the 8.0 channel packets. 7.72 still uses the gamemaster request.
+- 2026-10-17 — 8.0 missile names from infernal bolt through ethereal spear are recognized. A 7.72 client does not receive those shots.
 
 ### World
 
@@ -51,6 +52,7 @@ Protocol 800 uses the same 772 mechanics corpus, with its own wire codec and `da
 - 2026-10-11 — Cancel invisibility leaves the caster's tile, protection zones, and peaceful creatures on a no-PvP world hidden. It only reveals someone who is actually invisible.
 - 2026-10-11 — Drinking slime applies a poison of strength 200. A stronger poison already on the player stays.
 - 2026-10-17 — A spell is blocked only by the spell wait. A weapon swing waits until both the attack wait and the spell wait are over. Using two objects has its own wait. Walking does not use these waits.
+- 2026-10-17 — Sudden death and poison runes shoot their missile at the target. Anyone who can see the caster or the target sees that shot. Monster distance spells use the same send.
 
 ### Items
 

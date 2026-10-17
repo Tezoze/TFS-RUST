@@ -304,6 +304,20 @@ fn register_shoot_types(globals: &mlua::Table) -> Result<(), mlua::Error> {
     globals.set("CONST_ANI_SNOWBALL", 13i32)?; // const.h:53
     globals.set("CONST_ANI_POWERBOLT", 14i32)?; // const.h:54
     globals.set("CONST_ANI_POISON", 15i32)?; // const.h:55
+    // 8.0 `ShootType_t` 16–28. Present for that client; the 772 codec omits them.
+    globals.set("CONST_ANI_INFERNALBOLT", 16i32)?;
+    globals.set("CONST_ANI_HUNTINGSPEAR", 17i32)?;
+    globals.set("CONST_ANI_ENCHANTEDSPEAR", 18i32)?;
+    globals.set("CONST_ANI_REDSTAR", 19i32)?;
+    globals.set("CONST_ANI_GREENSTAR", 20i32)?;
+    globals.set("CONST_ANI_ROYALSPEAR", 21i32)?;
+    globals.set("CONST_ANI_SNIPERARROW", 22i32)?;
+    globals.set("CONST_ANI_ONYXARROW", 23i32)?;
+    globals.set("CONST_ANI_PIERCINGBOLT", 24i32)?;
+    globals.set("CONST_ANI_WHIRLWINDSWORD", 25i32)?;
+    globals.set("CONST_ANI_WHIRLWINDAXE", 26i32)?;
+    globals.set("CONST_ANI_WHIRLWINDCLUB", 27i32)?;
+    globals.set("CONST_ANI_ETHEREALSPEAR", 28i32)?;
     Ok(())
 }
 

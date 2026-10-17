@@ -235,6 +235,20 @@ pub enum ShootEffect {
     Snowball = 13,
     PowerBolt = 14,
     Poison = 15,
+    /// 8.0 `ShootType_t` (`const.h`). The 772 codec does not send these.
+    InfernalBolt = 16,
+    HuntingSpear = 17,
+    EnchantedSpear = 18,
+    RedStar = 19,
+    GreenStar = 20,
+    RoyalSpear = 21,
+    SniperArrow = 22,
+    OnyxArrow = 23,
+    PiercingBolt = 24,
+    WhirlwindSword = 25,
+    WhirlwindAxe = 26,
+    WhirlwindClub = 27,
+    EtherealSpear = 28,
 }
 
 // --- `Display` for logging (`tasks/Idioms-audit.md` §9) ---
@@ -461,6 +475,19 @@ impl fmt::Display for ShootEffect {
             Self::Snowball => "snowball",
             Self::PowerBolt => "power-bolt",
             Self::Poison => "poison",
+            Self::InfernalBolt => "infernal-bolt",
+            Self::HuntingSpear => "hunting-spear",
+            Self::EnchantedSpear => "enchanted-spear",
+            Self::RedStar => "red-star",
+            Self::GreenStar => "green-star",
+            Self::RoyalSpear => "royal-spear",
+            Self::SniperArrow => "sniper-arrow",
+            Self::OnyxArrow => "onyx-arrow",
+            Self::PiercingBolt => "piercing-bolt",
+            Self::WhirlwindSword => "whirlwind-sword",
+            Self::WhirlwindAxe => "whirlwind-axe",
+            Self::WhirlwindClub => "whirlwind-club",
+            Self::EtherealSpear => "ethereal-spear",
         })
     }
 }

@@ -311,6 +311,29 @@ pub fn speed_mdact(go_act: i32, percent: i32) -> i32 {
     }
 }
 
+/// `MagicGoStrength` (`magic.cc:2282-2285`).
+///
+/// Params at most 100 are percents of GoStrength Act (haste 30, strong haste 70,
+/// paralyze −101). A larger positive stays a flat go delta (GM `alani` fastest is 200).
+#[inline]
+pub fn spell_speed_flat_delta(go_act: i32, param: i32) -> i32 {
+    if param <= 100 {
+        speed_mdact(go_act, param)
+    } else {
+        param
+    }
+}
+
+/// Rewrite a haste/paralyze condition's stored delta to MDAct go units.
+pub fn apply_spell_speed_mdact(cond: &mut ActiveCondition, go_act: i32, param: i32) {
+    if !matches!(cond.ctype, ConditionType::Haste | ConditionType::Paralyze) {
+        return;
+    }
+    if let ConditionData::Speed { flat_delta } = &mut cond.data {
+        *flat_delta = spell_speed_flat_delta(go_act, param);
+    }
+}
+
 /// C++ `TCombat::GetDistance` — `crcombat.cc:309`.
 ///
 /// Monsters are Fist-only (`GetWeapon` Fist=true → distance 1). Ranged spell damage
@@ -753,6 +776,34 @@ fn parse_shoot_effect_name(name: &str) -> Option<u8> {
         Some(ShootEffect::Snowball as u8)
     } else if name.eq_ignore_ascii_case("powerbolt") {
         Some(ShootEffect::PowerBolt as u8)
+    } else if name.eq_ignore_ascii_case("infernalbolt") {
+        Some(ShootEffect::InfernalBolt as u8)
+    } else if name.eq_ignore_ascii_case("huntingspear") {
+        Some(ShootEffect::HuntingSpear as u8)
+    } else if name.eq_ignore_ascii_case("enchantedspear") {
+        Some(ShootEffect::EnchantedSpear as u8)
+    } else if name.eq_ignore_ascii_case("redstar") {
+        Some(ShootEffect::RedStar as u8)
+    } else if name.eq_ignore_ascii_case("greenstar") {
+        Some(ShootEffect::GreenStar as u8)
+    } else if name.eq_ignore_ascii_case("royalspear") {
+        Some(ShootEffect::RoyalSpear as u8)
+    } else if name.eq_ignore_ascii_case("sniperarrow") {
+        Some(ShootEffect::SniperArrow as u8)
+    } else if name.eq_ignore_ascii_case("onyxarrow") {
+        Some(ShootEffect::OnyxArrow as u8)
+    } else if name.eq_ignore_ascii_case("piercingbolt") {
+        Some(ShootEffect::PiercingBolt as u8)
+    } else if name.eq_ignore_ascii_case("whirlwindsword") {
+        Some(ShootEffect::WhirlwindSword as u8)
+    } else if name.eq_ignore_ascii_case("whirlwindaxe") {
+        Some(ShootEffect::WhirlwindAxe as u8)
+    } else if name.eq_ignore_ascii_case("whirlwindclub")
+        || name.eq_ignore_ascii_case("whirldwindclub")
+    {
+        Some(ShootEffect::WhirlwindClub as u8)
+    } else if name.eq_ignore_ascii_case("etherealspear") {
+        Some(ShootEffect::EtherealSpear as u8)
     } else {
         debug!(shooteffect = name, "unknown monster shooteffect");
         None
@@ -1578,6 +1629,18 @@ mod tests {
             parse_shoot_effect_name("largerock"),
             Some(ShootEffect::LargeRock as u8)
         );
+        assert_eq!(
+            parse_shoot_effect_name("infernalbolt"),
+            Some(ShootEffect::InfernalBolt as u8)
+        );
+        assert_eq!(
+            parse_shoot_effect_name("whirldwindclub"),
+            Some(ShootEffect::WhirlwindClub as u8)
+        );
+        assert_eq!(
+            parse_shoot_effect_name("etherealspear"),
+            Some(ShootEffect::EtherealSpear as u8)
+        );
     }
 
     #[test]
@@ -1626,6 +1689,11 @@ mod tests {
         assert_eq!(speed_mdact(100, 60), 60);
         assert_eq!(speed_mdact(100, -50), -50);
         assert_eq!(speed_mdact(100, -120), -120); // -Act - 20
+        // Level-1 go 70: haste 30% → 21, strong haste 70% → 49, paralyze −101 → −90.
+        assert_eq!(spell_speed_flat_delta(70, 30), 21);
+        assert_eq!(spell_speed_flat_delta(70, 70), 49);
+        assert_eq!(spell_speed_flat_delta(70, -101), -90);
+        assert_eq!(spell_speed_flat_delta(70, 200), 200);
         assert!(
             !SpellImpact::Speed {
                 percent: 60,

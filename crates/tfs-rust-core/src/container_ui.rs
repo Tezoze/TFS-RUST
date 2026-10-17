@@ -20,6 +20,20 @@ use crate::ids::{CreatureId, ItemId};
 use crate::return_value::ReturnValue;
 use crate::walk::are_in_range_1_1_0;
 
+/// One step of `CheckTopMultiuseObject` (`operate.cc:380`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MultiuseHit {
+    Ground(u16),
+    Item(ItemId),
+    Creature(CreatureId),
+}
+
+struct MultiuseItemFlags {
+    splash: bool,
+    priority_low: bool,
+    force_use: bool,
+}
+
 /// How to sync the client container window — `Player::onAddContainerItem` / full refresh (`player.cpp`).
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) enum ContainerContentChange {
@@ -642,6 +656,117 @@ impl GameWorld {
             return Some(best);
         }
         resolved
+    }
+
+    /// 772 `CheckTopMultiuseObject` (`operate.cc:380`).
+    ///
+    /// Use-with is refused unless the clicked object is the best object on that
+    /// tile. A creature or a normal item stops the walk, so the rope-spot ground
+    /// cannot be used. An unidentified click (rune floor aim) is allowed.
+    pub(crate) fn multiuse_target_is_best(
+        &self,
+        target: crate::creature_todo::ActionObjectRef,
+    ) -> bool {
+        if target.pos.x == 0xFFFF {
+            return true;
+        }
+        match (
+            self.multiuse_clicked_hit(target),
+            self.multiuse_best_hit(target.pos),
+        ) {
+            (Some(clicked), Some(best)) => clicked == best,
+            _ => true,
+        }
+    }
+
+    fn multiuse_clicked_hit(
+        &self,
+        target: crate::creature_todo::ActionObjectRef,
+    ) -> Option<MultiuseHit> {
+        if let Some(id) = target.creature_id {
+            return Some(MultiuseHit::Creature(id));
+        }
+        if let Some(gt) =
+            self.resolve_ground_use_type(target.pos, target.stack_pos, target.sprite_id)
+        {
+            return Some(MultiuseHit::Ground(gt));
+        }
+        let id = self.find_tile_item_by_client_sprite(target.pos, target.sprite_id)?;
+        let body = self.map.get_tile(target.pos)?.body();
+        if body.ground_item == Some(id)
+            && let Some(gt) = body.ground
+        {
+            return Some(MultiuseHit::Ground(gt));
+        }
+        Some(MultiuseHit::Item(id))
+    }
+
+    /// Ground, then bottoms and tops, then the first creature, else the first low item.
+    /// A splash does not replace an earlier best. `FORCEUSE` or `PRIORITY_LOW` stops.
+    fn multiuse_best_hit(&self, pos: Position) -> Option<MultiuseHit> {
+        let (ground, ground_item, top_creature) = {
+            let tile = self.map.get_tile(pos)?;
+            let body = tile.body();
+            (
+                body.ground,
+                body.ground_item,
+                body.creatures().first().copied(),
+            )
+        };
+        let mut best = ground.map(MultiuseHit::Ground);
+        let items: Vec<ItemId> = self.tile_items_in_chain_order(pos)?.collect();
+        let mut low_at = None;
+        for (idx, id) in items.iter().copied().enumerate() {
+            if Some(id) == ground_item {
+                continue;
+            }
+            let Some(flags) = self.multiuse_item_flags(id) else {
+                continue;
+            };
+            if flags.priority_low {
+                low_at = Some(idx);
+                break;
+            }
+            if best.is_none() || !flags.splash {
+                best = Some(MultiuseHit::Item(id));
+            }
+            if flags.force_use {
+                return best;
+            }
+        }
+        if let Some(cid) = top_creature {
+            return Some(MultiuseHit::Creature(cid));
+        }
+        if let Some(start) = low_at {
+            for id in items.into_iter().skip(start) {
+                if Some(id) == ground_item {
+                    continue;
+                }
+                let Some(flags) = self.multiuse_item_flags(id) else {
+                    continue;
+                };
+                if best.is_none() || !flags.splash {
+                    best = Some(MultiuseHit::Item(id));
+                }
+                if flags.force_use || flags.priority_low {
+                    break;
+                }
+            }
+        }
+        best
+    }
+
+    fn multiuse_item_flags(&self, id: ItemId) -> Option<MultiuseItemFlags> {
+        let it = self
+            .items
+            .get(id)
+            .and_then(|i| self.items_db.items.get(&i.item_type))?;
+        let splash = it.is_splash();
+        Some(MultiuseItemFlags {
+            splash,
+            priority_low: !it.is_ground_tile() && !it.always_on_top() && !splash,
+            force_use: it.force_use(),
+        })
     }
 
     /// 772 `CheckTopUseObject` Best (`operate.cc:360-373`) — items only.

@@ -464,7 +464,13 @@ impl Codec772 {
     }
 
     /// 7.72 `ProtocolGame::sendDistanceShoot` — opcode [`server::DISTANCE_SHOOT`] (~1535).
+    ///
+    /// 772 `AnimationType` ends at poison (15). An 8.0 missile (16–28) is omitted
+    /// so that client never sees a type it does not have.
     pub fn encode_distance_shoot(&self, w: &DistanceShootWire) -> NetworkMessage {
+        if w.shoot_type > 15 {
+            return NetworkMessage::new();
+        }
         let mut m = NetworkMessage::new();
         m.write_u8(server::DISTANCE_SHOOT);
         m.write_position(&w.from);

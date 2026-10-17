@@ -69,8 +69,9 @@ fn go_strength_for_walk(
             crate::formulas::StepSpeedModel::TfsLog => {
                 raw.clamp(PLAYER_MIN_SPEED, PLAYER_MAX_SPEED)
             }
-            // 772 wire + walk GoStrength (`baseSpeed`); effective `GetSpeed` is for server timers only.
-            crate::formulas::StepSpeedModel::LinearGo => raw.max(0),
+            // 772 `GetSpeed` = `2*Get()+80` even when paralyze MDAct drives Go negative
+            // (`magic.cc:2282`, Act−20 → speed 40). Clamping here made that 80.
+            crate::formulas::StepSpeedModel::LinearGo => raw,
         },
         WalkSpeedRole::MonsterOrNpc => raw,
     }

@@ -1388,7 +1388,13 @@ impl GameWorld {
             }
             return Ok(());
         }
-        let cond = active_condition_from_apply_spec(&spec, &self.mechanics.profile);
+        let mut cond = active_condition_from_apply_spec(&spec, &self.mechanics.profile);
+        let go_act = self
+            .creatures
+            .get(cid)
+            .map(|k| k.base().base_speed)
+            .unwrap_or(0);
+        crate::creature::apply_spell_speed_mdact(&mut cond, go_act, spec.speed);
         apply_condition(&mut self.creatures, cid, cond);
         if spec.owner_guid > 0
             && let Some(&origin) = self.player_by_guid.get(&(spec.owner_guid as u32))
@@ -1737,6 +1743,8 @@ pub(crate) fn active_condition_from_apply_spec(
                 });
             (
                 ConditionData::Speed {
+                    // Raw percent so the skill timer still sees 70 vs 30. Apply sites
+                    // rewrite this to MDAct via `apply_spell_speed_mdact`.
                     flat_delta: spec.speed,
                 },
                 Some(timer.cycle),
@@ -1964,6 +1972,62 @@ mod apply_spec_tests {
         assert_eq!(cond.timer_rounds_left, Some(3));
         assert_eq!(cond.skill_count, 10);
         assert_eq!(cond.skill_max_count, 10);
+    }
+
+    #[test]
+    fn haste_paralyze_store_mdact_and_speed_40() {
+        use crate::formulas::{PlayerSpeedModel, StepSpeedModel};
+        use crate::test_support::{insert_player, test_player};
+        use crate::walk::{WalkSpeedRole, wire_step_speed};
+        use slotmap::Key;
+        use tfs_rust_common::Position;
+
+        let mut world = crate::test_support::minimal_world();
+        world.mechanics = crate::formulas::Mechanics::for_version(ProtocolVersion::V772);
+        world.mechanics.profile.step_speed = StepSpeedModel::LinearGo;
+        world.mechanics.profile.player_speed_model = PlayerSpeedModel::Classic772;
+        let pos = Position::new(100, 100, 7);
+        let mut player = test_player("Haste", pos);
+        player.base.base_speed = 70;
+        let cid = insert_player(&mut world, player);
+
+        let mut apply = |ctype: i32, speed: i32| {
+            world
+                .creatures
+                .get_mut(cid)
+                .unwrap()
+                .base_mut()
+                .active_conditions
+                .clear();
+            world
+                .lua_script_player_add_condition(
+                    cid.data().as_ffi(),
+                    ConditionApplySpec {
+                        ctype,
+                        speed,
+                        ticks: 30_000,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            let cond = &world.creatures.get(cid).unwrap().base().active_conditions[0];
+            match cond.data {
+                ConditionData::Speed { flat_delta } => (flat_delta, cond.timer_rounds_left),
+                _ => panic!("expected a speed condition"),
+            }
+        };
+
+        assert_eq!(apply(16, 30), (21, Some(3)));
+        assert_eq!(apply(16, 70), (49, Some(2)));
+        assert_eq!(apply(16, 200), (200, Some(2)));
+        assert_eq!(apply(32, -101), (-90, Some(1)));
+        drop(apply);
+        let speed = wire_step_speed(
+            WalkSpeedRole::Player,
+            world.creatures.get(cid).unwrap().base(),
+            &world.mechanics,
+        );
+        assert_eq!(speed, 40);
     }
 
     #[test]

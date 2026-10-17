@@ -653,7 +653,13 @@ impl ProtocolCodec for Codec800 {
     }
 
     fn encode_distance_shoot(&self, w: &DistanceShootWire) -> NetworkMessage {
-        ProtocolCodec::encode_distance_shoot(&Codec772, w)
+        // Same layout as 772. 8.0 keeps missile ids 16–28; the 772 encoder drops them.
+        let mut m = NetworkMessage::new();
+        m.write_u8(server::DISTANCE_SHOOT);
+        m.write_position(&w.from);
+        m.write_position(&w.to);
+        m.write_u8(w.shoot_type);
+        m
     }
 
     fn encode_creature_health(&self, w: &CreatureHealthWire) -> NetworkMessage {

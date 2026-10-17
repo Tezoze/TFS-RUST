@@ -528,8 +528,14 @@ impl GameWorld {
         self.broadcast_to_spectators(pos, pkt);
     }
 
-    /// C++ `Game::addDistanceEffect` — projectile from caster to target tile.
+    /// 772 `Missile` → `AnnounceMissile` (`operate.cc:1818`, `:263`).
+    ///
+    /// A player receives the shot when either end is on their screen. Shape
+    /// spells only call `Missile` when the ends differ (`magic.cc:445`, `:530`).
     pub fn broadcast_distance_shoot(&mut self, from: Position, to: Position, shoot_type: u8) {
+        if shoot_type == 0 || from == to {
+            return;
+        }
         use tfs_rust_net::codec::wire::DistanceShootWire;
         let pkt = self
             .codec
@@ -539,7 +545,16 @@ impl GameWorld {
                 shoot_type,
             })
             .into_bytes();
-        self.broadcast_to_spectators(from, pkt);
+        let packet = std::sync::Arc::<[u8]>::from(pkt);
+        let mut conns = self.spectator_conns(from);
+        for conn in self.spectator_conns(to) {
+            if !conns.contains(&conn) {
+                conns.push(conn);
+            }
+        }
+        for conn in conns {
+            self.enqueue_outgoing(conn, std::sync::Arc::clone(&packet));
+        }
     }
 
     /// Capture a [`CombatNotifySnapshot`] for `target_id` — call before `combat_execute_with_stimulus`.

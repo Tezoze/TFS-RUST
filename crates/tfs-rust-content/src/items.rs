@@ -748,6 +748,21 @@ fn parse_shoot_type(value: &str) -> Option<u8> {
         "snowball" => ShootEffect::Snowball as u8,
         "powerbolt" | "power_bolt" => ShootEffect::PowerBolt as u8,
         "poison" => ShootEffect::Poison as u8,
+        // 8.0 `shootTypeNames` (`tools.cpp`). 772 `AnimationType` stops at poison.
+        "infernalbolt" => ShootEffect::InfernalBolt as u8,
+        "huntingspear" => ShootEffect::HuntingSpear as u8,
+        "enchantedspear" => ShootEffect::EnchantedSpear as u8,
+        "redstar" => ShootEffect::RedStar as u8,
+        "greenstar" => ShootEffect::GreenStar as u8,
+        "royalspear" => ShootEffect::RoyalSpear as u8,
+        "sniperarrow" => ShootEffect::SniperArrow as u8,
+        "onyxarrow" => ShootEffect::OnyxArrow as u8,
+        "piercingbolt" => ShootEffect::PiercingBolt as u8,
+        "whirlwindsword" => ShootEffect::WhirlwindSword as u8,
+        "whirlwindaxe" => ShootEffect::WhirlwindAxe as u8,
+        // 8.0 `tools.cpp` spells this one `whirldwindclub`.
+        "whirlwindclub" | "whirldwindclub" => ShootEffect::WhirlwindClub as u8,
+        "etherealspear" => ShootEffect::EtherealSpear as u8,
         _ => return None,
     })
 }

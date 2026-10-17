@@ -615,7 +615,13 @@ impl GameWorld {
 
             // Apply `combat:addCondition` list — C++ `conditionList` post-effects.
             for spec in condition_specs {
-                let cond = active_condition_from_apply_spec(spec, &self.mechanics.profile);
+                let mut cond = active_condition_from_apply_spec(spec, &self.mechanics.profile);
+                let go_act = self
+                    .creatures
+                    .get(target_id)
+                    .map(|k| k.base().base_speed)
+                    .unwrap_or(0);
+                crate::creature::apply_spell_speed_mdact(&mut cond, go_act, spec.speed);
                 let ctype = cond.ctype;
                 apply_condition(&mut self.creatures, target_id, cond);
                 self.on_condition_started(target_id, ctype);

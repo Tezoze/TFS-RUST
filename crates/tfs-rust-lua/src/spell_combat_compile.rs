@@ -866,7 +866,9 @@ fn enum_name_to_i32(name: &str) -> Option<i32> {
         "CONST_ME_HITBYPOISON" => 17,
         "CONST_ME_MORTAREA" => 18,
         "CONST_ME_POISONAREA" => 21,
-        // CONST_ANI_*
+        // CONST_ANI_* — 772 `AnimationType` (`enums.hh`). An unknown name is
+        // skipped, so the native cast keeps `distance_effect == 0` and never
+        // calls `Missile`. Values match `ShootEffect` / TFS `ShootType_t`.
         "CONST_ANI_NONE" => 0,
         "CONST_ANI_SPEAR" => 1,
         "CONST_ANI_BOLT" => 2,
@@ -874,6 +876,29 @@ fn enum_name_to_i32(name: &str) -> Option<i32> {
         "CONST_ANI_FIRE" => 4,
         "CONST_ANI_ENERGY" => 5,
         "CONST_ANI_POISONARROW" => 6,
+        "CONST_ANI_BURSTARROW" => 7,
+        "CONST_ANI_THROWINGSTAR" => 8,
+        "CONST_ANI_THROWINGKNIFE" => 9,
+        "CONST_ANI_SMALLSTONE" => 10,
+        "CONST_ANI_DEATH" => 11,
+        "CONST_ANI_LARGEROCK" => 12,
+        "CONST_ANI_SNOWBALL" => 13,
+        "CONST_ANI_POWERBOLT" => 14,
+        "CONST_ANI_POISON" => 15,
+        // 8.0 `ShootType_t` (`const.h` 16–28). The 772 codec omits these.
+        "CONST_ANI_INFERNALBOLT" => 16,
+        "CONST_ANI_HUNTINGSPEAR" => 17,
+        "CONST_ANI_ENCHANTEDSPEAR" => 18,
+        "CONST_ANI_REDSTAR" => 19,
+        "CONST_ANI_GREENSTAR" => 20,
+        "CONST_ANI_ROYALSPEAR" => 21,
+        "CONST_ANI_SNIPERARROW" => 22,
+        "CONST_ANI_ONYXARROW" => 23,
+        "CONST_ANI_PIERCINGBOLT" => 24,
+        "CONST_ANI_WHIRLWINDSWORD" => 25,
+        "CONST_ANI_WHIRLWINDAXE" => 26,
+        "CONST_ANI_WHIRLWINDCLUB" => 27,
+        "CONST_ANI_ETHEREALSPEAR" => 28,
         // CONDITION_*
         "CONDITION_NONE" => 0,
         "CONDITION_POISON" => 1 << 0,
@@ -1079,6 +1104,30 @@ mod tests {
             }
         );
         assert_eq!(entry.distance_effect, 4);
+    }
+
+    #[test]
+    fn sudden_death_and_poisonbomb_keep_their_missiles() {
+        let compiled = compile_native_spell_combats(&data_dir());
+        let sd = compiled
+            .iter()
+            .find(|e| e.key == "rune:3155")
+            .expect("sudden death rune");
+        assert_eq!(sd.distance_effect, 11);
+        assert_eq!(sd.effect, 18);
+
+        let bomb = compiled
+            .iter()
+            .find(|e| e.key == "rune:3173")
+            .expect("poison bomb rune");
+        assert_eq!(bomb.distance_effect, 15);
+    }
+
+    #[test]
+    fn eight_zero_missile_names_resolve() {
+        assert_eq!(enum_name_to_i32("CONST_ANI_INFERNALBOLT"), Some(16));
+        assert_eq!(enum_name_to_i32("CONST_ANI_ETHEREALSPEAR"), Some(28));
+        assert_eq!(enum_name_to_i32("CONST_ANI_WHIRLWINDCLUB"), Some(27));
     }
 
     #[test]

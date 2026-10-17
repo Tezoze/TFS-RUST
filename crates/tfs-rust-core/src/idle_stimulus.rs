@@ -4353,6 +4353,10 @@ impl GameWorld {
                         return Err(ReturnValue::NotPossible);
                     }
                 }
+                // 772 `CheckTopMultiuseObject` (`operate.cc:380`) — `NOTACCESSIBLE`.
+                if o2.pos.x != 0xFFFF && !self.multiuse_target_is_best(o2) {
+                    return Err(ReturnValue::NotPossible);
+                }
                 let Some(conn_id) = self.conn_for_creature(cid) else {
                     tracing::debug!(?cid, "execute_player_use: no conn — skipping");
                     return Ok(());

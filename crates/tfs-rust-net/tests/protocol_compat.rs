@@ -1396,6 +1396,20 @@ mod v772 {
         );
     }
 
+    #[test]
+    fn distance_shoot_772_omits_800_missile() {
+        let from = Position::new(1, 2, 7);
+        let to = Position::new(3, 4, 7);
+        let b = codec()
+            .encode_distance_shoot(&DistanceShootWire {
+                from,
+                to,
+                shoot_type: 16,
+            })
+            .into_bytes();
+        assert!(b.is_empty());
+    }
+
     /// 772 combat damage uses simple `sendTextMessage` (`MESSAGE_EVENT_DEFAULT` = `0x14`).
     #[test]
     fn combat_damage_text_message_772_layout() {
@@ -1906,7 +1920,8 @@ mod v800 {
     use tfs_rust_net::NetworkMessage;
     use tfs_rust_net::codec::wire::{ChannelMessageWire, CreatureSayWire, ToChannelWire};
     use tfs_rust_net::codec::{
-        AddCreatureWire, Codec, ItemTemplateArgs, OutfitWire, PlayerStatsWire, TextWindowWire,
+        AddCreatureWire, Codec, DistanceShootWire, ItemTemplateArgs, OutfitWire, PlayerStatsWire,
+        TextWindowWire,
     };
     use tfs_rust_net::outgoing_extra::send_outfit_window_800;
 
@@ -2205,6 +2220,25 @@ mod v800 {
                 0xC8, 128, 0, 1, 2, 3, 4, 1, // outfit + addons, no mount
                 1, // count
                 128, 0, 7, 0, b'C', b'i', b't', b'i', b'z', b'e', b'n', 3,
+            ]
+        );
+    }
+
+    #[test]
+    fn distance_shoot_800_keeps_infernal_bolt() {
+        let from = Position::new(0x0102, 0x0304, 5);
+        let to = Position::new(0x0506, 0x0708, 5);
+        let b = codec()
+            .encode_distance_shoot(&DistanceShootWire {
+                from,
+                to,
+                shoot_type: 16,
+            })
+            .into_bytes();
+        assert_eq!(
+            b,
+            vec![
+                0x85, 0x02, 0x01, 0x04, 0x03, 0x05, 0x06, 0x05, 0x08, 0x07, 0x05, 16
             ]
         );
     }

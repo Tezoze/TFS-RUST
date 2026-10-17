@@ -6,8 +6,8 @@
 use tfs_rust_common::enums::ConditionType;
 use tfs_rust_lua::ConditionApplySpec;
 
-/// Pack strong-haste `CONDITION_PARAM_SPEED` (`strong_haste.lua`). Corpus uses 70;
-/// we only switch the timer triple, not the speed delta.
+/// Raw `CONDITION_PARAM_SPEED` at or above this selects the strong-haste timer.
+/// Corpus strong haste is percent 70 (`magic.cc:3501`); haste is 30.
 pub const STRONG_HASTE_SPEED_MIN: i32 = 60;
 
 /// 772 `TSkill` Cycle / Count / MaxCount (`crskill.cc:176-193`).
