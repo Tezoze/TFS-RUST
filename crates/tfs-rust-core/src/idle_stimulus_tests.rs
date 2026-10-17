@@ -5205,7 +5205,9 @@ fn stop_during_push_wait_drops_the_move() {
             "wait stays queued until it is due"
         );
         assert!(
-            queue.iter().any(|a| matches!(a, CreatureAction::Move { .. })),
+            queue
+                .iter()
+                .any(|a| matches!(a, CreatureAction::Move { .. })),
             "move stays behind the wait"
         );
     }
