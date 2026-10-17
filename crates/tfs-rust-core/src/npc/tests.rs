@@ -1143,8 +1143,8 @@ fn idle_roam_wait_holds_pause_before_re_idle() {
 
     let base = world.creatures.get(npc).unwrap().base();
     assert!(
-        base.todo.is_empty(),
-        "Wait must drain; arms wakeup instead of staying queued"
+        base.todo.has_wait(),
+        "a future roam Wait stays queued until it is due"
     );
     let wakeup = base.next_wakeup.expect("roam Wait must arm wakeup");
     assert!(
@@ -1159,8 +1159,9 @@ fn idle_roam_wait_holds_pause_before_re_idle() {
 
     // Locked + future wakeup must block immediate re-roam via IdleStimulus.
     world.idle_stimulus(npc);
+    let base = world.creatures.get(npc).unwrap().base();
     assert!(
-        world.creatures.get(npc).unwrap().base().todo.is_empty(),
+        base.todo.has_wait() && !base.todo.has_go(),
         "future Wait must block immediate re-roam"
     );
 }

@@ -1643,11 +1643,16 @@ fn test_772_wait_schedules_1000ms_wakeup() {
     world.idle_enqueue_wait_and_start(monster, MONSTER_IDLE_WAIT_MS);
     world.run_monster_todo_execute(monster);
 
-    assert!(world.creatures.get(monster).unwrap().base().todo.is_empty());
-    assert_eq!(
-        world.creatures.get(monster).unwrap().base().next_wakeup,
-        Some(200 + MONSTER_IDLE_WAIT_MS)
+    let base = world.creatures.get(monster).unwrap().base();
+    assert!(
+        matches!(
+            base.todo.queue.front(),
+            Some(CreatureAction::Wait { deadline_ms })
+                if *deadline_ms == 200 + MONSTER_IDLE_WAIT_MS
+        ),
+        "a future Wait stays queued until it is due"
     );
+    assert_eq!(base.next_wakeup, Some(200 + MONSTER_IDLE_WAIT_MS));
 }
 
 /// Regression: multi-step chase must drain the full `walk_queue`, not freeze after one Go.
@@ -1773,9 +1778,10 @@ fn test_772_roam_pacing_via_wait_not_last_step() {
     assert!(world.creatures.get(monster).unwrap().base().todo.has_go());
 
     world.run_monster_todo_execute(monster);
+    let base = world.creatures.get(monster).unwrap().base();
     assert!(
-        world.creatures.get(monster).unwrap().base().todo.is_empty(),
-        "Go then Wait chain must drain Go and schedule Wait"
+        !base.todo.has_go() && base.todo.has_wait(),
+        "Go drains; the future Wait stays queued until it is due"
     );
     assert!(
         world
@@ -7174,20 +7180,19 @@ fn two_object_use_within_multiuse_gate_defers() {
         k.base_mut().earliest_multiuse_server_ms = 2000;
     }
 
-    // 1) Execute the Wait{100} — schedules wakeup at server_ms+100=1100.
+    // 1) The Wait is not due yet, so it stays in front of the Use.
     let kind = world.execute_creature_todo_action(player);
     assert!(
         matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Wait)),
         "Wait{{100}} executes first"
     );
-    // Queue is now [Use{obj2:Some}].
     assert_eq!(
         world.creatures.get(player).unwrap().base().todo.queue.len(),
-        1,
-        "Wait consumed, Use remains"
+        2,
+        "future Wait stays in front of the Use"
     );
 
-    // 2) Advance past the Wait floor to the multiuse-gated execute.
+    // 2) Advance past the Wait floor and drain it, then run the Use.
     world.server_ms = 1100;
     // Clear the wakeup armed by the Wait so the next execute isn't blocked by
     // process_creature_todo's `next_wakeup` gate (we call execute directly here).
@@ -7195,6 +7200,11 @@ fn two_object_use_within_multiuse_gate_defers() {
         k.base_mut().next_wakeup = None;
     }
 
+    let kind = world.execute_creature_todo_action(player);
+    assert!(
+        matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Wait)),
+        "due Wait drains before the Use"
+    );
     let kind = world.execute_creature_todo_action(player);
     assert!(
         matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Deferred)),
@@ -7255,9 +7265,14 @@ fn single_object_use_does_not_defer() {
     }
 
     let kind = world.execute_creature_todo_action(player);
-    // Single-object Use is ungated → stub fires (S4 replaces with real executor).
     assert!(
         matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Wait)),
+        "due Wait drains before the Use"
+    );
+    let kind = world.execute_creature_todo_action(player);
+    // Single-object Use is ungated → stub fires (S4 replaces with real executor).
+    assert!(
+        !matches!(kind, Some(crate::idle_stimulus::TodoExecuteKind::Deferred)),
         "single-object Use does not defer (stub fires, S4 wires executor)"
     );
 

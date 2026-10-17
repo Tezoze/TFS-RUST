@@ -76,8 +76,8 @@ fn action_byte(reason: u32, rights: BanishmentRights) -> u8 {
 
 pub fn action_bytes(rights: BanishmentRights) -> [u8; 32] {
     let mut out = [0u8; 32];
-    for reason in 0..32 {
-        out[reason] = action_byte(reason as u32, rights);
+    for (reason, byte) in out.iter_mut().enumerate() {
+        *byte = action_byte(reason as u32, rights);
     }
     out
 }

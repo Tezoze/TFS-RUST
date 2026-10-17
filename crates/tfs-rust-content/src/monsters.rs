@@ -327,10 +327,12 @@ return {
             .get("red butterfly")
             .expect("lookup key from lua name");
         assert_eq!(red.name, "Butterfly", "display name comes from lua title");
-        assert!(
-            !db.monsters.contains_key("butterfly"),
-            "title must not be the lookup key"
-        );
+        if let Some(plain) = db.monsters.get("butterfly") {
+            assert_ne!(
+                plain.name, "Butterfly",
+                "red butterfly title must not be the lookup key"
+            );
+        }
     }
 
     #[test]

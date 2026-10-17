@@ -180,16 +180,20 @@ impl GameWorld {
         let delivered = if query.pack_size.is_some() || query.in_backpacks {
             self.give_shop_bags(player, item_id, sub_type, query, plan)
         } else {
-            self.npc_give_to(player, item_id, plan.units, i32::from(sub_type))
+            if self
+                .npc_give_to(player, item_id, plan.units, i32::from(sub_type))
                 .is_ok()
-                .then_some(plan.units)
-                .unwrap_or(0)
+            {
+                plan.units
+            } else {
+                0
+            }
         };
         if delivered == 0 {
             return None;
         }
         let bags = bags_for(delivered, query);
-        let mut charged = query.clone();
+        let mut charged = *query;
         charged.amount = delivered;
         let cost = line_cost(delivered, &charged, bags);
         if player_remove_total_money(self, player, cost) {
@@ -247,14 +251,14 @@ impl GameWorld {
         while remaining > 0 {
             let chunk = if stackable { remaining.min(100) } else { 1 };
             let mut item = Item::new(item_id, chunk as u16);
-            if sub_type > 0 {
-                if let Some(it) = self.items_db.items.get(&item_id) {
-                    if it.is_fluid_container() || it.is_splash() {
-                        item.set_fluid_type(u16::from(sub_type));
-                        item.count = u16::from(sub_type).max(1);
-                    } else if it.charges != 0 {
-                        item.set_charges(u16::from(sub_type));
-                    }
+            if sub_type > 0
+                && let Some(it) = self.items_db.items.get(&item_id)
+            {
+                if it.is_fluid_container() || it.is_splash() {
+                    item.set_fluid_type(u16::from(sub_type));
+                    item.count = u16::from(sub_type).max(1);
+                } else if it.charges != 0 {
+                    item.set_charges(u16::from(sub_type));
                 }
             }
             let iid = self.items.insert(item);

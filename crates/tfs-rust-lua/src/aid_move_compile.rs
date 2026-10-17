@@ -467,6 +467,9 @@ fn parse_item_axis_expr(expr: &str) -> Option<(i16, bool)> {
     }
     if let Some(idx) = expr.find(".x") {
         let after_x = &expr[idx + 2..];
+        if after_x.trim().is_empty() {
+            return Some((0, true));
+        }
         if let Some(rest) = after_x
             .strip_prefix('+')
             .or_else(|| after_x.strip_prefix('-'))
@@ -487,6 +490,9 @@ fn parse_item_axis_expr(expr: &str) -> Option<(i16, bool)> {
         }
     }
     if expr.contains(".y") {
+        if !expr.contains('+') && !expr.contains('-') {
+            return Some((0, true));
+        }
         let plus = expr.find('+').or_else(|| expr.find('-'))?;
         let tail = &expr[plus..];
         let sign = if tail.starts_with('-') { -1i16 } else { 1i16 };

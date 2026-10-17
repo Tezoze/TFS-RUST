@@ -1188,11 +1188,16 @@ mod tests {
         world.idle_enqueue_wait_and_start(monster, MONSTER_IDLE_WAIT_MS);
         world.run_monster_todo_execute(monster);
 
-        assert!(world.creatures.get(monster).unwrap().base().todo.is_empty());
-        assert_eq!(
-            world.creatures.get(monster).unwrap().base().next_wakeup,
-            Some(500 + MONSTER_IDLE_WAIT_MS)
+        let base = world.creatures.get(monster).unwrap().base();
+        assert!(
+            matches!(
+                base.todo.queue.front(),
+                Some(CreatureAction::Wait { deadline_ms })
+                    if *deadline_ms == 500 + MONSTER_IDLE_WAIT_MS
+            ),
+            "a future Wait stays queued until it is due"
         );
+        assert_eq!(base.next_wakeup, Some(500 + MONSTER_IDLE_WAIT_MS));
     }
 
     #[test]

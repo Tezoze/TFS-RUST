@@ -137,9 +137,7 @@ fn match_house_string(pattern: &str, text: &str) -> bool {
                 rec(&pattern[1..], text) || (!text.is_empty() && rec(pattern, &text[1..]))
             }
             (Some(b'?'), Some(_)) => rec(&pattern[1..], &text[1..]),
-            (Some(p), Some(t)) if p.to_ascii_lowercase() == t.to_ascii_lowercase() => {
-                rec(&pattern[1..], &text[1..])
-            }
+            (Some(p), Some(t)) if p.eq_ignore_ascii_case(&t) => rec(&pattern[1..], &text[1..]),
             _ => false,
         }
     }
