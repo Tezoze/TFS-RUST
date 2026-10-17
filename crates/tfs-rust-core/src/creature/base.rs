@@ -349,26 +349,32 @@ impl CreatureBase {
         self.next_wakeup.is_none()
     }
 
-    /// C++ `TCombat::DelayAttack` — `crcombat.cc:523`.
+    /// C++ `TCombat::DelayAttack` — `crcombat.cc:524`.
     pub fn delay_attack_ms(&mut self, server_ms: u64, ms: u64) {
-        self.earliest_attack_ms = self.earliest_attack_ms.max(server_ms.saturating_add(ms));
+        self.earliest_attack_ms =
+            crate::exhaust::push_deadline(self.earliest_attack_ms, server_ms, ms);
     }
 
-    /// Whether an attack todo may execute or be enqueued (`cract.cc:909` `TDAttack`).
-    pub fn attack_ready_at(&self, server_ms: u64, earliest_spell_ms: u64) -> bool {
-        server_ms >= self.earliest_attack_ms.max(earliest_spell_ms)
+    /// Whether a weapon swing may start (`cract.cc:984` `TDAttack`).
+    /// Uses this creature's attack clock and spell clock. A caller cannot substitute another wait.
+    pub fn attack_ready_at(&self, server_ms: u64) -> bool {
+        crate::exhaust::swing_ready(
+            self.earliest_attack_ms,
+            self.earliest_spell_server_ms,
+            server_ms,
+        )
     }
 
     /// C++ `CheckMana` — `magic.cc:770–772` max-assign spell exhaustion.
     pub fn delay_spell_ms(&mut self, server_ms: u64, delay_ms: u64) {
-        let earliest = server_ms.saturating_add(delay_ms);
-        self.earliest_spell_server_ms = self.earliest_spell_server_ms.max(earliest);
+        self.earliest_spell_server_ms =
+            crate::exhaust::push_deadline(self.earliest_spell_server_ms, server_ms, delay_ms);
     }
 
     /// C++ `Use` two-object path — `cract.cc:765` `EarliestMultiuseTime = ServerMilliseconds + 1000`.
     pub fn delay_multiuse_ms(&mut self, server_ms: u64, delay_ms: u64) {
-        let earliest = server_ms.saturating_add(delay_ms);
-        self.earliest_multiuse_server_ms = self.earliest_multiuse_server_ms.max(earliest);
+        self.earliest_multiuse_server_ms =
+            crate::exhaust::push_deadline(self.earliest_multiuse_server_ms, server_ms, delay_ms);
     }
 
     /// C++ `TDGo` / walk-step gate — `cract.cc:918–921`.
@@ -380,13 +386,13 @@ impl CreatureBase {
     /// C++ spell cast gate — `magic.cc:3399` et al.
     #[inline]
     pub fn spell_ready_at(&self, server_ms: u64) -> bool {
-        server_ms >= self.earliest_spell_server_ms
+        crate::exhaust::spell_ready(self.earliest_spell_server_ms, server_ms)
     }
 
     /// C++ `TDUse` two-object gate — `cract.cc:927–928`.
     #[inline]
     pub fn multiuse_ready_at(&self, server_ms: u64) -> bool {
-        server_ms >= self.earliest_multiuse_server_ms
+        crate::exhaust::multiuse_ready(self.earliest_multiuse_server_ms, server_ms)
     }
 
     /// Latest blocking earliest-time among walk / spell / multiuse (for deferred walk-action reschedule).

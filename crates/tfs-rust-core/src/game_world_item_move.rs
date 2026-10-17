@@ -1,6 +1,10 @@
-//! Item moves between cylinders (inventory, container, tile).
+//! One Item move between Cylinders.
 //!
-//! - `Game::internalMoveItem` — `game.cpp` ~1078.
+//! Corpus: `Move` — `operate.cc:1282`. After the shared top-object check, a map
+//! destination, an inventory slot, and a container each keep their own check
+//! (`operate.cc:1357-1376`). Those three checks are [`GameWorld::check_resolved_destination`].
+//!
+//! Pack surface: `Game::internalMoveItem` — `game.cpp` ~1078.
 
 use tfs_rust_common::Position;
 
@@ -152,6 +156,89 @@ impl GameWorld {
     /// Move an item between cylinders. Handles tile↔tile with stackable merge/split.
     /// Returns the ItemId that ended up at the destination.
     // C++ ref: src/game.cpp:1078 Game::internalMoveItem
+    /// 772 `Move` destination checks — `operate.cc:1357-1376`.
+    ///
+    /// A map Tile, an inventory slot, and a container stay three checks. A slot
+    /// exchange clears the merge target (`game.cpp` ~1157). Chest-full exceptions
+    /// stay in the transfer arms; this function does not apply them.
+    fn check_resolved_destination(
+        &mut self,
+        acting_player: Option<CreatureId>,
+        from_cylinder: &Cylinder,
+        to_work: Cylinder,
+        item_id: ItemId,
+        count: u16,
+        flags: CylinderFlags,
+        mut to_merge_item: Option<ItemId>,
+    ) -> Result<Option<ItemId>, ReturnValue> {
+        if let Cylinder::Tile { pos } = to_work {
+            let rv = self.query_add_item_to_tile(pos, item_id, flags);
+            if rv.is_error() {
+                return Err(rv);
+            }
+        }
+        if let Cylinder::Inventory {
+            player_id: to_pid,
+            slot: to_slot,
+        } = to_work
+        {
+            let move_count = {
+                let stackable = self
+                    .items
+                    .get(item_id)
+                    .and_then(|i| self.items_db.items.get(&i.item_type))
+                    .map(|t| t.stackable())
+                    .unwrap_or(false);
+                if stackable {
+                    self.items
+                        .get(item_id)
+                        .map(|i| (i.count as u32).min(u32::from(count)))
+                        .unwrap_or(1)
+                } else {
+                    // Fluids store subtype in `count` (0 = empty). Non-stackables move as one object.
+                    1
+                }
+            };
+            let rv = self.player_query_add(to_pid, to_slot, item_id, move_count, flags);
+            match rv {
+                ReturnValue::NeedExchange => {
+                    self.try_resolve_inventory_need_exchange(
+                        acting_player,
+                        from_cylinder,
+                        to_pid,
+                        to_slot,
+                        item_id,
+                        to_merge_item,
+                        flags,
+                    )?;
+                    to_merge_item = None;
+                }
+                ReturnValue::NoError => {}
+                _ => return Err(rv),
+            }
+        }
+        if let Cylinder::Container {
+            item_id: cid,
+            index,
+        } = to_work
+        {
+            let m_pre = self.items.get(item_id).map(|i| i.count).unwrap_or(1);
+            let m_pre = m_pre.min(count);
+            let ret = self.container_query_add(
+                cid,
+                index,
+                item_id,
+                u32::from(m_pre),
+                flags,
+                acting_player,
+            );
+            if ret.is_error() {
+                return Err(ret);
+            }
+        }
+        Ok(to_merge_item)
+    }
+
     pub fn internal_move_item(
         &mut self,
         acting_player: Option<CreatureId>,
@@ -212,73 +299,15 @@ impl GameWorld {
             flags
         };
 
-        // For tile destinations, check queryAdd
-        if let Cylinder::Tile { pos } = to_work {
-            let rv = self.query_add_item_to_tile(pos, item_id, flags);
-            if rv.is_error() {
-                return Err(rv);
-            }
-        }
-        if let Cylinder::Inventory {
-            player_id: to_pid,
-            slot: to_slot,
-        } = to_work
-        {
-            let move_count = {
-                let stackable = self
-                    .items
-                    .get(item_id)
-                    .and_then(|i| self.items_db.items.get(&i.item_type))
-                    .map(|t| t.stackable())
-                    .unwrap_or(false);
-                if stackable {
-                    self.items
-                        .get(item_id)
-                        .map(|i| (i.count as u32).min(u32::from(count)))
-                        .unwrap_or(1)
-                } else {
-                    // Fluids store subtype in `count` (0 = empty). Non-stackables move as one object.
-                    1
-                }
-            };
-            let rv = self.player_query_add(to_pid, to_slot, item_id, move_count, flags);
-            match rv {
-                ReturnValue::NeedExchange => {
-                    self.try_resolve_inventory_need_exchange(
-                        acting_player,
-                        &from_cylinder,
-                        to_pid,
-                        to_slot,
-                        item_id,
-                        to_merge_item,
-                        flags,
-                    )?;
-                    // C++ `toItem = nullptr` after swap — `game.cpp` ~1157.
-                    to_merge_item = None;
-                }
-                ReturnValue::NoError => {}
-                _ => return Err(rv),
-            }
-        }
-        if let Cylinder::Container {
-            item_id: cid,
-            index,
-        } = to_work
-        {
-            let m_pre = self.items.get(item_id).map(|i| i.count).unwrap_or(1);
-            let m_pre = m_pre.min(count);
-            let ret = self.container_query_add(
-                cid,
-                index,
-                item_id,
-                u32::from(m_pre),
-                flags,
-                acting_player,
-            );
-            if ret.is_error() {
-                return Err(ret);
-            }
-        }
+        to_merge_item = self.check_resolved_destination(
+            acting_player,
+            &from_cylinder,
+            to_work,
+            item_id,
+            count,
+            flags,
+            to_merge_item,
+        )?;
 
         let item = self.items.get(item_id).ok_or(ReturnValue::NotPossible)?;
         let is_stackable = self

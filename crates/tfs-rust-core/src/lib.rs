@@ -35,6 +35,7 @@ mod decay_apply;
 mod depot_append;
 mod doors;
 pub mod event_dispatcher;
+mod exhaust;
 mod floor_change_use;
 pub mod formulas;
 pub mod game_loop;

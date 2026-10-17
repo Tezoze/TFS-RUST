@@ -50,6 +50,11 @@ Protocol 800 uses the same 772 mechanics corpus, with its own wire codec and `da
 - 2026-10-11 — Haste, strong haste, paralyze, mana shield, invisibility, and light keep the corpus durations. Formula files no longer set those timers.
 - 2026-10-11 — Cancel invisibility leaves the caster's tile, protection zones, and peaceful creatures on a no-PvP world hidden. It only reveals someone who is actually invisible.
 - 2026-10-11 — Drinking slime applies a poison of strength 200. A stronger poison already on the player stays.
+- 2026-10-17 — A spell is blocked only by the spell wait. A weapon swing waits until both the attack wait and the spell wait are over. Using two objects has its own wait. Walking does not use these waits.
+
+### Items
+
+- 2026-10-17 — One item move checks a map tile, an inventory slot, and a container separately. A chest still counts as having room when the item comes from a container or an inventory slot. A move from a tile onto a container does not use that chest exception.
 
 ### NPCs
 

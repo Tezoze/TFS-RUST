@@ -744,9 +744,11 @@ impl GameWorld {
             .get(cid)
             .map(|k| {
                 let base = k.base();
-                base.earliest_attack_ms
-                    .max(base.earliest_spell_server_ms)
-                    .saturating_sub(self.server_ms)
+                crate::exhaust::swing_delay_ms(
+                    base.earliest_attack_ms,
+                    base.earliest_spell_server_ms,
+                    self.server_ms,
+                )
             })
             .unwrap_or(0)
     }
@@ -765,9 +767,11 @@ impl GameWorld {
         self.creatures
             .get(cid)
             .map(|k| {
-                k.base()
-                    .earliest_multiuse_server_ms
-                    .saturating_sub(self.server_ms)
+                crate::exhaust::multiuse_delay_ms(
+                    k.base().earliest_multiuse_server_ms,
+                    self.server_ms,
+                    true,
+                )
             })
             .unwrap_or(0)
     }
